@@ -36,6 +36,8 @@ export type EventItem = {
   isActive?: boolean;
   createdAt: string;
   updatedAt?: string;
+  totalSold?: number;
+  totalRevenue?: number;
 };
 
 export type TicketType = {

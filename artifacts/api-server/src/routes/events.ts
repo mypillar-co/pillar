@@ -9,7 +9,7 @@ import {
   eventCommunicationsTable,
   recurringEventTemplatesTable,
 } from "@workspace/db";
-import { eq, and, asc, desc, gte, sum } from "drizzle-orm";
+import { eq, and, asc, desc, gte, sum, sql } from "drizzle-orm";
 import OpenAI from "openai";
 
 const router = Router();
@@ -261,19 +261,27 @@ router.get("/public/:orgSlug", async (req: Request, res: Response) => {
 // Events CRUD (/:id routes)
 // ─────────────────────────────────────────────────────────────────
 
-// GET /api/events
+// GET /api/events (with per-event quick stats)
 router.get("/", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
   const includeInactive = req.query.includeInactive === "1";
   const conditions = [eq(eventsTable.orgId, org.id)];
   if (!includeInactive) conditions.push(eq(eventsTable.isActive, true));
-  const events = await db
-    .select()
-    .from(eventsTable)
-    .where(and(...conditions))
-    .orderBy(asc(eventsTable.startDate));
-  res.json(events);
+  const [events, salesByEvent] = await Promise.all([
+    db.select().from(eventsTable).where(and(...conditions)).orderBy(asc(eventsTable.startDate)),
+    db.select({
+      eventId: ticketSalesTable.eventId,
+      totalSold: sum(ticketSalesTable.quantity),
+      totalRevenue: sql<number>`sum(${ticketSalesTable.amountPaid} * ${ticketSalesTable.quantity})`,
+    })
+      .from(ticketSalesTable)
+      .where(eq(ticketSalesTable.orgId, org.id))
+      .groupBy(ticketSalesTable.eventId),
+  ]);
+  const statsMap = new Map(salesByEvent.map(r => [r.eventId, { totalSold: Number(r.totalSold ?? 0), totalRevenue: Number(r.totalRevenue ?? 0) }]));
+  const result = events.map(e => ({ ...e, totalSold: statsMap.get(e.id)?.totalSold ?? 0, totalRevenue: statsMap.get(e.id)?.totalRevenue ?? 0 }));
+  res.json(result);
 });
 
 // GET /api/events/:id (with related data)
@@ -290,10 +298,10 @@ router.get("/:id", async (req: Request, res: Response) => {
     return;
   }
   const [ticketTypes, sales, approvals, communications] = await Promise.all([
-    db.select().from(ticketTypesTable).where(eq(ticketTypesTable.eventId, eventId)).orderBy(asc(ticketTypesTable.createdAt)),
-    db.select().from(ticketSalesTable).where(eq(ticketSalesTable.eventId, eventId)).orderBy(desc(ticketSalesTable.createdAt)),
-    db.select().from(eventApprovalsTable).where(eq(eventApprovalsTable.eventId, eventId)).orderBy(desc(eventApprovalsTable.createdAt)),
-    db.select().from(eventCommunicationsTable).where(eq(eventCommunicationsTable.eventId, eventId)).orderBy(desc(eventCommunicationsTable.sentAt)),
+    db.select().from(ticketTypesTable).where(and(eq(ticketTypesTable.eventId, eventId), eq(ticketTypesTable.orgId, org.id))).orderBy(asc(ticketTypesTable.createdAt)),
+    db.select().from(ticketSalesTable).where(and(eq(ticketSalesTable.eventId, eventId), eq(ticketSalesTable.orgId, org.id))).orderBy(desc(ticketSalesTable.createdAt)),
+    db.select().from(eventApprovalsTable).where(and(eq(eventApprovalsTable.eventId, eventId), eq(eventApprovalsTable.orgId, org.id))).orderBy(desc(eventApprovalsTable.createdAt)),
+    db.select().from(eventCommunicationsTable).where(and(eq(eventCommunicationsTable.eventId, eventId), eq(eventCommunicationsTable.orgId, org.id))).orderBy(desc(eventCommunicationsTable.sentAt)),
   ]);
   const totalRevenue = sales.reduce((s, r) => s + r.amountPaid * r.quantity, 0);
   const totalSold = sales.reduce((s, r) => s + r.quantity, 0);
@@ -459,6 +467,8 @@ router.post("/:id/ticket-types", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
   const eventId = String(req.params.id);
+  const [ownerCheck] = await db.select({ id: eventsTable.id }).from(eventsTable).where(and(eq(eventsTable.id, eventId), eq(eventsTable.orgId, org.id)));
+  if (!ownerCheck) { res.status(404).json({ error: "Event not found" }); return; }
   const { name, description, price, quantity } = req.body as Record<string, unknown>;
   if (!name || typeof name !== "string") { res.status(400).json({ error: "name is required" }); return; }
   const [type] = await db.insert(ticketTypesTable).values({

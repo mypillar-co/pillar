@@ -331,7 +331,16 @@ export default function Events() {
                   </div>
                 </div>
                 <div className="flex items-center gap-3 flex-shrink-0">
-                  {event.isTicketed && <Ticket className="w-3.5 h-3.5 text-muted-foreground hidden sm:block" />}
+                  {event.isTicketed && (event.totalSold != null && event.totalSold > 0) && (
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground hidden md:flex">
+                      <Ticket className="w-3 h-3" /> {event.totalSold}
+                    </span>
+                  )}
+                  {event.isTicketed && (event.totalRevenue != null && event.totalRevenue > 0) && (
+                    <span className="flex items-center gap-1 text-xs text-emerald-500 hidden md:flex">
+                      <DollarSign className="w-3 h-3" /> {event.totalRevenue.toFixed(0)}
+                    </span>
+                  )}
                   {event.eventType && <span className="text-xs text-muted-foreground capitalize hidden sm:block">{event.eventType}</span>}
                   <Badge variant="outline" className={`text-xs ${STATUS_COLORS[event.status] ?? "border-white/20 text-slate-400"}`}>
                     {STATUS_LABELS[event.status] ?? event.status}
