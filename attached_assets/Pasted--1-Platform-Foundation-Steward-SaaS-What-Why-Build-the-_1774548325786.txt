@@ -1,0 +1,43 @@
+#1 - Platform Foundation — Steward SaaS
+
+What & Why
+
+Build the core platform shell for Steward — the AI-powered website and event management SaaS targeting small businesses, civic organizations, and Masonic lodges. This is the foundation every other feature depends on: user authentication, organization setup, subscription tier management, and Stripe billing.
+
+Done looks like
+
+A working React web app at the root path (/) branded as "Steward"
+Users can sign up, log in, and create their organization profile (name, type, industry/category)
+Four subscription tiers are defined and visible: Tier 1 (website + AI interaction), Tier 1a (website + hands-off maintenance), Tier 2 (website + event dashboard with user input), Tier 3 (fully autonomous)
+Stripe checkout is wired: users can select a tier and complete a test payment
+Stripe webhooks activate/update the subscription state in the database
+A logged-in dashboard shell shows the user their org, their current tier, and placeholder sections for Website, Events, and Automation
+Billing management page: current plan, upgrade/downgrade, cancel
+Out of scope
+
+The AI website builder (Task #2)
+The event dashboard (Task #3)
+Social media integration (Task #4)
+Any actual AI calls or content generation
+Tasks
+
+Create the main React web app artifact — Bootstrap a react-vite artifact at the root path (/) as the main Steward platform UI. Set up the global design system: color palette, typography, and brand identity consistent with the "Steward" name (professional, clean, trustworthy).
+Database schema — Define Drizzle ORM tables in lib/db for: users (linked to auth), organizations (name, type, category, tier, subscription status), subscriptions (stripe_customer_id, stripe_subscription_id, tier, status, billing dates). Add Replit Auth integration so user accounts are created on first login.
+Replit Auth integration — Add Replit Auth (OpenID Connect) to the Express API server and the React frontend. On first login, create the user record and prompt them to set up their organization.
+Subscription tier model — Define the four tiers in code (name, price, features, description). Expose a /api/tiers endpoint returning the tier catalog. Build the pricing page UI showing all four tiers with feature comparisons and a "Get Started" CTA.
+Stripe billing backend — Integrate Stripe (test mode). Build API endpoints: create checkout session (given a tier), handle webhook events (checkout.session.completed, customer.subscription.updated, customer.subscription.deleted) to update subscription state in the database. Store the Stripe customer ID and subscription ID on the organization.
+Billing UI — Build the checkout flow (plan selection → Stripe checkout → success/failure page). Build the billing management page (current plan, next billing date, upgrade/downgrade options, cancel button with confirmation).
+Platform dashboard shell — After login, show the user their organization dashboard with: org name/type, current tier badge, and three placeholder cards for Website, Events, and Social Media — each showing "Coming soon" or "Not yet set up" with an appropriate CTA based on their tier.
+Onboarding wizard — First-time users who just signed up get a 3-step onboarding: (1) org name + type + category, (2) tier selection + checkout, (3) welcome screen explaining what happens next.
+Relevant files
+
+artifacts/api-server/src/app.ts
+artifacts/api-server/src/routes/index.ts
+artifacts/api-server/src/routes/health.ts
+lib/db/src/schema/index.ts
+lib/db/src/index.ts
+lib/api-spec/openapi.yaml
+lib/api-spec/orval.config.ts
+replit.md
+.local/skills/replit-auth/SKILL.md
+.local/skills/stripe/SKILL.md
