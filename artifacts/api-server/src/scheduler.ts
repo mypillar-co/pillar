@@ -6,10 +6,14 @@ import OpenAI from "openai";
 const MAX_CHANGE_TOKENS = 6000;
 
 function getOpenAIClient() {
-  return new OpenAI({
-    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY ?? "placeholder",
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  });
+  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+  const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+  if (!apiKey || !baseURL) {
+    throw new Error(
+      "Replit AI integration not configured: AI_INTEGRATIONS_OPENAI_BASE_URL and AI_INTEGRATIONS_OPENAI_API_KEY must be set"
+    );
+  }
+  return new OpenAI({ apiKey, baseURL });
 }
 
 async function callOpenAI(
