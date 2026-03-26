@@ -7,6 +7,7 @@ import { Navbar } from "./components/layout/Navbar";
 import Landing from "./pages/Landing";
 import Onboard from "./pages/Onboard";
 import Dashboard from "./pages/Dashboard";
+import Billing from "./pages/Billing";
 import NotFound from "./pages/not-found";
 
 const queryClient = new QueryClient({
@@ -27,6 +28,7 @@ function AppRouter() {
           <Route path="/" component={Landing} />
           <Route path="/onboard" component={Onboard} />
           <Route path="/dashboard" component={Dashboard} />
+          <Route path="/billing" component={Billing} />
           <Route component={NotFound} />
         </Switch>
       </main>

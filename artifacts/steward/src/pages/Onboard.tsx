@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { useLocation } from "wouter";
+import React, { useState, useEffect } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -65,10 +65,24 @@ const STEP_LABELS = [
 
 export default function Onboard() {
   const [, setLocation] = useLocation();
+  const searchString = useSearch();
   const { isAuthenticated } = useAuth();
   const [currentStep, setCurrentStep] = useState<Step>(1);
   const [createdOrgName, setCreatedOrgName] = useState("");
   const [selectedTierId, setSelectedTierId] = useState<string | null>(null);
+
+  // When returning from Stripe Checkout, the success_url includes ?step=3
+  // Jump directly to the correct step based on the query param
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    const stepParam = params.get("step");
+    const billingParam = params.get("billing");
+    if (stepParam === "3" && billingParam === "success") {
+      setCurrentStep(3);
+    } else if (stepParam === "2") {
+      setCurrentStep(2);
+    }
+  }, [searchString]);
 
   const { mutate: createOrg, isPending: orgPending } = useCreateOrganization();
   const { mutate: createCheckout, isPending: checkoutPending } =

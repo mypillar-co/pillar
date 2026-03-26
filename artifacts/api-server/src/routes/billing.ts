@@ -102,8 +102,8 @@ router.post("/billing/checkout", async (req: Request, res: Response) => {
     payment_method_types: ["card"],
     line_items: [{ price: priceId, quantity: 1 }],
     mode: "subscription",
-    success_url: `${origin}/?billing=success&tier=${tierId}`,
-    cancel_url: `${origin}/?billing=cancelled`,
+    success_url: `${origin}/onboard?step=3&billing=success&tier=${tierId}`,
+    cancel_url: `${origin}/onboard?step=2&billing=cancelled`,
     // metadata on the checkout session (for checkout.session.completed webhook)
     metadata: { userId, tierId },
     // subscription_data.metadata propagates to the subscription object so that
