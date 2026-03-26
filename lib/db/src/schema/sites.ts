@@ -4,7 +4,10 @@ import { sql } from "drizzle-orm";
 export const sitesTable = pgTable("sites", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   orgId: varchar("org_id").notNull().unique(),
+  orgSlug: varchar("org_slug").unique(),
   subdomain: varchar("subdomain").unique(),
+  websiteSpec: jsonb("website_spec").$type<Record<string, unknown>>(),
+  generatedHtml: text("generated_html"),
   theme: jsonb("theme").$type<{
     primaryColor?: string;
     secondaryColor?: string;

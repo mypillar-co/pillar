@@ -36,10 +36,11 @@ An AI-powered SaaS platform (Wix meets Eventbrite) that autonomously manages web
 - `public.event_vendors` — Junction: events ↔ vendors (booth, fee tracking)
 - `public.event_sponsors` — Junction: events ↔ sponsors (tier, pledge tracking)
 - `public.payments` — Payment records (vendor fees, ticket sales, sponsorships)
-- `public.sites` — Organization public websites (theme, status)
+- `public.sites` — Organization public websites (generatedHtml, websiteSpec, orgSlug, status)
 - `public.site_pages` — Pages within a site (home, about, events, etc.)
 - `public.site_blocks` — Content blocks per page (hero, text, events_list, sponsors_grid, contact_form)
 - `public.site_nav_items` — Navigation menu for a site
+- `public.domains` — Custom domains (Porkbun integration, status, registrarRef)
 - `stripe.*` — Synced Stripe data (products, prices, customers, subscriptions, etc.)
 
 ### DB Commands
