@@ -147,7 +147,7 @@ export default function SiteBuilder() {
   const lastAiMsg = messages.filter(m => m.role === "assistant").slice(-1)[0];
   const aiSignaledCompletion = !!(lastAiMsg?.content?.toLowerCase().includes("i have everything i need") || lastAiMsg?.content?.toLowerCase().includes("generate my site"));
   const canGenerate = (userMsgCount >= 8 || aiSignaledCompletion) && !generating;
-  const interviewProgress = Math.min(userMsgCount - 1, 8);
+  const interviewProgress = Math.min(Math.max(0, userMsgCount - 1), 8);
   const publicUrl = orgSlug ? `/sites/${orgSlug}` : null;
 
   const usagePercent = usage ? Math.round((usage.used / usage.limit) * 100) : 0;
