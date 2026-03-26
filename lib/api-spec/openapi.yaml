@@ -16,6 +16,8 @@ tags:
     description: Organization management
   - name: billing
     description: Subscription and billing operations
+  - name: events
+    description: Event management (Tier 2+). Includes ticket types, sales, approvals, communications, and recurring templates.
 paths:
   /healthz:
     get:
@@ -265,6 +267,385 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /events:
+    get:
+      operationId: listEvents
+      tags: [events]
+      summary: List events for the current org (with per-event quick stats)
+      description: Requires Tier 2+. Returns events enriched with totalSold and totalRevenue (sum of amountPaid per event).
+      parameters:
+        - name: includeInactive
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["0", "1"]
+      responses:
+        "200":
+          description: List of events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EventItem"
+        "403":
+          description: Tier 2+ required
+    post:
+      operationId: createEvent
+      tags: [events]
+      summary: Create a new event
+      description: Requires Tier 2+.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEventRequest"
+      responses:
+        "201":
+          description: Event created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventItem"
+  /events/metrics:
+    get:
+      operationId: getEventMetrics
+      tags: [events]
+      summary: Get aggregate event metrics for the org
+      description: Requires Tier 2+. Revenue = sum(amountPaid) across all ticket sales.
+      responses:
+        "200":
+          description: Event metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventMetrics"
+  /events/approvals/queue:
+    get:
+      operationId: getApprovalQueue
+      tags: [events]
+      summary: Get pending event approval queue
+      description: Requires Tier 2+.
+      responses:
+        "200":
+          description: Pending approvals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ApprovalQueueItem"
+  /events/recurring/templates:
+    get:
+      operationId: listRecurringTemplates
+      tags: [events]
+      summary: List recurring event templates
+      description: Requires Tier 3.
+      responses:
+        "200":
+          description: Recurring templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RecurringTemplate"
+    post:
+      operationId: createRecurringTemplate
+      tags: [events]
+      summary: Create a recurring event template
+      description: Requires Tier 3.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRecurringTemplateRequest"
+      responses:
+        "201":
+          description: Template created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecurringTemplate"
+  /events/public/{orgSlug}:
+    get:
+      operationId: getPublicEvents
+      tags: [events]
+      summary: Get published events for a public org page (no auth required)
+      parameters:
+        - name: orgSlug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Published events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  org:
+                    type: object
+                  events:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EventItem"
+  /events/{id}:
+    get:
+      operationId: getEventDetail
+      tags: [events]
+      summary: Get event detail with ticket types, sales, approvals, and communications
+      description: Requires Tier 2+. All related data is scoped to the org.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Event detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventDetail"
+        "404":
+          description: Event not found
+    put:
+      operationId: updateEvent
+      tags: [events]
+      summary: Update an event
+      description: Requires Tier 2+.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEventRequest"
+      responses:
+        "200":
+          description: Updated event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventItem"
+    delete:
+      operationId: deleteEvent
+      tags: [events]
+      summary: Delete (deactivate) an event
+      description: Requires Tier 2+.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+  /events/{id}/submit:
+    post:
+      operationId: submitEventForApproval
+      tags: [events]
+      summary: Submit a draft event for approval
+      description: Requires Tier 2+.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Event submitted
+  /events/{id}/approve:
+    post:
+      operationId: approveEvent
+      tags: [events]
+      summary: Approve a pending event (org owner only)
+      description: Requires Tier 2+. Only the org owner can approve.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventApprovalCommentRequest"
+      responses:
+        "200":
+          description: Approved
+  /events/{id}/reject:
+    post:
+      operationId: rejectEvent
+      tags: [events]
+      summary: Reject a pending event (org owner only)
+      description: Requires Tier 2+. Only the org owner can reject.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventApprovalCommentRequest"
+      responses:
+        "200":
+          description: Rejected
+  /events/{id}/ticket-types:
+    get:
+      operationId: listTicketTypes
+      tags: [events]
+      summary: List ticket types for an event
+      description: Requires Tier 2+. Scoped to (eventId, orgId).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Ticket types
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TicketType"
+    post:
+      operationId: createTicketType
+      tags: [events]
+      summary: Create a ticket type for an event
+      description: Requires Tier 2+. Verifies event belongs to the org before inserting.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTicketTypeRequest"
+      responses:
+        "201":
+          description: Created ticket type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketType"
+  /events/{id}/sales:
+    get:
+      operationId: listTicketSales
+      tags: [events]
+      summary: List ticket sales for an event
+      description: Requires Tier 2+.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Ticket sales
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TicketSale"
+    post:
+      operationId: recordTicketSale
+      tags: [events]
+      summary: Record a ticket sale for an event
+      description: Requires Tier 2+. amountPaid is the total transaction amount (not per-ticket).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordTicketSaleRequest"
+      responses:
+        "201":
+          description: Sale recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketSale"
+  /events/{id}/communications:
+    get:
+      operationId: listEventCommunications
+      tags: [events]
+      summary: List communications sent for an event
+      description: Requires Tier 2+.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Communications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EventCommunication"
+    post:
+      operationId: sendEventCommunication
+      tags: [events]
+      summary: Send a communication to event attendees
+      description: Requires Tier 2+.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendCommunicationRequest"
+      responses:
+        "201":
+          description: Communication recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventCommunication"
 components:
   parameters:
     AuthorizationSessionHeader:
@@ -450,4 +831,349 @@ components:
           type: string
           minLength: 1
         category:
+          type: string
+    EventItem:
+      type: object
+      required: [id, orgId, name, status, createdAt]
+      properties:
+        id:
+          type: string
+        orgId:
+          type: string
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        eventType:
+          type: [string, 'null']
+        status:
+          type: string
+          enum: [draft, pending_approval, published, active, completed, cancelled]
+        startDate:
+          type: [string, 'null']
+        endDate:
+          type: [string, 'null']
+        location:
+          type: [string, 'null']
+        isTicketed:
+          type: boolean
+        ticketPrice:
+          type: [number, 'null']
+        ticketCapacity:
+          type: [number, 'null']
+        requiresApproval:
+          type: boolean
+        isRecurring:
+          type: boolean
+        featured:
+          type: boolean
+        imageUrl:
+          type: [string, 'null']
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+        totalSold:
+          type: number
+          description: Total tickets sold (sum of sale quantities). Included in list response.
+        totalRevenue:
+          type: number
+          description: Total revenue in USD (sum of amountPaid). amountPaid is the total transaction amount per sale, not per-ticket.
+    EventDetail:
+      type: object
+      required: [event, ticketTypes, sales, approvals, communications, totalRevenue, totalSold]
+      properties:
+        event:
+          $ref: "#/components/schemas/EventItem"
+        ticketTypes:
+          type: array
+          items:
+            $ref: "#/components/schemas/TicketType"
+        sales:
+          type: array
+          items:
+            $ref: "#/components/schemas/TicketSale"
+        approvals:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventApproval"
+        communications:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventCommunication"
+        totalRevenue:
+          type: number
+          description: sum(amountPaid) across all sales for this event
+        totalSold:
+          type: number
+          description: sum(quantity) across all sales for this event
+    EventMetrics:
+      type: object
+      required: [totalEvents, publishedEvents, upcomingEvents, totalTicketsSold, thisMonthTicketsSold, totalRevenue]
+      properties:
+        totalEvents:
+          type: number
+        publishedEvents:
+          type: number
+        upcomingEvents:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              startDate:
+                type: [string, 'null']
+              status:
+                type: string
+        totalTicketsSold:
+          type: number
+        thisMonthTicketsSold:
+          type: number
+        totalRevenue:
+          type: number
+          description: sum(amountPaid) — total transaction amounts received
+    TicketType:
+      type: object
+      required: [id, eventId, orgId, name, price, createdAt]
+      properties:
+        id:
+          type: string
+        eventId:
+          type: string
+        orgId:
+          type: string
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        price:
+          type: number
+        quantity:
+          type: [number, 'null']
+        createdAt:
+          type: string
+    TicketSale:
+      type: object
+      required: [id, eventId, orgId, quantity, amountPaid, paymentMethod, createdAt]
+      properties:
+        id:
+          type: string
+        eventId:
+          type: string
+        orgId:
+          type: string
+        ticketTypeId:
+          type: [string, 'null']
+        attendeeName:
+          type: [string, 'null']
+        attendeeEmail:
+          type: [string, 'null']
+        attendeePhone:
+          type: [string, 'null']
+        quantity:
+          type: number
+        amountPaid:
+          type: number
+          description: Total transaction amount (not per-ticket). Revenue = sum(amountPaid).
+        paymentMethod:
+          type: string
+        notes:
+          type: [string, 'null']
+        createdAt:
+          type: string
+    EventApproval:
+      type: object
+      required: [id, eventId, orgId, status, createdAt]
+      properties:
+        id:
+          type: string
+        eventId:
+          type: string
+        orgId:
+          type: string
+        submittedById:
+          type: [string, 'null']
+        reviewedById:
+          type: [string, 'null']
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        comment:
+          type: [string, 'null']
+        createdAt:
+          type: string
+        updatedAt:
+          type: [string, 'null']
+    EventCommunication:
+      type: object
+      required: [id, eventId, orgId, channel, message, sentAt]
+      properties:
+        id:
+          type: string
+        eventId:
+          type: string
+        orgId:
+          type: string
+        subject:
+          type: [string, 'null']
+        message:
+          type: string
+        channel:
+          type: string
+          enum: [email, sms, push, in_app]
+        sentByUserId:
+          type: [string, 'null']
+        recipientCount:
+          type: [number, 'null']
+        sentAt:
+          type: string
+    RecurringTemplate:
+      type: object
+      required: [id, orgId, name, frequency, isActive, createdAt]
+      properties:
+        id:
+          type: string
+        orgId:
+          type: string
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        frequency:
+          type: string
+          enum: [weekly, biweekly, monthly, quarterly]
+        dayOfWeek:
+          type: [number, 'null']
+        dayOfMonth:
+          type: [number, 'null']
+        startTime:
+          type: [string, 'null']
+        endTime:
+          type: [string, 'null']
+        location:
+          type: [string, 'null']
+        isTicketed:
+          type: boolean
+        ticketPrice:
+          type: [number, 'null']
+        isActive:
+          type: boolean
+        nextGenerateAt:
+          type: [string, 'null']
+        createdAt:
+          type: string
+    ApprovalQueueItem:
+      type: object
+      properties:
+        approval:
+          $ref: "#/components/schemas/EventApproval"
+        event:
+          $ref: "#/components/schemas/EventItem"
+    CreateEventRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        eventType:
+          type: string
+        startDate:
+          type: string
+        endDate:
+          type: string
+        startTime:
+          type: string
+        endTime:
+          type: string
+        location:
+          type: string
+        maxCapacity:
+          type: number
+        isTicketed:
+          type: boolean
+        ticketPrice:
+          type: number
+        ticketCapacity:
+          type: number
+        requiresApproval:
+          type: boolean
+    CreateTicketTypeRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+        quantity:
+          type: number
+    RecordTicketSaleRequest:
+      type: object
+      required: [quantity, amountPaid]
+      properties:
+        ticketTypeId:
+          type: string
+        attendeeName:
+          type: string
+        attendeeEmail:
+          type: string
+        attendeePhone:
+          type: string
+        quantity:
+          type: number
+        amountPaid:
+          type: number
+          description: Total transaction amount (not per-ticket price). Revenue = sum(amountPaid).
+        paymentMethod:
+          type: string
+          default: manual
+        notes:
+          type: string
+    SendCommunicationRequest:
+      type: object
+      required: [message, channel]
+      properties:
+        subject:
+          type: string
+        message:
+          type: string
+        channel:
+          type: string
+          enum: [email, sms, push, in_app]
+    CreateRecurringTemplateRequest:
+      type: object
+      required: [name, frequency]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        frequency:
+          type: string
+          enum: [weekly, biweekly, monthly, quarterly]
+        dayOfWeek:
+          type: number
+        dayOfMonth:
+          type: number
+        startTime:
+          type: string
+        endTime:
+          type: string
+        location:
+          type: string
+        isTicketed:
+          type: boolean
+        ticketPrice:
+          type: number
+    EventApprovalCommentRequest:
+      type: object
+      properties:
+        comment:
           type: string

@@ -1,4 +1,4 @@
-import { Router, type Request, type Response } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import {
   db,
   eventsTable,
@@ -49,6 +49,18 @@ function tierAllowsRecurring(tier: string | null | undefined): boolean {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// Tier guard middleware — all event routes require Tier 2+ except /public/*
+// ─────────────────────────────────────────────────────────────────
+router.use(async (req: Request, res: Response, next: NextFunction) => {
+  if (req.path.startsWith("/public/")) return next();
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const [org] = await db.select({ tier: organizationsTable.tier }).from(organizationsTable).where(eq(organizationsTable.userId, req.user.id));
+  if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
+  if (!tierAllowsEvents(org.tier)) { res.status(403).json({ error: "Event features require Tier 2 or higher" }); return; }
+  next();
+});
+
+// ─────────────────────────────────────────────────────────────────
 // Static sub-routes first (must precede /:id)
 // ─────────────────────────────────────────────────────────────────
 
@@ -56,10 +68,6 @@ function tierAllowsRecurring(tier: string | null | undefined): boolean {
 router.get("/metrics", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsEvents(org.tier)) {
-    res.status(403).json({ error: "Event dashboard requires Tier 2 or higher" });
-    return;
-  }
   const today = new Date().toISOString().split("T")[0];
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
@@ -273,7 +281,7 @@ router.get("/", async (req: Request, res: Response) => {
     db.select({
       eventId: ticketSalesTable.eventId,
       totalSold: sum(ticketSalesTable.quantity),
-      totalRevenue: sql<number>`sum(${ticketSalesTable.amountPaid} * ${ticketSalesTable.quantity})`,
+      totalRevenue: sum(ticketSalesTable.amountPaid),
     })
       .from(ticketSalesTable)
       .where(eq(ticketSalesTable.orgId, org.id))
@@ -303,7 +311,7 @@ router.get("/:id", async (req: Request, res: Response) => {
     db.select().from(eventApprovalsTable).where(and(eq(eventApprovalsTable.eventId, eventId), eq(eventApprovalsTable.orgId, org.id))).orderBy(desc(eventApprovalsTable.createdAt)),
     db.select().from(eventCommunicationsTable).where(and(eq(eventCommunicationsTable.eventId, eventId), eq(eventCommunicationsTable.orgId, org.id))).orderBy(desc(eventCommunicationsTable.sentAt)),
   ]);
-  const totalRevenue = sales.reduce((s, r) => s + r.amountPaid * r.quantity, 0);
+  const totalRevenue = sales.reduce((s, r) => s + r.amountPaid, 0);
   const totalSold = sales.reduce((s, r) => s + r.quantity, 0);
   res.json({ event, ticketTypes, sales, approvals, communications, totalRevenue, totalSold });
 });
@@ -312,10 +320,6 @@ router.get("/:id", async (req: Request, res: Response) => {
 router.post("/", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsEvents(org.tier)) {
-    res.status(403).json({ error: "Event dashboard requires Tier 2 or higher" });
-    return;
-  }
   const body = req.body as Record<string, unknown>;
   const { name, description, eventType, startDate, endDate, startTime, endTime, location, maxCapacity, isTicketed, ticketPrice, ticketCapacity, requiresApproval } = body;
   if (!name || typeof name !== "string") {

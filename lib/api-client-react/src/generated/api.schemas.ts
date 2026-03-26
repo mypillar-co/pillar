@@ -120,6 +120,284 @@ export interface UpsertOrganizationRequest {
   category?: string;
 }
 
+export type EventItemStatus =
+  (typeof EventItemStatus)[keyof typeof EventItemStatus];
+
+export const EventItemStatus = {
+  draft: "draft",
+  pending_approval: "pending_approval",
+  published: "published",
+  active: "active",
+  completed: "completed",
+  cancelled: "cancelled",
+} as const;
+
+export interface EventItem {
+  id: string;
+  orgId: string;
+  name: string;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  eventType?: string | null;
+  status: EventItemStatus;
+  /** @nullable */
+  startDate?: string | null;
+  /** @nullable */
+  endDate?: string | null;
+  /** @nullable */
+  location?: string | null;
+  isTicketed?: boolean;
+  /** @nullable */
+  ticketPrice?: number | null;
+  /** @nullable */
+  ticketCapacity?: number | null;
+  requiresApproval?: boolean;
+  isRecurring?: boolean;
+  featured?: boolean;
+  /** @nullable */
+  imageUrl?: string | null;
+  isActive?: boolean;
+  createdAt: string;
+  /** Total tickets sold (sum of sale quantities). Included in list response. */
+  totalSold?: number;
+  /** Total revenue in USD (sum of amountPaid). amountPaid is the total transaction amount per sale, not per-ticket. */
+  totalRevenue?: number;
+}
+
+export interface TicketType {
+  id: string;
+  eventId: string;
+  orgId: string;
+  name: string;
+  /** @nullable */
+  description?: string | null;
+  price: number;
+  /** @nullable */
+  quantity?: number | null;
+  createdAt: string;
+}
+
+export interface TicketSale {
+  id: string;
+  eventId: string;
+  orgId: string;
+  /** @nullable */
+  ticketTypeId?: string | null;
+  /** @nullable */
+  attendeeName?: string | null;
+  /** @nullable */
+  attendeeEmail?: string | null;
+  /** @nullable */
+  attendeePhone?: string | null;
+  quantity: number;
+  /** Total transaction amount (not per-ticket). Revenue = sum(amountPaid). */
+  amountPaid: number;
+  paymentMethod: string;
+  /** @nullable */
+  notes?: string | null;
+  createdAt: string;
+}
+
+export type EventApprovalStatus =
+  (typeof EventApprovalStatus)[keyof typeof EventApprovalStatus];
+
+export const EventApprovalStatus = {
+  pending: "pending",
+  approved: "approved",
+  rejected: "rejected",
+} as const;
+
+export interface EventApproval {
+  id: string;
+  eventId: string;
+  orgId: string;
+  /** @nullable */
+  submittedById?: string | null;
+  /** @nullable */
+  reviewedById?: string | null;
+  status: EventApprovalStatus;
+  /** @nullable */
+  comment?: string | null;
+  createdAt: string;
+  /** @nullable */
+  updatedAt?: string | null;
+}
+
+export type EventCommunicationChannel =
+  (typeof EventCommunicationChannel)[keyof typeof EventCommunicationChannel];
+
+export const EventCommunicationChannel = {
+  email: "email",
+  sms: "sms",
+  push: "push",
+  in_app: "in_app",
+} as const;
+
+export interface EventCommunication {
+  id: string;
+  eventId: string;
+  orgId: string;
+  /** @nullable */
+  subject?: string | null;
+  message: string;
+  channel: EventCommunicationChannel;
+  /** @nullable */
+  sentByUserId?: string | null;
+  /** @nullable */
+  recipientCount?: number | null;
+  sentAt: string;
+}
+
+export interface EventDetail {
+  event: EventItem;
+  ticketTypes: TicketType[];
+  sales: TicketSale[];
+  approvals: EventApproval[];
+  communications: EventCommunication[];
+  /** sum(amountPaid) across all sales for this event */
+  totalRevenue: number;
+  /** sum(quantity) across all sales for this event */
+  totalSold: number;
+}
+
+export type EventMetricsUpcomingEventsItem = {
+  id?: string;
+  name?: string;
+  /** @nullable */
+  startDate?: string | null;
+  status?: string;
+};
+
+export interface EventMetrics {
+  totalEvents: number;
+  publishedEvents: number;
+  upcomingEvents: EventMetricsUpcomingEventsItem[];
+  totalTicketsSold: number;
+  thisMonthTicketsSold: number;
+  /** sum(amountPaid) — total transaction amounts received */
+  totalRevenue: number;
+}
+
+export type RecurringTemplateFrequency =
+  (typeof RecurringTemplateFrequency)[keyof typeof RecurringTemplateFrequency];
+
+export const RecurringTemplateFrequency = {
+  weekly: "weekly",
+  biweekly: "biweekly",
+  monthly: "monthly",
+  quarterly: "quarterly",
+} as const;
+
+export interface RecurringTemplate {
+  id: string;
+  orgId: string;
+  name: string;
+  /** @nullable */
+  description?: string | null;
+  frequency: RecurringTemplateFrequency;
+  /** @nullable */
+  dayOfWeek?: number | null;
+  /** @nullable */
+  dayOfMonth?: number | null;
+  /** @nullable */
+  startTime?: string | null;
+  /** @nullable */
+  endTime?: string | null;
+  /** @nullable */
+  location?: string | null;
+  isTicketed?: boolean;
+  /** @nullable */
+  ticketPrice?: number | null;
+  isActive: boolean;
+  /** @nullable */
+  nextGenerateAt?: string | null;
+  createdAt: string;
+}
+
+export interface ApprovalQueueItem {
+  approval?: EventApproval;
+  event?: EventItem;
+}
+
+export interface CreateEventRequest {
+  name: string;
+  description?: string;
+  eventType?: string;
+  startDate?: string;
+  endDate?: string;
+  startTime?: string;
+  endTime?: string;
+  location?: string;
+  maxCapacity?: number;
+  isTicketed?: boolean;
+  ticketPrice?: number;
+  ticketCapacity?: number;
+  requiresApproval?: boolean;
+}
+
+export interface CreateTicketTypeRequest {
+  name: string;
+  description?: string;
+  price?: number;
+  quantity?: number;
+}
+
+export interface RecordTicketSaleRequest {
+  ticketTypeId?: string;
+  attendeeName?: string;
+  attendeeEmail?: string;
+  attendeePhone?: string;
+  quantity: number;
+  /** Total transaction amount (not per-ticket price). Revenue = sum(amountPaid). */
+  amountPaid: number;
+  paymentMethod?: string;
+  notes?: string;
+}
+
+export type SendCommunicationRequestChannel =
+  (typeof SendCommunicationRequestChannel)[keyof typeof SendCommunicationRequestChannel];
+
+export const SendCommunicationRequestChannel = {
+  email: "email",
+  sms: "sms",
+  push: "push",
+  in_app: "in_app",
+} as const;
+
+export interface SendCommunicationRequest {
+  subject?: string;
+  message: string;
+  channel: SendCommunicationRequestChannel;
+}
+
+export type CreateRecurringTemplateRequestFrequency =
+  (typeof CreateRecurringTemplateRequestFrequency)[keyof typeof CreateRecurringTemplateRequestFrequency];
+
+export const CreateRecurringTemplateRequestFrequency = {
+  weekly: "weekly",
+  biweekly: "biweekly",
+  monthly: "monthly",
+  quarterly: "quarterly",
+} as const;
+
+export interface CreateRecurringTemplateRequest {
+  name: string;
+  description?: string;
+  frequency: CreateRecurringTemplateRequestFrequency;
+  dayOfWeek?: number;
+  dayOfMonth?: number;
+  startTime?: string;
+  endTime?: string;
+  location?: string;
+  isTicketed?: boolean;
+  ticketPrice?: number;
+}
+
+export interface EventApprovalCommentRequest {
+  comment?: string;
+}
+
 /**
  * Opaque session token — `Bearer <sid>`.
  */
@@ -140,4 +418,23 @@ export type HandleBrowserLoginCallbackParams = {
 
 export type ListTiers200 = {
   tiers: Tier[];
+};
+
+export type ListEventsParams = {
+  includeInactive?: ListEventsIncludeInactive;
+};
+
+export type ListEventsIncludeInactive =
+  (typeof ListEventsIncludeInactive)[keyof typeof ListEventsIncludeInactive];
+
+export const ListEventsIncludeInactive = {
+  NUMBER_0: "0",
+  NUMBER_1: "1",
+} as const;
+
+export type GetPublicEvents200Org = { [key: string]: unknown };
+
+export type GetPublicEvents200 = {
+  org?: GetPublicEvents200Org;
+  events?: EventItem[];
 };

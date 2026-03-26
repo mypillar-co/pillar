@@ -196,3 +196,595 @@ export const CreateOrganizationResponse = zod.object({
     zod.null(),
   ]),
 });
+
+/**
+ * Requires Tier 2+. Returns events enriched with totalSold and totalRevenue (sum of amountPaid per event).
+ * @summary List events for the current org (with per-event quick stats)
+ */
+export const ListEventsQueryParams = zod.object({
+  includeInactive: zod.enum(["0", "1"]).optional(),
+});
+
+export const ListEventsResponseItem = zod.object({
+  id: zod.string(),
+  orgId: zod.string(),
+  name: zod.string(),
+  description: zod.string().nullish(),
+  eventType: zod.string().nullish(),
+  status: zod.enum([
+    "draft",
+    "pending_approval",
+    "published",
+    "active",
+    "completed",
+    "cancelled",
+  ]),
+  startDate: zod.string().nullish(),
+  endDate: zod.string().nullish(),
+  location: zod.string().nullish(),
+  isTicketed: zod.boolean().optional(),
+  ticketPrice: zod.number().nullish(),
+  ticketCapacity: zod.number().nullish(),
+  requiresApproval: zod.boolean().optional(),
+  isRecurring: zod.boolean().optional(),
+  featured: zod.boolean().optional(),
+  imageUrl: zod.string().nullish(),
+  isActive: zod.boolean().optional(),
+  createdAt: zod.string(),
+  totalSold: zod
+    .number()
+    .optional()
+    .describe(
+      "Total tickets sold (sum of sale quantities). Included in list response.",
+    ),
+  totalRevenue: zod
+    .number()
+    .optional()
+    .describe(
+      "Total revenue in USD (sum of amountPaid). amountPaid is the total transaction amount per sale, not per-ticket.",
+    ),
+});
+export const ListEventsResponse = zod.array(ListEventsResponseItem);
+
+/**
+ * Requires Tier 2+.
+ * @summary Create a new event
+ */
+export const CreateEventBody = zod.object({
+  name: zod.string(),
+  description: zod.string().optional(),
+  eventType: zod.string().optional(),
+  startDate: zod.string().optional(),
+  endDate: zod.string().optional(),
+  startTime: zod.string().optional(),
+  endTime: zod.string().optional(),
+  location: zod.string().optional(),
+  maxCapacity: zod.number().optional(),
+  isTicketed: zod.boolean().optional(),
+  ticketPrice: zod.number().optional(),
+  ticketCapacity: zod.number().optional(),
+  requiresApproval: zod.boolean().optional(),
+});
+
+/**
+ * Requires Tier 2+. Revenue = sum(amountPaid) across all ticket sales.
+ * @summary Get aggregate event metrics for the org
+ */
+export const GetEventMetricsResponse = zod.object({
+  totalEvents: zod.number(),
+  publishedEvents: zod.number(),
+  upcomingEvents: zod.array(
+    zod.object({
+      id: zod.string().optional(),
+      name: zod.string().optional(),
+      startDate: zod.string().nullish(),
+      status: zod.string().optional(),
+    }),
+  ),
+  totalTicketsSold: zod.number(),
+  thisMonthTicketsSold: zod.number(),
+  totalRevenue: zod
+    .number()
+    .describe("sum(amountPaid) — total transaction amounts received"),
+});
+
+/**
+ * Requires Tier 2+.
+ * @summary Get pending event approval queue
+ */
+export const GetApprovalQueueResponseItem = zod.object({
+  approval: zod
+    .object({
+      id: zod.string(),
+      eventId: zod.string(),
+      orgId: zod.string(),
+      submittedById: zod.string().nullish(),
+      reviewedById: zod.string().nullish(),
+      status: zod.enum(["pending", "approved", "rejected"]),
+      comment: zod.string().nullish(),
+      createdAt: zod.string(),
+      updatedAt: zod.string().nullish(),
+    })
+    .optional(),
+  event: zod
+    .object({
+      id: zod.string(),
+      orgId: zod.string(),
+      name: zod.string(),
+      description: zod.string().nullish(),
+      eventType: zod.string().nullish(),
+      status: zod.enum([
+        "draft",
+        "pending_approval",
+        "published",
+        "active",
+        "completed",
+        "cancelled",
+      ]),
+      startDate: zod.string().nullish(),
+      endDate: zod.string().nullish(),
+      location: zod.string().nullish(),
+      isTicketed: zod.boolean().optional(),
+      ticketPrice: zod.number().nullish(),
+      ticketCapacity: zod.number().nullish(),
+      requiresApproval: zod.boolean().optional(),
+      isRecurring: zod.boolean().optional(),
+      featured: zod.boolean().optional(),
+      imageUrl: zod.string().nullish(),
+      isActive: zod.boolean().optional(),
+      createdAt: zod.string(),
+      totalSold: zod
+        .number()
+        .optional()
+        .describe(
+          "Total tickets sold (sum of sale quantities). Included in list response.",
+        ),
+      totalRevenue: zod
+        .number()
+        .optional()
+        .describe(
+          "Total revenue in USD (sum of amountPaid). amountPaid is the total transaction amount per sale, not per-ticket.",
+        ),
+    })
+    .optional(),
+});
+export const GetApprovalQueueResponse = zod.array(GetApprovalQueueResponseItem);
+
+/**
+ * Requires Tier 3.
+ * @summary List recurring event templates
+ */
+export const ListRecurringTemplatesResponseItem = zod.object({
+  id: zod.string(),
+  orgId: zod.string(),
+  name: zod.string(),
+  description: zod.string().nullish(),
+  frequency: zod.enum(["weekly", "biweekly", "monthly", "quarterly"]),
+  dayOfWeek: zod.number().nullish(),
+  dayOfMonth: zod.number().nullish(),
+  startTime: zod.string().nullish(),
+  endTime: zod.string().nullish(),
+  location: zod.string().nullish(),
+  isTicketed: zod.boolean().optional(),
+  ticketPrice: zod.number().nullish(),
+  isActive: zod.boolean(),
+  nextGenerateAt: zod.string().nullish(),
+  createdAt: zod.string(),
+});
+export const ListRecurringTemplatesResponse = zod.array(
+  ListRecurringTemplatesResponseItem,
+);
+
+/**
+ * Requires Tier 3.
+ * @summary Create a recurring event template
+ */
+export const CreateRecurringTemplateBody = zod.object({
+  name: zod.string(),
+  description: zod.string().optional(),
+  frequency: zod.enum(["weekly", "biweekly", "monthly", "quarterly"]),
+  dayOfWeek: zod.number().optional(),
+  dayOfMonth: zod.number().optional(),
+  startTime: zod.string().optional(),
+  endTime: zod.string().optional(),
+  location: zod.string().optional(),
+  isTicketed: zod.boolean().optional(),
+  ticketPrice: zod.number().optional(),
+});
+
+/**
+ * @summary Get published events for a public org page (no auth required)
+ */
+export const GetPublicEventsParams = zod.object({
+  orgSlug: zod.coerce.string(),
+});
+
+export const GetPublicEventsResponse = zod.object({
+  org: zod.object({}).passthrough().optional(),
+  events: zod
+    .array(
+      zod.object({
+        id: zod.string(),
+        orgId: zod.string(),
+        name: zod.string(),
+        description: zod.string().nullish(),
+        eventType: zod.string().nullish(),
+        status: zod.enum([
+          "draft",
+          "pending_approval",
+          "published",
+          "active",
+          "completed",
+          "cancelled",
+        ]),
+        startDate: zod.string().nullish(),
+        endDate: zod.string().nullish(),
+        location: zod.string().nullish(),
+        isTicketed: zod.boolean().optional(),
+        ticketPrice: zod.number().nullish(),
+        ticketCapacity: zod.number().nullish(),
+        requiresApproval: zod.boolean().optional(),
+        isRecurring: zod.boolean().optional(),
+        featured: zod.boolean().optional(),
+        imageUrl: zod.string().nullish(),
+        isActive: zod.boolean().optional(),
+        createdAt: zod.string(),
+        totalSold: zod
+          .number()
+          .optional()
+          .describe(
+            "Total tickets sold (sum of sale quantities). Included in list response.",
+          ),
+        totalRevenue: zod
+          .number()
+          .optional()
+          .describe(
+            "Total revenue in USD (sum of amountPaid). amountPaid is the total transaction amount per sale, not per-ticket.",
+          ),
+      }),
+    )
+    .optional(),
+});
+
+/**
+ * Requires Tier 2+. All related data is scoped to the org.
+ * @summary Get event detail with ticket types, sales, approvals, and communications
+ */
+export const GetEventDetailParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const GetEventDetailResponse = zod.object({
+  event: zod.object({
+    id: zod.string(),
+    orgId: zod.string(),
+    name: zod.string(),
+    description: zod.string().nullish(),
+    eventType: zod.string().nullish(),
+    status: zod.enum([
+      "draft",
+      "pending_approval",
+      "published",
+      "active",
+      "completed",
+      "cancelled",
+    ]),
+    startDate: zod.string().nullish(),
+    endDate: zod.string().nullish(),
+    location: zod.string().nullish(),
+    isTicketed: zod.boolean().optional(),
+    ticketPrice: zod.number().nullish(),
+    ticketCapacity: zod.number().nullish(),
+    requiresApproval: zod.boolean().optional(),
+    isRecurring: zod.boolean().optional(),
+    featured: zod.boolean().optional(),
+    imageUrl: zod.string().nullish(),
+    isActive: zod.boolean().optional(),
+    createdAt: zod.string(),
+    totalSold: zod
+      .number()
+      .optional()
+      .describe(
+        "Total tickets sold (sum of sale quantities). Included in list response.",
+      ),
+    totalRevenue: zod
+      .number()
+      .optional()
+      .describe(
+        "Total revenue in USD (sum of amountPaid). amountPaid is the total transaction amount per sale, not per-ticket.",
+      ),
+  }),
+  ticketTypes: zod.array(
+    zod.object({
+      id: zod.string(),
+      eventId: zod.string(),
+      orgId: zod.string(),
+      name: zod.string(),
+      description: zod.string().nullish(),
+      price: zod.number(),
+      quantity: zod.number().nullish(),
+      createdAt: zod.string(),
+    }),
+  ),
+  sales: zod.array(
+    zod.object({
+      id: zod.string(),
+      eventId: zod.string(),
+      orgId: zod.string(),
+      ticketTypeId: zod.string().nullish(),
+      attendeeName: zod.string().nullish(),
+      attendeeEmail: zod.string().nullish(),
+      attendeePhone: zod.string().nullish(),
+      quantity: zod.number(),
+      amountPaid: zod
+        .number()
+        .describe(
+          "Total transaction amount (not per-ticket). Revenue = sum(amountPaid).",
+        ),
+      paymentMethod: zod.string(),
+      notes: zod.string().nullish(),
+      createdAt: zod.string(),
+    }),
+  ),
+  approvals: zod.array(
+    zod.object({
+      id: zod.string(),
+      eventId: zod.string(),
+      orgId: zod.string(),
+      submittedById: zod.string().nullish(),
+      reviewedById: zod.string().nullish(),
+      status: zod.enum(["pending", "approved", "rejected"]),
+      comment: zod.string().nullish(),
+      createdAt: zod.string(),
+      updatedAt: zod.string().nullish(),
+    }),
+  ),
+  communications: zod.array(
+    zod.object({
+      id: zod.string(),
+      eventId: zod.string(),
+      orgId: zod.string(),
+      subject: zod.string().nullish(),
+      message: zod.string(),
+      channel: zod.enum(["email", "sms", "push", "in_app"]),
+      sentByUserId: zod.string().nullish(),
+      recipientCount: zod.number().nullish(),
+      sentAt: zod.string(),
+    }),
+  ),
+  totalRevenue: zod
+    .number()
+    .describe("sum(amountPaid) across all sales for this event"),
+  totalSold: zod
+    .number()
+    .describe("sum(quantity) across all sales for this event"),
+});
+
+/**
+ * Requires Tier 2+.
+ * @summary Update an event
+ */
+export const UpdateEventParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const UpdateEventBody = zod.object({
+  name: zod.string(),
+  description: zod.string().optional(),
+  eventType: zod.string().optional(),
+  startDate: zod.string().optional(),
+  endDate: zod.string().optional(),
+  startTime: zod.string().optional(),
+  endTime: zod.string().optional(),
+  location: zod.string().optional(),
+  maxCapacity: zod.number().optional(),
+  isTicketed: zod.boolean().optional(),
+  ticketPrice: zod.number().optional(),
+  ticketCapacity: zod.number().optional(),
+  requiresApproval: zod.boolean().optional(),
+});
+
+export const UpdateEventResponse = zod.object({
+  id: zod.string(),
+  orgId: zod.string(),
+  name: zod.string(),
+  description: zod.string().nullish(),
+  eventType: zod.string().nullish(),
+  status: zod.enum([
+    "draft",
+    "pending_approval",
+    "published",
+    "active",
+    "completed",
+    "cancelled",
+  ]),
+  startDate: zod.string().nullish(),
+  endDate: zod.string().nullish(),
+  location: zod.string().nullish(),
+  isTicketed: zod.boolean().optional(),
+  ticketPrice: zod.number().nullish(),
+  ticketCapacity: zod.number().nullish(),
+  requiresApproval: zod.boolean().optional(),
+  isRecurring: zod.boolean().optional(),
+  featured: zod.boolean().optional(),
+  imageUrl: zod.string().nullish(),
+  isActive: zod.boolean().optional(),
+  createdAt: zod.string(),
+  totalSold: zod
+    .number()
+    .optional()
+    .describe(
+      "Total tickets sold (sum of sale quantities). Included in list response.",
+    ),
+  totalRevenue: zod
+    .number()
+    .optional()
+    .describe(
+      "Total revenue in USD (sum of amountPaid). amountPaid is the total transaction amount per sale, not per-ticket.",
+    ),
+});
+
+/**
+ * Requires Tier 2+.
+ * @summary Delete (deactivate) an event
+ */
+export const DeleteEventParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+/**
+ * Requires Tier 2+.
+ * @summary Submit a draft event for approval
+ */
+export const SubmitEventForApprovalParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+/**
+ * Requires Tier 2+. Only the org owner can approve.
+ * @summary Approve a pending event (org owner only)
+ */
+export const ApproveEventParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ApproveEventBody = zod.object({
+  comment: zod.string().optional(),
+});
+
+/**
+ * Requires Tier 2+. Only the org owner can reject.
+ * @summary Reject a pending event (org owner only)
+ */
+export const RejectEventParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const RejectEventBody = zod.object({
+  comment: zod.string().optional(),
+});
+
+/**
+ * Requires Tier 2+. Scoped to (eventId, orgId).
+ * @summary List ticket types for an event
+ */
+export const ListTicketTypesParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ListTicketTypesResponseItem = zod.object({
+  id: zod.string(),
+  eventId: zod.string(),
+  orgId: zod.string(),
+  name: zod.string(),
+  description: zod.string().nullish(),
+  price: zod.number(),
+  quantity: zod.number().nullish(),
+  createdAt: zod.string(),
+});
+export const ListTicketTypesResponse = zod.array(ListTicketTypesResponseItem);
+
+/**
+ * Requires Tier 2+. Verifies event belongs to the org before inserting.
+ * @summary Create a ticket type for an event
+ */
+export const CreateTicketTypeParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const CreateTicketTypeBody = zod.object({
+  name: zod.string(),
+  description: zod.string().optional(),
+  price: zod.number().optional(),
+  quantity: zod.number().optional(),
+});
+
+/**
+ * Requires Tier 2+.
+ * @summary List ticket sales for an event
+ */
+export const ListTicketSalesParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ListTicketSalesResponseItem = zod.object({
+  id: zod.string(),
+  eventId: zod.string(),
+  orgId: zod.string(),
+  ticketTypeId: zod.string().nullish(),
+  attendeeName: zod.string().nullish(),
+  attendeeEmail: zod.string().nullish(),
+  attendeePhone: zod.string().nullish(),
+  quantity: zod.number(),
+  amountPaid: zod
+    .number()
+    .describe(
+      "Total transaction amount (not per-ticket). Revenue = sum(amountPaid).",
+    ),
+  paymentMethod: zod.string(),
+  notes: zod.string().nullish(),
+  createdAt: zod.string(),
+});
+export const ListTicketSalesResponse = zod.array(ListTicketSalesResponseItem);
+
+/**
+ * Requires Tier 2+. amountPaid is the total transaction amount (not per-ticket).
+ * @summary Record a ticket sale for an event
+ */
+export const RecordTicketSaleParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const recordTicketSaleBodyPaymentMethodDefault = `manual`;
+
+export const RecordTicketSaleBody = zod.object({
+  ticketTypeId: zod.string().optional(),
+  attendeeName: zod.string().optional(),
+  attendeeEmail: zod.string().optional(),
+  attendeePhone: zod.string().optional(),
+  quantity: zod.number(),
+  amountPaid: zod
+    .number()
+    .describe(
+      "Total transaction amount (not per-ticket price). Revenue = sum(amountPaid).",
+    ),
+  paymentMethod: zod.string().default(recordTicketSaleBodyPaymentMethodDefault),
+  notes: zod.string().optional(),
+});
+
+/**
+ * Requires Tier 2+.
+ * @summary List communications sent for an event
+ */
+export const ListEventCommunicationsParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const ListEventCommunicationsResponseItem = zod.object({
+  id: zod.string(),
+  eventId: zod.string(),
+  orgId: zod.string(),
+  subject: zod.string().nullish(),
+  message: zod.string(),
+  channel: zod.enum(["email", "sms", "push", "in_app"]),
+  sentByUserId: zod.string().nullish(),
+  recipientCount: zod.number().nullish(),
+  sentAt: zod.string(),
+});
+export const ListEventCommunicationsResponse = zod.array(
+  ListEventCommunicationsResponseItem,
+);
+
+/**
+ * Requires Tier 2+.
+ * @summary Send a communication to event attendees
+ */
+export const SendEventCommunicationParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const SendEventCommunicationBody = zod.object({
+  subject: zod.string().optional(),
+  message: zod.string(),
+  channel: zod.enum(["email", "sms", "push", "in_app"]),
+});
