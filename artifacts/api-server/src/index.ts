@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { getStripeSync } from "./stripeClient";
+import { startScheduler } from "./scheduler";
 
 const rawPort = process.env["PORT"];
 
@@ -50,6 +51,7 @@ async function main() {
       process.exit(1);
     }
     logger.info({ port }, "Server listening");
+    startScheduler();
   });
 }
 

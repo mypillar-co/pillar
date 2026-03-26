@@ -9,3 +9,4 @@ export * from "./eventRelations";
 export * from "./sites";
 export * from "./domains";
 export * from "./siteSchedules";
+export * from "./websiteSpecs";

@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { db, organizationsTable, sitesTable, siteUpdateSchedulesTable } from "@workspace/db";
+import { db, organizationsTable, sitesTable, siteUpdateSchedulesTable, websiteSpecsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 
 const router = Router();
@@ -17,6 +17,8 @@ const MONTHLY_LIMITS: Record<string, number> = {
   tier3: 200,
   default: 15,
 };
+
+const TIERS_ALLOWING_CHANGES = new Set(["tier1", "tier1a", "tier2", "tier3"]);
 
 function getMonthlyLimit(tier: string | null | undefined): number {
   return MONTHLY_LIMITS[tier ?? ""] ?? MONTHLY_LIMITS.default;
@@ -36,6 +38,20 @@ async function resolveOrg(req: Request, res: Response) {
 function isNewMonth(resetAt: Date): boolean {
   const now = new Date();
   return now.getFullYear() !== resetAt.getFullYear() || now.getMonth() !== resetAt.getMonth();
+}
+
+async function checkAndResetUsage(org: { id: string; aiMessagesUsed: number; aiMessagesResetAt: Date; tier: string | null }, res: Response) {
+  const monthlyLimit = getMonthlyLimit(org.tier);
+  let used = org.aiMessagesUsed;
+  if (isNewMonth(new Date(org.aiMessagesResetAt))) {
+    await db.update(organizationsTable).set({ aiMessagesUsed: 0, aiMessagesResetAt: new Date() }).where(eq(organizationsTable.id, org.id));
+    used = 0;
+  }
+  if (used >= monthlyLimit) {
+    res.status(429).json({ error: "monthly_limit_reached", used, limit: monthlyLimit, tier: org.tier });
+    return null;
+  }
+  return { used, limit: monthlyLimit };
 }
 
 async function callClaude(
@@ -62,21 +78,76 @@ async function callClaude(
   return data.content?.[0]?.text ?? "";
 }
 
-async function checkAndResetUsage(org: { id: string; aiMessagesUsed: number; aiMessagesResetAt: Date; tier: string | null }, res: Response) {
-  const monthlyLimit = getMonthlyLimit(org.tier);
-  let used = org.aiMessagesUsed;
-  if (isNewMonth(new Date(org.aiMessagesResetAt))) {
-    await db.update(organizationsTable).set({ aiMessagesUsed: 0, aiMessagesResetAt: new Date() }).where(eq(organizationsTable.id, org.id));
-    used = 0;
+async function callClaudeStreaming(
+  messages: { role: string; content: string }[],
+  system: string,
+  maxTokens: number,
+  res: Response,
+): Promise<string> {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const upstream = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": process.env.ANTHROPIC_API_KEY ?? "",
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "claude-3-haiku-20240307",
+      max_tokens: maxTokens,
+      system,
+      messages,
+      stream: true,
+    }),
+  });
+
+  if (!upstream.ok) {
+    const errText = await upstream.text();
+    res.write(`data: ${JSON.stringify({ error: `AI service error (${upstream.status})` })}\n\n`);
+    res.end();
+    throw new Error(`Anthropic streaming ${upstream.status}: ${errText}`);
   }
-  if (used >= monthlyLimit) {
-    res.status(429).json({ error: "monthly_limit_reached", used, limit: monthlyLimit, tier: org.tier });
-    return null;
+
+  let fullText = "";
+  const reader = upstream.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const dataStr = line.slice(6).trim();
+      if (!dataStr || dataStr === "[DONE]") continue;
+      try {
+        const event = JSON.parse(dataStr) as {
+          type: string;
+          delta?: { type: string; text: string };
+        };
+        if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
+          const text = event.delta.text;
+          fullText += text;
+          res.write(`data: ${JSON.stringify({ content: text })}\n\n`);
+        }
+      } catch {
+        // Skip malformed chunks
+      }
+    }
   }
-  return { used, limit: monthlyLimit };
+
+  return fullText;
 }
 
-// ─── Interview chat ───────────────────────────────────────────────────────────
+// ─── Interview chat (SSE streaming) ───────────────────────────────────────────
 router.post("/builder", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
@@ -100,7 +171,7 @@ router.post("/builder", async (req: Request, res: Response) => {
 
   const systemPrompt = `You are a friendly website consultant helping ${name} (a ${type}) build their public website through Steward.
 
-Your job is to conduct a structured interview to gather website content. Ask ONE question at a time and wait for the answer.
+Your job is to conduct a structured interview to gather website content. Ask ONE question at a time.
 
 Interview sequence — follow this order exactly:
 1. "Let's build your website! First — what is ${name}'s mission or main purpose? Describe it in 1-2 sentences."
@@ -110,24 +181,29 @@ Interview sequence — follow this order exactly:
 5. "How can visitors contact you? (email address, phone number, and any social media handles)"
 6. "Who is your primary audience — who do you serve or want to attract to your site?"
 7. "Any color preferences for the site? (e.g., 'navy and gold', 'forest green and white', 'clean and modern black')"
-8. "Last one — is there anything else you want featured? (announcements, sponsor logos, history, membership info, etc.)"
+8. "Last one — is there anything else to feature? (announcements, sponsor logos, history, membership info, etc.)"
 
 After each answer, acknowledge in ONE brief sentence, then ask the next question.
-After collecting all 8 answers, say EXACTLY this (nothing more): "I have everything I need! Click **Generate My Site** to build your website."
-Keep every response under 60 words. Stay focused. Do not add suggestions or commentary beyond the acknowledgment and next question.`;
+After collecting all 8 answers, say EXACTLY: "I have everything I need! Click **Generate My Site** to build your website."
+Keep every response under 60 words. Stay focused — no extra suggestions.`;
 
   try {
-    const reply = await callClaude([...trimmedHistory, { role: "user", content: message }], systemPrompt, MAX_CHAT_TOKENS);
+    const fullReply = await callClaudeStreaming(
+      [...trimmedHistory, { role: "user", content: message }],
+      systemPrompt,
+      MAX_CHAT_TOKENS,
+      res,
+    );
+
     await db.update(organizationsTable).set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` }).where(eq(organizationsTable.id, org.id));
     const newUsed = used + 1;
-    res.json({ reply, used: newUsed, limit: monthlyLimit, remaining: monthlyLimit - newUsed });
+
+    res.write(`data: ${JSON.stringify({ done: true, used: newUsed, limit: monthlyLimit, remaining: monthlyLimit - newUsed })}\n\n`);
+    res.end();
   } catch {
-    res.json({
-      reply: `I'm having trouble connecting right now. Could you tell me a bit about ${name}'s mission?`,
-      used,
-      limit: monthlyLimit,
-      remaining: monthlyLimit - used,
-    });
+    if (!res.headersSent) {
+      res.status(500).json({ error: "AI service unavailable. Please try again." });
+    }
   }
 });
 
@@ -150,7 +226,8 @@ router.get("/my", async (req: Request, res: Response) => {
   if (!org) return;
   const [site] = await db.select().from(sitesTable).where(eq(sitesTable.orgId, org.id));
   const [schedule] = await db.select().from(siteUpdateSchedulesTable).where(eq(siteUpdateSchedulesTable.orgId, org.id));
-  res.json({ site: site ?? null, orgSlug: org.slug, schedule: schedule ?? null, tier: org.tier });
+  const [spec] = await db.select().from(websiteSpecsTable).where(eq(websiteSpecsTable.orgId, org.id));
+  res.json({ site: site ?? null, orgSlug: org.slug, schedule: schedule ?? null, spec: spec ?? null, tier: org.tier });
 });
 
 // ─── Generate site from interview history ─────────────────────────────────────
@@ -172,32 +249,37 @@ router.post("/generate", async (req: Request, res: Response) => {
     ? history.map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n")
     : `Organization name: ${name}\nType: ${type}`;
 
-  // Step 1: Generate structured spec JSON
-  const specSystem = `You are extracting website content from a conversation. Output ONLY valid JSON with this exact structure:
+  // Step 1: Extract structured spec from conversation
+  const specSystem = `Extract website content from this conversation and output ONLY valid JSON.
+Required structure:
 {
-  "orgName": "...",
-  "tagline": "...",
-  "mission": "...",
-  "services": ["...", "..."],
-  "location": "...",
-  "hours": "...",
-  "events": ["...", "..."],
-  "contact": { "email": "...", "phone": "...", "social": [] },
-  "audience": "...",
-  "colors": "...",
-  "extras": "..."
+  "orgName": "string",
+  "tagline": "string",
+  "mission": "string",
+  "services": ["string"],
+  "location": "string",
+  "hours": "string",
+  "events": ["string"],
+  "contactEmail": "string",
+  "contactPhone": "string",
+  "socialMedia": ["string"],
+  "audience": "string",
+  "colors": "string",
+  "extras": "string"
 }
-Fill in all fields based on the conversation. Use empty string "" for anything not mentioned. Output ONLY the JSON object, nothing else.`;
+Use empty strings and empty arrays for anything not mentioned. Output ONLY the JSON object.`;
 
-  let websiteSpec: Record<string, unknown> = {
+  let extractedSpec = {
     orgName: name,
     tagline: `Welcome to ${name}`,
     mission: `${name} serves our community.`,
-    services: [],
+    services: [] as string[],
     location: "",
     hours: "",
-    events: [],
-    contact: { email: "", phone: "", social: [] },
+    events: [] as string[],
+    contactEmail: "",
+    contactPhone: "",
+    socialMedia: [] as string[],
     audience: "",
     colors: "navy and gold",
     extras: "",
@@ -209,57 +291,70 @@ Fill in all fields based on the conversation. Use empty string "" for anything n
       specSystem,
       MAX_SPEC_TOKENS,
     );
-    const parsed = JSON.parse(specJson.trim()) as Record<string, unknown>;
-    websiteSpec = { ...websiteSpec, ...parsed };
+    const parsed = JSON.parse(specJson.trim()) as typeof extractedSpec;
+    extractedSpec = { ...extractedSpec, ...parsed };
   } catch {
-    // Use defaults if spec extraction fails
+    // Use defaults if extraction fails
   }
 
-  // Step 2: Generate HTML from spec
-  const spec = websiteSpec;
-  const services = Array.isArray(spec.services) ? (spec.services as string[]) : [];
-  const events = Array.isArray(spec.events) ? (spec.events as string[]) : [];
-  const contact = (spec.contact as { email?: string; phone?: string; social?: string[] }) ?? {};
-  const colorHint = (spec.colors as string) || "professional";
+  // Step 2: Save to website_specs table (dedicated, normalized table)
+  const [existingSpec] = await db.select().from(websiteSpecsTable).where(eq(websiteSpecsTable.orgId, org.id));
+  if (existingSpec) {
+    await db.update(websiteSpecsTable).set({
+      ...extractedSpec,
+      rawConversation: history,
+      updatedAt: new Date(),
+    }).where(eq(websiteSpecsTable.orgId, org.id));
+  } else {
+    await db.insert(websiteSpecsTable).values({
+      orgId: org.id,
+      ...extractedSpec,
+      rawConversation: history,
+    });
+  }
 
+  // Step 3: Generate HTML from the spec
+  const s = extractedSpec;
   const genSystem = `You are an expert web developer. Generate a complete, beautiful, self-contained HTML page.
 
 STRICT RULES:
 - Output ONLY valid HTML — start with <!DOCTYPE html>, end with </html>
 - No markdown, no code fences, no text before or after the HTML
-- All CSS must be in a <style> tag inside <head> — no external stylesheets
-- No external dependencies — no CDN, no Google Fonts — use system font stacks only
+- All CSS must be in a <style> tag inside <head> — no external stylesheets or CDN links
+- No external dependencies — use system font stacks only (e.g. -apple-system, Georgia, sans-serif)
 - No JavaScript whatsoever
 - Fully responsive with CSS flexbox/grid and media queries
 - Use semantic HTML5 (header, main, section, footer, nav)
+- Smooth transitions/hover effects via CSS only
+- Professionally designed: consistent spacing, clear visual hierarchy, good color contrast
 
 REQUIRED SECTIONS (in order):
-1. Nav bar — org name + simple navigation links
-2. Hero — large, bold org name, tagline, brief mission blurb
-3. About — mission in more detail, who you serve
-${services.length > 0 ? `4. Services/Programs — grid of: ${services.join(", ")}` : "4. Services — placeholder grid (3 items with icons)"}
-${events.length > 0 ? `5. Events — list/cards for: ${events.join(", ")}` : ""}
-6. Contact — email, phone, address displayed cleanly
-7. Footer — org name, © year, tagline
+1. Sticky navigation bar — org name logo on left, links on right
+2. Hero — large heading, tagline, brief mission blurb, a call-to-action button
+3. About — mission/purpose in more detail
+${s.services.length > 0 ? `4. Services — responsive grid of cards for: ${s.services.join(", ")}` : "4. Programs — responsive grid of 3 placeholder cards with icons"}
+${s.events.length > 0 ? `5. Events — clean card list for: ${s.events.join(", ")}` : ""}
+6. Contact — email, phone, address, social media in a clean layout
+7. Footer — org name, © ${new Date().getFullYear()}, tagline
 
-COLOR SCHEME: ${colorHint}. Make it visually polished with consistent colors, good contrast, and a professional look.
-Use real content from the spec — never use lorem ipsum.`;
+COLOR SCHEME: ${s.colors || "professional navy and gold"}.
+Use real content from the spec — never use lorem ipsum or placeholder text.`;
 
-  const genPrompt = `Build a website for this organization:
+  const genPrompt = `Build a website for:
+Name: ${s.orgName}
+Tagline: ${s.tagline}
+Mission: ${s.mission}
+Services/Programs: ${s.services.join(", ") || "Community programs"}
+Location: ${s.location || "Our community"}
+Hours: ${s.hours || ""}
+Events: ${s.events.join(", ") || ""}
+Contact Email: ${s.contactEmail || ""}
+Contact Phone: ${s.contactPhone || ""}
+Social Media: ${s.socialMedia.join(", ") || ""}
+Audience: ${s.audience || "Community members"}
+Additional: ${s.extras || ""}
 
-Name: ${spec.orgName || name}
-Tagline: ${spec.tagline || `Welcome to ${name}`}
-Mission: ${spec.mission || "Serving our community."}
-Services: ${services.join(", ") || "Community programs"}
-Location: ${spec.location || ""}
-Hours: ${spec.hours || ""}
-Events: ${events.join(", ") || ""}
-Contact Email: ${contact.email || ""}
-Contact Phone: ${contact.phone || ""}
-Audience: ${spec.audience || "Community members"}
-Extra content: ${spec.extras || ""}
-
-Generate the complete HTML now.`;
+Generate the complete HTML now. Start directly with <!DOCTYPE html>.`;
 
   try {
     const html = await callClaude([{ role: "user", content: genPrompt }], genSystem, MAX_GEN_TOKENS);
@@ -270,33 +365,40 @@ Generate the complete HTML now.`;
       cleanedHtml = idx >= 0 ? cleanedHtml.substring(idx) : cleanedHtml;
     }
 
-    const metaTitle = (spec.orgName as string) || name;
-    const metaDescription = (spec.mission as string) || `Welcome to ${name}`;
+    const metaTitle = s.orgName || name;
+    const metaDescription = s.mission || `Welcome to ${name}`;
 
     const [existing] = await db.select().from(sitesTable).where(eq(sitesTable.orgId, org.id));
-
     let site;
     if (existing) {
       [site] = await db.update(sitesTable)
-        .set({ generatedHtml: cleanedHtml, websiteSpec, orgSlug: slug, metaTitle, metaDescription, updatedAt: new Date() })
+        .set({ generatedHtml: cleanedHtml, orgSlug: slug, metaTitle, metaDescription, updatedAt: new Date() })
         .where(eq(sitesTable.orgId, org.id))
         .returning();
     } else {
       [site] = await db.insert(sitesTable)
-        .values({ orgId: org.id, orgSlug: slug, generatedHtml: cleanedHtml, websiteSpec, metaTitle, metaDescription, status: "draft" })
+        .values({ orgId: org.id, orgSlug: slug, generatedHtml: cleanedHtml, metaTitle, metaDescription, status: "draft" })
         .returning();
     }
 
-    res.json({ site, orgSlug: slug });
-  } catch (err) {
+    // Link spec to site
+    await db.update(websiteSpecsTable).set({ siteId: site.id }).where(eq(websiteSpecsTable.orgId, org.id)).catch(() => {});
+
+    res.json({ site, orgSlug: slug, spec: extractedSpec });
+  } catch {
     res.status(500).json({ error: "Site generation failed. Please try again." });
   }
 });
 
-// ─── Change request (Tier 1+) ─────────────────────────────────────────────────
-router.post("/change-request", async (req: Request, res: Response) => {
+// ─── Change request — PROPOSE (Tier 1+) ────────────────────────────────────
+router.post("/change-request/propose", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
+
+  if (!TIERS_ALLOWING_CHANGES.has(org.tier ?? "")) {
+    res.status(403).json({ error: "Change requests require a paid plan (Tier 1 or higher)" });
+    return;
+  }
 
   const usageInfo = await checkAndResetUsage(org as Parameters<typeof checkAndResetUsage>[0], res);
   if (!usageInfo) return;
@@ -308,36 +410,62 @@ router.post("/change-request", async (req: Request, res: Response) => {
   const [site] = await db.select().from(sitesTable).where(eq(sitesTable.orgId, org.id));
   if (!site?.generatedHtml) { res.status(404).json({ error: "No site found — generate one first" }); return; }
 
-  const changeSystem = `You are an expert web developer making targeted edits to an existing HTML website.
-The user will describe one specific change. Apply ONLY that change.
-Output ONLY the complete, updated HTML document — no explanations, no markdown, no code fences.
-Keep all existing styles, sections, and structure intact unless the change requires modifying them.
-Your entire response must be a valid HTML document starting with <!DOCTYPE html>.`;
+  const proposeSystem = `You are an expert web developer proposing a specific edit to an existing HTML website.
+Apply ONLY the user's requested change — nothing more.
+Output ONLY the complete, updated HTML document starting with <!DOCTYPE html>. No explanations or commentary.`;
 
-  const changePrompt = `Current website HTML:
+  const proposePrompt = `Current website HTML:
 ${site.generatedHtml}
 
-User's requested change: "${changeRequest}"
+Requested change: "${changeRequest}"
 
 Apply this change and output the complete updated HTML.`;
 
   try {
-    const updatedHtml = await callClaude([{ role: "user", content: changePrompt }], changeSystem, MAX_CHANGE_TOKENS);
+    const proposedHtml = await callClaude([{ role: "user", content: proposePrompt }], proposeSystem, MAX_CHANGE_TOKENS);
 
-    let cleanedHtml = updatedHtml.trim();
+    let cleanedHtml = proposedHtml.trim();
     if (!cleanedHtml.startsWith("<!DOCTYPE") && !cleanedHtml.startsWith("<html")) {
       const idx = cleanedHtml.indexOf("<!DOCTYPE");
       cleanedHtml = idx >= 0 ? cleanedHtml.substring(idx) : cleanedHtml;
     }
 
-    await db.update(sitesTable).set({ generatedHtml: cleanedHtml, updatedAt: new Date() }).where(eq(sitesTable.orgId, org.id));
+    // Increment usage for the proposal (1 AI call)
     await db.update(organizationsTable).set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` }).where(eq(organizationsTable.id, org.id));
-
     const newUsed = used + 1;
-    res.json({ html: cleanedHtml, used: newUsed, limit: monthlyLimit, remaining: monthlyLimit - newUsed });
+
+    // Return proposed HTML WITHOUT saving — client holds it for user confirmation
+    res.json({ proposedHtml: cleanedHtml, used: newUsed, limit: monthlyLimit, remaining: monthlyLimit - newUsed });
   } catch {
-    res.status(500).json({ error: "Change request failed. Please try again." });
+    res.status(500).json({ error: "Proposal generation failed. Please try again." });
   }
+});
+
+// ─── Change request — APPLY (confirm) ─────────────────────────────────────────
+router.post("/change-request/apply", async (req: Request, res: Response) => {
+  const org = await resolveOrg(req, res);
+  if (!org) return;
+
+  if (!TIERS_ALLOWING_CHANGES.has(org.tier ?? "")) {
+    res.status(403).json({ error: "Change requests require a paid plan (Tier 1 or higher)" });
+    return;
+  }
+
+  const { confirmedHtml } = req.body as { confirmedHtml: string };
+  if (!confirmedHtml?.trim()) { res.status(400).json({ error: "confirmedHtml is required" }); return; }
+  if (!confirmedHtml.includes("<!DOCTYPE") && !confirmedHtml.includes("<html")) {
+    res.status(400).json({ error: "confirmedHtml must be a valid HTML document" }); return;
+  }
+
+  const [existing] = await db.select().from(sitesTable).where(eq(sitesTable.orgId, org.id));
+  if (!existing) { res.status(404).json({ error: "No site found" }); return; }
+
+  const [site] = await db.update(sitesTable)
+    .set({ generatedHtml: confirmedHtml, updatedAt: new Date() })
+    .where(eq(sitesTable.orgId, org.id))
+    .returning();
+
+  res.json({ site });
 });
 
 // ─── Schedule CRUD (Tier 1a+) ─────────────────────────────────────────────────
@@ -368,7 +496,6 @@ router.post("/schedule", async (req: Request, res: Response) => {
   if (!site) { res.status(404).json({ error: "Generate your site first before setting a schedule" }); return; }
 
   const nextRunAt = computeNextRun(frequency, dayOfWeek);
-
   const [existing] = await db.select().from(siteUpdateSchedulesTable).where(eq(siteUpdateSchedulesTable.orgId, org.id));
 
   let schedule;
@@ -394,39 +521,37 @@ router.delete("/schedule", async (req: Request, res: Response) => {
   res.json({ success: true });
 });
 
-// ─── Schedule manual run (Tier 1a+) ───────────────────────────────────────────
+// ─── Schedule manual run ──────────────────────────────────────────────────────
 router.post("/schedule/run", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
   if (!tierAllowsSchedule(org.tier)) { res.status(403).json({ error: "Schedule requires Tier 1a or higher" }); return; }
 
   const [site] = await db.select().from(sitesTable).where(eq(sitesTable.orgId, org.id));
-  if (!site?.generatedHtml) { res.status(404).json({ error: "No site to update — generate one first" }); return; }
+  if (!site?.generatedHtml) { res.status(404).json({ error: "No site to update" }); return; }
 
   const [schedule] = await db.select().from(siteUpdateSchedulesTable).where(eq(siteUpdateSchedulesTable.orgId, org.id));
   if (!schedule) { res.status(404).json({ error: "No schedule configured" }); return; }
 
   const updateItems = schedule.updateItems ?? [];
-  const custom = schedule.customInstructions ?? "";
+  const instructions: string[] = [];
+  if (updateItems.includes("events")) instructions.push("Update the events section with upcoming events for the next 30 days");
+  if (updateItems.includes("hours")) instructions.push("Ensure all operating hours and schedules appear current");
+  if (updateItems.includes("announcements")) instructions.push("Refresh any news or announcements section to appear active and current");
+  if (schedule.customInstructions) instructions.push(schedule.customInstructions);
+  if (instructions.length === 0) instructions.push("Ensure all content appears fresh and current");
 
-  const updateInstructions: string[] = [];
-  if (updateItems.includes("events")) updateInstructions.push("Update the events section with fresh placeholder events for the upcoming month");
-  if (updateItems.includes("hours")) updateInstructions.push("Review and update any hours or schedule information to appear current");
-  if (updateItems.includes("announcements")) updateInstructions.push("Refresh announcements or news section with a generic 'Stay tuned for updates' message if content is stale");
-  if (custom) updateInstructions.push(custom);
-  if (updateInstructions.length === 0) updateInstructions.push("Ensure all content appears current and up-to-date");
-
-  const runSystem = `You are an expert web developer autonomously updating an organization's website as part of a scheduled job.
+  const runSystem = `You are an expert web developer running a scheduled update on an organization's website.
 Apply the requested updates to the HTML. Keep all sections, styles, and structure intact.
-Output ONLY the complete, updated HTML document starting with <!DOCTYPE html>. No explanations.`;
+Output ONLY the complete updated HTML starting with <!DOCTYPE html>.`;
 
   const runPrompt = `Current website HTML:
 ${site.generatedHtml}
 
 Scheduled update instructions:
-${updateInstructions.map((inst, i) => `${i + 1}. ${inst}`).join("\n")}
+${instructions.map((inst, i) => `${i + 1}. ${inst}`).join("\n")}
 
-Today's date: ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+Today: ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
 
 Apply all updates and output the complete updated HTML.`;
 
@@ -442,7 +567,7 @@ Apply all updates and output the complete updated HTML.`;
     const nextRunAt = computeNextRun(schedule.frequency, schedule.dayOfWeek ?? undefined);
     await db.update(siteUpdateSchedulesTable).set({ lastRunAt: new Date(), nextRunAt, updatedAt: new Date() }).where(eq(siteUpdateSchedulesTable.orgId, org.id));
 
-    res.json({ html: cleanedHtml, lastRunAt: new Date().toISOString(), nextRunAt: nextRunAt?.toISOString() ?? null });
+    res.json({ html: cleanedHtml, lastRunAt: new Date().toISOString(), nextRunAt: nextRunAt.toISOString() });
   } catch {
     res.status(500).json({ error: "Scheduled update failed. Please try again." });
   }
@@ -455,7 +580,7 @@ router.put("/my/publish", async (req: Request, res: Response) => {
 
   const { publish } = req.body as { publish: boolean };
   const [existing] = await db.select().from(sitesTable).where(eq(sitesTable.orgId, org.id));
-  if (!existing) { res.status(404).json({ error: "No site found — generate one first" }); return; }
+  if (!existing) { res.status(404).json({ error: "No site found" }); return; }
   if (!existing.generatedHtml) { res.status(400).json({ error: "Site has no generated content" }); return; }
 
   const [site] = await db.update(sitesTable)
@@ -467,10 +592,9 @@ router.put("/my/publish", async (req: Request, res: Response) => {
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function computeNextRun(frequency: string, dayOfWeek?: string): Date {
+function computeNextRun(frequency: string, dayOfWeek?: string | null): Date {
   const now = new Date();
   const next = new Date(now);
-
   if (frequency === "daily") {
     next.setDate(next.getDate() + 1);
     next.setHours(9, 0, 0, 0);
@@ -485,7 +609,6 @@ function computeNextRun(frequency: string, dayOfWeek?: string): Date {
     next.setMonth(next.getMonth() + 1, 1);
     next.setHours(9, 0, 0, 0);
   }
-
   return next;
 }
 
