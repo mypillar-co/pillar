@@ -4,11 +4,21 @@ import { Toaster } from "sonner";
 import { AuthProvider } from "@workspace/replit-auth-web";
 
 import { Navbar } from "./components/layout/Navbar";
+import { DashboardLayout } from "./components/layout/DashboardLayout";
 import Landing from "./pages/Landing";
 import Onboard from "./pages/Onboard";
-import Dashboard from "./pages/Dashboard";
 import Billing from "./pages/Billing";
 import NotFound from "./pages/not-found";
+
+import Overview from "./pages/dashboard/Overview";
+import Events from "./pages/dashboard/Events";
+import EventDetail from "./pages/dashboard/EventDetail";
+import Vendors from "./pages/dashboard/Vendors";
+import Sponsors from "./pages/dashboard/Sponsors";
+import Contacts from "./pages/dashboard/Contacts";
+import Payments from "./pages/dashboard/Payments";
+import SiteBuilder from "./pages/dashboard/SiteBuilder";
+import DashboardSettings from "./pages/dashboard/DashboardSettings";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -19,20 +29,45 @@ const queryClient = new QueryClient({
   },
 });
 
+function DashboardRouter() {
+  return (
+    <DashboardLayout>
+      <Switch>
+        <Route path="/dashboard" component={Overview} />
+        <Route path="/dashboard/events/:id" component={EventDetail} />
+        <Route path="/dashboard/events" component={Events} />
+        <Route path="/dashboard/vendors" component={Vendors} />
+        <Route path="/dashboard/sponsors" component={Sponsors} />
+        <Route path="/dashboard/contacts" component={Contacts} />
+        <Route path="/dashboard/payments" component={Payments} />
+        <Route path="/dashboard/site" component={SiteBuilder} />
+        <Route path="/dashboard/settings" component={DashboardSettings} />
+        <Route component={NotFound} />
+      </Switch>
+    </DashboardLayout>
+  );
+}
+
 function AppRouter() {
   return (
-    <>
-      <Navbar />
-      <main>
-        <Switch>
-          <Route path="/" component={Landing} />
-          <Route path="/onboard" component={Onboard} />
-          <Route path="/dashboard" component={Dashboard} />
-          <Route path="/billing" component={Billing} />
-          <Route component={NotFound} />
-        </Switch>
-      </main>
-    </>
+    <Switch>
+      <Route path="/" component={Landing} />
+      <Route path="/onboard" component={Onboard} />
+      <Route path="/billing">
+        <>
+          <Navbar />
+          <main><Billing /></main>
+        </>
+      </Route>
+      <Route path="/dashboard/:rest*" component={DashboardRouter} />
+      <Route path="/dashboard" component={DashboardRouter} />
+      <Route>
+        <>
+          <Navbar />
+          <main><NotFound /></main>
+        </>
+      </Route>
+    </Switch>
   );
 }
 

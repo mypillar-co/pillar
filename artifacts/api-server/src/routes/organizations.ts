@@ -91,4 +91,37 @@ router.post("/organizations", async (req: Request, res: Response) => {
   });
 });
 
+// PUT /api/organizations — update current user's org
+router.put("/organizations", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const { name, type } = req.body as { name?: string; type?: string };
+  if (!name) {
+    res.status(400).json({ error: "name is required" });
+    return;
+  }
+
+  const userId = req.user.id;
+  const [existing] = await db.select().from(organizationsTable).where(eq(organizationsTable.userId, userId));
+
+  if (!existing) {
+    res.status(404).json({ error: "Organization not found" });
+    return;
+  }
+
+  const updates: Record<string, unknown> = { name };
+  if (type) updates.type = type;
+
+  const [org] = await db
+    .update(organizationsTable)
+    .set(updates)
+    .where(eq(organizationsTable.userId, userId))
+    .returning();
+
+  res.json({ organization: { ...org, createdAt: org.createdAt.toISOString() } });
+});
+
 export default router;
