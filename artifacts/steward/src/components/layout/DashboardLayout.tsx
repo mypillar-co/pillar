@@ -17,6 +17,7 @@ import {
   X,
   Zap,
   Loader2,
+  LinkIcon,
 } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetOrganization } from "@workspace/api-client-react";
@@ -37,6 +38,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Payments", href: "/dashboard/payments", icon: DollarSign },
   { label: "Contacts", href: "/dashboard/contacts", icon: Contact2 },
   { label: "Site Builder", href: "/dashboard/site", icon: Globe },
+  { label: "Domain", href: "/dashboard/domains", icon: LinkIcon },
   { label: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 

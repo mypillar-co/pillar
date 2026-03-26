@@ -9,6 +9,8 @@ export interface TierDefinition {
   features: string[];
   stripePriceId: string | null;
   highlight?: boolean;
+  domainIncluded: boolean;    // free domain with plan
+  domainAddonAvailable: boolean; // can purchase domain add-on
 }
 
 export const TIERS: TierDefinition[] = [
@@ -23,8 +25,11 @@ export const TIERS: TierDefinition[] = [
       "Subdomain hosting (yourorg.steward.app)",
       "Mobile-responsive design",
       "SEO basics included",
+      "Custom domain add-on available (+$24/yr)",
     ],
     stripePriceId: null,
+    domainIncluded: false,
+    domainAddonAvailable: true,
   },
   {
     id: "tier1a",
@@ -37,9 +42,12 @@ export const TIERS: TierDefinition[] = [
       "Social media posting (Facebook, Instagram, X)",
       "Recurring schedule management",
       "No interaction required",
+      "1 free custom domain included",
     ],
     stripePriceId: null,
     highlight: true,
+    domainIncluded: true,
+    domainAddonAvailable: false,
   },
   {
     id: "tier2",
@@ -53,8 +61,11 @@ export const TIERS: TierDefinition[] = [
       "Attendee communications",
       "Approval workflows",
       "Event metrics dashboard",
+      "1 free custom domain included",
     ],
     stripePriceId: null,
+    domainIncluded: true,
+    domainAddonAvailable: false,
   },
   {
     id: "tier3",
@@ -67,9 +78,11 @@ export const TIERS: TierDefinition[] = [
       "AI-generated social content",
       "Autonomous website updates",
       "Priority support",
-      "Custom domain included",
+      "1 free custom domain included",
     ],
     stripePriceId: null,
+    domainIncluded: true,
+    domainAddonAvailable: false,
   },
 ];
 

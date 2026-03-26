@@ -18,6 +18,7 @@ import Sponsors from "./pages/dashboard/Sponsors";
 import Contacts from "./pages/dashboard/Contacts";
 import Payments from "./pages/dashboard/Payments";
 import SiteBuilder from "./pages/dashboard/SiteBuilder";
+import Domains from "./pages/dashboard/Domains";
 import DashboardSettings from "./pages/dashboard/DashboardSettings";
 
 const queryClient = new QueryClient({
@@ -41,6 +42,7 @@ function DashboardRouter() {
         <Route path="/dashboard/contacts" component={Contacts} />
         <Route path="/dashboard/payments" component={Payments} />
         <Route path="/dashboard/site" component={SiteBuilder} />
+        <Route path="/dashboard/domains" component={Domains} />
         <Route path="/dashboard/settings" component={DashboardSettings} />
         <Route component={NotFound} />
       </Switch>

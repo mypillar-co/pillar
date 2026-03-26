@@ -7,3 +7,4 @@ export * from "./vendors";
 export * from "./sponsors";
 export * from "./eventRelations";
 export * from "./sites";
+export * from "./domains";

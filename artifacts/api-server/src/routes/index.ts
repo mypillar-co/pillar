@@ -9,6 +9,7 @@ import sponsorsRouter from "./sponsors";
 import contactsRouter from "./contacts";
 import statsRouter from "./stats";
 import sitesRouter from "./sites";
+import domainsRouter from "./domains";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use("/sponsors", sponsorsRouter);
 router.use("/contacts", contactsRouter);
 router.use("/stats", statsRouter);
 router.use("/sites", sitesRouter);
+router.use("/domains", domainsRouter);
 
 export default router;
