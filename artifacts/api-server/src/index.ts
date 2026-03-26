@@ -16,12 +16,26 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
+function getWebhookUrl(): string | null {
+  // Use the Replit dev domain for development, production domain when deployed
+  const devDomain = process.env.REPLIT_DEV_DOMAIN;
+  if (devDomain) {
+    return `https://${devDomain}/api/stripe/webhook`;
+  }
+  return null;
+}
+
 async function main() {
   // Initialize Stripe sync (webhooks → postgres stripe schema)
   try {
     const sync = await getStripeSync();
-    await sync.findOrCreateManagedWebhook();
-    logger.info("Stripe webhook registered");
+    const webhookUrl = getWebhookUrl();
+    if (webhookUrl) {
+      await sync.findOrCreateManagedWebhook(webhookUrl);
+      logger.info({ webhookUrl }, "Stripe webhook registered");
+    } else {
+      logger.warn("Cannot determine webhook URL — Stripe sync webhook skipped");
+    }
     // Backfill runs in the background — does not block startup
     sync.syncBackfill().catch((err: unknown) => {
       logger.warn({ err }, "Stripe backfill warning");

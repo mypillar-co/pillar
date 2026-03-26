@@ -1,33 +1,39 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, organizationsTable } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
 import { TIERS, getTierById } from "../tiers";
 
 const router: IRouter = Router();
 
-// GET /api/tiers — public list of subscription tiers
+// GET /api/tiers — public list of subscription tiers with live Stripe price IDs
 router.get("/tiers", async (_req: Request, res: Response) => {
-  // Look up live Stripe price IDs from the synced stripe.prices table
-  let tiers = TIERS;
   try {
-    const priceRows = await db.execute(sql`
-      SELECT p.id as price_id, p.metadata->>'tierId' as tier_id
-      FROM stripe.prices p
-      WHERE p.active = true AND p.metadata->>'tierId' IS NOT NULL
-    `);
+    const stripe = await getUncachableStripeClient();
+    const prices = await stripe.prices.search({
+      query: "active:'true'",
+      expand: ["data.product"],
+    });
+
     const priceMap: Record<string, string> = {};
-    for (const row of priceRows.rows as Array<{ price_id: string; tier_id: string }>) {
-      priceMap[row.tier_id] = row.price_id;
+    for (const price of prices.data) {
+      const meta = (price.product as { metadata?: Record<string, string> })?.metadata;
+      const tierId = meta?.tierId;
+      if (tierId) {
+        priceMap[tierId] = price.id;
+      }
     }
-    tiers = TIERS.map((t) => ({
+
+    const tiers = TIERS.map((t) => ({
       ...t,
       stripePriceId: priceMap[t.id] ?? null,
     }));
+
+    res.json({ tiers });
   } catch {
-    // stripe schema may not exist yet; return tiers without price IDs
+    // Fall back to static tier list if Stripe is unavailable
+    res.json({ tiers: TIERS });
   }
-  res.json({ tiers });
 });
 
 // POST /api/billing/checkout — create a Stripe Checkout session
@@ -39,28 +45,36 @@ router.post("/billing/checkout", async (req: Request, res: Response) => {
 
   const { tierId } = req.body as { tierId?: string };
   const tier = tierId ? getTierById(tierId) : undefined;
-  if (!tier) {
+  if (!tierId || !tier) {
     res.status(400).json({ error: "Invalid tier" });
     return;
   }
 
-  if (!tier.stripePriceId) {
-    res.status(400).json({ error: "This tier is not yet available for purchase. Please contact support." });
+  const stripe = await getUncachableStripeClient();
+
+  // Look up the live Stripe price ID from the API directly
+  const prices = await stripe.prices.search({
+    query: `active:'true' AND metadata['tierId']:'${tierId}'`,
+  });
+
+  const priceId = prices.data[0]?.id;
+  if (!priceId) {
+    res.status(400).json({
+      error: "This tier is not yet available for purchase. Please try again later.",
+    });
     return;
   }
 
   const userId = req.user.id;
   const userEmail = req.user.email ?? undefined;
 
-  // Ensure the org exists and get/create Stripe customer
-  let [org] = await db
+  // Get or create Stripe customer for this user
+  const [org] = await db
     .select()
     .from(organizationsTable)
     .where(eq(organizationsTable.userId, userId));
 
-  const stripe = await getUncachableStripeClient();
-
-  let customerId = org?.stripeCustomerId;
+  let customerId: string | null = org?.stripeCustomerId ?? null;
   if (!customerId) {
     const customer = await stripe.customers.create({
       email: userEmail,
@@ -77,10 +91,16 @@ router.post("/billing/checkout", async (req: Request, res: Response) => {
 
   const origin = `${req.headers["x-forwarded-proto"] ?? "https"}://${req.headers["x-forwarded-host"] ?? req.headers["host"]}`;
 
+  // At this point customerId is always a string (either retrieved or just created)
+  if (!customerId) {
+    res.status(500).json({ error: "Failed to resolve Stripe customer" });
+    return;
+  }
+
   const session = await stripe.checkout.sessions.create({
     customer: customerId,
     payment_method_types: ["card"],
-    line_items: [{ price: tier.stripePriceId, quantity: 1 }],
+    line_items: [{ price: priceId, quantity: 1 }],
     mode: "subscription",
     success_url: `${origin}/?billing=success&tier=${tierId}`,
     cancel_url: `${origin}/?billing=cancelled`,
@@ -133,35 +153,61 @@ router.get("/billing/subscription", async (req: Request, res: Response) => {
     .where(eq(organizationsTable.userId, userId));
 
   if (!org?.stripeCustomerId) {
-    res.json({ hasSubscription: false, tierId: null, tierName: null, status: null, currentPeriodEnd: null, stripeCustomerId: null });
+    res.json({
+      hasSubscription: false,
+      tierId: null,
+      tierName: null,
+      status: null,
+      currentPeriodEnd: null,
+      stripeCustomerId: null,
+    });
     return;
   }
 
-  // Query the stripe schema for live subscription data
+  // Query Stripe directly for live subscription data
   try {
-    const rows = await db.execute(sql`
-      SELECT s.id, s.status, s.current_period_end, s.metadata->>'tierId' as tier_id
-      FROM stripe.subscriptions s
-      WHERE s.customer = ${org.stripeCustomerId}
-      ORDER BY s.created DESC
-      LIMIT 1
-    `);
-    const sub = rows.rows[0] as { id: string; status: string; current_period_end: string; tier_id: string } | undefined;
+    const stripe = await getUncachableStripeClient();
+    const subscriptions = await stripe.subscriptions.list({
+      customer: org.stripeCustomerId,
+      status: "all",
+      limit: 1,
+    });
+
+    const sub = subscriptions.data[0];
     if (!sub) {
-      res.json({ hasSubscription: false, tierId: null, tierName: null, status: null, currentPeriodEnd: null, stripeCustomerId: org.stripeCustomerId });
+      res.json({
+        hasSubscription: false,
+        tierId: org.tier ?? null,
+        tierName: null,
+        status: org.subscriptionStatus ?? null,
+        currentPeriodEnd: null,
+        stripeCustomerId: org.stripeCustomerId,
+      });
       return;
     }
-    const tier = sub.tier_id ? getTierById(sub.tier_id) : undefined;
+
+    const tierId = sub.metadata?.tierId ?? org.tier ?? null;
+    const tier = tierId ? getTierById(tierId) : undefined;
+
     res.json({
       hasSubscription: sub.status === "active",
-      tierId: sub.tier_id ?? org.tier,
+      tierId,
       tierName: tier?.name ?? null,
       status: sub.status,
-      currentPeriodEnd: sub.current_period_end,
+      currentPeriodEnd: sub.items.data[0]?.current_period_end
+        ? new Date(sub.items.data[0].current_period_end * 1000).toISOString()
+        : null,
       stripeCustomerId: org.stripeCustomerId,
     });
   } catch {
-    res.json({ hasSubscription: false, tierId: org.tier ?? null, tierName: null, status: org.subscriptionStatus ?? null, currentPeriodEnd: null, stripeCustomerId: org.stripeCustomerId });
+    res.json({
+      hasSubscription: org.subscriptionStatus === "active",
+      tierId: org.tier ?? null,
+      tierName: null,
+      status: org.subscriptionStatus ?? null,
+      currentPeriodEnd: null,
+      stripeCustomerId: org.stripeCustomerId,
+    });
   }
 });
 

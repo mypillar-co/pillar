@@ -1,7 +1,7 @@
 // Stripe integration via Replit Connectors
-import Stripe from "stripe";
+// WARNING: Never cache this client. Always call getUncachableStripeClient() to get a fresh instance.
 
-let connectionSettings: Record<string, unknown>;
+import Stripe from "stripe";
 
 async function getCredentials() {
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
@@ -34,7 +34,6 @@ async function getCredentials() {
   const data = (await response.json()) as {
     items?: Array<{ settings?: { publishable?: string; secret?: string } }>;
   };
-  connectionSettings = data.items?.[0] as Record<string, unknown>;
 
   const settings = data.items?.[0]?.settings;
   if (!settings?.publishable || !settings?.secret) {
@@ -47,31 +46,29 @@ async function getCredentials() {
   };
 }
 
-// WARNING: Never cache this client. Always call to get a fresh client.
-export async function getUncachableStripeClient() {
+// WARNING: Never cache this client.
+export async function getUncachableStripeClient(): Promise<Stripe> {
   const { secretKey } = await getCredentials();
-  return new Stripe(secretKey, {
-    apiVersion: "2025-08-27.basil" as Parameters<typeof Stripe>[1]["apiVersion"],
-  });
+  return new Stripe(secretKey);
 }
 
-export async function getStripePublishableKey() {
+export async function getStripePublishableKey(): Promise<string> {
   const { publishableKey } = await getCredentials();
   return publishableKey;
 }
 
-export async function getStripeSecretKey() {
+export async function getStripeSecretKey(): Promise<string> {
   const { secretKey } = await getCredentials();
   return secretKey;
 }
 
-let stripeSync: unknown = null;
+let stripeSyncInstance: import("stripe-replit-sync").StripeSync | null = null;
 
-export async function getStripeSync() {
-  if (!stripeSync) {
+export async function getStripeSync(): Promise<import("stripe-replit-sync").StripeSync> {
+  if (!stripeSyncInstance) {
     const { StripeSync } = await import("stripe-replit-sync");
     const secretKey = await getStripeSecretKey();
-    stripeSync = new StripeSync({
+    stripeSyncInstance = new StripeSync({
       poolConfig: {
         connectionString: process.env.DATABASE_URL!,
         max: 2,
@@ -79,5 +76,5 @@ export async function getStripeSync() {
       stripeSecretKey: secretKey,
     });
   }
-  return stripeSync as import("stripe-replit-sync").StripeSync;
+  return stripeSyncInstance;
 }

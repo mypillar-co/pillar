@@ -6,7 +6,7 @@ interface LoginButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement>
 
 export function LoginButton({ children = "Sign In", ...props }: LoginButtonProps) {
   const handleLogin = () => {
-    const base = (import.meta as Record<string, unknown> & { env?: { BASE_URL?: string } })?.env?.BASE_URL?.replace(/\/+$/, "") || "/";
+    const base = (import.meta as unknown as { env?: { BASE_URL?: string } })?.env?.BASE_URL?.replace(/\/+$/, "") ?? "/";
     window.location.href = `/api/login?returnTo=${encodeURIComponent(base)}`;
   };
 

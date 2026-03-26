@@ -71,7 +71,7 @@ pnpm --filter @workspace/scripts run seed-products  # Seed Stripe products
 - Stripe webhook MUST be registered BEFORE `express.json()` in `app.ts`
 - `stripe-replit-sync` syncs Stripe events to the `stripe.*` PostgreSQL schema
 - The `stripe.*` schema was initialized by running migration SQL files from `stripe-replit-sync`
-- In development, `findOrCreateManagedWebhook()` may fail (webhook URL needs production domain)
+- `findOrCreateManagedWebhook(url)` requires a URL argument; url is constructed from `process.env.REPLIT_DEV_DOMAIN` in `index.ts`
 - Stripe products were seeded via `pnpm --filter @workspace/scripts run seed-products`
 
 ### Auth
