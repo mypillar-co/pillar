@@ -70,6 +70,9 @@ app.get("/sites/:slug", async (req, res) => {
   }
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "public, max-age=60");
+  // Strict CSP — block all scripts on user-generated HTML pages to prevent XSS
+  res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'none'; frame-ancestors 'none'");
+  res.setHeader("X-Content-Type-Options", "nosniff");
   res.send(site.generatedHtml);
 });
 

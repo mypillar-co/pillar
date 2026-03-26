@@ -144,8 +144,10 @@ export default function SiteBuilder() {
 
   const isLimitReached = usage !== null && usage.remaining <= 0;
   const userMsgCount = messages.filter(m => m.role === "user").length;
-  const canGenerate = userMsgCount >= 2 && !generating;
-  const interviewProgress = Math.min(userMsgCount, 8);
+  const lastAiMsg = messages.filter(m => m.role === "assistant").slice(-1)[0];
+  const aiSignaledCompletion = !!(lastAiMsg?.content?.toLowerCase().includes("i have everything i need") || lastAiMsg?.content?.toLowerCase().includes("generate my site"));
+  const canGenerate = (userMsgCount >= 8 || aiSignaledCompletion) && !generating;
+  const interviewProgress = Math.min(userMsgCount - 1, 8);
   const publicUrl = orgSlug ? `/sites/${orgSlug}` : null;
 
   const usagePercent = usage ? Math.round((usage.used / usage.limit) * 100) : 0;
@@ -296,10 +298,18 @@ export default function SiteBuilder() {
         setChangeError(d.error ?? "Proposal failed. Please try again.");
         return;
       }
-      const data = await res.json() as { proposedHtml: string; used: number; limit: number; remaining: number };
-      setProposedHtml(data.proposedHtml);
+      const data = await res.json() as { proposalReady: boolean; used: number; limit: number; remaining: number };
       setUsage(prev => prev ? { ...prev, used: data.used, remaining: data.remaining } : null);
-      loadHtmlIntoIframe(data.proposedHtml);
+
+      // Fetch the proposal HTML from the server (server-stored, never client-supplied)
+      const previewRes = await fetch("/api/sites/my/proposal-preview", { credentials: "include" });
+      if (!previewRes.ok) {
+        setChangeError("Failed to load preview. Please try again.");
+        return;
+      }
+      const previewData = await previewRes.json() as { proposedHtml: string };
+      setProposedHtml(previewData.proposedHtml);
+      loadHtmlIntoIframe(previewData.proposedHtml);
       setActiveTab("preview");
     } catch {
       setChangeError("Connection error. Please try again.");
@@ -309,13 +319,12 @@ export default function SiteBuilder() {
   };
 
   const applyChange = async () => {
-    if (!proposedHtml) return;
+    // No HTML sent from client — server applies its stored proposal
     try {
       const res = await fetch("/api/sites/change-request/apply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ confirmedHtml: proposedHtml }),
       });
       if (!res.ok) throw new Error("Failed");
       const data = await res.json() as { site: Site };
@@ -327,8 +336,10 @@ export default function SiteBuilder() {
     }
   };
 
-  const discardChange = () => {
+  const discardChange = async () => {
     setProposedHtml(null);
+    // Clear server-side proposal
+    fetch("/api/sites/my/proposal", { method: "DELETE", credentials: "include" }).catch(() => {});
     if (site?.generatedHtml) loadHtmlIntoIframe(site.generatedHtml);
   };
 

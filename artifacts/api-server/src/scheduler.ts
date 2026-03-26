@@ -1,31 +1,28 @@
 import { db, sitesTable, siteUpdateSchedulesTable } from "@workspace/db";
 import { eq, lte, and } from "drizzle-orm";
 import { logger } from "./lib/logger";
+import OpenAI from "openai";
 
 const MAX_CHANGE_TOKENS = 6000;
 
-async function callClaude(
-  messages: { role: string; content: string }[],
-  system: string,
+function getOpenAIClient() {
+  return new OpenAI({
+    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY ?? "placeholder",
+    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  });
+}
+
+async function callOpenAI(
+  messages: OpenAI.ChatCompletionMessageParam[],
   maxTokens: number,
 ): Promise<string> {
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": process.env.ANTHROPIC_API_KEY ?? "",
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-3-haiku-20240307",
-      max_tokens: maxTokens,
-      system,
-      messages,
-    }),
+  const client = getOpenAIClient();
+  const response = await client.chat.completions.create({
+    model: "gpt-5-mini",
+    max_tokens: maxTokens,
+    messages,
   });
-  if (!response.ok) throw new Error(`Anthropic ${response.status}: ${await response.text()}`);
-  const data = await response.json() as { content: { type: string; text: string }[] };
-  return data.content?.[0]?.text ?? "";
+  return response.choices[0]?.message?.content ?? "";
 }
 
 function computeNextRun(frequency: string, dayOfWeek?: string | null): Date {
@@ -90,29 +87,25 @@ export async function runDueSchedules(): Promise<void> {
         if (custom) instructions.push(custom);
         if (instructions.length === 0) instructions.push("Review and freshen any dated-looking content");
 
-        const runSystem = `You are an expert web developer autonomously updating an organization's website as part of a scheduled job.
+        const updatedHtml = await callOpenAI([
+          {
+            role: "system",
+            content: `You are an expert web developer autonomously updating an organization's website as part of a scheduled job.
 Apply the requested updates to the HTML. Keep all sections, styles, and structure intact.
-Output ONLY the complete updated HTML document starting with <!DOCTYPE html>. No explanations or commentary.`;
+Output ONLY the complete updated HTML document starting with <!DOCTYPE html>. No explanations or commentary.`,
+          },
+          {
+            role: "user",
+            content: `Current website HTML:\n${site.generatedHtml}\n\nScheduled update instructions:\n${instructions.map((inst, i) => `${i + 1}. ${inst}`).join("\n")}\n\nToday's date: ${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}\n\nApply all updates and output the complete updated HTML.`,
+          },
+        ], MAX_CHANGE_TOKENS);
 
-        const runPrompt = `Current website HTML:
-${site.generatedHtml}
-
-Scheduled update instructions:
-${instructions.map((inst, i) => `${i + 1}. ${inst}`).join("\n")}
-
-Today's date: ${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-
-Apply all updates and output the complete updated HTML.`;
-
-        const updatedHtml = await callClaude([{ role: "user", content: runPrompt }], runSystem, MAX_CHANGE_TOKENS);
         let cleanedHtml = updatedHtml.trim();
-        if (!cleanedHtml.startsWith("<!DOCTYPE") && !cleanedHtml.startsWith("<html")) {
-          const idx = cleanedHtml.indexOf("<!DOCTYPE");
-          cleanedHtml = idx >= 0 ? cleanedHtml.substring(idx) : cleanedHtml;
-        }
+        const htmlStart = cleanedHtml.indexOf("<!DOCTYPE");
+        if (htmlStart > 0) cleanedHtml = cleanedHtml.substring(htmlStart);
 
         const nextRunAt = computeNextRun(schedule.frequency, schedule.dayOfWeek);
-        await db.update(sitesTable).set({ generatedHtml: cleanedHtml, updatedAt: new Date() }).where(eq(sitesTable.orgId, schedule.orgId));
+        await db.update(sitesTable).set({ generatedHtml: cleanedHtml, proposedHtml: null, updatedAt: new Date() }).where(eq(sitesTable.orgId, schedule.orgId));
         await db.update(siteUpdateSchedulesTable).set({ lastRunAt: new Date(), nextRunAt, updatedAt: new Date() }).where(eq(siteUpdateSchedulesTable.id, schedule.id));
 
         logger.info({ orgId: schedule.orgId, nextRunAt }, "Schedule ran successfully");

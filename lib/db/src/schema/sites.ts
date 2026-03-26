@@ -8,6 +8,7 @@ export const sitesTable = pgTable("sites", {
   subdomain: varchar("subdomain").unique(),
   websiteSpec: jsonb("website_spec").$type<Record<string, unknown>>(),
   generatedHtml: text("generated_html"),
+  proposedHtml: text("proposed_html"),
   theme: jsonb("theme").$type<{
     primaryColor?: string;
     secondaryColor?: string;

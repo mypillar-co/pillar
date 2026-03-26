@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { db, organizationsTable, sitesTable, siteUpdateSchedulesTable, websiteSpecsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
+import OpenAI from "openai";
 
 const router = Router();
 
@@ -26,6 +27,16 @@ function getMonthlyLimit(tier: string | null | undefined): number {
 
 function tierAllowsSchedule(tier: string | null | undefined): boolean {
   return tier === "tier1a" || tier === "tier2" || tier === "tier3";
+}
+
+function getOpenAIClient() {
+  if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || !process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
+    throw new Error("Replit AI integration not configured. Run setupReplitAIIntegrations.");
+  }
+  return new OpenAI({
+    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  });
 }
 
 async function resolveOrg(req: Request, res: Response) {
@@ -54,33 +65,21 @@ async function checkAndResetUsage(org: { id: string; aiMessagesUsed: number; aiM
   return { used, limit: monthlyLimit };
 }
 
-async function callClaude(
-  messages: { role: string; content: string }[],
-  system: string,
+async function callOpenAI(
+  messages: OpenAI.ChatCompletionMessageParam[],
   maxTokens: number,
 ): Promise<string> {
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": process.env.ANTHROPIC_API_KEY ?? "",
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-3-haiku-20240307",
-      max_tokens: maxTokens,
-      system,
-      messages,
-    }),
+  const client = getOpenAIClient();
+  const response = await client.chat.completions.create({
+    model: "gpt-5-mini",
+    max_tokens: maxTokens,
+    messages,
   });
-  if (!response.ok) throw new Error(`Anthropic ${response.status}: ${await response.text()}`);
-  const data = await response.json() as { content: { type: string; text: string }[] };
-  return data.content?.[0]?.text ?? "";
+  return response.choices[0]?.message?.content ?? "";
 }
 
-async function callClaudeStreaming(
-  messages: { role: string; content: string }[],
-  system: string,
+async function callOpenAIStreaming(
+  messages: OpenAI.ChatCompletionMessageParam[],
   maxTokens: number,
   res: Response,
 ): Promise<string> {
@@ -89,65 +88,27 @@ async function callClaudeStreaming(
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
-  const upstream = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": process.env.ANTHROPIC_API_KEY ?? "",
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-3-haiku-20240307",
-      max_tokens: maxTokens,
-      system,
-      messages,
-      stream: true,
-    }),
+  const client = getOpenAIClient();
+  const stream = await client.chat.completions.create({
+    model: "gpt-5-mini",
+    max_tokens: maxTokens,
+    messages,
+    stream: true,
   });
 
-  if (!upstream.ok) {
-    const errText = await upstream.text();
-    res.write(`data: ${JSON.stringify({ error: `AI service error (${upstream.status})` })}\n\n`);
-    res.end();
-    throw new Error(`Anthropic streaming ${upstream.status}: ${errText}`);
-  }
-
   let fullText = "";
-  const reader = upstream.body!.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const dataStr = line.slice(6).trim();
-      if (!dataStr || dataStr === "[DONE]") continue;
-      try {
-        const event = JSON.parse(dataStr) as {
-          type: string;
-          delta?: { type: string; text: string };
-        };
-        if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
-          const text = event.delta.text;
-          fullText += text;
-          res.write(`data: ${JSON.stringify({ content: text })}\n\n`);
-        }
-      } catch {
-        // Skip malformed chunks
-      }
+  for await (const chunk of stream) {
+    const text = chunk.choices[0]?.delta?.content ?? "";
+    if (text) {
+      fullText += text;
+      res.write(`data: ${JSON.stringify({ content: text })}\n\n`);
     }
   }
 
   return fullText;
 }
 
-// ─── Interview chat (SSE streaming) ───────────────────────────────────────────
+// ─── Interview chat (SSE streaming via Replit AI / OpenAI-compatible) ─────────
 router.post("/builder", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
@@ -167,7 +128,7 @@ router.post("/builder", async (req: Request, res: Response) => {
 
   const name = orgName ?? org.name;
   const type = orgType ?? org.type ?? "organization";
-  const trimmedHistory = history.slice(-(CONTEXT_TURNS * 2)).map(m => ({ role: m.role as "user" | "assistant", content: m.content }));
+  const trimmedHistory = history.slice(-(CONTEXT_TURNS * 2));
 
   const systemPrompt = `You are a friendly website consultant helping ${name} (a ${type}) build their public website through Steward.
 
@@ -187,22 +148,30 @@ After each answer, acknowledge in ONE brief sentence, then ask the next question
 After collecting all 8 answers, say EXACTLY: "I have everything I need! Click **Generate My Site** to build your website."
 Keep every response under 60 words. Stay focused — no extra suggestions.`;
 
+  const messages: OpenAI.ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt },
+    ...trimmedHistory.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
+    { role: "user", content: message },
+  ];
+
   try {
-    const fullReply = await callClaudeStreaming(
-      [...trimmedHistory, { role: "user", content: message }],
-      systemPrompt,
-      MAX_CHAT_TOKENS,
-      res,
-    );
+    const fullReply = await callOpenAIStreaming(messages, MAX_CHAT_TOKENS, res);
+
+    if (!fullReply) {
+      res.write(`data: ${JSON.stringify({ error: "Empty response from AI service" })}\n\n`);
+    }
 
     await db.update(organizationsTable).set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` }).where(eq(organizationsTable.id, org.id));
     const newUsed = used + 1;
 
     res.write(`data: ${JSON.stringify({ done: true, used: newUsed, limit: monthlyLimit, remaining: monthlyLimit - newUsed })}\n\n`);
     res.end();
-  } catch {
+  } catch (err) {
     if (!res.headersSent) {
       res.status(500).json({ error: "AI service unavailable. Please try again." });
+    } else {
+      res.write(`data: ${JSON.stringify({ error: "AI service error. Please try again." })}\n\n`);
+      res.end();
     }
   }
 });
@@ -227,7 +196,43 @@ router.get("/my", async (req: Request, res: Response) => {
   const [site] = await db.select().from(sitesTable).where(eq(sitesTable.orgId, org.id));
   const [schedule] = await db.select().from(siteUpdateSchedulesTable).where(eq(siteUpdateSchedulesTable.orgId, org.id));
   const [spec] = await db.select().from(websiteSpecsTable).where(eq(websiteSpecsTable.orgId, org.id));
-  res.json({ site: site ?? null, orgSlug: org.slug, schedule: schedule ?? null, spec: spec ?? null, tier: org.tier });
+  const hasProposal = !!(site?.proposedHtml);
+  res.json({
+    site: site ? { ...site, proposedHtml: undefined } : null,
+    orgSlug: org.slug,
+    schedule: schedule ?? null,
+    spec: spec ?? null,
+    tier: org.tier,
+    hasProposal,
+  });
+});
+
+// ─── Get proposal preview (authenticated owner only) ──────────────────────────
+router.get("/my/proposal-preview", async (req: Request, res: Response) => {
+  const org = await resolveOrg(req, res);
+  if (!org) return;
+
+  if (!TIERS_ALLOWING_CHANGES.has(org.tier ?? "")) {
+    res.status(403).json({ error: "Change requests require a paid plan (Tier 1 or higher)" });
+    return;
+  }
+
+  const [site] = await db.select().from(sitesTable).where(eq(sitesTable.orgId, org.id));
+  if (!site?.proposedHtml) {
+    res.status(404).json({ error: "No pending proposal found" });
+    return;
+  }
+
+  res.json({ proposedHtml: site.proposedHtml });
+});
+
+// ─── Discard proposal ─────────────────────────────────────────────────────────
+router.delete("/my/proposal", async (req: Request, res: Response) => {
+  const org = await resolveOrg(req, res);
+  if (!org) return;
+
+  await db.update(sitesTable).set({ proposedHtml: null }).where(eq(sitesTable.orgId, org.id));
+  res.json({ success: true });
 });
 
 // ─── Generate site from interview history ─────────────────────────────────────
@@ -250,7 +255,23 @@ router.post("/generate", async (req: Request, res: Response) => {
     : `Organization name: ${name}\nType: ${type}`;
 
   // Step 1: Extract structured spec from conversation
-  const specSystem = `Extract website content from this conversation and output ONLY valid JSON.
+  type SpecType = {
+    orgName: string; tagline: string; mission: string; services: string[];
+    location: string; hours: string; events: string[]; contactEmail: string;
+    contactPhone: string; socialMedia: string[]; audience: string; colors: string; extras: string;
+  };
+
+  let extractedSpec: SpecType = {
+    orgName: name, tagline: `Welcome to ${name}`, mission: `${name} serves our community.`,
+    services: [], location: "", hours: "", events: [], contactEmail: "", contactPhone: "",
+    socialMedia: [], audience: "", colors: "navy and gold", extras: "",
+  };
+
+  try {
+    const specJson = await callOpenAI([
+      {
+        role: "system",
+        content: `Extract website content from this conversation and output ONLY valid JSON.
 Required structure:
 {
   "orgName": "string",
@@ -267,55 +288,31 @@ Required structure:
   "colors": "string",
   "extras": "string"
 }
-Use empty strings and empty arrays for anything not mentioned. Output ONLY the JSON object.`;
+Use empty strings and empty arrays for anything not mentioned. Output ONLY the JSON object.`,
+      },
+      { role: "user", content: `Extract website info from this conversation:\n\n${conversationText}` },
+    ], MAX_SPEC_TOKENS);
 
-  let extractedSpec = {
-    orgName: name,
-    tagline: `Welcome to ${name}`,
-    mission: `${name} serves our community.`,
-    services: [] as string[],
-    location: "",
-    hours: "",
-    events: [] as string[],
-    contactEmail: "",
-    contactPhone: "",
-    socialMedia: [] as string[],
-    audience: "",
-    colors: "navy and gold",
-    extras: "",
-  };
-
-  try {
-    const specJson = await callClaude(
-      [{ role: "user", content: `Extract website info from this conversation:\n\n${conversationText}` }],
-      specSystem,
-      MAX_SPEC_TOKENS,
-    );
-    const parsed = JSON.parse(specJson.trim()) as typeof extractedSpec;
-    extractedSpec = { ...extractedSpec, ...parsed };
+    const jsonMatch = specJson.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]) as SpecType;
+      extractedSpec = { ...extractedSpec, ...parsed };
+    }
   } catch {
     // Use defaults if extraction fails
   }
 
-  // Step 2: Save to website_specs table (dedicated, normalized table)
+  // Step 2: Save to website_specs table
   const [existingSpec] = await db.select().from(websiteSpecsTable).where(eq(websiteSpecsTable.orgId, org.id));
   if (existingSpec) {
-    await db.update(websiteSpecsTable).set({
-      ...extractedSpec,
-      rawConversation: history,
-      updatedAt: new Date(),
-    }).where(eq(websiteSpecsTable.orgId, org.id));
+    await db.update(websiteSpecsTable).set({ ...extractedSpec, rawConversation: history, updatedAt: new Date() }).where(eq(websiteSpecsTable.orgId, org.id));
   } else {
-    await db.insert(websiteSpecsTable).values({
-      orgId: org.id,
-      ...extractedSpec,
-      rawConversation: history,
-    });
+    await db.insert(websiteSpecsTable).values({ orgId: org.id, ...extractedSpec, rawConversation: history });
   }
 
-  // Step 3: Generate HTML from the spec
+  // Step 3: Generate HTML
   const s = extractedSpec;
-  const genSystem = `You are an expert web developer. Generate a complete, beautiful, self-contained HTML page.
+  const genSystemMsg = `You are an expert web developer. Generate a complete, beautiful, self-contained HTML page.
 
 STRICT RULES:
 - Output ONLY valid HTML — start with <!DOCTYPE html>, end with </html>
@@ -340,7 +337,7 @@ ${s.events.length > 0 ? `5. Events — clean card list for: ${s.events.join(", "
 COLOR SCHEME: ${s.colors || "professional navy and gold"}.
 Use real content from the spec — never use lorem ipsum or placeholder text.`;
 
-  const genPrompt = `Build a website for:
+  const genUserMsg = `Build a website for:
 Name: ${s.orgName}
 Tagline: ${s.tagline}
 Mission: ${s.mission}
@@ -357,13 +354,16 @@ Additional: ${s.extras || ""}
 Generate the complete HTML now. Start directly with <!DOCTYPE html>.`;
 
   try {
-    const html = await callClaude([{ role: "user", content: genPrompt }], genSystem, MAX_GEN_TOKENS);
+    const html = await callOpenAI([
+      { role: "system", content: genSystemMsg },
+      { role: "user", content: genUserMsg },
+    ], MAX_GEN_TOKENS);
 
     let cleanedHtml = html.trim();
-    if (!cleanedHtml.startsWith("<!DOCTYPE") && !cleanedHtml.startsWith("<html")) {
-      const idx = cleanedHtml.indexOf("<!DOCTYPE");
-      cleanedHtml = idx >= 0 ? cleanedHtml.substring(idx) : cleanedHtml;
-    }
+    const htmlStart = cleanedHtml.indexOf("<!DOCTYPE");
+    const altStart = cleanedHtml.indexOf("<html");
+    const startIdx = htmlStart >= 0 ? htmlStart : (altStart >= 0 ? altStart : -1);
+    if (startIdx > 0) cleanedHtml = cleanedHtml.substring(startIdx);
 
     const metaTitle = s.orgName || name;
     const metaDescription = s.mission || `Welcome to ${name}`;
@@ -372,7 +372,7 @@ Generate the complete HTML now. Start directly with <!DOCTYPE html>.`;
     let site;
     if (existing) {
       [site] = await db.update(sitesTable)
-        .set({ generatedHtml: cleanedHtml, orgSlug: slug, metaTitle, metaDescription, updatedAt: new Date() })
+        .set({ generatedHtml: cleanedHtml, proposedHtml: null, orgSlug: slug, metaTitle, metaDescription, updatedAt: new Date() })
         .where(eq(sitesTable.orgId, org.id))
         .returning();
     } else {
@@ -381,16 +381,15 @@ Generate the complete HTML now. Start directly with <!DOCTYPE html>.`;
         .returning();
     }
 
-    // Link spec to site
     await db.update(websiteSpecsTable).set({ siteId: site.id }).where(eq(websiteSpecsTable.orgId, org.id)).catch(() => {});
 
-    res.json({ site, orgSlug: slug, spec: extractedSpec });
+    res.json({ site: { ...site, proposedHtml: undefined }, orgSlug: slug, spec: extractedSpec });
   } catch {
     res.status(500).json({ error: "Site generation failed. Please try again." });
   }
 });
 
-// ─── Change request — PROPOSE (Tier 1+) ────────────────────────────────────
+// ─── Change request — PROPOSE (Tier 1+) — stored server-side ─────────────────
 router.post("/change-request/propose", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
@@ -410,38 +409,45 @@ router.post("/change-request/propose", async (req: Request, res: Response) => {
   const [site] = await db.select().from(sitesTable).where(eq(sitesTable.orgId, org.id));
   if (!site?.generatedHtml) { res.status(404).json({ error: "No site found — generate one first" }); return; }
 
-  const proposeSystem = `You are an expert web developer proposing a specific edit to an existing HTML website.
-Apply ONLY the user's requested change — nothing more.
-Output ONLY the complete, updated HTML document starting with <!DOCTYPE html>. No explanations or commentary.`;
-
-  const proposePrompt = `Current website HTML:
-${site.generatedHtml}
-
-Requested change: "${changeRequest}"
-
-Apply this change and output the complete updated HTML.`;
-
   try {
-    const proposedHtml = await callClaude([{ role: "user", content: proposePrompt }], proposeSystem, MAX_CHANGE_TOKENS);
+    const proposedHtml = await callOpenAI([
+      {
+        role: "system",
+        content: `You are an expert web developer proposing a specific edit to an existing HTML website.
+Apply ONLY the user's requested change — nothing more.
+Output ONLY the complete, updated HTML document starting with <!DOCTYPE html>. No explanations or commentary.`,
+      },
+      {
+        role: "user",
+        content: `Current website HTML:\n${site.generatedHtml}\n\nRequested change: "${changeRequest}"\n\nApply this change and output the complete updated HTML.`,
+      },
+    ], MAX_CHANGE_TOKENS);
 
     let cleanedHtml = proposedHtml.trim();
-    if (!cleanedHtml.startsWith("<!DOCTYPE") && !cleanedHtml.startsWith("<html")) {
-      const idx = cleanedHtml.indexOf("<!DOCTYPE");
-      cleanedHtml = idx >= 0 ? cleanedHtml.substring(idx) : cleanedHtml;
+    const htmlStart = cleanedHtml.indexOf("<!DOCTYPE");
+    const altStart = cleanedHtml.indexOf("<html");
+    const startIdx = htmlStart >= 0 ? htmlStart : (altStart >= 0 ? altStart : -1);
+    if (startIdx > 0) cleanedHtml = cleanedHtml.substring(startIdx);
+
+    // Validate output looks like HTML
+    if (!cleanedHtml.includes("<html") && !cleanedHtml.includes("<!DOCTYPE")) {
+      res.status(500).json({ error: "AI returned invalid HTML. Please try again." });
+      return;
     }
 
-    // Increment usage for the proposal (1 AI call)
+    // Save proposal server-side — do NOT return HTML to client
+    await db.update(sitesTable).set({ proposedHtml: cleanedHtml }).where(eq(sitesTable.orgId, org.id));
+
     await db.update(organizationsTable).set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` }).where(eq(organizationsTable.id, org.id));
     const newUsed = used + 1;
 
-    // Return proposed HTML WITHOUT saving — client holds it for user confirmation
-    res.json({ proposedHtml: cleanedHtml, used: newUsed, limit: monthlyLimit, remaining: monthlyLimit - newUsed });
+    res.json({ proposalReady: true, used: newUsed, limit: monthlyLimit, remaining: monthlyLimit - newUsed });
   } catch {
     res.status(500).json({ error: "Proposal generation failed. Please try again." });
   }
 });
 
-// ─── Change request — APPLY (confirm) ─────────────────────────────────────────
+// ─── Change request — APPLY (server-stored proposal only, no client HTML) ─────
 router.post("/change-request/apply", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
@@ -451,21 +457,17 @@ router.post("/change-request/apply", async (req: Request, res: Response) => {
     return;
   }
 
-  const { confirmedHtml } = req.body as { confirmedHtml: string };
-  if (!confirmedHtml?.trim()) { res.status(400).json({ error: "confirmedHtml is required" }); return; }
-  if (!confirmedHtml.includes("<!DOCTYPE") && !confirmedHtml.includes("<html")) {
-    res.status(400).json({ error: "confirmedHtml must be a valid HTML document" }); return;
-  }
-
   const [existing] = await db.select().from(sitesTable).where(eq(sitesTable.orgId, org.id));
   if (!existing) { res.status(404).json({ error: "No site found" }); return; }
+  if (!existing.proposedHtml) { res.status(400).json({ error: "No pending proposal to apply" }); return; }
 
+  // Apply server-stored proposal — no client-supplied HTML accepted
   const [site] = await db.update(sitesTable)
-    .set({ generatedHtml: confirmedHtml, updatedAt: new Date() })
+    .set({ generatedHtml: existing.proposedHtml, proposedHtml: null, updatedAt: new Date() })
     .where(eq(sitesTable.orgId, org.id))
     .returning();
 
-  res.json({ site });
+  res.json({ site: { ...site, proposedHtml: undefined } });
 });
 
 // ─── Schedule CRUD (Tier 1a+) ─────────────────────────────────────────────────
@@ -483,11 +485,8 @@ router.post("/schedule", async (req: Request, res: Response) => {
   if (!tierAllowsSchedule(org.tier)) { res.status(403).json({ error: "Schedule requires Tier 1a or higher" }); return; }
 
   const { frequency, dayOfWeek, updateItems, customInstructions, isActive } = req.body as {
-    frequency: string;
-    dayOfWeek?: string;
-    updateItems?: string[];
-    customInstructions?: string;
-    isActive?: boolean;
+    frequency: string; dayOfWeek?: string; updateItems?: string[];
+    customInstructions?: string; isActive?: boolean;
   };
 
   if (!frequency) { res.status(400).json({ error: "frequency is required" }); return; }
@@ -541,29 +540,25 @@ router.post("/schedule/run", async (req: Request, res: Response) => {
   if (schedule.customInstructions) instructions.push(schedule.customInstructions);
   if (instructions.length === 0) instructions.push("Ensure all content appears fresh and current");
 
-  const runSystem = `You are an expert web developer running a scheduled update on an organization's website.
-Apply the requested updates to the HTML. Keep all sections, styles, and structure intact.
-Output ONLY the complete updated HTML starting with <!DOCTYPE html>.`;
-
-  const runPrompt = `Current website HTML:
-${site.generatedHtml}
-
-Scheduled update instructions:
-${instructions.map((inst, i) => `${i + 1}. ${inst}`).join("\n")}
-
-Today: ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-
-Apply all updates and output the complete updated HTML.`;
-
   try {
-    const updatedHtml = await callClaude([{ role: "user", content: runPrompt }], runSystem, MAX_CHANGE_TOKENS);
-    let cleanedHtml = updatedHtml.trim();
-    if (!cleanedHtml.startsWith("<!DOCTYPE") && !cleanedHtml.startsWith("<html")) {
-      const idx = cleanedHtml.indexOf("<!DOCTYPE");
-      cleanedHtml = idx >= 0 ? cleanedHtml.substring(idx) : cleanedHtml;
-    }
+    const updatedHtml = await callOpenAI([
+      {
+        role: "system",
+        content: `You are an expert web developer running a scheduled update on an organization's website.
+Apply the requested updates to the HTML. Keep all sections, styles, and structure intact.
+Output ONLY the complete updated HTML starting with <!DOCTYPE html>.`,
+      },
+      {
+        role: "user",
+        content: `Current website HTML:\n${site.generatedHtml}\n\nScheduled update instructions:\n${instructions.map((inst, i) => `${i + 1}. ${inst}`).join("\n")}\n\nToday: ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}\n\nApply all updates and output the complete updated HTML.`,
+      },
+    ], MAX_CHANGE_TOKENS);
 
-    await db.update(sitesTable).set({ generatedHtml: cleanedHtml, updatedAt: new Date() }).where(eq(sitesTable.orgId, org.id));
+    let cleanedHtml = updatedHtml.trim();
+    const htmlStart = cleanedHtml.indexOf("<!DOCTYPE");
+    if (htmlStart > 0) cleanedHtml = cleanedHtml.substring(htmlStart);
+
+    await db.update(sitesTable).set({ generatedHtml: cleanedHtml, proposedHtml: null, updatedAt: new Date() }).where(eq(sitesTable.orgId, org.id));
     const nextRunAt = computeNextRun(schedule.frequency, schedule.dayOfWeek ?? undefined);
     await db.update(siteUpdateSchedulesTable).set({ lastRunAt: new Date(), nextRunAt, updatedAt: new Date() }).where(eq(siteUpdateSchedulesTable.orgId, org.id));
 
@@ -588,7 +583,7 @@ router.put("/my/publish", async (req: Request, res: Response) => {
     .where(eq(sitesTable.orgId, org.id))
     .returning();
 
-  res.json({ site });
+  res.json({ site: { ...site, proposedHtml: undefined } });
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
