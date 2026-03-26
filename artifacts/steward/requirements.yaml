@@ -1,0 +1,19 @@
+packages:
+  "framer-motion": "For premium scroll animations and page transitions"
+  "clsx": "Utility for constructing className strings conditionally"
+  "tailwind-merge": "Utility function to efficiently merge Tailwind CSS classes"
+  "lucide-react": "Beautiful, consistent icons"
+  "react-hook-form": "For robust form state management in the onboarding flow"
+  "@hookform/resolvers": "For Zod validation integration with react-hook-form"
+  "sonner": "For premium, beautiful toast notifications"
+
+images:
+  - path: "artifacts/steward/public/images/hero-bg.png"
+    description: "Deep navy blue abstract geometric background with subtle warm gold light leaks and architectural lines, representing a modern but established civic organization or masonic lodge, minimal and premium"
+    aspect_ratio: "16:9"
+
+notes:
+  - Using framer-motion for high-end SaaS feel
+  - Leveraging Orval generated hooks from @workspace/api-client-react
+  - Using Replit Auth Web for authentication flows
+  - The UI uses a Heritage Navy and Antique Gold color palette to evoke trust, tradition, and modern capability

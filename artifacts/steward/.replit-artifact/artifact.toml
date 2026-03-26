@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Steward"
+version = "1.0.0"
+id = "artifacts/steward"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18402
+
+[services.development]
+run = "pnpm --filter @workspace/steward run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/steward", "run", "build" ]
+publicDir = "artifacts/steward/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18402"
+BASE_PATH = "/"

@@ -1,96 +1,93 @@
-# Workspace
+# Steward — Your Organization, on Autopilot
 
-## Overview
+An AI-powered SaaS platform (Wix meets Eventbrite) that autonomously manages websites, event dashboards, and social media for small businesses, Masonic lodges, and local organizations.
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+## Architecture
 
-## Stack
+### Monorepo Structure
+- `artifacts/steward/` — React + Vite frontend (main app, previewPath: `/`)
+- `artifacts/api-server/` — Express API server (previewPath: `/api`)
+- `lib/api-spec/openapi.yaml` — OpenAPI contract (source of truth)
+- `lib/api-client-react/` — Generated React hooks (via Orval from OpenAPI)
+- `lib/api-zod/` — Generated Zod schemas (via Orval from OpenAPI)
+- `lib/db/` — Drizzle ORM schema + PostgreSQL client
+- `lib/replit-auth-web/` — Replit Auth client library (useAuth, AuthProvider, LoginButton, LogoutButton)
+- `scripts/` — One-off scripts (seed-products, etc.)
 
-- **Monorepo tool**: pnpm workspaces
-- **Node.js version**: 24
-- **Package manager**: pnpm
-- **TypeScript version**: 5.9
-- **API framework**: Express 5
-- **Database**: PostgreSQL + Drizzle ORM
-- **Validation**: Zod (`zod/v4`), `drizzle-zod`
-- **API codegen**: Orval (from OpenAPI spec)
-- **Build**: esbuild (CJS bundle)
+### Tech Stack
+- **Frontend**: React 19, Vite, Tailwind CSS 4, Shadcn/ui components, TanStack Query, Framer Motion, Sonner (toasts)
+- **Backend**: Express, TypeScript, Drizzle ORM, PostgreSQL
+- **Auth**: Replit Auth (OIDC/PKCE) via `@replit/passport-replit-auth`
+- **Payments**: Stripe via Replit Connectors (NO manual API keys; use `getUncachableStripeClient()`)
+- **Stripe Sync**: `stripe-replit-sync` — syncs Stripe webhook events to `stripe.*` PostgreSQL schema
+- **Codegen**: Orval (`pnpm --filter @workspace/api-spec run codegen`)
 
-## Structure
+## Database
 
-```text
-artifacts-monorepo/
-├── artifacts/              # Deployable applications
-│   └── api-server/         # Express API server
-├── lib/                    # Shared libraries
-│   ├── api-spec/           # OpenAPI spec + Orval codegen config
-│   ├── api-client-react/   # Generated React Query hooks
-│   ├── api-zod/            # Generated Zod schemas from OpenAPI
-│   └── db/                 # Drizzle ORM schema + DB connection
-├── scripts/                # Utility scripts (single workspace package)
-│   └── src/                # Individual .ts scripts, run via `pnpm --filter @workspace/scripts run <script>`
-├── pnpm-workspace.yaml     # pnpm workspace (artifacts/*, lib/*, lib/integrations/*, scripts)
-├── tsconfig.base.json      # Shared TS options (composite, bundler resolution, es2022)
-├── tsconfig.json           # Root TS project references
-└── package.json            # Root package with hoisted devDeps
+### Schemas
+- `public.users` — Replit Auth user table
+- `public.sessions` — Express session storage
+- `public.organizations` — User organizations (orgs can have websites, events, social media)
+- `stripe.*` — Synced Stripe data (products, prices, customers, subscriptions, etc.)
+
+### DB Commands
+```bash
+pnpm --filter @workspace/db run push   # Push schema changes
+pnpm --filter @workspace/api-spec run codegen  # Regenerate API types/hooks
+pnpm --filter @workspace/scripts run seed-products  # Seed Stripe products
 ```
 
-## TypeScript & Composite Projects
+## Subscription Tiers
+| Tier | Price | Description |
+|------|-------|-------------|
+| Tier 1 | $29/mo | AI website + chat-based updates |
+| Tier 1a | $59/mo | Hands-off website + social media automation (Most Popular) |
+| Tier 2 | $99/mo | Website + event dashboard (ticket sales, approvals, comms) |
+| Tier 3 | $149/mo | Fully autonomous: website + events + social |
 
-Every package extends `tsconfig.base.json` which sets `composite: true`. The root `tsconfig.json` lists all packages as project references. This means:
+## API Routes
+- `GET /api/health` — Health check
+- `GET /api/auth/user` — Current user info
+- `POST /api/auth/logout` — Sign out
+- `GET /api/tiers` — Public list of subscription tiers
+- `POST /api/billing/checkout` — Create Stripe Checkout session
+- `POST /api/billing/portal` — Create Stripe Customer Portal session
+- `GET /api/billing/subscription` — Current user's subscription status
+- `GET /api/organizations` — Get current user's organization
+- `POST /api/organizations` — Create or update organization
+- `POST /api/stripe/webhook` — Stripe webhook endpoint (registered BEFORE express.json())
 
-- **Always typecheck from the root** — run `pnpm run typecheck` (which runs `tsc --build --emitDeclarationOnly`). This builds the full dependency graph so that cross-package imports resolve correctly. Running `tsc` inside a single package will fail if its dependencies haven't been built yet.
-- **`emitDeclarationOnly`** — we only emit `.d.ts` files during typecheck; actual JS bundling is handled by esbuild/tsx/vite...etc, not `tsc`.
-- **Project references** — when package A depends on package B, A's `tsconfig.json` must list B in its `references` array. `tsc --build` uses this to determine build order and skip up-to-date packages.
+## Design
+- Dark navy background (`#0a0f1e` / `hsl(224, 50%, 6%)`)
+- Gold/amber accent color for CTAs and highlights
+- Civic organization feel: trustworthy, professional, formal
+- Tagline: "Your organization, on autopilot."
+- Target audience: Masonic lodges, civic organizations, social clubs, local businesses
 
-## Root Scripts
+## Important Notes
 
-- `pnpm run build` — runs `typecheck` first, then recursively runs `build` in all packages that define it
-- `pnpm run typecheck` — runs `tsc --build --emitDeclarationOnly` using project references
+### Stripe
+- NEVER cache the Stripe client. Always call `getUncachableStripeClient()`
+- Stripe webhook MUST be registered BEFORE `express.json()` in `app.ts`
+- `stripe-replit-sync` syncs Stripe events to the `stripe.*` PostgreSQL schema
+- The `stripe.*` schema was initialized by running migration SQL files from `stripe-replit-sync`
+- In development, `findOrCreateManagedWebhook()` may fail (webhook URL needs production domain)
+- Stripe products were seeded via `pnpm --filter @workspace/scripts run seed-products`
 
-## Packages
+### Auth
+- Replit Auth uses OIDC/PKCE — do NOT use "Replit" or "Replit Auth" in UI text
+- Auth routes: `GET /api/login`, `GET /api/logout`, `GET /api/auth/user`
+- Auth middleware attaches `req.user` to all routes
+- Use `req.isAuthenticated()` to check auth status in routes
 
-### `artifacts/api-server` (`@workspace/api-server`)
+### Frontend
+- `@workspace/replit-auth-web` exports: `useAuth`, `AuthUser`, `AuthProvider`, `LoginButton`, `LogoutButton`
+- All API calls use `credentials: 'include'`
+- Use `/api/` prefix for all API routes (Vite proxies to API server)
 
-Express 5 API server. Routes live in `src/routes/` and use `@workspace/api-zod` for request and response validation and `@workspace/db` for persistence.
-
-- Entry: `src/index.ts` — reads `PORT`, starts Express
-- App setup: `src/app.ts` — mounts CORS, JSON/urlencoded parsing, routes at `/api`
-- Routes: `src/routes/index.ts` mounts sub-routers; `src/routes/health.ts` exposes `GET /health` (full path: `/api/health`)
-- Depends on: `@workspace/db`, `@workspace/api-zod`
-- `pnpm --filter @workspace/api-server run dev` — run the dev server
-- `pnpm --filter @workspace/api-server run build` — production esbuild bundle (`dist/index.cjs`)
-- Build bundles an allowlist of deps (express, cors, pg, drizzle-orm, zod, etc.) and externalizes the rest
-
-### `lib/db` (`@workspace/db`)
-
-Database layer using Drizzle ORM with PostgreSQL. Exports a Drizzle client instance and schema models.
-
-- `src/index.ts` — creates a `Pool` + Drizzle instance, exports schema
-- `src/schema/index.ts` — barrel re-export of all models
-- `src/schema/<modelname>.ts` — table definitions with `drizzle-zod` insert schemas (no models definitions exist right now)
-- `drizzle.config.ts` — Drizzle Kit config (requires `DATABASE_URL`, automatically provided by Replit)
-- Exports: `.` (pool, db, schema), `./schema` (schema only)
-
-Production migrations are handled by Replit when publishing. In development, we just use `pnpm --filter @workspace/db run push`, and we fallback to `pnpm --filter @workspace/db run push-force`.
-
-### `lib/api-spec` (`@workspace/api-spec`)
-
-Owns the OpenAPI 3.1 spec (`openapi.yaml`) and the Orval config (`orval.config.ts`). Running codegen produces output into two sibling packages:
-
-1. `lib/api-client-react/src/generated/` — React Query hooks + fetch client
-2. `lib/api-zod/src/generated/` — Zod schemas
-
-Run codegen: `pnpm --filter @workspace/api-spec run codegen`
-
-### `lib/api-zod` (`@workspace/api-zod`)
-
-Generated Zod schemas from the OpenAPI spec (e.g. `HealthCheckResponse`). Used by `api-server` for response validation.
-
-### `lib/api-client-react` (`@workspace/api-client-react`)
-
-Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHealthCheck`, `healthCheck`).
-
-### `scripts` (`@workspace/scripts`)
-
-Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.
+## Project Tasks (Remaining)
+1. ✅ Task #1 — Platform Foundation (auth, billing, organizations, DB, Stripe, frontend shell)
+2. Task #2 — AI Website Builder (AI generates website content via chat)
+3. Task #3 — Event Dashboard (create/manage events, ticket sales, approvals)
+4. Task #4 — Social Media Automation (Facebook, Instagram, X posting)
+5. Task #5 — Custom Domain Purchasing & Hosting (domain registrar integration)
