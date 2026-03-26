@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import {
   useGetOrganization,
@@ -112,7 +112,7 @@ function CancelConfirmDialog({
 
 export default function Billing() {
   const [, setLocation] = useLocation();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [changingTier, setChangingTier] = useState<string | null>(null);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
 
@@ -124,10 +124,14 @@ export default function Billing() {
   const { mutate: createPortal, isPending: portalPending } =
     useCreatePortalSession();
 
-  if (!isAuthenticated) {
-    setLocation("/");
-    return null;
-  }
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      setLocation("/");
+    }
+  }, [authLoading, isAuthenticated, setLocation]);
+
+  if (authLoading) return null;
+  if (!isAuthenticated) return null;
 
   const org = orgData?.organization;
   const sub = subData;

@@ -94,10 +94,13 @@ export default function Onboard() {
     defaultValues: { name: "", type: "", category: "" },
   });
 
-  if (!isAuthenticated) {
-    setLocation("/");
-    return null;
-  }
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setLocation("/");
+    }
+  }, [isAuthenticated, setLocation]);
+
+  if (!isAuthenticated) return null;
 
   const handleOrgSubmit = (data: OrgFormData) => {
     createOrg(

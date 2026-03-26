@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard,
@@ -16,6 +16,7 @@ import {
   Menu,
   X,
   Zap,
+  Loader2,
 } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetOrganization } from "@workspace/api-client-react";
@@ -68,9 +69,31 @@ function NavLink({ item, collapsed, onClick }: { item: NavItem; collapsed: boole
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { user } = useAuth();
-  const { data: orgData } = useGetOrganization();
+  const { user, isLoading: authLoading } = useAuth();
+  const { data: orgData, isLoading: orgLoading } = useGetOrganization();
   const org = orgData?.organization;
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (authLoading || orgLoading) return;
+    if (!user) {
+      setLocation("/");
+      return;
+    }
+    if (!org) {
+      setLocation("/onboard");
+    }
+  }, [user, authLoading, org, orgLoading, setLocation]);
+
+  if (authLoading || orgLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!user || !org) return null;
 
   const SidebarContent = ({ mobile = false }: { mobile?: boolean }) => (
     <div className="flex flex-col h-full">
