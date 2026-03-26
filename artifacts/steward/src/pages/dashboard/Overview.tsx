@@ -1,12 +1,53 @@
 import React from "react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Calendar, Users, Star, DollarSign, ArrowRight, Plus, Globe, TrendingUp, Contact2 } from "lucide-react";
-import { useGetOrganization, useGetSubscription } from "@workspace/api-client-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Calendar, Users, Star, ArrowRight, Plus, Globe, Contact2, Share2, Lock, Sparkles } from "lucide-react";
+import { useGetOrganization, useGetSubscription, useCreateCheckoutSession } from "@workspace/api-client-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { api, type Stats, type EventItem } from "@/lib/api";
+import { api, type EventItem } from "@/lib/api";
+import { toast } from "sonner";
+
+const TIER_INCLUDES_EVENTS = new Set(["tier2", "tier3"]);
+const TIER_INCLUDES_SOCIAL = new Set(["tier1a", "tier3"]);
+
+function FeatureCard({
+  icon: Icon, title, description, href, available, requiredTier, onUpgrade,
+}: {
+  icon: React.ElementType; title: string; description: string; href?: string;
+  available: boolean; requiredTier?: string; onUpgrade?: () => void;
+}) {
+  const content = (
+    <Card className={`flex flex-col border h-full ${available ? "border-white/10 bg-card/60" : "border-white/5 bg-card/30 opacity-80"}`}>
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${available ? "bg-primary/15" : "bg-white/5"}`}>
+            <Icon className={`w-5 h-5 ${available ? "text-primary" : "text-muted-foreground"}`} />
+          </div>
+          {available
+            ? <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/20 text-xs">Active</Badge>
+            : <Lock className="w-4 h-4 text-muted-foreground/40 mt-1" />}
+        </div>
+        <CardTitle className={`text-base mt-3 ${available ? "text-white" : "text-muted-foreground"}`}>{title}</CardTitle>
+        <CardDescription className="text-xs leading-relaxed">{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex-1" />
+      <CardFooter>
+        {available ? (
+          <Button variant="secondary" className="w-full border border-white/5 bg-secondary/50 hover:bg-secondary text-sm">
+            Open <ArrowRight className="w-4 h-4 ml-2" />
+          </Button>
+        ) : (
+          <Button variant="outline" className="w-full border-white/10 text-muted-foreground hover:text-white hover:bg-white/5 text-sm" onClick={onUpgrade}>
+            Upgrade to {requiredTier} <ArrowRight className="w-4 h-4 ml-2" />
+          </Button>
+        )}
+      </CardFooter>
+    </Card>
+  );
+  return available && href ? <Link href={href} className="h-full">{content}</Link> : <div className="h-full">{content}</div>;
+}
 
 function StatCard({ title, value, icon: Icon, sub }: { title: string; value: number | string; icon: React.ElementType; sub?: string }) {
   return (
@@ -29,18 +70,25 @@ export default function Overview() {
   const { data: orgData } = useGetOrganization();
   const org = orgData?.organization;
   const { data: subscription } = useGetSubscription();
-  const { data: stats } = useQuery({
-    queryKey: ["stats"],
-    queryFn: () => api.stats.get(),
-  });
-  const { data: events } = useQuery({
-    queryKey: ["events"],
-    queryFn: () => api.events.list(),
-  });
+  const { mutate: createCheckout } = useCreateCheckoutSession();
+  const { data: stats } = useQuery({ queryKey: ["stats"], queryFn: () => api.stats.get() });
+  const { data: events } = useQuery({ queryKey: ["events"], queryFn: () => api.events.list() });
 
   const upcomingEvents = events
     ?.filter((e: EventItem) => e.startDate && e.startDate >= new Date().toISOString().split("T")[0])
     .slice(0, 5) ?? [];
+
+  const isSubscribed = subscription?.hasSubscription === true;
+  const currentTierId = subscription?.tierId ?? null;
+  const hasEvents = isSubscribed && currentTierId ? TIER_INCLUDES_EVENTS.has(currentTierId) : false;
+  const hasSocial = isSubscribed && currentTierId ? TIER_INCLUDES_SOCIAL.has(currentTierId) : false;
+
+  const handleUpgrade = (tierId: string) => {
+    createCheckout({ data: { tierId } }, {
+      onSuccess: (data) => { if (data.url) window.location.href = data.url; },
+      onError: () => toast.error("Failed to start checkout. Please try again."),
+    });
+  };
 
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
@@ -158,6 +206,66 @@ export default function Overview() {
             </CardContent>
           </Card>
         </div>
+      </div>
+
+      {/* Feature Sections — org name + tier + Website/Events/Automation placeholder cards */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Your Digital Operations</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {isSubscribed
+                ? `Everything Steward is managing for ${org?.name ?? "your organization"}.`
+                : "Choose a plan to activate these features."}
+            </p>
+          </div>
+          {isSubscribed && subscription?.tierId && (
+            <Badge variant="outline" className="border-primary/30 text-primary capitalize text-xs">
+              {subscription.tierId.replace(/_/g, " ")} Plan
+            </Badge>
+          )}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <FeatureCard
+            icon={Globe}
+            title="Website"
+            description="Your AI-generated website is live. Chat with Steward to request updates, add pages, or change content."
+            href="/dashboard/site"
+            available={isSubscribed}
+            requiredTier="Tier 1"
+            onUpgrade={() => handleUpgrade("tier1")}
+          />
+          <FeatureCard
+            icon={Calendar}
+            title="Event Dashboard"
+            description="Create and manage events, track ticket sales, handle approvals, and send communications to attendees."
+            href="/dashboard/events"
+            available={hasEvents}
+            requiredTier="Tier 2"
+            onUpgrade={() => handleUpgrade("tier2")}
+          />
+          <FeatureCard
+            icon={Share2}
+            title="Automation"
+            description="Automatically post updates to social media and keep your site current based on your organization's schedule."
+            available={hasSocial}
+            requiredTier="Tier 1a"
+            onUpgrade={() => handleUpgrade("tier1a")}
+          />
+        </div>
+        {!isSubscribed && (
+          <div className="mt-4 p-4 rounded-xl border border-primary/20 bg-primary/5 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Sparkles className="w-5 h-5 text-primary flex-shrink-0" />
+              <p className="text-sm text-slate-300">
+                Activate Steward to put <span className="text-white font-medium">{org?.name ?? "your organization"}</span> on autopilot.
+              </p>
+            </div>
+            <Link href="/billing">
+              <Button size="sm" className="flex-shrink-0 ml-4">View Plans</Button>
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );
