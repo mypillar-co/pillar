@@ -195,24 +195,23 @@ router.post("/recurring/templates/:id/generate", async (req: Request, res: Respo
   }
   const [template] = await db.select().from(recurringEventTemplatesTable).where(and(eq(recurringEventTemplatesTable.id, String(req.params.id)), eq(recurringEventTemplatesTable.orgId, org.id)));
   if (!template) { res.status(404).json({ error: "Template not found" }); return; }
-  const openai = getOpenAIClient();
   const nextDate = computeNextOccurrence(template.frequency, template.dayOfWeek ?? undefined, template.weekOfMonth ?? undefined, template.dayOfMonth ?? undefined);
   const dateStr = nextDate.toISOString().split("T")[0];
-  const completion = await openai.chat.completions.create({
-    model: "gpt-5-mini",
-    messages: [
-      {
-        role: "system",
-        content: "You are an AI assistant for a civic organization. Generate a compelling event description (2-3 sentences, professional and welcoming) for a recurring event. Reply with only the description text.",
-      },
-      {
-        role: "user",
-        content: `Event: ${template.name}\nDate: ${dateStr}\nTime: ${template.startTime ?? "TBD"}\nLocation: ${template.location ?? "TBD"}\nType: ${template.eventType ?? "general"}\nBase description: ${template.description ?? ""}`,
-      },
-    ],
-    max_tokens: 200,
-  });
-  const generatedDescription = completion.choices[0]?.message?.content?.trim() ?? template.description ?? "";
+  let generatedDescription = template.description ?? "";
+  try {
+    const openai = getOpenAIClient();
+    const completion = await openai.chat.completions.create({
+      model: "gpt-5-mini",
+      messages: [
+        { role: "system", content: "You are an AI assistant for a civic organization. Generate a compelling event description (2-3 sentences, professional and welcoming) for a recurring event. Reply with only the description text." },
+        { role: "user", content: `Event: ${template.name}\nDate: ${dateStr}\nTime: ${template.startTime ?? "TBD"}\nLocation: ${template.location ?? "TBD"}\nType: ${template.eventType ?? "general"}\nBase description: ${template.description ?? ""}` },
+      ],
+      max_tokens: 200,
+    });
+    generatedDescription = completion.choices[0]?.message?.content?.trim() ?? generatedDescription;
+  } catch {
+    // AI unavailable — fall back to template's base description
+  }
   const slug = `${template.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now().toString(36)}`;
   const [event] = await db.insert(eventsTable).values({
     orgId: org.id,

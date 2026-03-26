@@ -420,6 +420,79 @@ export const CreateRecurringTemplateBody = zod.object({
 });
 
 /**
+ * Requires Tier 3.
+ * @summary Update a recurring event template
+ */
+export const UpdateRecurringTemplateParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const UpdateRecurringTemplateBody = zod.object({
+  name: zod.string(),
+  description: zod.string().optional(),
+  eventType: zod.string().optional(),
+  frequency: zod.enum(["weekly", "biweekly", "monthly", "quarterly"]),
+  dayOfWeek: zod.number().optional().describe("0=Sunday … 6=Saturday"),
+  weekOfMonth: zod
+    .number()
+    .optional()
+    .describe("For monthly; which week (1-5)"),
+  dayOfMonth: zod
+    .number()
+    .optional()
+    .describe("For monthly; specific day of month (1-31)"),
+  durationMinutes: zod.number().optional(),
+  startTime: zod.string().optional(),
+  location: zod.string().optional(),
+});
+
+export const UpdateRecurringTemplateResponse = zod.object({
+  id: zod.string(),
+  orgId: zod.string(),
+  name: zod.string(),
+  description: zod.string().nullish(),
+  eventType: zod.string().nullish(),
+  frequency: zod.enum(["weekly", "biweekly", "monthly", "quarterly"]),
+  dayOfWeek: zod.number().nullish().describe("0=Sunday … 6=Saturday"),
+  weekOfMonth: zod
+    .number()
+    .nullish()
+    .describe("For monthly templates; which week (1-5)"),
+  dayOfMonth: zod
+    .number()
+    .nullish()
+    .describe("For monthly templates; specific day of month (1-31)"),
+  durationMinutes: zod.number().nullish(),
+  startTime: zod.string().nullish(),
+  location: zod.string().nullish(),
+  isActive: zod.boolean(),
+  lastGeneratedAt: zod.string().nullish(),
+  nextGenerateAt: zod
+    .string()
+    .nullish()
+    .describe(
+      "The date this template will next generate an event. Used as the event's startDate.",
+    ),
+  createdAt: zod.string(),
+});
+
+/**
+ * Requires Tier 3.
+ * @summary Delete a recurring event template
+ */
+export const DeleteRecurringTemplateParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+/**
+ * Requires Tier 3. Uses AI to write a unique event description (falls back to template description if AI is unavailable).
+ * @summary Manually generate the next event occurrence from a recurring template
+ */
+export const GenerateEventFromTemplateParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+/**
  * @summary Get published events for a public org page (no auth required)
  */
 export const GetPublicEventsParams = zod.object({
@@ -746,6 +819,42 @@ export const CreateTicketTypeBody = zod.object({
 });
 
 /**
+ * Requires Tier 2+. Scoped to (eventId, orgId).
+ * @summary Update a ticket type
+ */
+export const UpdateTicketTypeParams = zod.object({
+  eventId: zod.coerce.string(),
+  typeId: zod.coerce.string(),
+});
+
+export const UpdateTicketTypeBody = zod.object({
+  name: zod.string(),
+  description: zod.string().optional(),
+  price: zod.number().optional(),
+  quantity: zod.number().optional(),
+});
+
+export const UpdateTicketTypeResponse = zod.object({
+  id: zod.string(),
+  eventId: zod.string(),
+  orgId: zod.string(),
+  name: zod.string(),
+  description: zod.string().nullish(),
+  price: zod.number(),
+  quantity: zod.number().nullish(),
+  createdAt: zod.string(),
+});
+
+/**
+ * Requires Tier 2+. Scoped to (eventId, orgId).
+ * @summary Delete a ticket type
+ */
+export const DeleteTicketTypeParams = zod.object({
+  eventId: zod.coerce.string(),
+  typeId: zod.coerce.string(),
+});
+
+/**
  * Requires Tier 2+.
  * @summary List ticket sales for an event
  */
@@ -796,6 +905,15 @@ export const RecordTicketSaleBody = zod.object({
     ),
   paymentMethod: zod.string().default(recordTicketSaleBodyPaymentMethodDefault),
   notes: zod.string().optional(),
+});
+
+/**
+ * Requires Tier 2+. Scoped to org.
+ * @summary Delete a ticket sale record
+ */
+export const DeleteTicketSaleParams = zod.object({
+  eventId: zod.coerce.string(),
+  saleId: zod.coerce.string(),
 });
 
 /**

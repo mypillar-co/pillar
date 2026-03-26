@@ -370,6 +370,64 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RecurringTemplate"
+  /events/recurring/templates/{id}:
+    put:
+      operationId: updateRecurringTemplate
+      tags: [events]
+      summary: Update a recurring event template
+      description: Requires Tier 3.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRecurringTemplateRequest"
+      responses:
+        "200":
+          description: Updated template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecurringTemplate"
+    delete:
+      operationId: deleteRecurringTemplate
+      tags: [events]
+      summary: Delete a recurring event template
+      description: Requires Tier 3.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+  /events/recurring/templates/{id}/generate:
+    post:
+      operationId: generateEventFromTemplate
+      tags: [events]
+      summary: Manually generate the next event occurrence from a recurring template
+      description: Requires Tier 3. Uses AI to write a unique event description (falls back to template description if AI is unavailable).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: Generated event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventItem"
   /events/public/{orgSlug}:
     get:
       operationId: getPublicEvents
@@ -558,6 +616,55 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TicketType"
+  /events/{eventId}/ticket-types/{typeId}:
+    put:
+      operationId: updateTicketType
+      tags: [events]
+      summary: Update a ticket type
+      description: Requires Tier 2+. Scoped to (eventId, orgId).
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: typeId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTicketTypeRequest"
+      responses:
+        "200":
+          description: Updated ticket type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketType"
+    delete:
+      operationId: deleteTicketType
+      tags: [events]
+      summary: Delete a ticket type
+      description: Requires Tier 2+. Scoped to (eventId, orgId).
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: typeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
   /events/{id}/sales:
     get:
       operationId: listTicketSales
@@ -603,6 +710,26 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TicketSale"
+  /events/{eventId}/sales/{saleId}:
+    delete:
+      operationId: deleteTicketSale
+      tags: [events]
+      summary: Delete a ticket sale record
+      description: Requires Tier 2+. Scoped to org.
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: saleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
   /events/{id}/communications:
     get:
       operationId: listEventCommunications

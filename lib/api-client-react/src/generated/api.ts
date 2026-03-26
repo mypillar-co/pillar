@@ -1630,6 +1630,265 @@ export const useCreateRecurringTemplate = <
 };
 
 /**
+ * Requires Tier 3.
+ * @summary Update a recurring event template
+ */
+export const getUpdateRecurringTemplateUrl = (id: string) => {
+  return `/api/events/recurring/templates/${id}`;
+};
+
+export const updateRecurringTemplate = async (
+  id: string,
+  createRecurringTemplateRequest: CreateRecurringTemplateRequest,
+  options?: RequestInit,
+): Promise<RecurringTemplate> => {
+  return customFetch<RecurringTemplate>(getUpdateRecurringTemplateUrl(id), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createRecurringTemplateRequest),
+  });
+};
+
+export const getUpdateRecurringTemplateMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateRecurringTemplate>>,
+    TError,
+    { id: string; data: BodyType<CreateRecurringTemplateRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateRecurringTemplate>>,
+  TError,
+  { id: string; data: BodyType<CreateRecurringTemplateRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateRecurringTemplate"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateRecurringTemplate>>,
+    { id: string; data: BodyType<CreateRecurringTemplateRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateRecurringTemplate(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateRecurringTemplateMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateRecurringTemplate>>
+>;
+export type UpdateRecurringTemplateMutationBody =
+  BodyType<CreateRecurringTemplateRequest>;
+export type UpdateRecurringTemplateMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update a recurring event template
+ */
+export const useUpdateRecurringTemplate = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateRecurringTemplate>>,
+    TError,
+    { id: string; data: BodyType<CreateRecurringTemplateRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateRecurringTemplate>>,
+  TError,
+  { id: string; data: BodyType<CreateRecurringTemplateRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateRecurringTemplateMutationOptions(options));
+};
+
+/**
+ * Requires Tier 3.
+ * @summary Delete a recurring event template
+ */
+export const getDeleteRecurringTemplateUrl = (id: string) => {
+  return `/api/events/recurring/templates/${id}`;
+};
+
+export const deleteRecurringTemplate = async (
+  id: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteRecurringTemplateUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteRecurringTemplateMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteRecurringTemplate>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteRecurringTemplate>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["deleteRecurringTemplate"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteRecurringTemplate>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteRecurringTemplate(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteRecurringTemplateMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteRecurringTemplate>>
+>;
+
+export type DeleteRecurringTemplateMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Delete a recurring event template
+ */
+export const useDeleteRecurringTemplate = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteRecurringTemplate>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteRecurringTemplate>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getDeleteRecurringTemplateMutationOptions(options));
+};
+
+/**
+ * Requires Tier 3. Uses AI to write a unique event description (falls back to template description if AI is unavailable).
+ * @summary Manually generate the next event occurrence from a recurring template
+ */
+export const getGenerateEventFromTemplateUrl = (id: string) => {
+  return `/api/events/recurring/templates/${id}/generate`;
+};
+
+export const generateEventFromTemplate = async (
+  id: string,
+  options?: RequestInit,
+): Promise<EventItem> => {
+  return customFetch<EventItem>(getGenerateEventFromTemplateUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getGenerateEventFromTemplateMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof generateEventFromTemplate>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof generateEventFromTemplate>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["generateEventFromTemplate"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof generateEventFromTemplate>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return generateEventFromTemplate(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type GenerateEventFromTemplateMutationResult = NonNullable<
+  Awaited<ReturnType<typeof generateEventFromTemplate>>
+>;
+
+export type GenerateEventFromTemplateMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Manually generate the next event occurrence from a recurring template
+ */
+export const useGenerateEventFromTemplate = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof generateEventFromTemplate>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof generateEventFromTemplate>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getGenerateEventFromTemplateMutationOptions(options));
+};
+
+/**
  * @summary Get published events for a public org page (no auth required)
  */
 export const getGetPublicEventsUrl = (orgSlug: string) => {
@@ -2416,6 +2675,189 @@ export const useCreateTicketType = <
 };
 
 /**
+ * Requires Tier 2+. Scoped to (eventId, orgId).
+ * @summary Update a ticket type
+ */
+export const getUpdateTicketTypeUrl = (eventId: string, typeId: string) => {
+  return `/api/events/${eventId}/ticket-types/${typeId}`;
+};
+
+export const updateTicketType = async (
+  eventId: string,
+  typeId: string,
+  createTicketTypeRequest: CreateTicketTypeRequest,
+  options?: RequestInit,
+): Promise<TicketType> => {
+  return customFetch<TicketType>(getUpdateTicketTypeUrl(eventId, typeId), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createTicketTypeRequest),
+  });
+};
+
+export const getUpdateTicketTypeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateTicketType>>,
+    TError,
+    {
+      eventId: string;
+      typeId: string;
+      data: BodyType<CreateTicketTypeRequest>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateTicketType>>,
+  TError,
+  { eventId: string; typeId: string; data: BodyType<CreateTicketTypeRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateTicketType"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateTicketType>>,
+    { eventId: string; typeId: string; data: BodyType<CreateTicketTypeRequest> }
+  > = (props) => {
+    const { eventId, typeId, data } = props ?? {};
+
+    return updateTicketType(eventId, typeId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateTicketTypeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateTicketType>>
+>;
+export type UpdateTicketTypeMutationBody = BodyType<CreateTicketTypeRequest>;
+export type UpdateTicketTypeMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update a ticket type
+ */
+export const useUpdateTicketType = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateTicketType>>,
+    TError,
+    {
+      eventId: string;
+      typeId: string;
+      data: BodyType<CreateTicketTypeRequest>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateTicketType>>,
+  TError,
+  { eventId: string; typeId: string; data: BodyType<CreateTicketTypeRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateTicketTypeMutationOptions(options));
+};
+
+/**
+ * Requires Tier 2+. Scoped to (eventId, orgId).
+ * @summary Delete a ticket type
+ */
+export const getDeleteTicketTypeUrl = (eventId: string, typeId: string) => {
+  return `/api/events/${eventId}/ticket-types/${typeId}`;
+};
+
+export const deleteTicketType = async (
+  eventId: string,
+  typeId: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteTicketTypeUrl(eventId, typeId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteTicketTypeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteTicketType>>,
+    TError,
+    { eventId: string; typeId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteTicketType>>,
+  TError,
+  { eventId: string; typeId: string },
+  TContext
+> => {
+  const mutationKey = ["deleteTicketType"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteTicketType>>,
+    { eventId: string; typeId: string }
+  > = (props) => {
+    const { eventId, typeId } = props ?? {};
+
+    return deleteTicketType(eventId, typeId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteTicketTypeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteTicketType>>
+>;
+
+export type DeleteTicketTypeMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Delete a ticket type
+ */
+export const useDeleteTicketType = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteTicketType>>,
+    TError,
+    { eventId: string; typeId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteTicketType>>,
+  TError,
+  { eventId: string; typeId: string },
+  TContext
+> => {
+  return useMutation(getDeleteTicketTypeMutationOptions(options));
+};
+
+/**
  * Requires Tier 2+.
  * @summary List ticket sales for an event
  */
@@ -2589,6 +3031,92 @@ export const useRecordTicketSale = <
   TContext
 > => {
   return useMutation(getRecordTicketSaleMutationOptions(options));
+};
+
+/**
+ * Requires Tier 2+. Scoped to org.
+ * @summary Delete a ticket sale record
+ */
+export const getDeleteTicketSaleUrl = (eventId: string, saleId: string) => {
+  return `/api/events/${eventId}/sales/${saleId}`;
+};
+
+export const deleteTicketSale = async (
+  eventId: string,
+  saleId: string,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteTicketSaleUrl(eventId, saleId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteTicketSaleMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteTicketSale>>,
+    TError,
+    { eventId: string; saleId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteTicketSale>>,
+  TError,
+  { eventId: string; saleId: string },
+  TContext
+> => {
+  const mutationKey = ["deleteTicketSale"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteTicketSale>>,
+    { eventId: string; saleId: string }
+  > = (props) => {
+    const { eventId, saleId } = props ?? {};
+
+    return deleteTicketSale(eventId, saleId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteTicketSaleMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteTicketSale>>
+>;
+
+export type DeleteTicketSaleMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Delete a ticket sale record
+ */
+export const useDeleteTicketSale = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteTicketSale>>,
+    TError,
+    { eventId: string; saleId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteTicketSale>>,
+  TError,
+  { eventId: string; saleId: string },
+  TContext
+> => {
+  return useMutation(getDeleteTicketSaleMutationOptions(options));
 };
 
 /**
