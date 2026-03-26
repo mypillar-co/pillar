@@ -51,7 +51,12 @@ function DashboardRouter() {
 function AppRouter() {
   return (
     <Switch>
-      <Route path="/" component={Landing} />
+      <Route path="/">
+        <>
+          <Navbar />
+          <Landing />
+        </>
+      </Route>
       <Route path="/onboard" component={Onboard} />
       <Route path="/billing">
         <>
