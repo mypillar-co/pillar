@@ -13,6 +13,8 @@ import NotFound from "./pages/not-found";
 import Overview from "./pages/dashboard/Overview";
 import Events from "./pages/dashboard/Events";
 import EventDetail from "./pages/dashboard/EventDetail";
+import ApprovalQueue from "./pages/dashboard/ApprovalQueue";
+import RecurringTemplates from "./pages/dashboard/RecurringTemplates";
 import Vendors from "./pages/dashboard/Vendors";
 import Sponsors from "./pages/dashboard/Sponsors";
 import Contacts from "./pages/dashboard/Contacts";
@@ -35,6 +37,8 @@ function DashboardRouter() {
     <DashboardLayout>
       <Switch>
         <Route path="/dashboard" component={Overview} />
+        <Route path="/dashboard/events/approvals" component={ApprovalQueue} />
+        <Route path="/dashboard/events/recurring" component={RecurringTemplates} />
         <Route path="/dashboard/events/:id" component={EventDetail} />
         <Route path="/dashboard/events" component={Events} />
         <Route path="/dashboard/vendors" component={Vendors} />

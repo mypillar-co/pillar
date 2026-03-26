@@ -24,12 +24,111 @@ export type EventItem = {
   startTime?: string | null;
   endTime?: string | null;
   location?: string | null;
+  maxCapacity?: number | null;
   isTicketed?: boolean;
   ticketPrice?: number | null;
+  ticketCapacity?: number | null;
+  requiresApproval?: boolean;
+  isRecurring?: boolean;
+  recurringTemplateId?: string | null;
   featured?: boolean;
   imageUrl?: string | null;
   isActive?: boolean;
   createdAt: string;
+  updatedAt?: string;
+};
+
+export type TicketType = {
+  id: string;
+  eventId: string;
+  orgId: string;
+  name: string;
+  description?: string | null;
+  price: number;
+  quantity?: number | null;
+  sold: number;
+  isActive: boolean;
+  createdAt: string;
+};
+
+export type TicketSale = {
+  id: string;
+  eventId: string;
+  ticketTypeId?: string | null;
+  orgId: string;
+  attendeeName: string;
+  attendeeEmail?: string | null;
+  attendeePhone?: string | null;
+  quantity: number;
+  amountPaid: number;
+  paymentMethod?: string | null;
+  notes?: string | null;
+  createdAt: string;
+};
+
+export type EventApproval = {
+  id: string;
+  eventId: string;
+  orgId: string;
+  approverUserId?: string | null;
+  submittedByUserId?: string | null;
+  status: string;
+  comments?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+};
+
+export type EventCommunication = {
+  id: string;
+  eventId: string;
+  orgId: string;
+  subject: string;
+  body: string;
+  recipientCount: number;
+  sentAt: string;
+};
+
+export type EventDetail = {
+  event: EventItem;
+  ticketTypes: TicketType[];
+  sales: TicketSale[];
+  approvals: EventApproval[];
+  communications: EventCommunication[];
+  totalRevenue: number;
+  totalSold: number;
+};
+
+export type EventMetrics = {
+  totalEvents: number;
+  publishedEvents: number;
+  upcomingEvents: Array<{ id: string; name: string; startDate: string | null; status: string }>;
+  totalTicketsSold: number;
+  totalRevenue: number;
+};
+
+export type RecurringTemplate = {
+  id: string;
+  orgId: string;
+  name: string;
+  description?: string | null;
+  eventType?: string | null;
+  location?: string | null;
+  startTime?: string | null;
+  durationMinutes?: number | null;
+  frequency: string;
+  dayOfWeek?: number | null;
+  weekOfMonth?: number | null;
+  dayOfMonth?: number | null;
+  isActive: boolean;
+  lastGeneratedAt?: string | null;
+  nextGenerateAt?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+};
+
+export type ApprovalQueueItem = {
+  approval: EventApproval;
+  event: EventItem;
 };
 
 export type Vendor = {
@@ -77,10 +176,37 @@ export const api = {
   },
   events: {
     list: () => req<EventItem[]>("/api/events"),
-    get: (id: string) => req<EventItem>(`/api/events/${id}`),
-    create: (data: Partial<EventItem>) => req<EventItem>("/api/events", { method: "POST", body: JSON.stringify(data) }),
+    get: (id: string) => req<EventDetail>(`/api/events/${id}`),
+    create: (data: Partial<EventItem> & { requiresApproval?: boolean }) => req<EventItem>("/api/events", { method: "POST", body: JSON.stringify(data) }),
     update: (id: string, data: Partial<EventItem>) => req<EventItem>(`/api/events/${id}`, { method: "PUT", body: JSON.stringify(data) }),
     delete: (id: string) => req<void>(`/api/events/${id}`, { method: "DELETE" }),
+    submit: (id: string) => req<EventItem>(`/api/events/${id}/submit`, { method: "POST" }),
+    approve: (id: string, comments?: string) => req<EventItem>(`/api/events/${id}/approve`, { method: "POST", body: JSON.stringify({ comments }) }),
+    reject: (id: string, comments?: string) => req<EventItem>(`/api/events/${id}/reject`, { method: "POST", body: JSON.stringify({ comments }) }),
+    metrics: () => req<EventMetrics>("/api/events/metrics"),
+    approvalQueue: () => req<ApprovalQueueItem[]>("/api/events/approvals/queue"),
+    ticketTypes: {
+      list: (eventId: string) => req<TicketType[]>(`/api/events/${eventId}/ticket-types`),
+      create: (eventId: string, data: Partial<TicketType>) => req<TicketType>(`/api/events/${eventId}/ticket-types`, { method: "POST", body: JSON.stringify(data) }),
+      update: (eventId: string, typeId: string, data: Partial<TicketType>) => req<TicketType>(`/api/events/${eventId}/ticket-types/${typeId}`, { method: "PUT", body: JSON.stringify(data) }),
+      delete: (eventId: string, typeId: string) => req<void>(`/api/events/${eventId}/ticket-types/${typeId}`, { method: "DELETE" }),
+    },
+    sales: {
+      list: (eventId: string) => req<TicketSale[]>(`/api/events/${eventId}/sales`),
+      create: (eventId: string, data: Partial<TicketSale>) => req<TicketSale>(`/api/events/${eventId}/sales`, { method: "POST", body: JSON.stringify(data) }),
+      delete: (eventId: string, saleId: string) => req<void>(`/api/events/${eventId}/sales/${saleId}`, { method: "DELETE" }),
+    },
+    communications: {
+      list: (eventId: string) => req<EventCommunication[]>(`/api/events/${eventId}/communications`),
+      send: (eventId: string, subject: string, body: string) => req<EventCommunication>(`/api/events/${eventId}/communications`, { method: "POST", body: JSON.stringify({ subject, body }) }),
+    },
+    recurring: {
+      list: () => req<RecurringTemplate[]>("/api/events/recurring/templates"),
+      create: (data: Partial<RecurringTemplate>) => req<RecurringTemplate>("/api/events/recurring/templates", { method: "POST", body: JSON.stringify(data) }),
+      update: (id: string, data: Partial<RecurringTemplate>) => req<RecurringTemplate>(`/api/events/recurring/templates/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+      delete: (id: string) => req<void>(`/api/events/recurring/templates/${id}`, { method: "DELETE" }),
+      generate: (id: string) => req<EventItem>(`/api/events/recurring/templates/${id}/generate`, { method: "POST" }),
+    },
   },
   vendors: {
     list: () => req<Vendor[]>("/api/vendors"),
