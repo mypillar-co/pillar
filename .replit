@@ -32,3 +32,4 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
+SOCIAL_TOKEN_ENCRYPTION_KEY = "a000625f5f933cbae635f5fbe9d87a8d40e655ae23b43c34281be623b7afb0a3"

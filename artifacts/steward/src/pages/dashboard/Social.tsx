@@ -1,9 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Share2, Facebook, Instagram, Twitter, Plus, Loader2, Trash2, Zap,
   Calendar, Clock, CheckCircle, AlertCircle, Edit2, X, Send, Sparkles,
-  ToggleLeft, ToggleRight, ChevronDown, ChevronUp, Settings2, Lock,
+  ToggleLeft, ToggleRight, ChevronDown, ChevronUp, Settings2, Lock, Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -319,6 +319,87 @@ function ComposePostDialog({
   );
 }
 
+function EditPostDialog({
+  open, onClose, onSaved, post,
+}: {
+  open: boolean; onClose: () => void; onSaved: () => void;
+  post: SocialPost;
+}) {
+  const [content, setContent] = useState(post.content);
+  const [scheduledAt, setScheduledAt] = useState(
+    post.scheduledAt ? new Date(post.scheduledAt).toISOString().slice(0, 16) : ""
+  );
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setContent(post.content);
+    setScheduledAt(post.scheduledAt ? new Date(post.scheduledAt).toISOString().slice(0, 16) : "");
+  }, [post]);
+
+  const handleSave = async () => {
+    if (!content.trim()) { toast.error("Post content is required"); return; }
+    setLoading(true);
+    try {
+      const newStatus = scheduledAt ? "scheduled" : "draft";
+      await api.social.posts.update(post.id, { content, scheduledAt: scheduledAt || undefined, status: newStatus });
+      toast.success("Post updated");
+      onSaved();
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update post");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const charCount = content.length;
+  const twitterLimit = post.platforms.includes("twitter") && charCount > 280;
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="bg-card border-white/10 text-white max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit Post</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="flex gap-2 flex-wrap">
+            {post.platforms.map(p => <PlatformBadge key={p} platform={p} />)}
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-slate-300 text-sm">Content</Label>
+              <span className={`text-xs ${twitterLimit ? "text-red-400" : "text-slate-500"}`}>{charCount} chars</span>
+            </div>
+            <Textarea
+              value={content}
+              onChange={e => setContent(e.target.value)}
+              rows={5}
+              className="bg-white/5 border-white/10 text-white placeholder:text-slate-500 resize-none"
+            />
+            {twitterLimit && <p className="text-xs text-red-400">Exceeds Twitter's 280 character limit</p>}
+          </div>
+          <div>
+            <Label className="text-slate-300 text-sm mb-1.5 block">Schedule Date/Time (optional)</Label>
+            <Input
+              type="datetime-local"
+              value={scheduledAt}
+              onChange={e => setScheduledAt(e.target.value)}
+              className="bg-white/5 border-white/10 text-white"
+            />
+          </div>
+        </div>
+        <DialogFooter className="mt-2">
+          <Button variant="ghost" onClick={onClose} className="text-slate-400 hover:text-white">Cancel</Button>
+          <Button onClick={handleSave} disabled={loading} className="bg-primary hover:bg-primary/90">
+            {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+            Save Changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function AutomationRuleDialog({
   open, onClose, onSaved, editingRule, accounts,
 }: {
@@ -543,6 +624,7 @@ function AccountsSection({ accounts, onRefresh }: { accounts: SocialAccount[]; o
 
 function PostsSection({ accounts }: { accounts: SocialAccount[] }) {
   const [composeOpen, setComposeOpen] = useState(false);
+  const [editingPost, setEditingPost] = useState<SocialPost | null>(null);
   const [tab, setTab] = useState("scheduled");
   const queryClient = useQueryClient();
 
@@ -629,14 +711,24 @@ function PostsSection({ accounts }: { accounts: SocialAccount[] }) {
                           </div>
                         </div>
                         {post.status !== "published" && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-slate-500 hover:text-red-400 hover:bg-red-500/10 flex-shrink-0"
-                            onClick={() => deleteMutation.mutate(post.id)}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-slate-500 hover:text-primary hover:bg-primary/10"
+                              onClick={() => setEditingPost(post)}
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-slate-500 hover:text-red-400 hover:bg-red-500/10"
+                              onClick={() => deleteMutation.mutate(post.id)}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
                         )}
                       </div>
                     </CardContent>
@@ -649,6 +741,14 @@ function PostsSection({ accounts }: { accounts: SocialAccount[] }) {
       </Tabs>
 
       <ComposePostDialog open={composeOpen} onClose={() => setComposeOpen(false)} onCreated={() => queryClient.invalidateQueries({ queryKey: ["social-posts"] })} accounts={accounts} />
+      {editingPost && (
+        <EditPostDialog
+          open={!!editingPost}
+          onClose={() => setEditingPost(null)}
+          onSaved={() => { setEditingPost(null); queryClient.invalidateQueries({ queryKey: ["social-posts"] }); }}
+          post={editingPost}
+        />
+      )}
     </div>
   );
 }

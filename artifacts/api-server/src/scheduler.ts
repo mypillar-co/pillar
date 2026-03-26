@@ -7,10 +7,12 @@ import {
   socialPostsTable,
   socialAccountsTable,
   automationRulesTable,
+  contentStrategyTable,
   organizationsTable,
 } from "@workspace/db";
 import { eq, lte, and, gte } from "drizzle-orm";
 import { logger } from "./lib/logger";
+import { decryptToken } from "./lib/tokenCrypto";
 import OpenAI from "openai";
 
 const MAX_CHANGE_TOKENS = 6000;
@@ -272,7 +274,11 @@ async function runDueRecurringTemplates(): Promise<void> {
 // Social Post Publishing
 // ─────────────────────────────────────────────────────────────────
 
-async function publishToFacebook(content: string, accessToken: string, pageId?: string | null): Promise<string> {
+const MAX_POST_RETRIES = 3;
+const RETRY_DELAY_MS = 60 * 60 * 1000;
+
+async function publishToFacebook(content: string, encryptedToken: string, pageId?: string | null): Promise<string> {
+  const accessToken = decryptToken(encryptedToken);
   const targetId = pageId ?? "me";
   const url = `https://graph.facebook.com/v19.0/${targetId}/feed`;
   const resp = await fetch(url, {
@@ -288,7 +294,8 @@ async function publishToFacebook(content: string, accessToken: string, pageId?: 
   return data.id ?? "";
 }
 
-async function publishToInstagram(content: string, accessToken: string, pageId?: string | null): Promise<string> {
+async function publishToInstagram(content: string, encryptedToken: string, pageId?: string | null): Promise<string> {
+  const accessToken = decryptToken(encryptedToken);
   if (!pageId) throw new Error("Instagram Business Account ID required");
   const createUrl = `https://graph.facebook.com/v19.0/${pageId}/media`;
   const createResp = await fetch(createUrl, {
@@ -315,7 +322,8 @@ async function publishToInstagram(content: string, accessToken: string, pageId?:
   return id;
 }
 
-async function publishToTwitter(content: string, accessToken: string): Promise<string> {
+async function publishToTwitter(content: string, encryptedToken: string): Promise<string> {
+  const accessToken = decryptToken(encryptedToken);
   const resp = await fetch("https://api.twitter.com/2/tweets", {
     method: "POST",
     headers: {
@@ -385,15 +393,34 @@ async function runDueSocialPosts(): Promise<void> {
         }
       }
 
-      const allFailed = errors.length === post.platforms.length;
-      const status = allFailed ? "failed" : "published";
-      await db.update(socialPostsTable).set({
-        status,
-        publishedAt: allFailed ? null : now,
-        externalPostIds: Object.keys(externalIds).length > 0 ? JSON.stringify(externalIds) : null,
-        errorMessage: errors.length > 0 ? errors.join("; ") : null,
-        updatedAt: new Date(),
-      }).where(eq(socialPostsTable.id, post.id));
+      const currentRetries = post.retryCount ?? 0;
+      const allFailed = errors.length > 0 && Object.keys(externalIds).length === 0;
+      const someFailed = errors.length > 0;
+
+      if (allFailed && currentRetries < MAX_POST_RETRIES) {
+        const retryAt = new Date(now.getTime() + RETRY_DELAY_MS);
+        await db.update(socialPostsTable).set({
+          status: "scheduled",
+          scheduledAt: retryAt,
+          retryCount: currentRetries + 1,
+          errorMessage: `Attempt ${currentRetries + 1}/${MAX_POST_RETRIES}: ${errors.join("; ")}`,
+          updatedAt: new Date(),
+        }).where(eq(socialPostsTable.id, post.id));
+        logger.warn({ postId: post.id, retryCount: currentRetries + 1, retryAt }, "Post publish failed — scheduled for retry");
+      } else {
+        const finalStatus = allFailed && currentRetries >= MAX_POST_RETRIES ? "failed" : (someFailed ? "published" : "published");
+        await db.update(socialPostsTable).set({
+          status: finalStatus,
+          publishedAt: finalStatus === "published" ? now : null,
+          externalPostIds: Object.keys(externalIds).length > 0 ? JSON.stringify(externalIds) : null,
+          errorMessage: errors.length > 0 ? `Final attempt: ${errors.join("; ")}` : null,
+          updatedAt: new Date(),
+        }).where(eq(socialPostsTable.id, post.id));
+
+        if (finalStatus === "failed") {
+          logger.error({ postId: post.id, orgId: post.orgId, errors }, "Post permanently failed after max retries");
+        }
+      }
     }
   } catch (err) {
     logger.error({ err }, "Error processing due social posts");
@@ -425,6 +452,88 @@ function computeSocialNextRun(frequency: string, dayOfWeek?: string | null, time
   return next;
 }
 
+async function generateAndSchedulePost(
+  orgId: string,
+  orgName: string,
+  platform: string,
+  contextPrompt: string,
+  tone: string,
+  ruleId?: string,
+): Promise<void> {
+  const platformGuidelines: Record<string, string> = {
+    facebook: "Facebook post (up to 400 characters). Be engaging. Include a call to action.",
+    instagram: "Instagram caption (up to 300 characters). Include 3-5 hashtags.",
+    twitter: "Tweet (under 280 characters). Be concise. 1-2 hashtags.",
+  };
+  const guideline = platformGuidelines[platform] ?? "Social media post (under 300 characters).";
+
+  const client = getOpenAIClient();
+  const completion = await client.chat.completions.create({
+    model: "gpt-5-mini",
+    max_completion_tokens: 512,
+    messages: [
+      {
+        role: "system",
+        content: `You are a social media content writer for ${orgName}. Tone: ${tone}. ${guideline} Output only the post text, no quotes or commentary.`,
+      },
+      { role: "user", content: contextPrompt },
+    ],
+  });
+
+  const content = completion.choices[0]?.message?.content?.trim() ?? "";
+  if (!content) return;
+
+  const scheduledAt = new Date(Date.now() + 5 * 60 * 1000);
+  await db.insert(socialPostsTable).values({
+    orgId,
+    platforms: [platform],
+    content,
+    status: "scheduled",
+    scheduledAt,
+    automationRuleId: ruleId ?? null,
+  });
+}
+
+async function buildContextPrompt(
+  orgId: string,
+  orgName: string,
+  contentType: string,
+  customPrompt: string | null,
+  topics?: string[] | null,
+  now?: Date,
+): Promise<string> {
+  const ts = now ?? new Date();
+  if (customPrompt) return customPrompt;
+
+  if (contentType === "events") {
+    const upcoming = await db
+      .select({ name: eventsTable.name, startDate: eventsTable.startDate, location: eventsTable.location })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.orgId, orgId),
+        eq(eventsTable.status, "published"),
+        gte(eventsTable.startDate, ts.toISOString().split("T")[0]),
+      ))
+      .limit(3);
+
+    if (upcoming.length > 0) {
+      return `Upcoming events for ${orgName}:\n` +
+        upcoming.map(e => `- ${e.name} on ${e.startDate ?? "TBD"}${e.location ? ` at ${e.location}` : ""}`).join("\n");
+    }
+    return `Write a general community update for ${orgName}.`;
+  }
+
+  if (contentType === "announcements") {
+    return `Write a weekly organizational update announcement for ${orgName}.`;
+  }
+
+  if (topics && topics.length > 0) {
+    return `Write a post about one of these topics for ${orgName}: ${topics.join(", ")}.`;
+  }
+
+  return `Write a general community post for ${orgName}.`;
+}
+
 async function runDueAutomationRules(): Promise<void> {
   const now = new Date();
   logger.info("Checking for due automation rules");
@@ -444,69 +553,43 @@ async function runDueAutomationRules(): Promise<void> {
     for (const rule of dueRules) {
       try {
         const [org] = await db
-          .select({ name: organizationsTable.name })
+          .select({ name: organizationsTable.name, tier: organizationsTable.tier })
           .from(organizationsTable)
           .where(eq(organizationsTable.id, rule.orgId));
 
-        let contextPrompt = rule.customPrompt ?? "";
-        if (rule.contentType === "events") {
-          const upcoming = await db
-            .select({ name: eventsTable.name, startDate: eventsTable.startDate, location: eventsTable.location })
-            .from(eventsTable)
-            .where(and(
-              eq(eventsTable.orgId, rule.orgId),
-              eq(eventsTable.status, "published"),
-              gte(eventsTable.startDate, now.toISOString().split("T")[0]),
-            ))
-            .limit(3);
+        const orgName = org?.name ?? "our organization";
 
-          if (upcoming.length > 0) {
-            contextPrompt = `Upcoming events for ${org?.name ?? "our organization"}:\n` +
-              upcoming.map(e => `- ${e.name} on ${e.startDate ?? "TBD"}${e.location ? ` at ${e.location}` : ""}`).join("\n");
-          } else {
-            contextPrompt = `Write a general community update for ${org?.name ?? "our organization"}.`;
+        let tone = "professional and welcoming";
+        let strategyPlatforms: string[] | null = null;
+
+        if (org?.tier === "tier3") {
+          const [strategy] = await db
+            .select()
+            .from(contentStrategyTable)
+            .where(eq(contentStrategyTable.orgId, rule.orgId));
+
+          if (strategy) {
+            tone = strategy.tone ?? tone;
+            if (strategy.isAutonomous && strategy.platforms && strategy.platforms.length > 0) {
+              strategyPlatforms = strategy.platforms;
+            }
           }
-        } else if (rule.contentType === "announcements" && !contextPrompt) {
-          contextPrompt = `Write a weekly organizational update announcement for ${org?.name ?? "our organization"}.`;
-        } else if (!contextPrompt) {
-          contextPrompt = `Write a general post for ${org?.name ?? "our organization"}.`;
         }
 
-        for (const platform of rule.platforms) {
-          const platformGuidelines: Record<string, string> = {
-            facebook: "Facebook post (up to 400 characters). Be engaging. Include a call to action.",
-            instagram: "Instagram caption (up to 300 characters). Include 3-5 hashtags.",
-            twitter: "Tweet (under 280 characters). Be concise. 1-2 hashtags.",
-          };
-          const guideline = platformGuidelines[platform] ?? "Social media post (under 300 characters).";
+        const effectivePlatforms = strategyPlatforms ?? rule.platforms;
 
+        const contextPrompt = await buildContextPrompt(
+          rule.orgId,
+          orgName,
+          rule.contentType ?? "general",
+          rule.customPrompt,
+          null,
+          now,
+        );
+
+        for (const platform of effectivePlatforms) {
           try {
-            const client = getOpenAIClient();
-            const completion = await client.chat.completions.create({
-              model: "gpt-5-mini",
-              max_completion_tokens: 512,
-              messages: [
-                {
-                  role: "system",
-                  content: `You are a social media content writer. ${guideline} Output only the post text.`,
-                },
-                { role: "user", content: contextPrompt },
-              ],
-            });
-
-            const content = completion.choices[0]?.message?.content?.trim() ?? "";
-            if (!content) continue;
-
-            const scheduledAt = new Date(now.getTime() + 5 * 60 * 1000);
-            await db.insert(socialPostsTable).values({
-              orgId: rule.orgId,
-              platforms: [platform],
-              content,
-              status: "scheduled",
-              scheduledAt,
-              automationRuleId: rule.id,
-            });
-
+            await generateAndSchedulePost(rule.orgId, orgName, platform, contextPrompt, tone, rule.id);
             logger.info({ ruleId: rule.id, platform }, "Automation rule generated post");
           } catch (aiErr) {
             logger.error({ aiErr, ruleId: rule.id, platform }, "Failed to generate AI post for automation rule");

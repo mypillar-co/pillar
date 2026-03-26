@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, boolean, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, timestamp, index } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const socialAccountsTable = pgTable("social_accounts", {
@@ -27,6 +27,7 @@ export const socialPostsTable = pgTable("social_posts", {
   publishedAt: timestamp("published_at", { withTimezone: true }),
   status: varchar("status").notNull().default("draft"),
   errorMessage: text("error_message"),
+  retryCount: integer("retry_count").default(0),
   automationRuleId: varchar("automation_rule_id"),
   externalPostIds: text("external_post_ids"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
