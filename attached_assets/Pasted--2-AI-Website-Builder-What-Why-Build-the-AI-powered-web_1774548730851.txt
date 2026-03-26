@@ -1,0 +1,36 @@
+#2 - AI Website Builder
+
+What & Why
+
+Build the AI-powered website creation and management system that is the core of Steward's value proposition. Users answer questions in a conversational chat interface and the AI generates a complete, branded website for their organization. Tier 1 users can chat to request changes. Tier 1a users set a schedule and the AI updates the site autonomously.
+
+Done looks like
+
+Logged-in users can access the "Website" section of their dashboard
+A guided AI chat interface walks users through 6-10 questions (organization name, mission, services, events, branding preferences, contact info, etc.)
+After the conversation, a website spec is generated and a preview is shown in-dashboard
+The generated website is a real, publicly-accessible page hosted under a unique subdomain or path (e.g. /sites/<org-slug>)
+Tier 1 users can type a change request ("update our meeting time to Tuesdays at 7pm") and the AI interprets and applies it
+Tier 1a users can configure a recurring update schedule ("every week, pull our latest events and update the site") and the AI runs it without any user input
+The site includes: hero section, about, services/programs, events list (if Tier 2+), contact, footer
+A "Publish" button makes the site live; an "Edit" button re-opens the chat
+Out of scope
+
+Event data on the website for users who haven't set up the event dashboard (placeholder shown instead)
+Social media integration (Task #4)
+Custom domain support (future work)
+Tasks
+
+AI chat backend — Build the conversational onboarding endpoint using the Replit AI (OpenAI-compatible) integration. The AI asks structured questions about the organization and collects answers into a website_spec JSON object stored in the database. Stream responses to the client.
+Website spec schema — Define the data model for a website spec: sections (hero, about, services, events, contact), colors/branding preferences, contact info, business hours, tagline. Store this in a website_specs table linked to the organization.
+Website generator — Given a website spec, generate a full HTML/CSS website using AI. Store the generated output (HTML string or component tree) in the database. Render it in an iframe preview within the Steward dashboard.
+Public site renderer — Serve the generated website at /sites/<org-slug> via the Express API. Any public visitor can view the org's site at this URL. Apply basic SEO metadata from the spec.
+Tier 1 change request flow — Build the "request a change" chat UI for Tier 1 users. User describes the change in plain text, the AI interprets it, proposes the specific edit, user confirms, and the site regenerates.
+Tier 1a autonomous schedule — Build the schedule configuration UI (user sets what to keep updated: events, hours, announcements — and how often). Store schedules in a site_update_schedules table. Implement a background job runner that triggers the AI to update the site on schedule without user interaction.
+Website dashboard section — Build the "Website" tab in the Steward dashboard showing: current site status (live/draft), last updated timestamp, public URL, a preview thumbnail/iframe, and action buttons (Edit, Publish, View Live).
+Relevant files
+
+artifacts/api-server/src/routes/index.ts
+lib/db/src/schema/index.ts
+lib/api-spec/openapi.yaml
+.local/skills/ai-integrations-openai/SKILL.md
