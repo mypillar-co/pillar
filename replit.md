@@ -44,6 +44,10 @@ An AI-powered SaaS platform (Wix meets Eventbrite) that autonomously manages web
 - `public.site_blocks` — Content blocks per page (hero, text, events_list, sponsors_grid, contact_form)
 - `public.site_nav_items` — Navigation menu for a site
 - `public.domains` — Custom domains (Porkbun integration, status, registrarRef)
+- `public.social_accounts` — Connected social media accounts (Facebook, Instagram, X) with access tokens
+- `public.social_posts` — Social media posts (draft, scheduled, published, failed, cancelled)
+- `public.automation_rules` — Recurring social posting rules (frequency, platforms, content type, AI prompt)
+- `public.content_strategy` — Tier 3 autonomous content strategy (tone, frequency, topics, platforms)
 - `stripe.*` — Synced Stripe data (products, prices, customers, subscriptions, etc.)
 
 ### DB Commands

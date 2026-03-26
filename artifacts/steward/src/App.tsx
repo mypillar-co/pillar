@@ -22,6 +22,7 @@ import Payments from "./pages/dashboard/Payments";
 import SiteBuilder from "./pages/dashboard/SiteBuilder";
 import Domains from "./pages/dashboard/Domains";
 import DashboardSettings from "./pages/dashboard/DashboardSettings";
+import Social from "./pages/dashboard/Social";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,6 +49,7 @@ function DashboardRouter() {
         <Route path="/dashboard/site" component={SiteBuilder} />
         <Route path="/dashboard/domains" component={Domains} />
         <Route path="/dashboard/settings" component={DashboardSettings} />
+        <Route path="/dashboard/social" component={Social} />
         <Route component={NotFound} />
       </Switch>
     </DashboardLayout>

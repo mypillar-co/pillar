@@ -173,6 +173,63 @@ export type Stats = {
   totalRevenue: number;
 };
 
+export type SocialAccount = {
+  id: string;
+  orgId: string;
+  platform: string;
+  accountName: string;
+  accountId?: string | null;
+  isConnected: boolean;
+  expiresAt?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+};
+
+export type SocialPost = {
+  id: string;
+  orgId: string;
+  platforms: string[];
+  content: string;
+  mediaUrl?: string | null;
+  scheduledAt?: string | null;
+  publishedAt?: string | null;
+  status: string;
+  errorMessage?: string | null;
+  automationRuleId?: string | null;
+  externalPostIds?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+};
+
+export type AutomationRule = {
+  id: string;
+  orgId: string;
+  name: string;
+  platforms: string[];
+  frequency: string;
+  dayOfWeek?: string | null;
+  timeOfDay?: string | null;
+  contentType?: string | null;
+  customPrompt?: string | null;
+  isActive: boolean;
+  lastRunAt?: string | null;
+  nextRunAt?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+};
+
+export type ContentStrategy = {
+  id: string;
+  orgId: string;
+  tone?: string | null;
+  postingFrequency?: string | null;
+  topics?: string[] | null;
+  platforms?: string[] | null;
+  isAutonomous: boolean;
+  createdAt: string;
+  updatedAt?: string;
+};
+
 export const api = {
   stats: {
     get: () => req<Stats>("/api/stats"),
@@ -222,5 +279,36 @@ export const api = {
   contacts: {
     list: () => req<ContactItem[]>("/api/contacts"),
     create: (data: Partial<ContactItem>) => req<ContactItem>("/api/contacts", { method: "POST", body: JSON.stringify(data) }),
+  },
+  social: {
+    accounts: {
+      list: () => req<SocialAccount[]>("/api/social/accounts"),
+      connect: (data: { platform: string; accountName: string; accessToken: string; accountId?: string }) =>
+        req<SocialAccount>("/api/social/accounts", { method: "POST", body: JSON.stringify(data) }),
+      disconnect: (id: string) => req<void>(`/api/social/accounts/${id}`, { method: "DELETE" }),
+    },
+    posts: {
+      list: (status?: string) => req<SocialPost[]>(`/api/social/posts${status ? `?status=${status}` : ""}`),
+      create: (data: { platforms: string[]; content: string; mediaUrl?: string; scheduledAt?: string }) =>
+        req<SocialPost>("/api/social/posts", { method: "POST", body: JSON.stringify(data) }),
+      update: (id: string, data: Partial<SocialPost>) =>
+        req<SocialPost>(`/api/social/posts/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+      delete: (id: string) => req<void>(`/api/social/posts/${id}`, { method: "DELETE" }),
+      generate: (data: { platform: string; topic?: string; eventId?: string; tone?: string }) =>
+        req<{ content: string; platform: string }>("/api/social/posts/generate", { method: "POST", body: JSON.stringify(data) }),
+    },
+    rules: {
+      list: () => req<AutomationRule[]>("/api/social/rules"),
+      create: (data: Partial<AutomationRule>) =>
+        req<AutomationRule>("/api/social/rules", { method: "POST", body: JSON.stringify(data) }),
+      update: (id: string, data: Partial<AutomationRule>) =>
+        req<AutomationRule>(`/api/social/rules/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+      delete: (id: string) => req<void>(`/api/social/rules/${id}`, { method: "DELETE" }),
+    },
+    strategy: {
+      get: () => req<ContentStrategy | null>("/api/social/strategy"),
+      update: (data: Partial<ContentStrategy>) =>
+        req<ContentStrategy>("/api/social/strategy", { method: "PUT", body: JSON.stringify(data) }),
+    },
   },
 };

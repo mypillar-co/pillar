@@ -18,6 +18,7 @@ import {
   Zap,
   Loader2,
   LinkIcon,
+  Share2,
 } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetOrganization } from "@workspace/api-client-react";
@@ -33,6 +34,7 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { label: "Events", href: "/dashboard/events", icon: Calendar },
+  { label: "Social Media", href: "/dashboard/social", icon: Share2 },
   { label: "Vendors", href: "/dashboard/vendors", icon: Users },
   { label: "Sponsors", href: "/dashboard/sponsors", icon: Star },
   { label: "Payments", href: "/dashboard/payments", icon: DollarSign },
