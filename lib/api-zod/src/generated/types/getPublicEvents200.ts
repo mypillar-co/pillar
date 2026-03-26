@@ -6,9 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { EventItem } from "./eventItem";
-import type { GetPublicEvents200Org } from "./getPublicEvents200Org";
 
 export type GetPublicEvents200 = {
-  org?: GetPublicEvents200Org;
-  events?: EventItem[];
+  /** Display name of the organization */
+  orgName: string;
+  events: EventItem[];
 };

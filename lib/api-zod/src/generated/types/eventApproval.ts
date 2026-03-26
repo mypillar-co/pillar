@@ -11,13 +11,22 @@ export interface EventApproval {
   id: string;
   eventId: string;
   orgId: string;
-  /** @nullable */
-  submittedById?: string | null;
-  /** @nullable */
-  reviewedById?: string | null;
+  /**
+   * User ID of who submitted the event for approval
+   * @nullable
+   */
+  submittedByUserId?: string | null;
+  /**
+   * User ID of who approved or rejected
+   * @nullable
+   */
+  approverUserId?: string | null;
   status: EventApprovalStatus;
-  /** @nullable */
-  comment?: string | null;
+  /**
+   * Reviewer comments on the approval decision
+   * @nullable
+   */
+  comments?: string | null;
   createdAt: string;
   /** @nullable */
   updatedAt?: string | null;

@@ -298,10 +298,19 @@ export const GetApprovalQueueResponseItem = zod.object({
       id: zod.string(),
       eventId: zod.string(),
       orgId: zod.string(),
-      submittedById: zod.string().nullish(),
-      reviewedById: zod.string().nullish(),
+      submittedByUserId: zod
+        .string()
+        .nullish()
+        .describe("User ID of who submitted the event for approval"),
+      approverUserId: zod
+        .string()
+        .nullish()
+        .describe("User ID of who approved or rejected"),
       status: zod.enum(["pending", "approved", "rejected"]),
-      comment: zod.string().nullish(),
+      comments: zod
+        .string()
+        .nullish()
+        .describe("Reviewer comments on the approval decision"),
       createdAt: zod.string(),
       updatedAt: zod.string().nullish(),
     })
@@ -359,16 +368,28 @@ export const ListRecurringTemplatesResponseItem = zod.object({
   orgId: zod.string(),
   name: zod.string(),
   description: zod.string().nullish(),
+  eventType: zod.string().nullish(),
   frequency: zod.enum(["weekly", "biweekly", "monthly", "quarterly"]),
-  dayOfWeek: zod.number().nullish(),
-  dayOfMonth: zod.number().nullish(),
+  dayOfWeek: zod.number().nullish().describe("0=Sunday … 6=Saturday"),
+  weekOfMonth: zod
+    .number()
+    .nullish()
+    .describe("For monthly templates; which week (1-5)"),
+  dayOfMonth: zod
+    .number()
+    .nullish()
+    .describe("For monthly templates; specific day of month (1-31)"),
+  durationMinutes: zod.number().nullish(),
   startTime: zod.string().nullish(),
-  endTime: zod.string().nullish(),
   location: zod.string().nullish(),
-  isTicketed: zod.boolean().optional(),
-  ticketPrice: zod.number().nullish(),
   isActive: zod.boolean(),
-  nextGenerateAt: zod.string().nullish(),
+  lastGeneratedAt: zod.string().nullish(),
+  nextGenerateAt: zod
+    .string()
+    .nullish()
+    .describe(
+      "The date this template will next generate an event. Used as the event's startDate.",
+    ),
   createdAt: zod.string(),
 });
 export const ListRecurringTemplatesResponse = zod.array(
@@ -382,14 +403,20 @@ export const ListRecurringTemplatesResponse = zod.array(
 export const CreateRecurringTemplateBody = zod.object({
   name: zod.string(),
   description: zod.string().optional(),
+  eventType: zod.string().optional(),
   frequency: zod.enum(["weekly", "biweekly", "monthly", "quarterly"]),
-  dayOfWeek: zod.number().optional(),
-  dayOfMonth: zod.number().optional(),
+  dayOfWeek: zod.number().optional().describe("0=Sunday … 6=Saturday"),
+  weekOfMonth: zod
+    .number()
+    .optional()
+    .describe("For monthly; which week (1-5)"),
+  dayOfMonth: zod
+    .number()
+    .optional()
+    .describe("For monthly; specific day of month (1-31)"),
+  durationMinutes: zod.number().optional(),
   startTime: zod.string().optional(),
-  endTime: zod.string().optional(),
   location: zod.string().optional(),
-  isTicketed: zod.boolean().optional(),
-  ticketPrice: zod.number().optional(),
 });
 
 /**
@@ -400,50 +427,48 @@ export const GetPublicEventsParams = zod.object({
 });
 
 export const GetPublicEventsResponse = zod.object({
-  org: zod.object({}).passthrough().optional(),
-  events: zod
-    .array(
-      zod.object({
-        id: zod.string(),
-        orgId: zod.string(),
-        name: zod.string(),
-        description: zod.string().nullish(),
-        eventType: zod.string().nullish(),
-        status: zod.enum([
-          "draft",
-          "pending_approval",
-          "published",
-          "active",
-          "completed",
-          "cancelled",
-        ]),
-        startDate: zod.string().nullish(),
-        endDate: zod.string().nullish(),
-        location: zod.string().nullish(),
-        isTicketed: zod.boolean().optional(),
-        ticketPrice: zod.number().nullish(),
-        ticketCapacity: zod.number().nullish(),
-        requiresApproval: zod.boolean().optional(),
-        isRecurring: zod.boolean().optional(),
-        featured: zod.boolean().optional(),
-        imageUrl: zod.string().nullish(),
-        isActive: zod.boolean().optional(),
-        createdAt: zod.string(),
-        totalSold: zod
-          .number()
-          .optional()
-          .describe(
-            "Total tickets sold (sum of sale quantities). Included in list response.",
-          ),
-        totalRevenue: zod
-          .number()
-          .optional()
-          .describe(
-            "Total revenue in USD (sum of amountPaid). amountPaid is the total transaction amount per sale, not per-ticket.",
-          ),
-      }),
-    )
-    .optional(),
+  orgName: zod.string().describe("Display name of the organization"),
+  events: zod.array(
+    zod.object({
+      id: zod.string(),
+      orgId: zod.string(),
+      name: zod.string(),
+      description: zod.string().nullish(),
+      eventType: zod.string().nullish(),
+      status: zod.enum([
+        "draft",
+        "pending_approval",
+        "published",
+        "active",
+        "completed",
+        "cancelled",
+      ]),
+      startDate: zod.string().nullish(),
+      endDate: zod.string().nullish(),
+      location: zod.string().nullish(),
+      isTicketed: zod.boolean().optional(),
+      ticketPrice: zod.number().nullish(),
+      ticketCapacity: zod.number().nullish(),
+      requiresApproval: zod.boolean().optional(),
+      isRecurring: zod.boolean().optional(),
+      featured: zod.boolean().optional(),
+      imageUrl: zod.string().nullish(),
+      isActive: zod.boolean().optional(),
+      createdAt: zod.string(),
+      totalSold: zod
+        .number()
+        .optional()
+        .describe(
+          "Total tickets sold (sum of sale quantities). Included in list response.",
+        ),
+      totalRevenue: zod
+        .number()
+        .optional()
+        .describe(
+          "Total revenue in USD (sum of amountPaid). amountPaid is the total transaction amount per sale, not per-ticket.",
+        ),
+    }),
+  ),
 });
 
 /**
@@ -531,10 +556,19 @@ export const GetEventDetailResponse = zod.object({
       id: zod.string(),
       eventId: zod.string(),
       orgId: zod.string(),
-      submittedById: zod.string().nullish(),
-      reviewedById: zod.string().nullish(),
+      submittedByUserId: zod
+        .string()
+        .nullish()
+        .describe("User ID of who submitted the event for approval"),
+      approverUserId: zod
+        .string()
+        .nullish()
+        .describe("User ID of who approved or rejected"),
       status: zod.enum(["pending", "approved", "rejected"]),
-      comment: zod.string().nullish(),
+      comments: zod
+        .string()
+        .nullish()
+        .describe("Reviewer comments on the approval decision"),
       createdAt: zod.string(),
       updatedAt: zod.string().nullish(),
     }),
@@ -544,11 +578,13 @@ export const GetEventDetailResponse = zod.object({
       id: zod.string(),
       eventId: zod.string(),
       orgId: zod.string(),
-      subject: zod.string().nullish(),
-      message: zod.string(),
-      channel: zod.enum(["email", "sms", "push", "in_app"]),
-      sentByUserId: zod.string().nullish(),
-      recipientCount: zod.number().nullish(),
+      subject: zod.string(),
+      body: zod.string().describe("Message body text sent to attendees"),
+      recipientCount: zod
+        .number()
+        .describe(
+          "Number of unique attendee emails the communication was sent to",
+        ),
       sentAt: zod.string(),
     }),
   ),
@@ -649,7 +685,12 @@ export const ApproveEventParams = zod.object({
 });
 
 export const ApproveEventBody = zod.object({
-  comment: zod.string().optional(),
+  comments: zod
+    .string()
+    .optional()
+    .describe(
+      "Optional reviewer comment on the approval or rejection decision",
+    ),
 });
 
 /**
@@ -661,7 +702,12 @@ export const RejectEventParams = zod.object({
 });
 
 export const RejectEventBody = zod.object({
-  comment: zod.string().optional(),
+  comments: zod
+    .string()
+    .optional()
+    .describe(
+      "Optional reviewer comment on the approval or rejection decision",
+    ),
 });
 
 /**
@@ -764,11 +810,11 @@ export const ListEventCommunicationsResponseItem = zod.object({
   id: zod.string(),
   eventId: zod.string(),
   orgId: zod.string(),
-  subject: zod.string().nullish(),
-  message: zod.string(),
-  channel: zod.enum(["email", "sms", "push", "in_app"]),
-  sentByUserId: zod.string().nullish(),
-  recipientCount: zod.number().nullish(),
+  subject: zod.string(),
+  body: zod.string().describe("Message body text sent to attendees"),
+  recipientCount: zod
+    .number()
+    .describe("Number of unique attendee emails the communication was sent to"),
   sentAt: zod.string(),
 });
 export const ListEventCommunicationsResponse = zod.array(
@@ -784,7 +830,10 @@ export const SendEventCommunicationParams = zod.object({
 });
 
 export const SendEventCommunicationBody = zod.object({
-  subject: zod.string().optional(),
-  message: zod.string(),
-  channel: zod.enum(["email", "sms", "push", "in_app"]),
+  subject: zod.string(),
+  body: zod
+    .string()
+    .describe(
+      "Message body text to send to all attendees with recorded emails",
+    ),
 });

@@ -7,5 +7,6 @@
  */
 
 export interface EventApprovalCommentRequest {
-  comment?: string;
+  /** Optional reviewer comment on the approval or rejection decision */
+  comments?: string;
 }

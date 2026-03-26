@@ -5,10 +5,9 @@
  * Steward SaaS API specification
  * OpenAPI spec version: 0.1.0
  */
-import type { SendCommunicationRequestChannel } from "./sendCommunicationRequestChannel";
 
 export interface SendCommunicationRequest {
-  subject?: string;
-  message: string;
-  channel: SendCommunicationRequestChannel;
+  subject: string;
+  /** Message body text to send to all attendees with recorded emails */
+  body: string;
 }

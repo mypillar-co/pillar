@@ -388,9 +388,11 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [events, orgName]
                 properties:
-                  org:
-                    type: object
+                  orgName:
+                    type: string
+                    description: Display name of the organization
                   events:
                     type: array
                     items:
@@ -994,22 +996,25 @@ components:
           type: string
         orgId:
           type: string
-        submittedById:
+        submittedByUserId:
           type: [string, 'null']
-        reviewedById:
+          description: User ID of who submitted the event for approval
+        approverUserId:
           type: [string, 'null']
+          description: User ID of who approved or rejected
         status:
           type: string
           enum: [pending, approved, rejected]
-        comment:
+        comments:
           type: [string, 'null']
+          description: Reviewer comments on the approval decision
         createdAt:
           type: string
         updatedAt:
           type: [string, 'null']
     EventCommunication:
       type: object
-      required: [id, eventId, orgId, channel, message, sentAt]
+      required: [id, eventId, orgId, subject, body, recipientCount, sentAt]
       properties:
         id:
           type: string
@@ -1018,16 +1023,13 @@ components:
         orgId:
           type: string
         subject:
-          type: [string, 'null']
-        message:
           type: string
-        channel:
+        body:
           type: string
-          enum: [email, sms, push, in_app]
-        sentByUserId:
-          type: [string, 'null']
+          description: Message body text sent to attendees
         recipientCount:
-          type: [number, 'null']
+          type: number
+          description: Number of unique attendee emails the communication was sent to
         sentAt:
           type: string
     RecurringTemplate:
@@ -1042,27 +1044,33 @@ components:
           type: string
         description:
           type: [string, 'null']
+        eventType:
+          type: [string, 'null']
         frequency:
           type: string
           enum: [weekly, biweekly, monthly, quarterly]
         dayOfWeek:
           type: [number, 'null']
+          description: 0=Sunday … 6=Saturday
+        weekOfMonth:
+          type: [number, 'null']
+          description: For monthly templates; which week (1-5)
         dayOfMonth:
+          type: [number, 'null']
+          description: For monthly templates; specific day of month (1-31)
+        durationMinutes:
           type: [number, 'null']
         startTime:
           type: [string, 'null']
-        endTime:
-          type: [string, 'null']
         location:
           type: [string, 'null']
-        isTicketed:
-          type: boolean
-        ticketPrice:
-          type: [number, 'null']
         isActive:
           type: boolean
+        lastGeneratedAt:
+          type: [string, 'null']
         nextGenerateAt:
           type: [string, 'null']
+          description: The date this template will next generate an event. Used as the event's startDate.
         createdAt:
           type: string
     ApprovalQueueItem:
@@ -1138,15 +1146,13 @@ components:
           type: string
     SendCommunicationRequest:
       type: object
-      required: [message, channel]
+      required: [subject, body]
       properties:
         subject:
           type: string
-        message:
+        body:
           type: string
-        channel:
-          type: string
-          enum: [email, sms, push, in_app]
+          description: Message body text to send to all attendees with recorded emails
     CreateRecurringTemplateRequest:
       type: object
       required: [name, frequency]
@@ -1155,25 +1161,29 @@ components:
           type: string
         description:
           type: string
+        eventType:
+          type: string
         frequency:
           type: string
           enum: [weekly, biweekly, monthly, quarterly]
         dayOfWeek:
           type: number
+          description: 0=Sunday … 6=Saturday
+        weekOfMonth:
+          type: number
+          description: For monthly; which week (1-5)
         dayOfMonth:
+          type: number
+          description: For monthly; specific day of month (1-31)
+        durationMinutes:
           type: number
         startTime:
           type: string
-        endTime:
-          type: string
         location:
           type: string
-        isTicketed:
-          type: boolean
-        ticketPrice:
-          type: number
     EventApprovalCommentRequest:
       type: object
       properties:
-        comment:
+        comments:
           type: string
+          description: Optional reviewer comment on the approval or rejection decision

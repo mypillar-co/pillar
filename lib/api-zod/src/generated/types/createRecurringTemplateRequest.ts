@@ -10,12 +10,15 @@ import type { CreateRecurringTemplateRequestFrequency } from "./createRecurringT
 export interface CreateRecurringTemplateRequest {
   name: string;
   description?: string;
+  eventType?: string;
   frequency: CreateRecurringTemplateRequestFrequency;
+  /** 0=Sunday … 6=Saturday */
   dayOfWeek?: number;
+  /** For monthly; which week (1-5) */
+  weekOfMonth?: number;
+  /** For monthly; specific day of month (1-31) */
   dayOfMonth?: number;
+  durationMinutes?: number;
   startTime?: string;
-  endTime?: string;
   location?: string;
-  isTicketed?: boolean;
-  ticketPrice?: number;
 }

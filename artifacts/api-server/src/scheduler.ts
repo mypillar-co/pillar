@@ -199,13 +199,10 @@ async function runDueRecurringTemplates(): Promise<void> {
 
     for (const template of dueTemplates) {
       try {
-        const nextDate = computeNextEventOccurrence(
-          template.frequency,
-          template.dayOfWeek,
-          template.weekOfMonth,
-          template.dayOfMonth,
-        );
-        const dateStr = nextDate.toISOString().split("T")[0];
+        // Use the stored nextGenerateAt as the event date to prevent schedule drift.
+        // Compute the FOLLOWING occurrence to advance the pointer.
+        const eventDate = template.nextGenerateAt ?? new Date();
+        const dateStr = eventDate.toISOString().split("T")[0];
 
         let generatedDescription = template.description ?? "";
         try {
@@ -251,7 +248,7 @@ async function runDueRecurringTemplates(): Promise<void> {
           template.dayOfWeek,
           template.weekOfMonth,
           template.dayOfMonth,
-          nextDate,
+          eventDate,
         );
         await db.update(recurringEventTemplatesTable)
           .set({ lastGeneratedAt: now, nextGenerateAt: followingDate })

@@ -13,22 +13,37 @@ export interface RecurringTemplate {
   name: string;
   /** @nullable */
   description?: string | null;
+  /** @nullable */
+  eventType?: string | null;
   frequency: RecurringTemplateFrequency;
-  /** @nullable */
+  /**
+   * 0=Sunday … 6=Saturday
+   * @nullable
+   */
   dayOfWeek?: number | null;
-  /** @nullable */
+  /**
+   * For monthly templates; which week (1-5)
+   * @nullable
+   */
+  weekOfMonth?: number | null;
+  /**
+   * For monthly templates; specific day of month (1-31)
+   * @nullable
+   */
   dayOfMonth?: number | null;
+  /** @nullable */
+  durationMinutes?: number | null;
   /** @nullable */
   startTime?: string | null;
   /** @nullable */
-  endTime?: string | null;
-  /** @nullable */
   location?: string | null;
-  isTicketed?: boolean;
-  /** @nullable */
-  ticketPrice?: number | null;
   isActive: boolean;
   /** @nullable */
+  lastGeneratedAt?: string | null;
+  /**
+   * The date this template will next generate an event. Used as the event's startDate.
+   * @nullable
+   */
   nextGenerateAt?: string | null;
   createdAt: string;
 }

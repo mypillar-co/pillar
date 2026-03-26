@@ -212,40 +212,36 @@ export interface EventApproval {
   id: string;
   eventId: string;
   orgId: string;
-  /** @nullable */
-  submittedById?: string | null;
-  /** @nullable */
-  reviewedById?: string | null;
+  /**
+   * User ID of who submitted the event for approval
+   * @nullable
+   */
+  submittedByUserId?: string | null;
+  /**
+   * User ID of who approved or rejected
+   * @nullable
+   */
+  approverUserId?: string | null;
   status: EventApprovalStatus;
-  /** @nullable */
-  comment?: string | null;
+  /**
+   * Reviewer comments on the approval decision
+   * @nullable
+   */
+  comments?: string | null;
   createdAt: string;
   /** @nullable */
   updatedAt?: string | null;
 }
 
-export type EventCommunicationChannel =
-  (typeof EventCommunicationChannel)[keyof typeof EventCommunicationChannel];
-
-export const EventCommunicationChannel = {
-  email: "email",
-  sms: "sms",
-  push: "push",
-  in_app: "in_app",
-} as const;
-
 export interface EventCommunication {
   id: string;
   eventId: string;
   orgId: string;
-  /** @nullable */
-  subject?: string | null;
-  message: string;
-  channel: EventCommunicationChannel;
-  /** @nullable */
-  sentByUserId?: string | null;
-  /** @nullable */
-  recipientCount?: number | null;
+  subject: string;
+  /** Message body text sent to attendees */
+  body: string;
+  /** Number of unique attendee emails the communication was sent to */
+  recipientCount: number;
   sentAt: string;
 }
 
@@ -295,22 +291,37 @@ export interface RecurringTemplate {
   name: string;
   /** @nullable */
   description?: string | null;
+  /** @nullable */
+  eventType?: string | null;
   frequency: RecurringTemplateFrequency;
-  /** @nullable */
+  /**
+   * 0=Sunday … 6=Saturday
+   * @nullable
+   */
   dayOfWeek?: number | null;
-  /** @nullable */
+  /**
+   * For monthly templates; which week (1-5)
+   * @nullable
+   */
+  weekOfMonth?: number | null;
+  /**
+   * For monthly templates; specific day of month (1-31)
+   * @nullable
+   */
   dayOfMonth?: number | null;
+  /** @nullable */
+  durationMinutes?: number | null;
   /** @nullable */
   startTime?: string | null;
   /** @nullable */
-  endTime?: string | null;
-  /** @nullable */
   location?: string | null;
-  isTicketed?: boolean;
-  /** @nullable */
-  ticketPrice?: number | null;
   isActive: boolean;
   /** @nullable */
+  lastGeneratedAt?: string | null;
+  /**
+   * The date this template will next generate an event. Used as the event's startDate.
+   * @nullable
+   */
   nextGenerateAt?: string | null;
   createdAt: string;
 }
@@ -355,20 +366,10 @@ export interface RecordTicketSaleRequest {
   notes?: string;
 }
 
-export type SendCommunicationRequestChannel =
-  (typeof SendCommunicationRequestChannel)[keyof typeof SendCommunicationRequestChannel];
-
-export const SendCommunicationRequestChannel = {
-  email: "email",
-  sms: "sms",
-  push: "push",
-  in_app: "in_app",
-} as const;
-
 export interface SendCommunicationRequest {
-  subject?: string;
-  message: string;
-  channel: SendCommunicationRequestChannel;
+  subject: string;
+  /** Message body text to send to all attendees with recorded emails */
+  body: string;
 }
 
 export type CreateRecurringTemplateRequestFrequency =
@@ -384,18 +385,22 @@ export const CreateRecurringTemplateRequestFrequency = {
 export interface CreateRecurringTemplateRequest {
   name: string;
   description?: string;
+  eventType?: string;
   frequency: CreateRecurringTemplateRequestFrequency;
+  /** 0=Sunday … 6=Saturday */
   dayOfWeek?: number;
+  /** For monthly; which week (1-5) */
+  weekOfMonth?: number;
+  /** For monthly; specific day of month (1-31) */
   dayOfMonth?: number;
+  durationMinutes?: number;
   startTime?: string;
-  endTime?: string;
   location?: string;
-  isTicketed?: boolean;
-  ticketPrice?: number;
 }
 
 export interface EventApprovalCommentRequest {
-  comment?: string;
+  /** Optional reviewer comment on the approval or rejection decision */
+  comments?: string;
 }
 
 /**
@@ -432,9 +437,8 @@ export const ListEventsIncludeInactive = {
   NUMBER_1: "1",
 } as const;
 
-export type GetPublicEvents200Org = { [key: string]: unknown };
-
 export type GetPublicEvents200 = {
-  org?: GetPublicEvents200Org;
-  events?: EventItem[];
+  /** Display name of the organization */
+  orgName: string;
+  events: EventItem[];
 };

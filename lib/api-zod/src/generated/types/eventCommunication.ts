@@ -5,19 +5,15 @@
  * Steward SaaS API specification
  * OpenAPI spec version: 0.1.0
  */
-import type { EventCommunicationChannel } from "./eventCommunicationChannel";
 
 export interface EventCommunication {
   id: string;
   eventId: string;
   orgId: string;
-  /** @nullable */
-  subject?: string | null;
-  message: string;
-  channel: EventCommunicationChannel;
-  /** @nullable */
-  sentByUserId?: string | null;
-  /** @nullable */
-  recipientCount?: number | null;
+  subject: string;
+  /** Message body text sent to attendees */
+  body: string;
+  /** Number of unique attendee emails the communication was sent to */
+  recipientCount: number;
   sentAt: string;
 }
