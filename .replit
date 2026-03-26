@@ -32,5 +32,3 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-NAMECHEAP_SANDBOX = "false"
-NAMECHEAP_CLIENT_IP = "0.0.0.0"

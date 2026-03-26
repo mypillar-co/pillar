@@ -9,7 +9,7 @@ import {
   DOMAIN_ADDON_PRICE_CENTS,
   DOMAIN_ADDON_LABEL,
   FREE_DOMAIN_TIERS,
-} from "../namecheap";
+} from "../porkbun";
 
 const router = Router();
 
