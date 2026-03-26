@@ -103,6 +103,7 @@ export type EventMetrics = {
   publishedEvents: number;
   upcomingEvents: Array<{ id: string; name: string; startDate: string | null; status: string }>;
   totalTicketsSold: number;
+  thisMonthTicketsSold: number;
   totalRevenue: number;
 };
 

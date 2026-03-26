@@ -240,7 +240,7 @@ export default function Events() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatCard label="Total Events" value={m.totalEvents} icon={Calendar} />
           <StatCard label="Published" value={m.publishedEvents} icon={CheckCircle} />
-          <StatCard label="Tickets Sold" value={m.totalTicketsSold} icon={Ticket} />
+          <StatCard label="All-Time Tickets" value={m.totalTicketsSold} icon={Ticket} sub={`${m.thisMonthTicketsSold} this month`} />
           <StatCard label="Total Revenue" value={`$${m.totalRevenue.toFixed(2)}`} icon={DollarSign} />
         </div>
       )}

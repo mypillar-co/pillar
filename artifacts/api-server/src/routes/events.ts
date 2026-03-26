@@ -61,7 +61,9 @@ router.get("/metrics", async (req: Request, res: Response) => {
     return;
   }
   const today = new Date().toISOString().split("T")[0];
-  const [allEvents, upcomingEvents, salesRows] = await Promise.all([
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const [allEvents, upcomingEvents, allTimeSales, thisMontSales] = await Promise.all([
     db.select({ id: eventsTable.id, status: eventsTable.status })
       .from(eventsTable)
       .where(and(eq(eventsTable.orgId, org.id), eq(eventsTable.isActive, true))),
@@ -73,14 +75,19 @@ router.get("/metrics", async (req: Request, res: Response) => {
     db.select({ qty: sum(ticketSalesTable.quantity), revenue: sum(ticketSalesTable.amountPaid) })
       .from(ticketSalesTable)
       .where(eq(ticketSalesTable.orgId, org.id)),
+    db.select({ qty: sum(ticketSalesTable.quantity) })
+      .from(ticketSalesTable)
+      .where(and(eq(ticketSalesTable.orgId, org.id), gte(ticketSalesTable.createdAt, new Date(monthStart)))),
   ]);
-  const totalTicketsSold = Number(salesRows[0]?.qty ?? 0);
-  const totalRevenue = Number(salesRows[0]?.revenue ?? 0);
+  const totalTicketsSold = Number(allTimeSales[0]?.qty ?? 0);
+  const totalRevenue = Number(allTimeSales[0]?.revenue ?? 0);
+  const thisMonthTicketsSold = Number(thisMontSales[0]?.qty ?? 0);
   res.json({
     totalEvents: allEvents.length,
     publishedEvents: allEvents.filter(e => e.status === "published" || e.status === "active").length,
     upcomingEvents,
     totalTicketsSold,
+    thisMonthTicketsSold,
     totalRevenue,
   });
 });
@@ -392,11 +399,21 @@ router.post("/:id/submit", async (req: Request, res: Response) => {
 router.post("/:id/approve", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
+  if (req.user?.id !== org.userId) {
+    res.status(403).json({ error: "Only the organization owner can approve events" });
+    return;
+  }
   const eventId = String(req.params.id);
   const { comments } = req.body as { comments?: string };
+  const pendingApprovals = await db.select().from(eventApprovalsTable)
+    .where(and(eq(eventApprovalsTable.eventId, eventId), eq(eventApprovalsTable.orgId, org.id), eq(eventApprovalsTable.status, "pending")));
+  if (!pendingApprovals.length) {
+    res.status(400).json({ error: "No pending approval found for this event" });
+    return;
+  }
   await db.update(eventApprovalsTable)
     .set({ status: "approved", approverUserId: req.user?.id ?? null, comments: comments ?? null })
-    .where(and(eq(eventApprovalsTable.eventId, eventId), eq(eventApprovalsTable.orgId, org.id)));
+    .where(and(eq(eventApprovalsTable.eventId, eventId), eq(eventApprovalsTable.orgId, org.id), eq(eventApprovalsTable.status, "pending")));
   const [updated] = await db.update(eventsTable).set({ status: "published" }).where(and(eq(eventsTable.id, eventId), eq(eventsTable.orgId, org.id))).returning();
   if (!updated) { res.status(404).json({ error: "Event not found" }); return; }
   res.json(updated);
@@ -406,11 +423,21 @@ router.post("/:id/approve", async (req: Request, res: Response) => {
 router.post("/:id/reject", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
+  if (req.user?.id !== org.userId) {
+    res.status(403).json({ error: "Only the organization owner can reject events" });
+    return;
+  }
   const eventId = String(req.params.id);
   const { comments } = req.body as { comments?: string };
+  const pendingApprovals = await db.select().from(eventApprovalsTable)
+    .where(and(eq(eventApprovalsTable.eventId, eventId), eq(eventApprovalsTable.orgId, org.id), eq(eventApprovalsTable.status, "pending")));
+  if (!pendingApprovals.length) {
+    res.status(400).json({ error: "No pending approval found for this event" });
+    return;
+  }
   await db.update(eventApprovalsTable)
     .set({ status: "rejected", approverUserId: req.user?.id ?? null, comments: comments ?? null })
-    .where(and(eq(eventApprovalsTable.eventId, eventId), eq(eventApprovalsTable.orgId, org.id)));
+    .where(and(eq(eventApprovalsTable.eventId, eventId), eq(eventApprovalsTable.orgId, org.id), eq(eventApprovalsTable.status, "pending")));
   const [updated] = await db.update(eventsTable).set({ status: "draft" }).where(and(eq(eventsTable.id, eventId), eq(eventsTable.orgId, org.id))).returning();
   if (!updated) { res.status(404).json({ error: "Event not found" }); return; }
   res.json(updated);
@@ -500,9 +527,17 @@ router.post("/:id/sales", async (req: Request, res: Response) => {
     notes: notes ? String(notes) : undefined,
   }).returning();
   if (ticketTypeId) {
-    const [tt] = await db.select().from(ticketTypesTable).where(eq(ticketTypesTable.id, String(ticketTypeId)));
+    const [tt] = await db.select().from(ticketTypesTable).where(
+      and(
+        eq(ticketTypesTable.id, String(ticketTypeId)),
+        eq(ticketTypesTable.orgId, org.id),
+        eq(ticketTypesTable.eventId, eventId),
+      ),
+    );
     if (tt) {
-      await db.update(ticketTypesTable).set({ sold: tt.sold + qty }).where(eq(ticketTypesTable.id, String(ticketTypeId)));
+      await db.update(ticketTypesTable)
+        .set({ sold: tt.sold + qty })
+        .where(and(eq(ticketTypesTable.id, String(ticketTypeId)), eq(ticketTypesTable.orgId, org.id), eq(ticketTypesTable.eventId, eventId)));
     }
   }
   res.status(201).json(sale);

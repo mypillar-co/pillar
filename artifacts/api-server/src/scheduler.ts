@@ -1,4 +1,10 @@
-import { db, sitesTable, siteUpdateSchedulesTable } from "@workspace/db";
+import {
+  db,
+  sitesTable,
+  siteUpdateSchedulesTable,
+  recurringEventTemplatesTable,
+  eventsTable,
+} from "@workspace/db";
 import { eq, lte, and } from "drizzle-orm";
 import { logger } from "./lib/logger";
 import OpenAI from "openai";
@@ -124,18 +130,162 @@ Output ONLY the complete updated HTML document starting with <!DOCTYPE html>. No
   }
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Recurring Event Automation
+// ─────────────────────────────────────────────────────────────────
+
+function computeNextEventOccurrence(
+  frequency: string,
+  dayOfWeek?: number | null,
+  weekOfMonth?: number | null,
+  dayOfMonth?: number | null,
+  after?: Date,
+): Date {
+  const base = after ? new Date(after) : new Date();
+  base.setDate(base.getDate() + 1);
+  if (frequency === "weekly" && dayOfWeek != null) {
+    while (base.getDay() !== dayOfWeek) base.setDate(base.getDate() + 1);
+    return base;
+  }
+  if (frequency === "biweekly" && dayOfWeek != null) {
+    while (base.getDay() !== dayOfWeek) base.setDate(base.getDate() + 1);
+    base.setDate(base.getDate() + 7);
+    return base;
+  }
+  if (frequency === "monthly") {
+    if (dayOfMonth != null) {
+      base.setDate(1);
+      base.setMonth(base.getMonth() + 1);
+      const maxDay = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+      base.setDate(Math.min(dayOfMonth, maxDay));
+      return base;
+    }
+    if (weekOfMonth != null && dayOfWeek != null) {
+      base.setDate(1);
+      base.setMonth(base.getMonth() + 1);
+      let c = 0;
+      while (true) {
+        if (base.getDay() === dayOfWeek) { c++; if (c === weekOfMonth) break; }
+        base.setDate(base.getDate() + 1);
+      }
+      return base;
+    }
+  }
+  base.setMonth(base.getMonth() + 1);
+  return base;
+}
+
+async function runDueRecurringTemplates(): Promise<void> {
+  const now = new Date();
+  logger.info("Checking for due recurring event templates");
+
+  try {
+    const dueTemplates = await db
+      .select()
+      .from(recurringEventTemplatesTable)
+      .where(
+        and(
+          eq(recurringEventTemplatesTable.isActive, true),
+          lte(recurringEventTemplatesTable.nextGenerateAt, now),
+        ),
+      );
+
+    if (dueTemplates.length === 0) {
+      logger.info("No due recurring templates found");
+      return;
+    }
+
+    logger.info({ count: dueTemplates.length }, "Running due recurring event templates");
+
+    for (const template of dueTemplates) {
+      try {
+        const nextDate = computeNextEventOccurrence(
+          template.frequency,
+          template.dayOfWeek,
+          template.weekOfMonth,
+          template.dayOfMonth,
+        );
+        const dateStr = nextDate.toISOString().split("T")[0];
+
+        let generatedDescription = template.description ?? "";
+        try {
+          const aiClient = getOpenAIClient();
+          const completion = await aiClient.chat.completions.create({
+            model: "gpt-5-mini",
+            max_tokens: 200,
+            messages: [
+              {
+                role: "system",
+                content:
+                  "You are an AI assistant for a civic organization. Generate a compelling event description (2-3 sentences, professional and welcoming) for a recurring event. Reply with only the description text.",
+              },
+              {
+                role: "user",
+                content: `Event: ${template.name}\nDate: ${dateStr}\nTime: ${template.startTime ?? "TBD"}\nLocation: ${template.location ?? "TBD"}\nType: ${template.eventType ?? "general"}\nBase description: ${template.description ?? ""}`,
+              },
+            ],
+          });
+          generatedDescription = completion.choices[0]?.message?.content?.trim() ?? generatedDescription;
+        } catch (aiErr) {
+          logger.warn({ aiErr, templateId: template.id }, "AI description failed, using base description");
+        }
+
+        const slug = `${template.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now().toString(36)}`;
+        await db.insert(eventsTable).values({
+          orgId: template.orgId,
+          name: template.name,
+          slug,
+          description: generatedDescription,
+          eventType: template.eventType ?? undefined,
+          location: template.location ?? undefined,
+          startTime: template.startTime ?? undefined,
+          startDate: dateStr,
+          isRecurring: true,
+          recurringTemplateId: template.id,
+          status: "draft",
+          isActive: true,
+        });
+
+        const followingDate = computeNextEventOccurrence(
+          template.frequency,
+          template.dayOfWeek,
+          template.weekOfMonth,
+          template.dayOfMonth,
+          nextDate,
+        );
+        await db.update(recurringEventTemplatesTable)
+          .set({ lastGeneratedAt: now, nextGenerateAt: followingDate })
+          .where(eq(recurringEventTemplatesTable.id, template.id));
+
+        logger.info({ templateId: template.id, nextDate: dateStr }, "Recurring event generated");
+      } catch (err) {
+        logger.error({ err, templateId: template.id }, "Recurring event generation failed");
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "Error running due recurring templates");
+  }
+}
+
 const SCHEDULE_INTERVAL_MS = 30 * 60 * 1000;
 
 export function startScheduler(): void {
-  logger.info("Starting site update scheduler (interval: 30min)");
+  logger.info("Starting schedulers (site updates + recurring events, interval: 30min)");
 
   runDueSchedules().catch((err: unknown) => {
     logger.warn({ err }, "Initial schedule check failed");
   });
 
+  runDueRecurringTemplates().catch((err: unknown) => {
+    logger.warn({ err }, "Initial recurring template check failed");
+  });
+
   setInterval(() => {
     runDueSchedules().catch((err: unknown) => {
       logger.warn({ err }, "Scheduled run failed");
+    });
+    runDueRecurringTemplates().catch((err: unknown) => {
+      logger.warn({ err }, "Recurring template run failed");
     });
   }, SCHEDULE_INTERVAL_MS);
 }
