@@ -5,8 +5,11 @@ An AI-powered SaaS platform (Wix meets Eventbrite) that autonomously manages web
 ## Architecture
 
 ### Monorepo Structure
-- `artifacts/steward/` — React + Vite frontend (main app, previewPath: `/`)
-- `artifacts/api-server/` — Express API server (previewPath: `/api`)
+- `artifacts/steward/` — React + Vite frontend (main app, previewPath: `/`, port: 18402)
+  - Registered via `artifacts/steward/.replit-artifact/artifact.toml` with `previewPath = "/"`
+  - This is the Replit artifact system — each artifact self-registers; `.replit` must NOT be edited
+  - Confirmed live: `curl http://localhost:80/` returns the Steward HTML app
+- `artifacts/api-server/` — Express API server (previewPath: `/api`, port: 8080)
 - `lib/api-spec/openapi.yaml` — OpenAPI contract (source of truth for generated hooks)
 - `lib/api-client-react/` — Generated React hooks (via Orval from OpenAPI)
 - `lib/api-zod/` — Generated Zod schemas (via Orval from OpenAPI)
