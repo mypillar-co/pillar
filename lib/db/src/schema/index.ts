@@ -8,3 +8,4 @@ export * from "./sponsors";
 export * from "./eventRelations";
 export * from "./sites";
 export * from "./domains";
+export * from "./siteSchedules";
