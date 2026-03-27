@@ -159,11 +159,12 @@ router.get("/billing/subscription", async (req: Request, res: Response) => {
     .where(eq(organizationsTable.userId, userId));
 
   if (!org?.stripeCustomerId) {
+    const tier = org?.tier ? getTierById(org.tier) : undefined;
     res.json({
-      hasSubscription: false,
-      tierId: null,
-      tierName: null,
-      status: null,
+      hasSubscription: !!org?.tier,
+      tierId: org?.tier ?? null,
+      tierName: tier?.name ?? null,
+      status: org?.tier ? "active" : null,
       currentPeriodEnd: null,
       stripeCustomerId: null,
     });
