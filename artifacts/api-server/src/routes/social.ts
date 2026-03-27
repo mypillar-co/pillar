@@ -82,7 +82,7 @@ function validateAutomationPlatforms(platforms: unknown): string | null {
 }
 
 const VALID_FREQUENCIES = new Set(["daily", "weekly", "monthly"]);
-const VALID_CONTENT_TYPES = new Set(["events", "updates", "promotions", "community", "custom"]);
+const VALID_CONTENT_TYPES = new Set(["events", "updates", "promotions", "community", "custom", "announcements", "general"]);
 const VALID_DAYS = new Set(["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]);
 const VALID_POST_STATUSES = new Set(["draft", "scheduled"]);
 const TIME_OF_DAY_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
