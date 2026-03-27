@@ -46,6 +46,7 @@ type DomainsResponse = {
   domains: Domain[];
   subdomain?: string | null;
   cnameTarget?: string;
+  proxyIp?: string;
 };
 
 type CheckResult = {
@@ -115,6 +116,7 @@ export default function Domains() {
   const [domains, setDomains] = useState<Domain[]>([]);
   const [subdomain, setSubdomain] = useState<string | null>(null);
   const [cnameTarget, setCnameTarget] = useState<string>("proxy.steward.app");
+  const [proxyIp, setProxyIp] = useState<string>("76.76.21.21");
   const [loadingDomains, setLoadingDomains] = useState(true);
 
   const [searchInput, setSearchInput] = useState("");
@@ -138,6 +140,7 @@ export default function Domains() {
         setDomains(data.domains ?? []);
         setSubdomain(data.subdomain ?? null);
         setCnameTarget(data.cnameTarget ?? "proxy.steward.app");
+        if (data.proxyIp) setProxyIp(data.proxyIp);
       })
       .catch(() => null)
       .finally(() => setLoadingDomains(false));
@@ -679,7 +682,7 @@ export default function Domains() {
                 </div>
                 {/* ALIAS/ANAME instruction (for apex/root domains) */}
                 <div className="space-y-1">
-                  <p className="text-[11px] font-semibold text-white/70 uppercase tracking-wide">For apex / root domain (yourdomain.com)</p>
+                  <p className="text-[11px] font-semibold text-white/70 uppercase tracking-wide">For apex / root domain (yourdomain.com) — Option 1: ALIAS/ANAME</p>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-mono">
                     <div className="p-2.5 rounded-lg bg-white/5 border border-white/8">
                       <p className="text-muted-foreground mb-0.5">Type</p>
@@ -697,8 +700,26 @@ export default function Domains() {
                       <p className="text-white break-all">{cnameTarget}</p>
                     </div>
                   </div>
+                  <p className="text-[11px] font-semibold text-white/70 uppercase tracking-wide mt-3">Option 2: A Record (if ALIAS/ANAME unavailable)</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-mono">
+                    <div className="p-2.5 rounded-lg bg-white/5 border border-white/8">
+                      <p className="text-muted-foreground mb-0.5">Type</p>
+                      <p className="text-white">A</p>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-white/5 border border-white/8">
+                      <p className="text-muted-foreground mb-0.5">Name / Host</p>
+                      <p className="text-white">@ (root)</p>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-white/5 border border-white/8">
+                      <p className="text-muted-foreground mb-0.5 flex items-center gap-1">
+                        IP Address
+                        <CopyButton value={proxyIp} />
+                      </p>
+                      <p className="text-white break-all">{proxyIp}</p>
+                    </div>
+                  </div>
                   <p className="text-[10px] text-muted-foreground/70">
-                    Not all registrars support ALIAS/ANAME. If yours doesn't, use an A record with Steward's IP or contact support for help.
+                    Use ALIAS/ANAME if supported by your registrar. Otherwise, point an A record to the IP above. Both options are automatically verified.
                   </p>
                 </div>
               </>

@@ -19,6 +19,8 @@ import { promises as dns } from "dns";
 const router = Router();
 
 const STEWARD_CNAME_TARGET = "proxy.steward.app";
+// Steward's ingress IP address — used for A-record verification and BYOD instructions
+const STEWARD_PROXY_IP = process.env.STEWARD_PROXY_IP ?? "76.76.21.21";
 
 async function resolveOrg(req: Request, res: Response) {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return null; }
@@ -29,6 +31,37 @@ async function resolveOrg(req: Request, res: Response) {
 
 function normalizeDomain(raw: string): string {
   return raw.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
+}
+
+/**
+ * Check if a domain's DNS points to Steward's infrastructure.
+ * Verifies CNAME (for www/sub) and A-record (for apex) lookups.
+ * Checks both the bare domain and www.<domain>.
+ */
+async function checkDnsLive(domain: string): Promise<boolean> {
+  const stewardTarget = STEWARD_CNAME_TARGET.toLowerCase();
+  const hostnamesToCheck = [domain, `www.${domain}`];
+  for (const h of hostnamesToCheck) {
+    // Try CNAME first
+    try {
+      const cnames = await dns.resolveCname(h);
+      const hit = cnames.some(r => {
+        const n = r.toLowerCase().replace(/\.$/, "");
+        return n === stewardTarget || n.endsWith(`.${stewardTarget}`);
+      });
+      if (hit) return true;
+    } catch {
+      // not a CNAME — try A record for apex
+    }
+    // Try A record (apex / ALIAS resolved)
+    try {
+      const addresses = await dns.resolve4(h);
+      if (addresses.includes(STEWARD_PROXY_IP)) return true;
+    } catch {
+      // not resolved yet
+    }
+  }
+  return false;
 }
 
 /** Check if a domain serves a valid HTTPS response (certificate is provisioned). */
@@ -83,7 +116,7 @@ router.get("/", async (req: Request, res: Response) => {
   if (!org) return;
   const domains = await db.select().from(domainsTable).where(eq(domainsTable.orgId, org.id));
   const subdomain = org.slug ? `${org.slug}.steward.app` : null;
-  res.json({ domains, subdomain, cnameTarget: STEWARD_CNAME_TARGET });
+  res.json({ domains, subdomain, cnameTarget: STEWARD_CNAME_TARGET, proxyIp: STEWARD_PROXY_IP });
 });
 
 // ─── POST /domains/check ───────────────────────────────────────
@@ -397,37 +430,10 @@ router.post("/:id/verify", async (req: Request, res: Response) => {
 
   if (!domainRecord) { res.status(404).json({ error: "Domain not found" }); return; }
 
-  let dnsLive = false;
-  let dnsStatus = domainRecord.dnsStatus ?? "pending";
-
-  try {
-    // Check CNAME first (works for www. and other non-apex subdomains)
-    const stewardTarget = STEWARD_CNAME_TARGET.toLowerCase();
-    let cnamePointsToSteward = false;
-    try {
-      const cnames = await dns.resolveCname(domainRecord.domain);
-      cnamePointsToSteward = cnames.some(r => {
-        const normalized = r.toLowerCase().replace(/\.$/, "");
-        return normalized === stewardTarget || normalized.endsWith(`.${stewardTarget}`);
-      });
-    } catch {
-      // CNAME lookup failed — domain may be apex-only (A/ALIAS record)
-    }
-
-    dnsLive = cnamePointsToSteward;
-
-    if (!dnsLive) {
-      // For apex domains that can't use CNAME, check for ALIAS/ANAME by verifying
-      // the domain resolves at all. We can't verify the exact IP without knowing
-      // the proxy's IP addresses — mark as "needs-review" for manual confirmation.
-      // If the domain has been "active" before, preserve that state.
-      dnsStatus = domainRecord.dnsStatus === "live" ? "live" : "propagating";
-    } else {
-      dnsStatus = "live";
-    }
-  } catch {
-    dnsStatus = domainRecord.dnsStatus === "live" ? "live" : "propagating";
-  }
+  // Use shared DNS check: verifies CNAME→target and A-record→proxyIp for both
+  // bare domain and www.<domain>, so apex and www setups both work.
+  const dnsLive = await checkDnsLive(domainRecord.domain).catch(() => false);
+  const dnsStatus = dnsLive ? "live" : (domainRecord.dnsStatus === "live" ? "live" : "propagating");
 
   // SSL provisioning: moves to "provisioning" when DNS is first detected live,
   // and to "active" once the certificate has had time to provision (24h later).
@@ -522,22 +528,9 @@ export async function pollDnsPropagation(): Promise<void> {
 
   for (const { domain: d, org } of pendingDomains) {
     try {
-      const stewardTarget = STEWARD_CNAME_TARGET.toLowerCase();
-      let dnsLive = false;
-
-      // Check CNAME (www.domain.com)
-      for (const prefix of [`www.${d.domain}`, d.domain]) {
-        try {
-          const cnames = await dns.resolveCname(prefix);
-          const hit = cnames.some(r => {
-            const n = r.toLowerCase().replace(/\.$/, "");
-            return n === stewardTarget || n.endsWith(`.${stewardTarget}`);
-          });
-          if (hit) { dnsLive = true; break; }
-        } catch {
-          // not yet propagated
-        }
-      }
+      // Use shared checkDnsLive: verifies CNAME→target and A-record→proxyIp
+      // for both bare domain and www.<domain>.
+      const dnsLive = await checkDnsLive(d.domain).catch(() => false);
 
       if (dnsLive) {
         await db.update(domainsTable).set({

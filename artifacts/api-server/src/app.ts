@@ -115,15 +115,17 @@ app.use(async (req, res, next) => {
     return;
   }
 
-  // Pattern 2: registered custom domain (myorg.com)
+  // Pattern 2: registered custom domain (myorg.com or www.myorg.com)
   // Only apply to non-Steward, non-Replit hosts
   const isInternalHost = host.includes("steward.app") || host.includes("replit.dev") || host.includes("replit.app") || host === "localhost" || host === "127.0.0.1";
   if (!isInternalHost && host.includes(".")) {
+    // Normalize: domains are stored without www. prefix, so strip it from lookup host
+    const lookupHost = host.replace(/^www\./, "");
     const [domainRecord] = await db
       .select({ domain: domainsTable, org: organizationsTable })
       .from(domainsTable)
       .innerJoin(organizationsTable, eq(domainsTable.orgId, organizationsTable.id))
-      .where(eq(domainsTable.domain, host));
+      .where(eq(domainsTable.domain, lookupHost));
 
     if (domainRecord && (domainRecord.domain.status === "active" || domainRecord.domain.dnsStatus === "live")) {
       // Look up the org's site
