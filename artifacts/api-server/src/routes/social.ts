@@ -771,8 +771,15 @@ router.put("/posts/:id", async (req, res) => {
     const statusErr = validatePostStatus(status);
     if (statusErr) { res.status(400).json({ error: statusErr }); return; }
   }
+  // Guard: cannot set status=scheduled without providing a future scheduledAt
+  const resolvedScheduledAt = scheduledAt !== undefined ? scheduledAt : (existing.scheduledAt?.toISOString() ?? null);
+  const resolvedStatus = status ?? (scheduledAt !== undefined ? (scheduledAt ? "scheduled" : "draft") : existing.status);
+  if (resolvedStatus === "scheduled" && !resolvedScheduledAt) {
+    res.status(400).json({ error: "A scheduledAt date is required when status is 'scheduled'" });
+    return;
+  }
 
-  const newStatus = status ?? (scheduledAt !== undefined ? (scheduledAt ? "scheduled" : "draft") : existing.status);
+  const newStatus = resolvedStatus;
 
   const [updated] = await db
     .update(socialPostsTable)
