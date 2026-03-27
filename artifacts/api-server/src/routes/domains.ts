@@ -515,6 +515,11 @@ router.get("/registrar-status", async (req: Request, res: Response) => {
 // Polls domains in pending/propagating state and transitions them to live
 // automatically — users don't need to click "Check DNS".
 export async function pollDnsPropagation(): Promise<void> {
+  // Include:
+  // - propagating: domains in propagation (auto + BYOD after first verify)
+  // - pending + active: Porkbun-registered domains DNS not yet confirmed
+  // - pending + pending_manual: BYOD/external domains waiting for DNS configuration
+  //   This ensures BYOD domains are automatically checked without requiring manual verify
   const pendingDomains = await db
     .select({ domain: domainsTable, org: organizationsTable })
     .from(domainsTable)
@@ -522,7 +527,7 @@ export async function pollDnsPropagation(): Promise<void> {
     .where(
       or(
         eq(domainsTable.dnsStatus, "propagating"),
-        and(eq(domainsTable.dnsStatus, "pending"), eq(domainsTable.status, "active"))
+        eq(domainsTable.dnsStatus, "pending")
       )
     );
 
@@ -542,7 +547,7 @@ export async function pollDnsPropagation(): Promise<void> {
 
         await createNotification(
           org.id,
-          "domain_renewed",
+          "domain_live",
           `Domain is live: ${d.domain}`,
           `Your domain ${d.domain} is now pointing to Steward. SSL certificate provisioning has started and will complete within 24 hours.`,
           { domain: d.domain }

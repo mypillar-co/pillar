@@ -188,8 +188,8 @@ export default function Domains() {
     return daysLeft <= 30;
   });
 
-  const handleCheck = async () => {
-    if (!searchInput.trim()) return;
+  const handleCheck = useCallback(async (domain: string) => {
+    if (!domain.trim()) return;
     setChecking(true);
     setCheckResult(null);
     try {
@@ -197,7 +197,7 @@ export default function Domains() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ domain: searchInput.trim() }),
+        body: JSON.stringify({ domain: domain.trim() }),
       });
       const data = await res.json() as CheckResult & { error?: string };
       if (!res.ok) { toast.error(data.error ?? "Check failed"); return; }
@@ -207,7 +207,15 @@ export default function Domains() {
     } finally {
       setChecking(false);
     }
-  };
+  }, []);
+
+  // Debounced domain availability check — fires 400ms after user stops typing
+  useEffect(() => {
+    const query = searchInput.trim();
+    if (!query || query.length < 3) { setCheckResult(null); return; }
+    const timer = setTimeout(() => { void handleCheck(query); }, 400);
+    return () => clearTimeout(timer);
+  }, [searchInput, handleCheck]);
 
   const handlePurchase = async () => {
     if (!checkResult?.domain) return;
@@ -428,11 +436,11 @@ export default function Domains() {
             <Input
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") handleCheck(); }}
+              onKeyDown={e => { if (e.key === "Enter") void handleCheck(searchInput); }}
               placeholder="e.g. myorg.com or myclub.org"
               className="bg-white/5 border-white/10 text-white placeholder:text-slate-500"
             />
-            <Button onClick={handleCheck} disabled={!searchInput.trim() || checking} className="flex-shrink-0 gap-2">
+            <Button onClick={() => void handleCheck(searchInput)} disabled={!searchInput.trim() || checking} className="flex-shrink-0 gap-2">
               {checking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
               Check
             </Button>
