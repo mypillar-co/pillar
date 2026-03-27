@@ -577,6 +577,7 @@ async function runDueAutomationRules(): Promise<void> {
 
         let tone = "professional and welcoming";
         let strategyPlatforms: string[] | null = null;
+        let strategyTopics: string[] | null = null;
 
         if (org?.tier === "tier3") {
           const [strategy] = await db
@@ -586,6 +587,7 @@ async function runDueAutomationRules(): Promise<void> {
 
           if (strategy) {
             tone = strategy.tone ?? tone;
+            strategyTopics = strategy.topics ?? null;
             if (strategy.isAutonomous && strategy.platforms && strategy.platforms.length > 0) {
               strategyPlatforms = strategy.platforms;
             }
@@ -599,7 +601,7 @@ async function runDueAutomationRules(): Promise<void> {
           orgName,
           rule.contentType ?? "general",
           rule.customPrompt,
-          null,
+          strategyTopics,
           now,
         );
 
@@ -627,6 +629,88 @@ async function runDueAutomationRules(): Promise<void> {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Tier 3 Autonomous Campaign Runner
+// Runs for Tier 3 orgs with isAutonomous=true content strategy.
+// Uses strategy's postingFrequency/topics/tone/platforms to generate
+// posts without requiring manual automation rules.
+// ─────────────────────────────────────────────────────────────────
+
+const FREQUENCY_TO_HOURS: Record<string, number> = {
+  "daily": 20,
+  "twice-weekly": 84,
+  "weekly": 160,
+  "biweekly": 320,
+};
+
+async function runTier3AutonomousCampaigns(): Promise<void> {
+  const now = new Date();
+  logger.info("Checking Tier 3 autonomous campaigns");
+
+  try {
+    const strategies = await db
+      .select()
+      .from(contentStrategyTable)
+      .where(eq(contentStrategyTable.isAutonomous, true));
+
+    for (const strategy of strategies) {
+      try {
+        const [org] = await db
+          .select({ id: organizationsTable.id, name: organizationsTable.name, tier: organizationsTable.tier })
+          .from(organizationsTable)
+          .where(eq(organizationsTable.id, strategy.orgId));
+
+        if (org?.tier !== "tier3") continue;
+
+        // Determine minimum interval between autonomous posts
+        const minHours = FREQUENCY_TO_HOURS[strategy.postingFrequency ?? "weekly"] ?? 160;
+        const windowStart = new Date(now.getTime() - minHours * 60 * 60 * 1000);
+
+        // Skip if a post was already generated in the current window
+        const recentPosts = await db
+          .select({ id: socialPostsTable.id })
+          .from(socialPostsTable)
+          .where(and(
+            eq(socialPostsTable.orgId, strategy.orgId),
+            gte(socialPostsTable.createdAt, windowStart),
+          ))
+          .limit(1);
+
+        if (recentPosts.length > 0) continue;
+
+        const platforms = strategy.platforms && strategy.platforms.length > 0
+          ? strategy.platforms
+          : ["facebook"];
+
+        const tone = strategy.tone ?? "professional and welcoming";
+        const topics = strategy.topics ?? null;
+
+        const contextPrompt = await buildContextPrompt(
+          strategy.orgId,
+          org.name,
+          "general",
+          null,
+          topics,
+          now,
+        );
+
+        for (const platform of platforms) {
+          try {
+            await generateAndSchedulePost(strategy.orgId, org.name, platform, contextPrompt, tone);
+            logger.info({ orgId: strategy.orgId, platform }, "Tier 3 autonomous post generated");
+          } catch (err) {
+            logger.error({ err, orgId: strategy.orgId, platform }, "Failed to generate Tier 3 autonomous post");
+          }
+        }
+      } catch (err) {
+        logger.error({ err, orgId: strategy.orgId }, "Tier 3 autonomous campaign error");
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "Error running Tier 3 autonomous campaigns");
+  }
+}
+
 const SCHEDULE_INTERVAL_MS = 30 * 60 * 1000;
 
 export function startScheduler(): void {
@@ -648,6 +732,10 @@ export function startScheduler(): void {
     logger.warn({ err }, "Initial automation rules check failed");
   });
 
+  runTier3AutonomousCampaigns().catch((err: unknown) => {
+    logger.warn({ err }, "Initial Tier 3 autonomous campaign check failed");
+  });
+
   setInterval(() => {
     runDueSchedules().catch((err: unknown) => {
       logger.warn({ err }, "Scheduled run failed");
@@ -660,6 +748,9 @@ export function startScheduler(): void {
     });
     runDueAutomationRules().catch((err: unknown) => {
       logger.warn({ err }, "Automation rules run failed");
+    });
+    runTier3AutonomousCampaigns().catch((err: unknown) => {
+      logger.warn({ err }, "Tier 3 autonomous campaigns run failed");
     });
   }, SCHEDULE_INTERVAL_MS);
 }
