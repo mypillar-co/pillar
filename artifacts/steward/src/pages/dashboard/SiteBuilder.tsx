@@ -179,47 +179,30 @@ export default function SiteBuilder() {
         return;
       }
 
-      if (!res.ok || !res.body) {
-        setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: "Connection error. Please try again.", streaming: false } : m));
+      const data = await res.json() as { reply?: string; used?: number; limit?: number; remaining?: number; error?: string };
+
+      if (!res.ok || data.error) {
+        setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: data.error ?? "AI service error. Please try again.", streaming: false } : m));
         return;
       }
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let fullContent = "";
+      const reply = data.reply ?? "";
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split("\n\n");
-        buffer = parts.pop() ?? "";
-
-        for (const part of parts) {
-          if (!part.startsWith("data: ")) continue;
-          const dataStr = part.slice(6).trim();
-          if (!dataStr) continue;
-          try {
-            const event = JSON.parse(dataStr) as { content?: string; done?: boolean; used?: number; limit?: number; remaining?: number; error?: string };
-            if (event.content) {
-              fullContent += event.content;
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: fullContent } : m));
-            }
-            if (event.done) {
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, streaming: false } : m));
-              if (event.used !== undefined) {
-                setUsage({ used: event.used, limit: event.limit!, remaining: event.remaining!, tier: usage?.tier ?? null });
-              }
-            }
-            if (event.error) {
-              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: event.error!, streaming: false } : m));
-            }
-          } catch { /* skip malformed events */ }
-        }
+      // Animate the reply character-by-character for a natural feel
+      let displayed = "";
+      for (let i = 0; i < reply.length; i++) {
+        displayed += reply[i];
+        const snap = displayed;
+        setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: snap } : m));
+        // Small delay between characters — faster for longer replies
+        await new Promise(r => setTimeout(r, reply.length > 100 ? 8 : 14));
       }
 
       setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, streaming: false } : m));
+
+      if (data.used !== undefined) {
+        setUsage({ used: data.used, limit: data.limit!, remaining: data.remaining!, tier: usage?.tier ?? null });
+      }
     } catch {
       setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: "Connection error. Please try again.", streaming: false } : m));
     } finally {

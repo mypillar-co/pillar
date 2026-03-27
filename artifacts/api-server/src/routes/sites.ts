@@ -155,24 +155,19 @@ Keep every response under 60 words. Stay focused — no extra suggestions.`;
   ];
 
   try {
-    const fullReply = await callOpenAIStreaming(messages, MAX_CHAT_TOKENS, res);
+    const reply = await callOpenAI(messages, MAX_CHAT_TOKENS);
 
-    if (!fullReply) {
-      res.write(`data: ${JSON.stringify({ error: "Empty response from AI service" })}\n\n`);
+    if (!reply) {
+      res.status(500).json({ error: "Empty response from AI service. Please try again." });
+      return;
     }
 
     await db.update(organizationsTable).set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` }).where(eq(organizationsTable.id, org.id));
     const newUsed = used + 1;
 
-    res.write(`data: ${JSON.stringify({ done: true, used: newUsed, limit: monthlyLimit, remaining: monthlyLimit - newUsed })}\n\n`);
-    res.end();
-  } catch (err) {
-    if (!res.headersSent) {
-      res.status(500).json({ error: "AI service unavailable. Please try again." });
-    } else {
-      res.write(`data: ${JSON.stringify({ error: "AI service error. Please try again." })}\n\n`);
-      res.end();
-    }
+    res.json({ reply, used: newUsed, limit: monthlyLimit, remaining: monthlyLimit - newUsed });
+  } catch {
+    res.status(500).json({ error: "AI service unavailable. Please try again." });
   }
 });
 
