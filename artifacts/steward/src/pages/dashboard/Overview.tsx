@@ -10,7 +10,7 @@ import { api, type EventItem } from "@/lib/api";
 import { toast } from "sonner";
 
 const TIER_INCLUDES_EVENTS = new Set(["tier2", "tier3"]);
-const TIER_INCLUDES_SOCIAL = new Set(["tier1a", "tier3"]);
+const TIER_INCLUDES_SOCIAL = new Set(["tier1a", "tier2", "tier3"]);
 
 function FeatureCard({
   icon: Icon, title, description, href, available, requiredTier, onUpgrade,
@@ -78,10 +78,10 @@ export default function Overview() {
     ?.filter((e: EventItem) => e.startDate && e.startDate >= new Date().toISOString().split("T")[0])
     .slice(0, 5) ?? [];
 
-  const isSubscribed = subscription?.hasSubscription === true;
-  const currentTierId = subscription?.tierId ?? null;
-  const hasEvents = isSubscribed && currentTierId ? TIER_INCLUDES_EVENTS.has(currentTierId) : false;
-  const hasSocial = isSubscribed && currentTierId ? TIER_INCLUDES_SOCIAL.has(currentTierId) : false;
+  const currentTierId = subscription?.tierId ?? org?.tier ?? null;
+  const hasPlan = !!currentTierId;
+  const hasEvents = currentTierId ? TIER_INCLUDES_EVENTS.has(currentTierId) : false;
+  const hasSocial = currentTierId ? TIER_INCLUDES_SOCIAL.has(currentTierId) : false;
 
   const handleUpgrade = (tierId: string) => {
     createCheckout({ data: { tierId } }, {
@@ -214,12 +214,12 @@ export default function Overview() {
           <div>
             <h2 className="text-lg font-semibold text-white">Your Digital Operations</h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {isSubscribed
+              {hasPlan
                 ? `Everything Steward is managing for ${org?.name ?? "your organization"}.`
                 : "Choose a plan to activate these features."}
             </p>
           </div>
-          {isSubscribed && subscription?.tierId && (
+          {hasPlan && subscription?.tierId && (
             <Badge variant="outline" className="border-primary/30 text-primary capitalize text-xs">
               {subscription.tierId.replace(/_/g, " ")} Plan
             </Badge>
@@ -231,7 +231,7 @@ export default function Overview() {
             title="Website"
             description="Your AI-generated website is live. Chat with Steward to request updates, add pages, or change content."
             href="/dashboard/site"
-            available={isSubscribed}
+            available={hasPlan}
             requiredTier="Tier 1"
             onUpgrade={() => handleUpgrade("tier1")}
           />
@@ -253,7 +253,7 @@ export default function Overview() {
             onUpgrade={() => handleUpgrade("tier1a")}
           />
         </div>
-        {!isSubscribed && (
+        {!hasPlan && (
           <div className="mt-4 p-4 rounded-xl border border-primary/20 bg-primary/5 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Sparkles className="w-5 h-5 text-primary flex-shrink-0" />

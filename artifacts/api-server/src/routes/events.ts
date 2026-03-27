@@ -325,6 +325,10 @@ router.post("/", async (req: Request, res: Response) => {
     res.status(400).json({ error: "name is required" });
     return;
   }
+  if (startDate && endDate && String(endDate) < String(startDate)) {
+    res.status(400).json({ error: "End date cannot be before start date" });
+    return;
+  }
   const slug = String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
   const uniqueSlug = `${slug}-${Date.now().toString(36)}`;
   const [event] = await db
@@ -361,6 +365,20 @@ router.put("/:id", async (req: Request, res: Response) => {
   const updates: Record<string, unknown> = {};
   for (const k of allowed) {
     if (k in body) updates[k] = body[k];
+  }
+  const [existing] = await db
+    .select({ startDate: eventsTable.startDate, endDate: eventsTable.endDate })
+    .from(eventsTable)
+    .where(and(eq(eventsTable.id, String(req.params.id)), eq(eventsTable.orgId, org.id)));
+  if (!existing) {
+    res.status(404).json({ error: "Event not found" });
+    return;
+  }
+  const effectiveStart = String(updates.startDate ?? existing.startDate ?? "");
+  const effectiveEnd = String(updates.endDate ?? existing.endDate ?? "");
+  if (effectiveStart && effectiveEnd && effectiveEnd < effectiveStart) {
+    res.status(400).json({ error: "End date cannot be before start date" });
+    return;
   }
   const [updated] = await db
     .update(eventsTable)

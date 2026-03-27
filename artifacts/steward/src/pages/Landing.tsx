@@ -1,7 +1,7 @@
 import React from "react";
 import { motion, type Variants } from "framer-motion";
 import { Link } from "wouter";
-import { CheckCircle2, Bot, Calendar, Globe, Share2 } from "lucide-react";
+import { CheckCircle2, Bot, Calendar, Globe, Share2, Shield } from "lucide-react";
 import { useAuth, LoginButton } from "@workspace/replit-auth-web";
 import { useListTiers, useGetOrganization } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -34,7 +34,7 @@ const features = [
 export default function Landing() {
   const { isAuthenticated } = useAuth();
   const { data: tiersData, isLoading: isTiersLoading } = useListTiers();
-  const { data: orgData } = useGetOrganization();
+  const { data: orgData } = useGetOrganization({ query: { enabled: isAuthenticated } });
   const hasOrg = isAuthenticated && Boolean(orgData?.organization);
 
   const containerVariants: Variants = {
@@ -93,7 +93,11 @@ export default function Landing() {
                   Get Started for Free
                 </LoginButton>
               )}
-              <Button variant="glass" size="lg">
+              <Button
+                variant="glass"
+                size="lg"
+                onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}
+              >
                 View Pricing
               </Button>
             </div>
@@ -138,7 +142,7 @@ export default function Landing() {
       </section>
 
       {/* Pricing Section */}
-      <section className="py-24 relative">
+      <section id="pricing" className="py-24 relative">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">Transparent Pricing</h2>
@@ -211,6 +215,22 @@ export default function Landing() {
           )}
         </div>
       </section>
+      {/* Footer */}
+      <footer className="border-t border-white/8 bg-background/80 backdrop-blur-md">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+                <Shield className="w-4.5 h-4.5 text-primary-foreground" />
+              </div>
+              <span className="font-bold text-white text-lg tracking-tight">Steward</span>
+            </div>
+            <p className="text-sm text-muted-foreground text-center">
+              &copy; {new Date().getFullYear()} Steward. Your organization, on autopilot.
+            </p>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

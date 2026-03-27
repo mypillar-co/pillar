@@ -163,12 +163,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         {(!collapsed || mobile) && user && (
           <div className="flex items-center gap-2.5 px-3 py-2 mt-1">
             <img
-              src={user.profileImageUrl ?? `https://api.dicebear.com/7.x/initials/svg?seed=${user.firstName}`}
+              src={user.profileImageUrl ?? `https://api.dicebear.com/7.x/initials/svg?seed=${user.firstName ?? user.email ?? "U"}`}
               alt={user.firstName ?? "User"}
               className="w-6 h-6 rounded-full flex-shrink-0"
             />
             <div className="min-w-0">
-              <p className="text-xs text-white truncate">{[user.firstName, user.lastName].filter(Boolean).join(" ")}</p>
+              <p className="text-xs text-white truncate">{[user.firstName, user.lastName].filter(Boolean).join(" ") || user.email || "User"}</p>
             </div>
           </div>
         )}

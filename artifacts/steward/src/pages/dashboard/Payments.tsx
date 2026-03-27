@@ -1,10 +1,32 @@
 import React from "react";
-import { DollarSign, TrendingUp, ArrowRight } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { DollarSign, ArrowRight, Loader2, AlertCircle } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { api, type Stats } from "@/lib/api";
 
 export default function Payments() {
+  const { data: stats, isLoading, isError, refetch } = useQuery<Stats>({
+    queryKey: ["stats"],
+    queryFn: () => api.stats.get(),
+  });
+
+  if (isError) {
+    return (
+      <div className="p-6 max-w-5xl mx-auto">
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <AlertCircle className="w-10 h-10 text-red-400 mb-3" />
+          <p className="text-white font-medium mb-1">Failed to load payment data</p>
+          <p className="text-sm text-muted-foreground mb-4">Please check your connection and try again.</p>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>Retry</Button>
+        </div>
+      </div>
+    );
+  }
+
+  const totalRevenue = stats?.totalRevenue ?? 0;
+
   return (
     <div className="p-6 space-y-5 max-w-5xl mx-auto">
       <div className="flex items-center justify-between">
@@ -18,22 +40,34 @@ export default function Payments() {
         <Card className="border-white/10 bg-card/60">
           <CardContent className="pt-5 pb-4">
             <p className="text-sm text-muted-foreground mb-2">Total Revenue</p>
-            <p className="text-2xl font-bold text-white">$0.00</p>
+            {isLoading ? (
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            ) : (
+              <p className="text-2xl font-bold text-white">${totalRevenue.toFixed(2)}</p>
+            )}
             <p className="text-xs text-muted-foreground mt-1">All time</p>
           </CardContent>
         </Card>
         <Card className="border-white/10 bg-card/60">
           <CardContent className="pt-5 pb-4">
-            <p className="text-sm text-muted-foreground mb-2">This Month</p>
-            <p className="text-2xl font-bold text-white">$0.00</p>
-            <p className="text-xs text-muted-foreground mt-1">Completed payments</p>
+            <p className="text-sm text-muted-foreground mb-2">Active Events</p>
+            {isLoading ? (
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            ) : (
+              <p className="text-2xl font-bold text-white">{stats?.activeEvents ?? 0}</p>
+            )}
+            <p className="text-xs text-muted-foreground mt-1">Published events</p>
           </CardContent>
         </Card>
         <Card className="border-white/10 bg-card/60">
           <CardContent className="pt-5 pb-4">
-            <p className="text-sm text-muted-foreground mb-2">Pending</p>
-            <p className="text-2xl font-bold text-white">$0.00</p>
-            <p className="text-xs text-muted-foreground mt-1">Awaiting collection</p>
+            <p className="text-sm text-muted-foreground mb-2">Vendors</p>
+            {isLoading ? (
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            ) : (
+              <p className="text-2xl font-bold text-white">{stats?.totalVendors ?? 0}</p>
+            )}
+            <p className="text-xs text-muted-foreground mt-1">Active vendors</p>
           </CardContent>
         </Card>
       </div>
