@@ -4,7 +4,7 @@ import {
   contentStrategyTable, organizationsTable, eventsTable,
 } from "@workspace/db";
 import { eq, and, desc, gte } from "drizzle-orm";
-import { randomBytes } from "crypto";
+import { randomBytes, createHash } from "crypto";
 import { logger } from "../lib/logger";
 import { encryptToken, decryptToken } from "../lib/tokenCrypto";
 import OpenAI from "openai";
@@ -120,10 +120,11 @@ router.get("/oauth/:platform/start", async (req, res) => {
     const state = randomBytes(16).toString("hex");
     // Generate PKCE code verifier and store it server-side with the state
     const codeVerifier = randomBytes(32).toString("base64url");
+    // Derive S256 code challenge: base64url(sha256(verifier))
+    const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
     oauthStateStore.set(state, { orgId: org.id, platform, codeVerifier, expiresAt: Date.now() + 10 * 60 * 1000 });
     const redirectUri = encodeURIComponent(`${process.env.BASE_URL ?? ""}/api/social/oauth/twitter/callback`);
-    // Use plain code_challenge (verifier = challenge for plain method)
-    const authUrl = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&scope=tweet.write%20tweet.read%20users.read&state=${state}&code_challenge=${codeVerifier}&code_challenge_method=plain`;
+    const authUrl = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&scope=tweet.write%20tweet.read%20users.read&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
     res.json({ authUrl });
     return;
   }
@@ -598,6 +599,11 @@ router.delete("/posts/:id", async (req, res) => {
   if (!existing) { res.status(404).json({ error: "Post not found" }); return; }
 
   if (existing.status === "published") {
+    res.status(409).json({ error: "Published posts cannot be deleted. History is immutable." });
+    return;
+  }
+
+  if (existing.status === "scheduled") {
     await db.update(socialPostsTable)
       .set({ status: "cancelled", updatedAt: new Date() })
       .where(eq(socialPostsTable.id, req.params.id));

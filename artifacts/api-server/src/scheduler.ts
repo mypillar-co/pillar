@@ -294,14 +294,15 @@ async function publishToFacebook(content: string, encryptedToken: string, pageId
   return data.id ?? "";
 }
 
-async function publishToInstagram(content: string, encryptedToken: string, pageId?: string | null): Promise<string> {
+async function publishToInstagram(content: string, encryptedToken: string, pageId?: string | null, mediaUrl?: string | null): Promise<string> {
   const accessToken = decryptToken(encryptedToken);
   if (!pageId) throw new Error("Instagram Business Account ID required");
+  if (!mediaUrl) throw new Error("Instagram posts require an image URL (mediaUrl). Text-only posts are not supported by the Instagram Graph API.");
   const createUrl = `https://graph.facebook.com/v19.0/${pageId}/media`;
   const createResp = await fetch(createUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ caption: content, media_type: "TEXT", access_token: accessToken }),
+    body: JSON.stringify({ caption: content, media_type: "IMAGE", image_url: mediaUrl, access_token: accessToken }),
   });
   if (!createResp.ok) {
     const err = await createResp.json().catch(() => ({})) as { error?: { message?: string } };
@@ -380,7 +381,7 @@ async function runDueSocialPosts(): Promise<void> {
           if (platform === "facebook") {
             postId = await publishToFacebook(post.content, account.accessToken, account.accountId);
           } else if (platform === "instagram") {
-            postId = await publishToInstagram(post.content, account.accessToken, account.accountId);
+            postId = await publishToInstagram(post.content, account.accessToken, account.accountId, post.mediaUrl);
           } else if (platform === "twitter") {
             postId = await publishToTwitter(post.content, account.accessToken);
           }
