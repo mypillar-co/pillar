@@ -1,8 +1,137 @@
-import React from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link } from "wouter";
-import { Shield } from "lucide-react";
+import { Shield, Bell, X } from "lucide-react";
 import { useAuth, LoginButton, LogoutButton } from "@workspace/replit-auth-web";
-import { Button } from "@/components/ui/button";
+
+type Notification = {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  read: boolean;
+  createdAt: string;
+};
+
+function NotificationBell() {
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [open, setOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const fetchNotifications = async () => {
+    try {
+      const res = await fetch("/api/notifications", { credentials: "include" });
+      if (!res.ok) return;
+      const data = await res.json() as { notifications: Notification[]; unreadCount: number };
+      setNotifications(data.notifications);
+      setUnreadCount(data.unreadCount);
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    if (open) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const markAllRead = async () => {
+    try {
+      await fetch("/api/notifications/read-all", { method: "PUT", credentials: "include" });
+      setNotifications(n => n.map(notif => ({ ...notif, read: true })));
+      setUnreadCount(0);
+    } catch {
+      // ignore
+    }
+  };
+
+  const markRead = async (id: string) => {
+    try {
+      await fetch(`/api/notifications/${id}/read`, { method: "PUT", credentials: "include" });
+      setNotifications(n => n.map(notif => notif.id === id ? { ...notif, read: true } : notif));
+      setUnreadCount(c => Math.max(0, c - 1));
+    } catch {
+      // ignore
+    }
+  };
+
+  const typeColor: Record<string, string> = {
+    domain_expiry_warning: "text-amber-400",
+    domain_expired: "text-red-400",
+    domain_renewed: "text-emerald-400",
+    domain_renewal_failed: "text-red-400",
+    ssl_active: "text-emerald-400",
+    ssl_failed: "text-red-400",
+  };
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="relative p-2 rounded-lg hover:bg-white/10 transition-colors text-muted-foreground hover:text-white"
+        aria-label="Notifications"
+      >
+        <Bell className="w-5 h-5" />
+        {unreadCount > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-2 w-80 bg-card border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden">
+          <div className="flex items-center justify-between p-3 border-b border-white/10">
+            <span className="text-sm font-semibold text-white">Notifications</span>
+            <div className="flex items-center gap-2">
+              {unreadCount > 0 && (
+                <button onClick={markAllRead} className="text-[11px] text-muted-foreground hover:text-white transition-colors">
+                  Mark all read
+                </button>
+              )}
+              <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-white transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+          <div className="max-h-72 overflow-y-auto">
+            {notifications.length === 0 ? (
+              <div className="p-4 text-center text-xs text-muted-foreground">No notifications</div>
+            ) : (
+              notifications.map(n => (
+                <button
+                  key={n.id}
+                  onClick={() => markRead(n.id)}
+                  className={`w-full text-left p-3 border-b border-white/5 hover:bg-white/5 transition-colors ${!n.read ? "bg-white/3" : ""}`}
+                >
+                  <div className="flex items-start gap-2">
+                    {!n.read && <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />}
+                    <div className={n.read ? "pl-3.5" : ""}>
+                      <p className={`text-[11px] font-semibold ${typeColor[n.type] ?? "text-white"}`}>{n.title}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{n.body}</p>
+                      <p className="text-[10px] text-muted-foreground/50 mt-1">{new Date(n.createdAt).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Navbar() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -28,6 +157,7 @@ export function Navbar() {
                     <Link href="/dashboard" className="text-sm font-medium text-muted-foreground hover:text-white transition-colors mr-2">
                       Dashboard
                     </Link>
+                    <NotificationBell />
                     <LogoutButton className="inline-flex items-center justify-center whitespace-nowrap rounded-xl text-sm font-semibold ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 h-11 px-6 py-2 border-2 border-primary/20 bg-transparent text-primary hover:border-primary hover:bg-primary/10 cursor-pointer" />
                   </>
                 ) : (

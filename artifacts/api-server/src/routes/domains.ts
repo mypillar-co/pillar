@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
-import { db, organizationsTable, domainsTable } from "@workspace/db";
+import { db, organizationsTable, domainsTable, notificationsTable } from "@workspace/db";
 import { eq, and, lte, isNull, or } from "drizzle-orm";
+import https from "https";
 import { getUncachableStripeClient } from "../stripeClient";
 import { logger } from "../lib/logger";
 import {
@@ -28,6 +29,34 @@ async function resolveOrg(req: Request, res: Response) {
 
 function normalizeDomain(raw: string): string {
   return raw.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
+}
+
+/** Check if a domain serves a valid HTTPS response (certificate is provisioned). */
+function checkSslLive(domain: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = https.request(
+      { hostname: domain, port: 443, path: "/", method: "HEAD", timeout: 8000, rejectUnauthorized: true },
+      () => resolve(true)
+    );
+    req.on("error", () => resolve(false));
+    req.on("timeout", () => { req.destroy(); resolve(false); });
+    req.end();
+  });
+}
+
+/** Create a persisted in-app notification for an org. */
+async function createNotification(orgId: string, type: string, title: string, body: string, metadata?: object): Promise<void> {
+  try {
+    await db.insert(notificationsTable).values({
+      orgId,
+      type,
+      title,
+      body,
+      metadata: metadata ? JSON.stringify(metadata) : null,
+    });
+  } catch (err) {
+    logger.error({ err, orgId, type }, "Failed to create notification");
+  }
 }
 
 function validateDomain(domain: string): { valid: boolean; error?: string } {
@@ -469,6 +498,41 @@ router.get("/registrar-status", async (req: Request, res: Response) => {
   res.json({ configured: registrarConfigured(), cnameTarget: STEWARD_CNAME_TARGET });
 });
 
+// ─── SSL Provisioning Check Job (called from scheduler) ─────────
+// Checks domains that are DNS-live but SSL is still provisioning.
+// Makes a real HTTPS request; on success → sslStatus = "active".
+export async function checkSslProvisioning(): Promise<void> {
+  const provisioningDomains = await db
+    .select({ domain: domainsTable, org: organizationsTable })
+    .from(domainsTable)
+    .innerJoin(organizationsTable, eq(domainsTable.orgId, organizationsTable.id))
+    .where(
+      and(
+        eq(domainsTable.dnsStatus, "live"),
+        eq(domainsTable.sslStatus, "provisioning")
+      )
+    );
+
+  for (const { domain: d, org } of provisioningDomains) {
+    try {
+      const sslLive = await checkSslLive(d.domain);
+      if (sslLive) {
+        await db.update(domainsTable).set({ sslStatus: "active", updatedAt: new Date() }).where(eq(domainsTable.id, d.id));
+        await createNotification(
+          org.id,
+          "ssl_active",
+          `SSL is now active: ${d.domain}`,
+          `Your SSL certificate for ${d.domain} has been provisioned. Your site is now reachable over HTTPS.`,
+          { domain: d.domain }
+        );
+        logger.info({ domain: d.domain, orgId: org.id }, "SSL provisioning confirmed via HTTPS check");
+      }
+    } catch (err) {
+      logger.warn({ err, domain: d.domain }, "SSL check failed — still provisioning");
+    }
+  }
+}
+
 // ─── Domain Renewal Job (called from scheduler) ───────────────
 export async function checkAndRenewDomains(): Promise<void> {
   const thirtyDaysFromNow = new Date();
@@ -496,45 +560,59 @@ export async function checkAndRenewDomains(): Promise<void> {
 
     if (d.autoRenew && !d.isExternal && org.stripeCustomerId) {
       try {
-        // 1. Charge via Stripe
-        const stripe = await getUncachableStripeClient();
-        const invoice = await stripe.invoices.create({
-          customer: org.stripeCustomerId,
-          auto_advance: false,
-          collection_method: "charge_automatically",
-          description: `Auto-renewal: ${d.domain} — 1 year`,
-        });
-        await stripe.invoiceItems.create({
-          customer: org.stripeCustomerId,
-          invoice: invoice.id,
-          amount: DOMAIN_ADDON_PRICE_CENTS,
-          currency: "usd",
-          description: `${DOMAIN_ADDON_LABEL}: ${d.domain}`,
-        });
-        await stripe.invoices.finalizeInvoice(invoice.id);
-        await stripe.invoices.pay(invoice.id);
-
-        // 2. Renew at registrar — MUST succeed before we extend the domain
+        // Step 1: Renew at registrar FIRST — before any billing.
+        // This ensures the domain is actually renewed before charging the customer.
         const renewResult = await porkbunRenewDomain(d.domain);
         if (!renewResult.success) {
-          // Registrar renewal failed after Stripe charge — issue a refund and log critically
-          logger.error(
-            { domain: d.domain, orgId: org.id, invoiceId: invoice.id, error: renewResult.error },
-            "Registrar renewal failed after Stripe charge — issuing refund"
+          logger.error({ domain: d.domain, orgId: org.id, error: renewResult.error }, "Registrar renewal failed — skipping Stripe charge");
+          await createNotification(
+            org.id,
+            "domain_renewal_failed",
+            `Auto-renewal failed: ${d.domain}`,
+            `We were unable to renew your domain ${d.domain} with the registrar. No charge was made. Please contact support.`,
+            { domain: d.domain }
           );
-          try {
-            await stripe.invoices.voidInvoice(invoice.id);
-          } catch (refundErr) {
-            logger.error({ refundErr, domain: d.domain, invoiceId: invoice.id }, "CRITICAL: Failed to void invoice after registrar renewal failure — manual intervention required");
-          }
-          // Domain is NOT extended — expiresAt and status remain unchanged
           await db.update(domainsTable)
             .set({ renewalNotifiedAt: now, updatedAt: new Date() })
             .where(eq(domainsTable.id, d.id));
           continue;
         }
 
-        // 3. Only extend expiresAt after BOTH Stripe charge and registrar renewal succeed
+        // Step 2: Registrar renewal succeeded — now charge Stripe.
+        const stripe = await getUncachableStripeClient();
+        let chargeSucceeded = false;
+        try {
+          const invoice = await stripe.invoices.create({
+            customer: org.stripeCustomerId,
+            auto_advance: false,
+            collection_method: "charge_automatically",
+            description: `Auto-renewal: ${d.domain} — 1 year`,
+            metadata: { domainId: d.id, domain: d.domain },
+          });
+          await stripe.invoiceItems.create({
+            customer: org.stripeCustomerId,
+            invoice: invoice.id,
+            amount: DOMAIN_ADDON_PRICE_CENTS,
+            currency: "usd",
+            description: `${DOMAIN_ADDON_LABEL}: ${d.domain}`,
+          });
+          await stripe.invoices.finalizeInvoice(invoice.id);
+          await stripe.invoices.pay(invoice.id);
+          chargeSucceeded = true;
+        } catch (stripeErr) {
+          // Registrar renewal succeeded but Stripe charge failed.
+          // Domain IS renewed — extend DB record but log critically for manual follow-up.
+          logger.error({ stripeErr, domain: d.domain, orgId: org.id }, "CRITICAL: Registrar renewed but Stripe charge failed — domain extended, requires manual billing follow-up");
+          await createNotification(
+            org.id,
+            "domain_renewal_failed",
+            `Billing issue: ${d.domain}`,
+            `Your domain ${d.domain} was renewed with the registrar, but we could not charge your payment method. Please update your payment information.`,
+            { domain: d.domain }
+          );
+        }
+
+        // Step 3: Extend domain expiry in DB (domain IS renewed regardless of billing result)
         const newExpiresAt = new Date(d.expiresAt);
         newExpiresAt.setFullYear(newExpiresAt.getFullYear() + 1);
 
@@ -545,20 +623,40 @@ export async function checkAndRenewDomains(): Promise<void> {
           updatedAt: new Date(),
         }).where(eq(domainsTable.id, d.id));
 
-        logger.info({ domain: d.domain, orgId: org.id }, "Domain auto-renewed successfully");
+        if (chargeSucceeded) {
+          await createNotification(
+            org.id,
+            "domain_renewed",
+            `Domain renewed: ${d.domain}`,
+            `Your domain ${d.domain} has been renewed for another year and your payment method was charged.`,
+            { domain: d.domain }
+          );
+        }
+
+        logger.info({ domain: d.domain, orgId: org.id, chargeSucceeded }, "Domain auto-renewed");
       } catch (err) {
-        logger.error({ err, domain: d.domain, orgId: org.id }, "Domain auto-renewal failed");
+        logger.error({ err, domain: d.domain, orgId: org.id }, "Domain auto-renewal failed unexpectedly");
         await db.update(domainsTable)
           .set({ renewalNotifiedAt: now, updatedAt: new Date() })
           .where(eq(domainsTable.id, d.id));
       }
     } else {
-      // Log expiry warning (displayed as in-app banner when user visits Domains page)
+      // No auto-renew or external domain — send expiry warning notification
+      if (daysLeft <= 30 && !d.renewalNotifiedAt) {
+        const urgentMsg = daysLeft <= 0
+          ? `Your domain ${d.domain} has expired. Please renew it immediately to restore your site.`
+          : daysLeft <= 7
+          ? `Your domain ${d.domain} expires in ${daysLeft} day${daysLeft === 1 ? "" : "s"}. Renew now to avoid losing access.`
+          : `Your domain ${d.domain} expires in ${daysLeft} days. Consider enabling auto-renew or renewing manually.`;
+        const notifType = daysLeft <= 0 ? "domain_expired" : "domain_expiry_warning";
+        const notifTitle = daysLeft <= 0 ? `Domain expired: ${d.domain}` : `Domain expiring: ${d.domain}`;
+        await createNotification(org.id, notifType, notifTitle, urgentMsg, { domain: d.domain, daysLeft });
+      }
       logger.warn(
         { domain: d.domain, daysLeft, orgId: org.id, isExternal: d.isExternal, autoRenew: d.autoRenew },
         daysLeft <= 0
           ? "Domain has expired — action required"
-          : `Domain expires in ${daysLeft} days — renewal notification recorded`
+          : `Domain expires in ${daysLeft} days — notification queued`
       );
       await db.update(domainsTable)
         .set({ renewalNotifiedAt: now, updatedAt: new Date() })

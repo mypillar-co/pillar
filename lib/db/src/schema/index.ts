@@ -11,3 +11,4 @@ export * from "./domains";
 export * from "./siteSchedules";
 export * from "./websiteSpecs";
 export * from "./social";
+export * from "./notifications";
