@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Share2, Facebook, Instagram, Twitter, Plus, Loader2, Trash2, Zap,
   Calendar, Clock, CheckCircle, AlertCircle, Edit2, X, Send, Sparkles,
-  ToggleLeft, ToggleRight, ChevronDown, ChevronUp, Settings2, Lock, Pencil,
+  ToggleLeft, ToggleRight, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
+  Settings2, Lock, Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -719,6 +720,122 @@ function AccountsSection({ accounts, onRefresh }: { accounts: SocialAccount[]; o
   );
 }
 
+function CalendarView() {
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() };
+  });
+  const [selectedDay, setSelectedDay] = useState<number | null>(null);
+
+  const { data: scheduledPosts = [] } = useQuery({
+    queryKey: ["social-posts-calendar-scheduled"],
+    queryFn: () => api.social.posts.list("scheduled"),
+  });
+
+  const postsByDay = useMemo(() => {
+    const map: Record<number, SocialPost[]> = {};
+    for (const post of scheduledPosts) {
+      if (!post.scheduledAt) continue;
+      const d = new Date(post.scheduledAt);
+      if (d.getFullYear() === currentMonth.year && d.getMonth() === currentMonth.month) {
+        const day = d.getDate();
+        if (!map[day]) map[day] = [];
+        map[day].push(post);
+      }
+    }
+    return map;
+  }, [scheduledPosts, currentMonth]);
+
+  const daysInMonth = new Date(currentMonth.year, currentMonth.month + 1, 0).getDate();
+  const firstDayOfWeek = new Date(currentMonth.year, currentMonth.month, 1).getDay();
+  const monthName = new Date(currentMonth.year, currentMonth.month, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
+  const today = new Date();
+
+  const prevMonth = () => setCurrentMonth(m => {
+    const d = new Date(m.year, m.month - 1, 1);
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
+  const nextMonth = () => setCurrentMonth(m => {
+    const d = new Date(m.year, m.month + 1, 1);
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <Button variant="ghost" size="icon" onClick={prevMonth} className="h-7 w-7 text-slate-400 hover:text-white">
+          <ChevronLeft className="w-4 h-4" />
+        </Button>
+        <span className="text-sm font-medium text-white">{monthName}</span>
+        <Button variant="ghost" size="icon" onClick={nextMonth} className="h-7 w-7 text-slate-400 hover:text-white">
+          <ChevronRight className="w-4 h-4" />
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-7 gap-1 text-center">
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => (
+          <div key={d} className="text-xs text-slate-500 font-medium py-1">{d}</div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-1">
+        {Array.from({ length: firstDayOfWeek }).map((_, i) => (
+          <div key={`empty-${i}`} />
+        ))}
+        {Array.from({ length: daysInMonth }).map((_, i) => {
+          const day = i + 1;
+          const isToday = today.getFullYear() === currentMonth.year && today.getMonth() === currentMonth.month && today.getDate() === day;
+          const hasPosts = !!postsByDay[day]?.length;
+          const isSelected = selectedDay === day;
+          return (
+            <button
+              key={day}
+              onClick={() => setSelectedDay(isSelected ? null : day)}
+              className={`relative h-10 rounded-lg text-xs flex flex-col items-center justify-center gap-0.5 transition-colors
+                ${isSelected ? "bg-primary/20 text-primary border border-primary/30" : isToday ? "bg-white/10 text-white" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}
+            >
+              <span className={isToday ? "font-semibold" : ""}>{day}</span>
+              {hasPosts && (
+                <div className="flex gap-0.5">
+                  {postsByDay[day].slice(0, 3).map((_, pi) => (
+                    <div key={pi} className="w-1 h-1 rounded-full bg-primary" />
+                  ))}
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {selectedDay !== null && (
+        <div className="border-t border-white/10 pt-3 space-y-2">
+          <p className="text-xs text-slate-400 font-medium">
+            {postsByDay[selectedDay]?.length
+              ? `${postsByDay[selectedDay].length} post${postsByDay[selectedDay].length > 1 ? "s" : ""} scheduled on ${new Date(currentMonth.year, currentMonth.month, selectedDay).toLocaleDateString("en-US", { month: "long", day: "numeric" })}`
+              : `No posts scheduled for ${new Date(currentMonth.year, currentMonth.month, selectedDay).toLocaleDateString("en-US", { month: "long", day: "numeric" })}`
+            }
+          </p>
+          {(postsByDay[selectedDay] ?? []).map(post => (
+            <Card key={post.id} className="border-white/10 bg-card/40">
+              <CardContent className="pt-2.5 pb-2.5 px-3">
+                <p className="text-sm text-white line-clamp-2">{post.content}</p>
+                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                  {post.platforms.map(p => <PlatformBadge key={p} platform={p} />)}
+                  {post.scheduledAt && (
+                    <span className="text-xs text-slate-400">
+                      {new Date(post.scheduledAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                    </span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PostsSection({ accounts }: { accounts: SocialAccount[] }) {
   const [composeOpen, setComposeOpen] = useState(false);
   const [editingPost, setEditingPost] = useState<SocialPost | null>(null);
@@ -728,6 +845,7 @@ function PostsSection({ accounts }: { accounts: SocialAccount[] }) {
   const { data: posts, isLoading } = useQuery({
     queryKey: ["social-posts", tab],
     queryFn: () => api.social.posts.list(tab === "all" ? undefined : tab),
+    enabled: tab !== "calendar",
   });
 
   const deleteMutation = useMutation({
@@ -763,7 +881,13 @@ function PostsSection({ accounts }: { accounts: SocialAccount[] }) {
               {t}
             </TabsTrigger>
           ))}
+          <TabsTrigger value="calendar" className="text-xs data-[state=active]:bg-white/10 data-[state=active]:text-white text-slate-400 h-7 flex items-center gap-1">
+            <Calendar className="w-3 h-3" /> Calendar
+          </TabsTrigger>
         </TabsList>
+        <TabsContent value="calendar" className="mt-3">
+          <CalendarView />
+        </TabsContent>
         <TabsContent value={tab} className="mt-3">
           {isLoading ? (
             <div className="flex items-center justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
@@ -1119,6 +1243,12 @@ export default function Social() {
     enabled: hasSocial,
   });
 
+  const { data: failedPosts = [] } = useQuery({
+    queryKey: ["social-posts-failed-banner"],
+    queryFn: () => api.social.posts.list("failed"),
+    enabled: hasSocial,
+  });
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const success = params.get("success");
@@ -1177,6 +1307,21 @@ export default function Social() {
           <p className="text-sm text-slate-400">Connect accounts, compose posts, and automate your presence</p>
         </div>
       </div>
+
+      {failedPosts.length > 0 && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl mb-4">
+          <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+          <p className="text-sm text-red-300 flex-1">
+            {failedPosts.length} post{failedPosts.length > 1 ? "s" : ""} failed to publish.
+            {" "}<button
+              onClick={() => setTab("posts")}
+              className="underline hover:text-red-200 transition-colors"
+            >
+              Review in Posts
+            </button>
+          </p>
+        </div>
+      )}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="bg-white/5 border border-white/10 mb-6 h-9">

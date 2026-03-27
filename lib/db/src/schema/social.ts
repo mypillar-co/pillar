@@ -65,3 +65,17 @@ export const contentStrategyTable = pgTable("content_strategy", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
+
+export const oauthStatesTable = pgTable("oauth_states", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  stateToken: varchar("state_token", { length: 128 }).notNull().unique(),
+  orgId: varchar("org_id").notNull(),
+  platform: varchar("platform", { length: 32 }).notNull(),
+  sessionId: varchar("session_id", { length: 256 }).notNull().default(""),
+  codeVerifier: varchar("code_verifier", { length: 256 }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  stateTokenIdx: index("oauth_states_token_idx").on(table.stateToken),
+  expiresAtIdx: index("oauth_states_expires_idx").on(table.expiresAt),
+}));

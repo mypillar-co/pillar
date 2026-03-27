@@ -1,9 +1,9 @@
 import { Router, type Request, type Response } from "express";
 import {
   db, socialAccountsTable, socialPostsTable, automationRulesTable,
-  contentStrategyTable, organizationsTable, eventsTable,
+  contentStrategyTable, organizationsTable, eventsTable, oauthStatesTable,
 } from "@workspace/db";
-import { eq, and, desc, gte } from "drizzle-orm";
+import { eq, and, desc, gte, lt } from "drizzle-orm";
 import { randomBytes, createHash } from "crypto";
 import { logger } from "../lib/logger";
 import { encryptToken, decryptToken } from "../lib/tokenCrypto";
@@ -20,13 +20,36 @@ interface OAuthState {
   expiresAt: number;
 }
 
-const oauthStateStore = new Map<string, OAuthState>();
+async function saveOAuthState(
+  stateToken: string,
+  data: { orgId: string; platform: string; sessionId: string; codeVerifier?: string },
+): Promise<void> {
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+  await db.delete(oauthStatesTable).where(lt(oauthStatesTable.expiresAt, new Date()));
+  await db.insert(oauthStatesTable).values({
+    stateToken,
+    orgId: data.orgId,
+    platform: data.platform,
+    sessionId: data.sessionId,
+    codeVerifier: data.codeVerifier ?? null,
+    expiresAt,
+  });
+}
 
-function cleanOAuthState() {
-  const now = Date.now();
-  for (const [key, val] of oauthStateStore.entries()) {
-    if (val.expiresAt < now) oauthStateStore.delete(key);
-  }
+async function getAndDeleteOAuthState(stateToken: string): Promise<OAuthState | null> {
+  const [row] = await db
+    .select()
+    .from(oauthStatesTable)
+    .where(eq(oauthStatesTable.stateToken, stateToken));
+  if (!row) return null;
+  await db.delete(oauthStatesTable).where(eq(oauthStatesTable.stateToken, stateToken));
+  return {
+    orgId: row.orgId,
+    platform: row.platform,
+    sessionId: row.sessionId,
+    codeVerifier: row.codeVerifier ?? undefined,
+    expiresAt: row.expiresAt.getTime(),
+  };
 }
 
 function getOpenAIClient() {
@@ -98,7 +121,6 @@ router.get("/oauth/:platform/start", async (req, res) => {
   if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require Tier 1a or higher" }); return; }
 
   const { platform } = req.params;
-  cleanOAuthState();
 
   if (platform === "facebook" || platform === "instagram") {
     const appId = process.env.FACEBOOK_APP_ID;
@@ -111,7 +133,7 @@ router.get("/oauth/:platform/start", async (req, res) => {
       return;
     }
     const state = randomBytes(16).toString("hex");
-    oauthStateStore.set(state, { orgId: org.id, platform, sessionId: getSessionId(req) ?? "", expiresAt: Date.now() + 10 * 60 * 1000 });
+    await saveOAuthState(state, { orgId: org.id, platform, sessionId: getSessionId(req) ?? "" });
     // Request scopes for both Facebook page posting and Instagram Business
     const scope = platform === "instagram"
       ? "pages_show_list,pages_read_engagement,instagram_basic,instagram_content_publish,instagram_manage_insights"
@@ -137,7 +159,7 @@ router.get("/oauth/:platform/start", async (req, res) => {
     const codeVerifier = randomBytes(32).toString("base64url");
     // Derive S256 code challenge: base64url(sha256(verifier))
     const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
-    oauthStateStore.set(state, { orgId: org.id, platform, sessionId: getSessionId(req) ?? "", codeVerifier, expiresAt: Date.now() + 10 * 60 * 1000 });
+    await saveOAuthState(state, { orgId: org.id, platform, sessionId: getSessionId(req) ?? "", codeVerifier });
     const redirectUri = encodeURIComponent(`${process.env.BASE_URL ?? ""}/api/social/oauth/twitter/callback`);
     const authUrl = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&scope=tweet.write%20tweet.read%20users.read&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
     res.json({ authUrl });
@@ -184,17 +206,15 @@ router.get("/oauth/facebook/callback", async (req, res) => {
     return;
   }
 
-  const stored = oauthStateStore.get(state);
+  const stored = await getAndDeleteOAuthState(state);
   if (!stored || stored.expiresAt < Date.now()) {
     res.redirect("/dashboard/social?error=OAuth+state+expired");
     return;
   }
   if (stored.sessionId && stored.sessionId !== getSessionId(req)) {
-    oauthStateStore.delete(state);
     res.redirect("/dashboard/social?error=OAuth+session+mismatch");
     return;
   }
-  oauthStateStore.delete(state);
 
   const appId = process.env.FACEBOOK_APP_ID;
   const appSecret = process.env.FACEBOOK_APP_SECRET;
@@ -254,17 +274,15 @@ router.get("/oauth/instagram/callback", async (req, res) => {
     return;
   }
 
-  const stored = oauthStateStore.get(state);
+  const stored = await getAndDeleteOAuthState(state);
   if (!stored || stored.expiresAt < Date.now()) {
     res.redirect("/dashboard/social?error=OAuth+state+expired");
     return;
   }
   if (stored.sessionId && stored.sessionId !== getSessionId(req)) {
-    oauthStateStore.delete(state);
     res.redirect("/dashboard/social?error=OAuth+session+mismatch");
     return;
   }
-  oauthStateStore.delete(state);
 
   const appId = process.env.FACEBOOK_APP_ID;
   const appSecret = process.env.FACEBOOK_APP_SECRET;
@@ -346,13 +364,12 @@ router.get("/oauth/twitter/callback", async (req, res) => {
     return;
   }
 
-  const stored = oauthStateStore.get(state);
+  const stored = await getAndDeleteOAuthState(state);
   if (!stored || stored.expiresAt < Date.now()) {
     res.redirect("/dashboard/social?error=OAuth+state+expired");
     return;
   }
   if (stored.sessionId && stored.sessionId !== getSessionId(req)) {
-    oauthStateStore.delete(state);
     res.redirect("/dashboard/social?error=OAuth+session+mismatch");
     return;
   }
@@ -362,7 +379,6 @@ router.get("/oauth/twitter/callback", async (req, res) => {
     res.redirect("/dashboard/social?error=OAuth+PKCE+state+missing");
     return;
   }
-  oauthStateStore.delete(state);
 
   const clientId = process.env.TWITTER_CLIENT_ID;
   const clientSecret = process.env.TWITTER_CLIENT_SECRET;
