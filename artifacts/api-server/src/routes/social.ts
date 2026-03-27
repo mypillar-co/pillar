@@ -487,6 +487,7 @@ router.post("/accounts", async (req, res) => {
 router.delete("/accounts/:id", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require Tier 1a or higher" }); return; }
 
   const [account] = await db
     .select()
@@ -494,6 +495,34 @@ router.delete("/accounts/:id", async (req, res) => {
     .where(and(eq(socialAccountsTable.id, req.params.id), eq(socialAccountsTable.orgId, org.id)));
 
   if (!account) { res.status(404).json({ error: "Account not found" }); return; }
+
+  // Best-effort platform token revocation before deleting the local record
+  try {
+    const rawToken = decryptToken(account.accessToken);
+    if (account.platform === "facebook" || account.platform === "instagram") {
+      const appId = process.env.FACEBOOK_APP_ID;
+      const appSecret = process.env.FACEBOOK_APP_SECRET;
+      if (appId && appSecret) {
+        await fetch(`https://graph.facebook.com/v19.0/me/permissions?access_token=${rawToken}`, { method: "DELETE" })
+          .catch(() => {/* silent — token may already be expired */});
+      }
+    } else if (account.platform === "twitter") {
+      const clientId = process.env.TWITTER_CLIENT_ID;
+      const clientSecret = process.env.TWITTER_CLIENT_SECRET;
+      if (clientId && clientSecret) {
+        await fetch("https://api.twitter.com/2/oauth2/revoke", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+          },
+          body: new URLSearchParams({ token: rawToken, token_type_hint: "access_token" }).toString(),
+        }).catch(() => {/* silent — token may already be expired */});
+      }
+    }
+  } catch {
+    // Decryption or revocation failed — proceed to delete local record regardless
+  }
 
   await db.delete(socialAccountsTable).where(eq(socialAccountsTable.id, req.params.id));
   res.status(204).send();
@@ -630,6 +659,7 @@ router.post("/posts", async (req, res) => {
 router.put("/posts/:id", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require Tier 1a or higher" }); return; }
 
   const [existing] = await db
     .select()
@@ -672,6 +702,7 @@ router.put("/posts/:id", async (req, res) => {
 router.delete("/posts/:id", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require Tier 1a or higher" }); return; }
 
   const [existing] = await db
     .select()
@@ -745,6 +776,7 @@ router.post("/rules", async (req, res) => {
 router.put("/rules/:id", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require Tier 1a or higher" }); return; }
 
   const [existing] = await db
     .select()
@@ -794,6 +826,7 @@ router.put("/rules/:id", async (req, res) => {
 router.delete("/rules/:id", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require Tier 1a or higher" }); return; }
 
   const [existing] = await db
     .select()

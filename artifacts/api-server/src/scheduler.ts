@@ -712,39 +712,42 @@ async function runTier3AutonomousCampaigns(): Promise<void> {
 }
 
 const SCHEDULE_INTERVAL_MS = 30 * 60 * 1000;
+const SOCIAL_PUBLISH_INTERVAL_MS = 5 * 60 * 1000;
 
 export function startScheduler(): void {
-  logger.info("Starting schedulers (site updates + recurring events + social, interval: 30min)");
+  logger.info("Starting schedulers (site/events: 30min, social publishing: 5min)");
 
+  // Initial runs
   runDueSchedules().catch((err: unknown) => {
     logger.warn({ err }, "Initial schedule check failed");
   });
-
   runDueRecurringTemplates().catch((err: unknown) => {
     logger.warn({ err }, "Initial recurring template check failed");
   });
-
   runDueSocialPosts().catch((err: unknown) => {
     logger.warn({ err }, "Initial social posts check failed");
   });
-
   runDueAutomationRules().catch((err: unknown) => {
     logger.warn({ err }, "Initial automation rules check failed");
   });
-
   runTier3AutonomousCampaigns().catch((err: unknown) => {
     logger.warn({ err }, "Initial Tier 3 autonomous campaign check failed");
   });
 
+  // Social post publishing every 5 minutes for accurate scheduled-time delivery
+  setInterval(() => {
+    runDueSocialPosts().catch((err: unknown) => {
+      logger.warn({ err }, "Social posts run failed");
+    });
+  }, SOCIAL_PUBLISH_INTERVAL_MS);
+
+  // Site updates, recurring events, and automation rules every 30 minutes
   setInterval(() => {
     runDueSchedules().catch((err: unknown) => {
       logger.warn({ err }, "Scheduled run failed");
     });
     runDueRecurringTemplates().catch((err: unknown) => {
       logger.warn({ err }, "Recurring template run failed");
-    });
-    runDueSocialPosts().catch((err: unknown) => {
-      logger.warn({ err }, "Social posts run failed");
     });
     runDueAutomationRules().catch((err: unknown) => {
       logger.warn({ err }, "Automation rules run failed");
