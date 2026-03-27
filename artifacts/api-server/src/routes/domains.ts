@@ -6,6 +6,8 @@ import { logger } from "../lib/logger";
 import {
   checkAvailability,
   registerDomain,
+  createCnameRecord,
+  renewDomain as porkbunRenewDomain,
   isConfigured as registrarConfigured,
   DOMAIN_ADDON_PRICE_CENTS,
   DOMAIN_ADDON_LABEL,
@@ -96,8 +98,15 @@ router.post("/checkout", async (req: Request, res: Response) => {
   const validation = validateDomain(domain);
   if (!validation.valid) { res.status(400).json({ error: validation.error }); return; }
 
-  const [existing] = await db.select().from(domainsTable).where(eq(domainsTable.domain, domain));
-  if (existing) { res.status(409).json({ error: "Domain already registered" }); return; }
+  // One domain per org (MVP constraint)
+  const [existingForOrg] = await db.select().from(domainsTable).where(eq(domainsTable.orgId, org.id));
+  if (existingForOrg) {
+    res.status(409).json({ error: "Your organization already has a domain registered. Remove it first to add a new one." });
+    return;
+  }
+
+  const [existingDomain] = await db.select().from(domainsTable).where(eq(domainsTable.domain, domain));
+  if (existingDomain) { res.status(409).json({ error: "That domain is already registered in Steward." }); return; }
 
   const isFreeForTier = org.tier ? FREE_DOMAIN_TIERS.has(org.tier) : false;
   if (isFreeForTier) {
@@ -190,9 +199,17 @@ router.post("/confirm", async (req: Request, res: Response) => {
 
   logger.info({ domain: domainRecord.domain, regResult }, "Domain registration after payment");
 
+  // Automatically create CNAME record pointing to Steward proxy
+  let dnsProvisioned = false;
+  if (regResult.success) {
+    const dnsResult = await createCnameRecord(domainRecord.domain, STEWARD_CNAME_TARGET);
+    dnsProvisioned = dnsResult.success;
+    logger.info({ domain: domainRecord.domain, dnsResult }, "Auto DNS record provisioning");
+  }
+
   const [updated] = await db.update(domainsTable).set({
     status: "pending_manual",
-    dnsStatus: "pending",
+    dnsStatus: dnsProvisioned ? "propagating" : "pending",
     purchasedAt: now,
     expiresAt,
     registrarRef: regResult.registrarRef ?? null,
@@ -201,7 +218,9 @@ router.post("/confirm", async (req: Request, res: Response) => {
 
   res.json({
     domain: updated,
-    message: "Payment confirmed — domain registration is being processed. Set up your DNS records below.",
+    message: dnsProvisioned
+      ? "Payment confirmed — domain registered and DNS configured automatically. It may take up to 48 hours to propagate."
+      : "Payment confirmed — domain registration is being processed. Set up your DNS records below.",
   });
 });
 
@@ -262,12 +281,25 @@ router.post("/claim", async (req: Request, res: Response) => {
   });
 
   if (regResult.success) {
-    await db.update(domainsTable)
-      .set({ status: "pending_manual", dnsStatus: "pending", registrarRef: regResult.registrarRef ?? null })
-      .where(eq(domainsTable.id, inserted.id));
+    // Automatically create CNAME record pointing to Steward proxy
+    const dnsResult = await createCnameRecord(domain, STEWARD_CNAME_TARGET);
+    const dnsProvisioned = dnsResult.success;
+    logger.info({ domain, dnsResult }, "Auto DNS record provisioning after claim");
+
+    const [finalDomain] = await db.update(domainsTable)
+      .set({
+        status: "pending_manual",
+        dnsStatus: dnsProvisioned ? "propagating" : "pending",
+        registrarRef: regResult.registrarRef ?? null,
+      })
+      .where(eq(domainsTable.id, inserted.id))
+      .returning();
+
     res.json({
-      domain: { ...inserted, status: "pending_manual", registrarRef: regResult.registrarRef },
-      message: `${domain} has been registered! Configure your DNS records below to go live.`,
+      domain: finalDomain,
+      message: dnsProvisioned
+        ? `${domain} has been registered and DNS configured automatically! It may take up to 48 hours to propagate.`
+        : `${domain} has been registered! Set up your DNS records below to go live.`,
     });
   } else {
     await db.update(domainsTable).set({ status: "pending_manual" }).where(eq(domainsTable.id, inserted.id));
@@ -333,18 +365,19 @@ router.post("/:id/verify", async (req: Request, res: Response) => {
   let dnsStatus = domainRecord.dnsStatus ?? "pending";
 
   try {
-    let pointsToSteward = false;
-    try {
-      const cnames = await dns.resolveCname(domainRecord.domain);
-      pointsToSteward = cnames.some(r => r.toLowerCase().includes("steward.app"));
-    } catch {
-      const aRecords = await dns.resolve4(domainRecord.domain).catch(() => [] as string[]);
-      pointsToSteward = aRecords.length > 0;
-    }
-    dnsLive = pointsToSteward;
+    // Only confirm DNS is live if the CNAME resolves exactly to the Steward proxy target.
+    // A-record fallback is intentionally omitted — a domain resolving to any IP address
+    // does NOT guarantee it points to Steward's infrastructure.
+    const cnames = await dns.resolveCname(domainRecord.domain);
+    const stewardTarget = STEWARD_CNAME_TARGET.toLowerCase();
+    dnsLive = cnames.some(r => {
+      const normalized = r.toLowerCase().replace(/\.$/, "");
+      return normalized === stewardTarget || normalized.endsWith(`.${stewardTarget}`);
+    });
     dnsStatus = dnsLive ? "live" : "propagating";
   } catch {
-    dnsStatus = "propagating";
+    // CNAME lookup failed — record hasn't propagated yet
+    dnsStatus = domainRecord.dnsStatus === "live" ? "live" : "propagating";
   }
 
   const newStatus = dnsLive ? "active" : domainRecord.status;
@@ -441,6 +474,7 @@ export async function checkAndRenewDomains(): Promise<void> {
 
     if (d.autoRenew && !d.isExternal && org.stripeCustomerId) {
       try {
+        // 1. Charge via Stripe
         const stripe = await getUncachableStripeClient();
         const invoice = await stripe.invoices.create({
           customer: org.stripeCustomerId,
@@ -458,6 +492,12 @@ export async function checkAndRenewDomains(): Promise<void> {
         await stripe.invoices.finalizeInvoice(invoice.id);
         await stripe.invoices.pay(invoice.id);
 
+        // 2. Renew at registrar
+        const renewResult = await porkbunRenewDomain(d.domain);
+        if (!renewResult.success) {
+          logger.error({ domain: d.domain, orgId: org.id, error: renewResult.error }, "Registrar renewal failed after Stripe charge — manual intervention required");
+        }
+
         const newExpiresAt = new Date(d.expiresAt);
         newExpiresAt.setFullYear(newExpiresAt.getFullYear() + 1);
 
@@ -468,7 +508,7 @@ export async function checkAndRenewDomains(): Promise<void> {
           updatedAt: new Date(),
         }).where(eq(domainsTable.id, d.id));
 
-        logger.info({ domain: d.domain, orgId: org.id }, "Domain auto-renewed via Stripe");
+        logger.info({ domain: d.domain, orgId: org.id, registrarRenewed: renewResult.success }, "Domain auto-renewed");
       } catch (err) {
         logger.error({ err, domain: d.domain, orgId: org.id }, "Domain auto-renewal failed");
         await db.update(domainsTable)
@@ -476,7 +516,13 @@ export async function checkAndRenewDomains(): Promise<void> {
           .where(eq(domainsTable.id, d.id));
       }
     } else {
-      logger.warn({ domain: d.domain, daysLeft, orgId: org.id, isExternal: d.isExternal }, "Domain expiry warning — renewal needed");
+      // Log expiry warning (displayed as in-app banner when user visits Domains page)
+      logger.warn(
+        { domain: d.domain, daysLeft, orgId: org.id, isExternal: d.isExternal, autoRenew: d.autoRenew },
+        daysLeft <= 0
+          ? "Domain has expired — action required"
+          : `Domain expires in ${daysLeft} days — renewal notification recorded`
+      );
       await db.update(domainsTable)
         .set({ renewalNotifiedAt: now, updatedAt: new Date() })
         .where(eq(domainsTable.id, d.id));

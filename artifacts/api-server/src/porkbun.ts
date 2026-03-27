@@ -127,6 +127,75 @@ export async function registerDomain(
   }
 }
 
+export interface DnsRecordResult {
+  success: boolean;
+  recordId?: string;
+  error?: string;
+}
+
+interface PorkbunDnsCreateResponse {
+  status: string;
+  id?: number;
+  message?: string;
+}
+
+/**
+ * Create a CNAME record on a Porkbun-registered domain pointing at `target`.
+ * Used immediately after registration to automatically wire DNS → Steward.
+ */
+export async function createCnameRecord(
+  domain: string,
+  target: string
+): Promise<DnsRecordResult> {
+  if (!isConfigured()) {
+    return { success: false, error: "Registrar not configured" };
+  }
+  try {
+    const data = await post<PorkbunDnsCreateResponse>(`/dns/create/${domain}`, {
+      name: "",
+      type: "CNAME",
+      content: target,
+      ttl: "600",
+    });
+    if (data.status === "SUCCESS") {
+      return { success: true, recordId: String(data.id ?? "") };
+    }
+    return { success: false, error: data.message ?? "DNS record creation failed" };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export interface RenewResult {
+  success: boolean;
+  newExpiry?: string;
+  error?: string;
+}
+
+interface PorkbunRenewResponse {
+  status: string;
+  newExpiry?: string;
+  message?: string;
+}
+
+/**
+ * Renew an existing Porkbun-registered domain for one year.
+ */
+export async function renewDomain(domain: string): Promise<RenewResult> {
+  if (!isConfigured()) {
+    return { success: false, error: "Registrar not configured" };
+  }
+  try {
+    const data = await post<PorkbunRenewResponse>(`/domain/renew/${domain}`, { years: 1 });
+    if (data.status === "SUCCESS") {
+      return { success: true, newExpiry: data.newExpiry };
+    }
+    return { success: false, error: data.message ?? "Renewal failed" };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
 // Tier 1 domain add-on price (cents)
 export const DOMAIN_ADDON_PRICE_CENTS = 2400; // $24/year
 export const DOMAIN_ADDON_LABEL = "Custom Domain — 1 Year";

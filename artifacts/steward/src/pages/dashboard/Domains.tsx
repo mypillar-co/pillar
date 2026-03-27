@@ -177,6 +177,13 @@ export default function Domains() {
   const hasDomain = domains.length > 0;
   const showSearch = (isFreeForTier || isAddonAvailable) && !hasDomain;
 
+  // Show in-app expiry warning for non-auto-renew domains expiring within 30 days
+  const expiringDomain = domains.find(d => {
+    if (!d.expiresAt || d.isExternal) return false;
+    const daysLeft = Math.ceil((new Date(d.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    return daysLeft <= 30;
+  });
+
   const handleCheck = async () => {
     if (!searchInput.trim()) return;
     setChecking(true);
@@ -352,6 +359,27 @@ export default function Domains() {
           </a>
         </div>
       )}
+
+      {/* Domain expiry warning banner */}
+      {expiringDomain && expiringDomain.expiresAt && (() => {
+        const daysLeft = Math.ceil((new Date(expiringDomain.expiresAt!).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+        const isExpired = daysLeft <= 0;
+        return (
+          <div className={`flex items-start gap-3 p-4 rounded-xl border ${isExpired ? "border-red-500/20 bg-red-500/5" : "border-amber-500/20 bg-amber-500/5"}`}>
+            <AlertCircle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${isExpired ? "text-red-400" : "text-amber-400"}`} />
+            <div>
+              <p className={`text-sm font-medium ${isExpired ? "text-red-300" : "text-amber-300"}`}>
+                {isExpired ? "Domain expired" : `Domain expires in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}`}
+              </p>
+              <p className={`text-xs mt-0.5 ${isExpired ? "text-red-400/70" : "text-amber-400/70"}`}>
+                {isExpired
+                  ? `${expiringDomain.domain} has expired. Enable auto-renew or contact support to restore.`
+                  : `${expiringDomain.domain} will expire soon. Enable auto-renew to keep it active automatically.`}
+              </p>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Plan banners */}
       {hasNoSubscription && (
