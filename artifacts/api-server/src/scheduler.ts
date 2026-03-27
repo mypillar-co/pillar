@@ -32,13 +32,17 @@ function getOpenAIClient() {
 async function callOpenAI(
   messages: OpenAI.ChatCompletionMessageParam[],
   maxTokens: number,
+  model: "gpt-5-mini" | "gpt-4o-mini" = "gpt-5-mini",
 ): Promise<string> {
   const client = getOpenAIClient();
-  const response = await client.chat.completions.create({
-    model: "gpt-5-mini",
-    max_completion_tokens: maxTokens,
-    messages,
-  });
+  const params: Record<string, unknown> = { model, messages };
+  if (model === "gpt-5-mini") {
+    params.max_completion_tokens = maxTokens;
+  } else {
+    params.max_tokens = maxTokens;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const response = await (client.chat.completions.create as any)(params);
   return response.choices[0]?.message?.content ?? "";
 }
 
@@ -115,7 +119,7 @@ Output ONLY the complete updated HTML document starting with <!DOCTYPE html>. No
             role: "user",
             content: `Current website HTML:\n${site.generatedHtml}\n\nScheduled update instructions:\n${instructions.map((inst, i) => `${i + 1}. ${inst}`).join("\n")}\n\nToday's date: ${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}\n\nApply all updates and output the complete updated HTML.`,
           },
-        ], MAX_CHANGE_TOKENS);
+        ], MAX_CHANGE_TOKENS, "gpt-4o-mini");
 
         let cleanedHtml = updatedHtml.trim();
         const htmlStart = cleanedHtml.indexOf("<!DOCTYPE");

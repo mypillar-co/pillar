@@ -7,9 +7,9 @@ const router = Router();
 
 const CONTEXT_TURNS = 10;
 const MAX_CHAT_TOKENS = 700;
-const MAX_GEN_TOKENS = 6000;
+const MAX_GEN_TOKENS = 4000;
 const MAX_SPEC_TOKENS = 1200;
-const MAX_CHANGE_TOKENS = 6000;
+const MAX_CHANGE_TOKENS = 4000;
 
 const MONTHLY_LIMITS: Record<string, number> = {
   tier1: 30,
@@ -68,13 +68,17 @@ async function checkAndResetUsage(org: { id: string; aiMessagesUsed: number; aiM
 async function callOpenAI(
   messages: OpenAI.ChatCompletionMessageParam[],
   maxTokens: number,
+  model: "gpt-5-mini" | "gpt-4o-mini" = "gpt-5-mini",
 ): Promise<string> {
   const client = getOpenAIClient();
-  const response = await client.chat.completions.create({
-    model: "gpt-5-mini",
-    max_completion_tokens: maxTokens,
-    messages,
-  });
+  const params: Record<string, unknown> = { model, messages };
+  if (model === "gpt-5-mini") {
+    params.max_completion_tokens = maxTokens;
+  } else {
+    params.max_tokens = maxTokens;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const response = await (client.chat.completions.create as any)(params);
   return response.choices[0]?.message?.content ?? "";
 }
 
@@ -352,13 +356,21 @@ Generate the complete HTML now. Start directly with <!DOCTYPE html>.`;
     const html = await callOpenAI([
       { role: "system", content: genSystemMsg },
       { role: "user", content: genUserMsg },
-    ], MAX_GEN_TOKENS);
+    ], MAX_GEN_TOKENS, "gpt-4o-mini");
 
     let cleanedHtml = html.trim();
+    if (!cleanedHtml) {
+      res.status(500).json({ error: "Site generation returned empty content. Please try again." });
+      return;
+    }
     const htmlStart = cleanedHtml.indexOf("<!DOCTYPE");
     const altStart = cleanedHtml.indexOf("<html");
     const startIdx = htmlStart >= 0 ? htmlStart : (altStart >= 0 ? altStart : -1);
     if (startIdx > 0) cleanedHtml = cleanedHtml.substring(startIdx);
+    if (!cleanedHtml.includes("<html") && !cleanedHtml.includes("<!DOCTYPE")) {
+      res.status(500).json({ error: "Site generation returned invalid HTML. Please try again." });
+      return;
+    }
 
     const metaTitle = s.orgName || name;
     const metaDescription = s.mission || `Welcome to ${name}`;
@@ -416,7 +428,7 @@ Output ONLY the complete, updated HTML document starting with <!DOCTYPE html>. N
         role: "user",
         content: `Current website HTML:\n${site.generatedHtml}\n\nRequested change: "${changeRequest}"\n\nApply this change and output the complete updated HTML.`,
       },
-    ], MAX_CHANGE_TOKENS);
+    ], MAX_CHANGE_TOKENS, "gpt-4o-mini");
 
     let cleanedHtml = proposedHtml.trim();
     const htmlStart = cleanedHtml.indexOf("<!DOCTYPE");
@@ -547,7 +559,7 @@ Output ONLY the complete updated HTML starting with <!DOCTYPE html>.`,
         role: "user",
         content: `Current website HTML:\n${site.generatedHtml}\n\nScheduled update instructions:\n${instructions.map((inst, i) => `${i + 1}. ${inst}`).join("\n")}\n\nToday: ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}\n\nApply all updates and output the complete updated HTML.`,
       },
-    ], MAX_CHANGE_TOKENS);
+    ], MAX_CHANGE_TOKENS, "gpt-4o-mini");
 
     let cleanedHtml = updatedHtml.trim();
     const htmlStart = cleanedHtml.indexOf("<!DOCTYPE");

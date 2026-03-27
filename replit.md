@@ -170,6 +170,14 @@ pnpm --filter @workspace/scripts run seed-products  # Seed Stripe products
 - AI site builder: `tier1+` (all tiers)
 - Custom domain (free): `tier1a+`; `tier1` = $24/yr add-on via Stripe checkout
 
+## AI Model Strategy
+- **Chat & spec extraction** (`/api/sites/builder`, spec JSON): `gpt-5-mini` (reasoning model, great for structured JSON/short replies)
+- **HTML generation** (site gen, change requests, scheduled updates): `gpt-4o-mini` (standard completion model, no reasoning overhead)
+- **Why**: `gpt-5-mini` is a reasoning model that uses `max_completion_tokens` for internal thinking. With token budgets under ~16K it leaves 0 tokens for HTML output. `gpt-4o-mini` produces HTML directly with 0 reasoning overhead.
+- `callOpenAI(messages, maxTokens, model)` — 3rd arg: `"gpt-5-mini"` (default, for short text) or `"gpt-4o-mini"` (for large HTML output)
+- All HTML generation calls in `sites.ts` and `scheduler.ts` use `"gpt-4o-mini"`
+- Site builder chat uses `max_completion_tokens` (reasoning model param); HTML gen uses `max_tokens` (standard model param)
+
 ## Project Tasks (Completed)
 1. ✅ Task #1 — Platform Foundation (auth, billing, organizations, DB, Stripe, frontend shell)
 2. ✅ Task #2 — AI Site Builder + Event Dashboard (events, vendors, sponsors, contacts, payments, AI chat, sidebar layout)
@@ -177,6 +185,7 @@ pnpm --filter @workspace/scripts run seed-products  # Seed Stripe products
 4. ✅ Task #4 — Social Media Automation (Facebook, X; Instagram gated by design)
 5. ✅ Task #5 — Custom Domain Purchasing & Hosting (Porkbun registration, BYOD/external, DNS/SSL checks, auto-renewal)
 6. ✅ Platform Audit — Security hardening, auth loading race condition fix, tier gate UX improvement
+7. ✅ AI Fix — Site builder HTML generation switched from gpt-5-mini to gpt-4o-mini (reasoning model was consuming all tokens internally)
 
 ## Domain System (Task #5)
 - `GET /api/domains` — list org's domains + subdomain + cnameTarget
