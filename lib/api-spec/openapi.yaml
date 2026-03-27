@@ -1738,6 +1738,10 @@ components:
           type: string
         platform:
           type: string
+        imagePrompt:
+          type: string
+          nullable: true
+          description: AI-generated image prompt suggestion (Instagram only)
 
     AutomationRule:
       type: object

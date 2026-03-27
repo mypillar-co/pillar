@@ -202,13 +202,16 @@ function ComposePostDialog({
 }) {
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(["facebook"]);
   const [content, setContent] = useState("");
+  const [mediaUrl, setMediaUrl] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [topic, setTopic] = useState("");
   const [activePlatformForGen, setActivePlatformForGen] = useState("facebook");
+  const [imagePromptSuggestion, setImagePromptSuggestion] = useState("");
 
   const connectedPlatforms = accounts.filter(a => a.isConnected).map(a => a.platform);
+  const needsMedia = selectedPlatforms.includes("instagram");
 
   const togglePlatform = (p: string) => {
     setSelectedPlatforms(prev =>
@@ -221,6 +224,9 @@ function ComposePostDialog({
     try {
       const result = await api.social.posts.generate({ platform: activePlatformForGen, topic: topic || undefined });
       setContent(result.content);
+      if (result.imagePrompt) {
+        setImagePromptSuggestion(result.imagePrompt);
+      }
       toast.success("Post content generated");
     } catch {
       toast.error("Failed to generate content");
@@ -232,13 +238,19 @@ function ComposePostDialog({
   const handleCreate = async () => {
     if (!selectedPlatforms.length) { toast.error("Select at least one platform"); return; }
     if (!content.trim()) { toast.error("Post content is required"); return; }
+    if (needsMedia && !mediaUrl.trim()) { toast.error("An image URL is required for Instagram posts"); return; }
     setLoading(true);
     try {
-      await api.social.posts.create({ platforms: selectedPlatforms, content, scheduledAt: scheduledAt || undefined });
+      await api.social.posts.create({
+        platforms: selectedPlatforms,
+        content,
+        mediaUrl: mediaUrl.trim() || undefined,
+        scheduledAt: scheduledAt || undefined,
+      });
       toast.success(scheduledAt ? "Post scheduled" : "Post saved as draft");
       onCreated();
       onClose();
-      setContent(""); setScheduledAt(""); setSelectedPlatforms(["facebook"]);
+      setContent(""); setMediaUrl(""); setScheduledAt(""); setSelectedPlatforms(["facebook"]); setImagePromptSuggestion("");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to create post");
     } finally {
@@ -304,6 +316,30 @@ function ComposePostDialog({
             )}
           </div>
 
+          <div className="space-y-1.5">
+            <Label className="text-slate-300 text-sm block">
+              Image URL
+              {needsMedia
+                ? <span className="text-pink-400 ml-1 font-medium">* required for Instagram</span>
+                : <span className="text-slate-500 ml-1">(optional)</span>
+              }
+            </Label>
+            <Input
+              value={mediaUrl}
+              onChange={e => setMediaUrl(e.target.value)}
+              placeholder="https://example.com/image.jpg"
+              className={`bg-white/5 text-white placeholder:text-slate-500 text-sm ${needsMedia && !mediaUrl.trim() ? "border-pink-500/50" : "border-white/10"}`}
+            />
+            {imagePromptSuggestion && (
+              <div className="rounded-md bg-pink-500/10 border border-pink-500/20 p-2.5">
+                <p className="text-xs text-pink-300 font-medium mb-1 flex items-center gap-1">
+                  <Sparkles className="w-3 h-3" /> AI image prompt suggestion
+                </p>
+                <p className="text-xs text-slate-300 leading-relaxed">{imagePromptSuggestion}</p>
+              </div>
+            )}
+          </div>
+
           <div className="border border-white/10 rounded-lg p-3 space-y-2">
             <div className="flex items-center gap-2">
               <Sparkles className="w-3.5 h-3.5 text-primary" />
@@ -362,22 +398,32 @@ function EditPostDialog({
   post: SocialPost;
 }) {
   const [content, setContent] = useState(post.content);
+  const [mediaUrl, setMediaUrl] = useState(post.mediaUrl ?? "");
   const [scheduledAt, setScheduledAt] = useState(
     post.scheduledAt ? new Date(post.scheduledAt).toISOString().slice(0, 16) : ""
   );
   const [loading, setLoading] = useState(false);
 
+  const needsMedia = post.platforms.includes("instagram");
+
   useEffect(() => {
     setContent(post.content);
+    setMediaUrl(post.mediaUrl ?? "");
     setScheduledAt(post.scheduledAt ? new Date(post.scheduledAt).toISOString().slice(0, 16) : "");
   }, [post]);
 
   const handleSave = async () => {
     if (!content.trim()) { toast.error("Post content is required"); return; }
+    if (needsMedia && !mediaUrl.trim()) { toast.error("An image URL is required for Instagram posts"); return; }
     setLoading(true);
     try {
       const newStatus = scheduledAt ? "scheduled" : "draft";
-      await api.social.posts.update(post.id, { content, scheduledAt: scheduledAt || undefined, status: newStatus });
+      await api.social.posts.update(post.id, {
+        content,
+        mediaUrl: mediaUrl.trim() || undefined,
+        scheduledAt: scheduledAt || undefined,
+        status: newStatus,
+      });
       toast.success("Post updated");
       onSaved();
       onClose();
@@ -413,6 +459,21 @@ function EditPostDialog({
               className="bg-white/5 border-white/10 text-white placeholder:text-slate-500 resize-none"
             />
             {twitterLimit && <p className="text-xs text-red-400">Exceeds Twitter's 280 character limit</p>}
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-slate-300 text-sm block">
+              Image URL
+              {needsMedia
+                ? <span className="text-pink-400 ml-1 font-medium">* required for Instagram</span>
+                : <span className="text-slate-500 ml-1">(optional)</span>
+              }
+            </Label>
+            <Input
+              value={mediaUrl}
+              onChange={e => setMediaUrl(e.target.value)}
+              placeholder="https://example.com/image.jpg"
+              className={`bg-white/5 text-white placeholder:text-slate-500 text-sm ${needsMedia && !mediaUrl.trim() ? "border-pink-500/50" : "border-white/10"}`}
+            />
           </div>
           <div>
             <Label className="text-slate-300 text-sm mb-1.5 block">Schedule Date/Time (optional)</Label>

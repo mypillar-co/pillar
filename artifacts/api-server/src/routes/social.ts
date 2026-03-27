@@ -7,6 +7,7 @@ import { eq, and, desc, gte } from "drizzle-orm";
 import { randomBytes, createHash } from "crypto";
 import { logger } from "../lib/logger";
 import { encryptToken, decryptToken } from "../lib/tokenCrypto";
+import { getSessionId } from "../lib/auth";
 import OpenAI from "openai";
 
 const router = Router();
@@ -14,6 +15,7 @@ const router = Router();
 interface OAuthState {
   orgId: string;
   platform: string;
+  sessionId: string;
   codeVerifier?: string;
   expiresAt: number;
 }
@@ -109,7 +111,7 @@ router.get("/oauth/:platform/start", async (req, res) => {
       return;
     }
     const state = randomBytes(16).toString("hex");
-    oauthStateStore.set(state, { orgId: org.id, platform, expiresAt: Date.now() + 10 * 60 * 1000 });
+    oauthStateStore.set(state, { orgId: org.id, platform, sessionId: getSessionId(req) ?? "", expiresAt: Date.now() + 10 * 60 * 1000 });
     // Request scopes for both Facebook page posting and Instagram Business
     const scope = platform === "instagram"
       ? "pages_show_list,pages_read_engagement,instagram_basic,instagram_content_publish,instagram_manage_insights"
@@ -135,7 +137,7 @@ router.get("/oauth/:platform/start", async (req, res) => {
     const codeVerifier = randomBytes(32).toString("base64url");
     // Derive S256 code challenge: base64url(sha256(verifier))
     const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
-    oauthStateStore.set(state, { orgId: org.id, platform, codeVerifier, expiresAt: Date.now() + 10 * 60 * 1000 });
+    oauthStateStore.set(state, { orgId: org.id, platform, sessionId: getSessionId(req) ?? "", codeVerifier, expiresAt: Date.now() + 10 * 60 * 1000 });
     const redirectUri = encodeURIComponent(`${process.env.BASE_URL ?? ""}/api/social/oauth/twitter/callback`);
     const authUrl = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&scope=tweet.write%20tweet.read%20users.read&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
     res.json({ authUrl });
@@ -185,6 +187,11 @@ router.get("/oauth/facebook/callback", async (req, res) => {
   const stored = oauthStateStore.get(state);
   if (!stored || stored.expiresAt < Date.now()) {
     res.redirect("/dashboard/social?error=OAuth+state+expired");
+    return;
+  }
+  if (stored.sessionId && stored.sessionId !== getSessionId(req)) {
+    oauthStateStore.delete(state);
+    res.redirect("/dashboard/social?error=OAuth+session+mismatch");
     return;
   }
   oauthStateStore.delete(state);
@@ -250,6 +257,11 @@ router.get("/oauth/instagram/callback", async (req, res) => {
   const stored = oauthStateStore.get(state);
   if (!stored || stored.expiresAt < Date.now()) {
     res.redirect("/dashboard/social?error=OAuth+state+expired");
+    return;
+  }
+  if (stored.sessionId && stored.sessionId !== getSessionId(req)) {
+    oauthStateStore.delete(state);
+    res.redirect("/dashboard/social?error=OAuth+session+mismatch");
     return;
   }
   oauthStateStore.delete(state);
@@ -337,6 +349,11 @@ router.get("/oauth/twitter/callback", async (req, res) => {
   const stored = oauthStateStore.get(state);
   if (!stored || stored.expiresAt < Date.now()) {
     res.redirect("/dashboard/social?error=OAuth+state+expired");
+    return;
+  }
+  if (stored.sessionId && stored.sessionId !== getSessionId(req)) {
+    oauthStateStore.delete(state);
+    res.redirect("/dashboard/social?error=OAuth+session+mismatch");
     return;
   }
   // Retrieve the PKCE verifier stored during /start
@@ -517,7 +534,30 @@ router.post("/posts/generate", async (req, res) => {
     });
 
     const generatedContent = completion.choices[0]?.message?.content?.trim() ?? "";
-    res.json({ content: generatedContent, platform });
+
+    // For Instagram, also generate an image prompt suggestion
+    if (platform === "instagram") {
+      try {
+        const imageCompletion = await client.chat.completions.create({
+          model: "gpt-5-mini",
+          max_completion_tokens: 200,
+          messages: [
+            {
+              role: "system",
+              content: "You are a visual director for social media. Based on the caption below, write a concise image prompt (2-3 sentences) describing the ideal photo or graphic to accompany the Instagram post. Be specific about style, colors, and subject matter. Output only the image prompt.",
+            },
+            { role: "user", content: generatedContent },
+          ],
+        });
+        const imagePrompt = imageCompletion.choices[0]?.message?.content?.trim() ?? "";
+        res.json({ content: generatedContent, platform, imagePrompt });
+      } catch {
+        // If image prompt generation fails, still return the caption
+        res.json({ content: generatedContent, platform });
+      }
+    } else {
+      res.json({ content: generatedContent, platform });
+    }
   } catch (err) {
     logger.error({ err }, "AI post generation failed");
     res.status(500).json({ error: "Failed to generate post content" });

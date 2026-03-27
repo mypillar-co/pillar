@@ -299,7 +299,7 @@ export const api = {
         req<SocialPost>(`/api/social/posts/${id}`, { method: "PUT", body: JSON.stringify(data) }),
       delete: (id: string) => req<void>(`/api/social/posts/${id}`, { method: "DELETE" }),
       generate: (data: { platform: string; topic?: string; eventId?: string; tone?: string }) =>
-        req<{ content: string; platform: string }>("/api/social/posts/generate", { method: "POST", body: JSON.stringify(data) }),
+        req<{ content: string; platform: string; imagePrompt?: string }>("/api/social/posts/generate", { method: "POST", body: JSON.stringify(data) }),
     },
     rules: {
       list: () => req<AutomationRule[]>("/api/social/rules"),
