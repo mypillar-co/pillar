@@ -1,7 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import { db, organizationsTable, domainsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, and, lte, isNull, or } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
+import { logger } from "../lib/logger";
 import {
   checkAvailability,
   registerDomain,
@@ -10,8 +11,11 @@ import {
   DOMAIN_ADDON_LABEL,
   FREE_DOMAIN_TIERS,
 } from "../porkbun";
+import { promises as dns } from "dns";
 
 const router = Router();
+
+const STEWARD_CNAME_TARGET = "proxy.steward.app";
 
 async function resolveOrg(req: Request, res: Response) {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return null; }
@@ -28,29 +32,30 @@ function validateDomain(domain: string): { valid: boolean; error?: string } {
   const parts = domain.split(".");
   if (parts.length < 2) return { valid: false, error: "Please enter a full domain like 'myorg.com'" };
   const tld = parts[parts.length - 1];
-  const allowedTlds = ["com", "org", "net", "app", "info", "us"];
+  const allowedTlds = ["com", "org", "net", "app", "info", "us", "io"];
   if (!allowedTlds.includes(tld)) {
-    return { valid: false, error: `Only ${allowedTlds.join(", ")} domains are supported` };
+    return { valid: false, error: `Supported TLDs: ${allowedTlds.join(", ")}` };
   }
   const sld = parts.slice(0, -1).join(".");
-  if (!/^[a-z0-9-]+$/.test(sld)) {
+  if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(sld) && !/^[a-z0-9]$/.test(sld)) {
     return { valid: false, error: "Domain can only contain letters, numbers, and hyphens" };
   }
   if (sld.length < 2 || sld.length > 63) {
-    return { valid: false, error: "Domain must be between 2 and 63 characters" };
+    return { valid: false, error: "Domain label must be between 2 and 63 characters" };
   }
   return { valid: true };
 }
 
-// GET /api/domains — list org's domains
+// ─── GET /domains ──────────────────────────────────────────────
 router.get("/", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
   const domains = await db.select().from(domainsTable).where(eq(domainsTable.orgId, org.id));
-  res.json({ domains });
+  const subdomain = org.slug ? `${org.slug}.steward.app` : null;
+  res.json({ domains, subdomain, cnameTarget: STEWARD_CNAME_TARGET });
 });
 
-// POST /api/domains/check — check domain availability
+// ─── POST /domains/check ───────────────────────────────────────
 router.post("/check", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
@@ -74,12 +79,12 @@ router.post("/check", async (req: Request, res: Response) => {
   res.json({
     ...result,
     isFreeForTier,
-    price: isFreeForTier ? 0 : DOMAIN_ADDON_PRICE_CENTS,
+    price: isFreeForTier ? 0 : DOMAIN_ADDON_PRICE_CENTS / 100,
     priceFormatted: isFreeForTier ? "Included in your plan" : "$24/year",
   });
 });
 
-// POST /api/domains/checkout — initiate domain purchase (Tier 1 add-on)
+// ─── POST /domains/checkout ─────────────────────────────────── (Tier 1 — $24/yr add-on)
 router.post("/checkout", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
@@ -95,14 +100,13 @@ router.post("/checkout", async (req: Request, res: Response) => {
   if (existing) { res.status(409).json({ error: "Domain already registered" }); return; }
 
   const isFreeForTier = org.tier ? FREE_DOMAIN_TIERS.has(org.tier) : false;
-
   if (isFreeForTier) {
-    res.status(400).json({ error: "Use /api/domains/claim for included domains" });
+    res.status(400).json({ error: "Use /api/domains/claim for domains included with your plan." });
     return;
   }
 
   if (!org.stripeCustomerId) {
-    res.status(400).json({ error: "Please subscribe to a plan before purchasing a domain" });
+    res.status(400).json({ error: "Please subscribe to a plan before purchasing a domain." });
     return;
   }
 
@@ -124,12 +128,11 @@ router.post("/checkout", async (req: Request, res: Response) => {
       quantity: 1,
     }],
     mode: "payment",
-    success_url: `${origin}/dashboard/domains?domain=${encodeURIComponent(domain)}&status=success`,
-    cancel_url: `${origin}/dashboard/domains?status=cancelled`,
+    success_url: `${origin}/dashboard/domains?domain_success={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origin}/dashboard/domains`,
     metadata: { orgId: org.id, domain, type: "domain_addon" },
   });
 
-  // Record domain as pending payment
   await db.insert(domainsTable).values({
     orgId: org.id,
     domain,
@@ -141,7 +144,68 @@ router.post("/checkout", async (req: Request, res: Response) => {
   res.json({ url: session.url });
 });
 
-// POST /api/domains/claim — claim a free included domain (Tier 1a+)
+// ─── POST /domains/confirm ──────────────────────────────────── (verify Stripe payment & register)
+router.post("/confirm", async (req: Request, res: Response) => {
+  const org = await resolveOrg(req, res);
+  if (!org) return;
+
+  const { sessionId } = req.body as { sessionId?: string };
+  if (!sessionId) { res.status(400).json({ error: "sessionId is required" }); return; }
+
+  const [domainRecord] = await db
+    .select()
+    .from(domainsTable)
+    .where(and(eq(domainsTable.orgId, org.id), eq(domainsTable.stripePaymentId, sessionId)));
+
+  if (!domainRecord) { res.status(404).json({ error: "Domain record not found for this session." }); return; }
+  if (domainRecord.status !== "pending_payment") {
+    res.json({ domain: domainRecord, message: "Already processed." });
+    return;
+  }
+
+  try {
+    const stripe = await getUncachableStripeClient();
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    if (session.payment_status !== "paid") {
+      res.status(400).json({ error: "Payment not yet confirmed. Please wait a moment and try again." });
+      return;
+    }
+  } catch (err) {
+    logger.error({ err, sessionId }, "Could not verify Stripe session");
+    res.status(500).json({ error: "Could not verify payment. Please contact support." });
+    return;
+  }
+
+  const now = new Date();
+  const expiresAt = new Date(now);
+  expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+
+  const user = req.user!;
+  const regResult = await registerDomain(domainRecord.domain, {
+    firstName: user.firstName ?? "Admin",
+    lastName: user.lastName ?? "User",
+    email: user.email ?? "admin@example.com",
+    orgName: org.name,
+  });
+
+  logger.info({ domain: domainRecord.domain, regResult }, "Domain registration after payment");
+
+  const [updated] = await db.update(domainsTable).set({
+    status: "pending_manual",
+    dnsStatus: "pending",
+    purchasedAt: now,
+    expiresAt,
+    registrarRef: regResult.registrarRef ?? null,
+    updatedAt: new Date(),
+  }).where(eq(domainsTable.id, domainRecord.id)).returning();
+
+  res.json({
+    domain: updated,
+    message: "Payment confirmed — domain registration is being processed. Set up your DNS records below.",
+  });
+});
+
+// ─── POST /domains/claim ────────────────────────────────────── (Tier 1a+ — free domain)
 router.post("/claim", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
@@ -159,12 +223,18 @@ router.post("/claim", async (req: Request, res: Response) => {
   const validation = validateDomain(domain);
   if (!validation.valid) { res.status(400).json({ error: validation.error }); return; }
 
-  const [existing] = await db.select().from(domainsTable).where(eq(domainsTable.domain, domain));
-  if (existing) { res.status(409).json({ error: "Domain already registered" }); return; }
+  const [existingForOrg] = await db.select().from(domainsTable).where(eq(domainsTable.orgId, org.id));
+  if (existingForOrg) {
+    res.status(409).json({ error: "Your organization already has a domain registered." });
+    return;
+  }
+
+  const [existingDomain] = await db.select().from(domainsTable).where(eq(domainsTable.domain, domain));
+  if (existingDomain) { res.status(409).json({ error: "Domain already registered" }); return; }
 
   const availability = await checkAvailability(domain);
   if (!availability.available) {
-    res.status(409).json({ error: "That domain is not available" });
+    res.status(409).json({ error: "That domain is not available for registration." });
     return;
   }
 
@@ -177,27 +247,31 @@ router.post("/claim", async (req: Request, res: Response) => {
     domain,
     tld: domain.split(".").pop() ?? "com",
     status: "pending",
+    dnsStatus: "pending",
     purchasedAt: now,
     expiresAt,
+    registrar: "porkbun",
   }).returning();
 
+  const claimUser = req.user!;
   const regResult = await registerDomain(domain, {
-    firstName: req.user?.firstName ?? "Admin",
-    lastName: req.user?.lastName ?? "User",
-    email: req.user?.email ?? "",
+    firstName: claimUser.firstName ?? "Admin",
+    lastName: claimUser.lastName ?? "User",
+    email: claimUser.email ?? "",
     orgName: org.name,
   });
 
   if (regResult.success) {
     await db.update(domainsTable)
-      .set({ status: "active", registrarRef: regResult.registrarRef ?? null })
+      .set({ status: "pending_manual", dnsStatus: "pending", registrarRef: regResult.registrarRef ?? null })
       .where(eq(domainsTable.id, inserted.id));
-    res.json({ domain: { ...inserted, status: "active", registrarRef: regResult.registrarRef } });
+    res.json({
+      domain: { ...inserted, status: "pending_manual", registrarRef: regResult.registrarRef },
+      message: `${domain} has been registered! Configure your DNS records below to go live.`,
+    });
   } else {
-    await db.update(domainsTable)
-      .set({ status: "pending_manual" })
-      .where(eq(domainsTable.id, inserted.id));
-    req.log?.warn({ domain, error: regResult.error }, "Domain registration queued for manual processing");
+    await db.update(domainsTable).set({ status: "pending_manual" }).where(eq(domainsTable.id, inserted.id));
+    logger.warn({ domain, error: regResult.error }, "Domain registration queued for manual processing");
     res.json({
       domain: { ...inserted, status: "pending_manual" },
       message: "Domain reserved — registration processing. You'll receive confirmation within 24 hours.",
@@ -205,31 +279,209 @@ router.post("/claim", async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /api/domains/:id — remove a pending/failed domain record
+// ─── POST /domains/external ─────────────────────────────────── (bring your own domain)
+router.post("/external", async (req: Request, res: Response) => {
+  const org = await resolveOrg(req, res);
+  if (!org) return;
+  if (!org.tier) { res.status(403).json({ error: "Active subscription required to add a custom domain." }); return; }
+
+  const { domain: rawDomain } = req.body as { domain?: string };
+  if (!rawDomain) { res.status(400).json({ error: "domain is required" }); return; }
+
+  const domain = normalizeDomain(rawDomain);
+  const validation = validateDomain(domain);
+  if (!validation.valid) { res.status(400).json({ error: validation.error }); return; }
+
+  const [existingForOrg] = await db.select().from(domainsTable).where(eq(domainsTable.orgId, org.id));
+  if (existingForOrg) {
+    res.status(409).json({ error: "Your organization already has a domain. Remove it first to add a new one." });
+    return;
+  }
+
+  const tld = domain.split(".").pop() ?? "com";
+  const [inserted] = await db.insert(domainsTable).values({
+    orgId: org.id,
+    domain,
+    tld,
+    status: "pending_manual",
+    dnsStatus: "pending",
+    registrar: "external",
+    isExternal: true,
+  }).returning();
+
+  res.status(201).json({
+    domain: inserted,
+    cnameTarget: STEWARD_CNAME_TARGET,
+    message: "Domain added. Configure your DNS records to connect it to your Steward site.",
+  });
+});
+
+// ─── POST /domains/:id/verify ───────────────────────────────── (check DNS propagation)
+router.post("/:id/verify", async (req: Request, res: Response) => {
+  const org = await resolveOrg(req, res);
+  if (!org) return;
+
+  const domainId = String(req.params.id);
+  const [domainRecord] = await db
+    .select()
+    .from(domainsTable)
+    .where(and(eq(domainsTable.id, domainId), eq(domainsTable.orgId, org.id)));
+
+  if (!domainRecord) { res.status(404).json({ error: "Domain not found" }); return; }
+
+  let dnsLive = false;
+  let dnsStatus = domainRecord.dnsStatus ?? "pending";
+
+  try {
+    let pointsToSteward = false;
+    try {
+      const cnames = await dns.resolveCname(domainRecord.domain);
+      pointsToSteward = cnames.some(r => r.toLowerCase().includes("steward.app"));
+    } catch {
+      const aRecords = await dns.resolve4(domainRecord.domain).catch(() => [] as string[]);
+      pointsToSteward = aRecords.length > 0;
+    }
+    dnsLive = pointsToSteward;
+    dnsStatus = dnsLive ? "live" : "propagating";
+  } catch {
+    dnsStatus = "propagating";
+  }
+
+  const newStatus = dnsLive ? "active" : domainRecord.status;
+  const [updated] = await db.update(domainsTable).set({
+    dnsStatus,
+    sslStatus: dnsLive ? "active" : (domainRecord.sslStatus ?? "pending"),
+    status: newStatus ?? "pending_manual",
+    updatedAt: new Date(),
+  }).where(eq(domainsTable.id, domainRecord.id)).returning();
+
+  res.json({
+    domain: updated,
+    dnsLive,
+    message: dnsLive
+      ? "DNS is live! Your domain is now connected to Steward."
+      : "DNS is still propagating. This can take up to 48 hours. Check back later.",
+  });
+});
+
+// ─── PUT /domains/:id ───────────────────────────────────────── (update auto-renew)
+router.put("/:id", async (req: Request, res: Response) => {
+  const org = await resolveOrg(req, res);
+  if (!org) return;
+
+  const putId = String(req.params.id);
+  const [domainRecord] = await db
+    .select()
+    .from(domainsTable)
+    .where(and(eq(domainsTable.id, putId), eq(domainsTable.orgId, org.id)));
+
+  if (!domainRecord) { res.status(404).json({ error: "Domain not found" }); return; }
+
+  const { autoRenew } = req.body as { autoRenew?: boolean };
+  if (typeof autoRenew !== "boolean") { res.status(400).json({ error: "autoRenew must be a boolean" }); return; }
+
+  const [updated] = await db.update(domainsTable)
+    .set({ autoRenew, updatedAt: new Date() })
+    .where(eq(domainsTable.id, domainRecord.id))
+    .returning();
+
+  res.json(updated);
+});
+
+// ─── DELETE /domains/:id ─────────────────────────────────────
 router.delete("/:id", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
 
   const id = String(req.params.id);
-  const [domain] = await db.select().from(domainsTable)
-    .where(eq(domainsTable.id, id));
+  const [domain] = await db.select().from(domainsTable).where(eq(domainsTable.id, id));
 
   if (!domain || domain.orgId !== org.id) {
     res.status(404).json({ error: "Domain not found" }); return;
   }
 
   if (domain.status === "active") {
-    res.status(400).json({ error: "Active domains cannot be removed" }); return;
+    res.status(400).json({ error: "Active domains cannot be removed. Contact support to release your domain." }); return;
   }
 
   await db.delete(domainsTable).where(eq(domainsTable.id, id));
   res.json({ ok: true });
 });
 
-// GET /api/domains/registrar-status — whether Namecheap is configured
+// ─── GET /domains/registrar-status ───────────────────────────
 router.get("/registrar-status", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-  res.json({ configured: registrarConfigured() });
+  res.json({ configured: registrarConfigured(), cnameTarget: STEWARD_CNAME_TARGET });
 });
+
+// ─── Domain Renewal Job (called from scheduler) ───────────────
+export async function checkAndRenewDomains(): Promise<void> {
+  const thirtyDaysFromNow = new Date();
+  thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const now = new Date();
+
+  const expiringDomains = await db
+    .select({ domain: domainsTable, org: organizationsTable })
+    .from(domainsTable)
+    .innerJoin(organizationsTable, eq(domainsTable.orgId, organizationsTable.id))
+    .where(
+      and(
+        lte(domainsTable.expiresAt, thirtyDaysFromNow),
+        or(
+          isNull(domainsTable.renewalNotifiedAt),
+          lte(domainsTable.renewalNotifiedAt, sevenDaysAgo)
+        )
+      )
+    );
+
+  for (const { domain: d, org } of expiringDomains) {
+    if (!d.expiresAt) continue;
+    const daysLeft = Math.ceil((d.expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (d.autoRenew && !d.isExternal && org.stripeCustomerId) {
+      try {
+        const stripe = await getUncachableStripeClient();
+        const invoice = await stripe.invoices.create({
+          customer: org.stripeCustomerId,
+          auto_advance: false,
+          collection_method: "charge_automatically",
+          description: `Auto-renewal: ${d.domain} — 1 year`,
+        });
+        await stripe.invoiceItems.create({
+          customer: org.stripeCustomerId,
+          invoice: invoice.id,
+          amount: DOMAIN_ADDON_PRICE_CENTS,
+          currency: "usd",
+          description: `${DOMAIN_ADDON_LABEL}: ${d.domain}`,
+        });
+        await stripe.invoices.finalizeInvoice(invoice.id);
+        await stripe.invoices.pay(invoice.id);
+
+        const newExpiresAt = new Date(d.expiresAt);
+        newExpiresAt.setFullYear(newExpiresAt.getFullYear() + 1);
+
+        await db.update(domainsTable).set({
+          expiresAt: newExpiresAt,
+          renewalNotifiedAt: now,
+          status: "active",
+          updatedAt: new Date(),
+        }).where(eq(domainsTable.id, d.id));
+
+        logger.info({ domain: d.domain, orgId: org.id }, "Domain auto-renewed via Stripe");
+      } catch (err) {
+        logger.error({ err, domain: d.domain, orgId: org.id }, "Domain auto-renewal failed");
+        await db.update(domainsTable)
+          .set({ renewalNotifiedAt: now, updatedAt: new Date() })
+          .where(eq(domainsTable.id, d.id));
+      }
+    } else {
+      logger.warn({ domain: d.domain, daysLeft, orgId: org.id, isExternal: d.isExternal }, "Domain expiry warning — renewal needed");
+      await db.update(domainsTable)
+        .set({ renewalNotifiedAt: now, updatedAt: new Date() })
+        .where(eq(domainsTable.id, d.id));
+    }
+  }
+}
 
 export default router;

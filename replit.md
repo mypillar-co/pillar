@@ -43,7 +43,7 @@ An AI-powered SaaS platform (Wix meets Eventbrite) that autonomously manages web
 - `public.site_pages` — Pages within a site (home, about, events, etc.)
 - `public.site_blocks` — Content blocks per page (hero, text, events_list, sponsors_grid, contact_form)
 - `public.site_nav_items` — Navigation menu for a site
-- `public.domains` — Custom domains (Porkbun integration, status, registrarRef)
+- `public.domains` — Custom domains (Porkbun/external registrar, dnsStatus, sslStatus, isExternal, registrar, stripeSessionId, renewalNotifiedAt, autoRenew boolean)
 - `public.social_accounts` — Connected social media accounts (Facebook, Instagram, X) with access tokens
 - `public.social_posts` — Social media posts (draft, scheduled, published, failed, cancelled)
 - `public.automation_rules` — Recurring social posting rules (frequency, platforms, content type, AI prompt)
@@ -113,6 +113,8 @@ pnpm --filter @workspace/scripts run seed-products  # Seed Stripe products
 - `/dashboard/contacts` — Contacts list + add dialog
 - `/dashboard/payments` — Payments overview (placeholder + Stripe integration CTA)
 - `/dashboard/site` — AI Site Builder (chat interface)
+- `/dashboard/domains` — Custom domain management (register via Porkbun, BYOD/external, DNS/SSL status, auto-renew)
+- `/dashboard/social` — Social media automation (Facebook, X posting; Instagram gated)
 - `/dashboard/settings` — Organization settings
 
 ## Design
@@ -152,9 +154,25 @@ pnpm --filter @workspace/scripts run seed-products  # Seed Stripe products
 - Date-only fields (startDate, endDate) stored as `varchar` for compatibility with CivicOps patterns
 - Boolean fields use native PostgreSQL `boolean` type
 
-## Project Tasks (Remaining)
+## Project Tasks (Completed)
 1. ✅ Task #1 — Platform Foundation (auth, billing, organizations, DB, Stripe, frontend shell)
 2. ✅ Task #2 — AI Site Builder + Event Dashboard (events, vendors, sponsors, contacts, payments, AI chat, sidebar layout)
-3. Task #3 — Social Media Automation (Facebook, Instagram, X posting)
-4. Task #4 — Custom Domain Purchasing & Hosting (domain registrar integration)
-5. Task #5 — Public site renderer (block-based, hero/text/events_list/sponsors_grid/contact_form)
+3. ✅ Task #3 — Event Dashboard (recurring templates, approval queue, comms)
+4. ✅ Task #4 — Social Media Automation (Facebook, X; Instagram gated by design)
+5. ✅ Task #5 — Custom Domain Purchasing & Hosting (Porkbun registration, BYOD/external, DNS/SSL checks, auto-renewal)
+
+## Domain System (Task #5)
+- `GET /api/domains` — list org's domains + subdomain + cnameTarget
+- `POST /api/domains/check` — availability check via Porkbun API
+- `POST /api/domains/checkout` — Stripe checkout for Tier 1 add-on ($24/yr)
+- `POST /api/domains/confirm` — confirm Stripe payment + trigger Porkbun registration
+- `POST /api/domains/claim` — free claim for Tier 1a+ users
+- `POST /api/domains/external` — add externally-registered (BYOD) domain
+- `POST /api/domains/:id/verify` — check DNS propagation (CNAME lookup)
+- `PUT /api/domains/:id` — toggle auto-renew
+- `DELETE /api/domains/:id` — remove non-active domain
+- `GET /api/domains/registrar-status` — Porkbun connectivity check
+- Scheduler: `checkAndRenewDomains()` runs every 6 hours — charges via Stripe Invoice for auto-renew, logs warning for non-auto-renew expiring domains
+- Domain tiers: Tier 1 = $24/yr add-on, Tier 1a/2/3 = free included domain
+- CNAME target: `proxy.steward.app`
+- Porkbun secrets: `PORKBUN_API_KEY` + `PORKBUN_SECRET_KEY`

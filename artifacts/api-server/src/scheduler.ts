@@ -10,6 +10,7 @@ import {
   contentStrategyTable,
   organizationsTable,
 } from "@workspace/db";
+import { checkAndRenewDomains } from "./routes/domains";
 import { eq, lte, and, gte } from "drizzle-orm";
 import { logger } from "./lib/logger";
 import { decryptToken } from "./lib/tokenCrypto";
@@ -731,8 +732,10 @@ async function runTier3AutonomousCampaigns(): Promise<void> {
 const SCHEDULE_INTERVAL_MS = 30 * 60 * 1000;
 const SOCIAL_PUBLISH_INTERVAL_MS = 5 * 60 * 1000;
 
+const DOMAIN_RENEWAL_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+
 export function startScheduler(): void {
-  logger.info("Starting schedulers (site/events: 30min, social publishing: 5min)");
+  logger.info("Starting schedulers (site/events: 30min, social publishing: 5min, domain renewal: 6h)");
 
   // Initial runs
   runDueSchedules().catch((err: unknown) => {
@@ -749,6 +752,9 @@ export function startScheduler(): void {
   });
   runTier3AutonomousCampaigns().catch((err: unknown) => {
     logger.warn({ err }, "Initial Tier 3 autonomous campaign check failed");
+  });
+  checkAndRenewDomains().catch((err: unknown) => {
+    logger.warn({ err }, "Initial domain renewal check failed");
   });
 
   // Social post publishing every 5 minutes for accurate scheduled-time delivery
@@ -773,4 +779,11 @@ export function startScheduler(): void {
       logger.warn({ err }, "Tier 3 autonomous campaigns run failed");
     });
   }, SCHEDULE_INTERVAL_MS);
+
+  // Domain renewal check every 6 hours
+  setInterval(() => {
+    checkAndRenewDomains().catch((err: unknown) => {
+      logger.warn({ err }, "Domain renewal check failed");
+    });
+  }, DOMAIN_RENEWAL_INTERVAL_MS);
 }
