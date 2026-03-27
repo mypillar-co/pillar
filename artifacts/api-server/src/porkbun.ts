@@ -140,7 +140,10 @@ interface PorkbunDnsCreateResponse {
 }
 
 /**
- * Create a CNAME record on a Porkbun-registered domain pointing at `target`.
+ * Create DNS records on a Porkbun-registered domain pointing at `target`.
+ * Creates two records:
+ *  1. ALIAS at "@" (apex root) — Porkbun supports apex ALIAS internally.
+ *  2. CNAME at "www" — for www.domain.com.
  * Used immediately after registration to automatically wire DNS → Steward.
  */
 export async function createCnameRecord(
@@ -150,20 +153,50 @@ export async function createCnameRecord(
   if (!isConfigured()) {
     return { success: false, error: "Registrar not configured" };
   }
+  const errors: string[] = [];
+  let anySuccess = false;
+
+  // Record 1: ALIAS at apex (Porkbun-specific)
   try {
-    const data = await post<PorkbunDnsCreateResponse>(`/dns/create/${domain}`, {
+    const apex = await post<PorkbunDnsCreateResponse>(`/dns/create/${domain}`, {
       name: "",
+      type: "ALIAS",
+      content: target,
+      ttl: "600",
+    });
+    if (apex.status === "SUCCESS") {
+      anySuccess = true;
+    } else {
+      // Some Porkbun zones don't support ALIAS; fall back to CNAME at root
+      const apexCname = await post<PorkbunDnsCreateResponse>(`/dns/create/${domain}`, {
+        name: "",
+        type: "CNAME",
+        content: target,
+        ttl: "600",
+      });
+      if (apexCname.status === "SUCCESS") anySuccess = true;
+      else errors.push(`apex: ${apexCname.message ?? "failed"}`);
+    }
+  } catch (err) {
+    errors.push(`apex: ${String(err)}`);
+  }
+
+  // Record 2: CNAME at www
+  try {
+    const www = await post<PorkbunDnsCreateResponse>(`/dns/create/${domain}`, {
+      name: "www",
       type: "CNAME",
       content: target,
       ttl: "600",
     });
-    if (data.status === "SUCCESS") {
-      return { success: true, recordId: String(data.id ?? "") };
-    }
-    return { success: false, error: data.message ?? "DNS record creation failed" };
+    if (www.status === "SUCCESS") anySuccess = true;
+    else errors.push(`www: ${www.message ?? "failed"}`);
   } catch (err) {
-    return { success: false, error: String(err) };
+    errors.push(`www: ${String(err)}`);
   }
+
+  if (anySuccess) return { success: true };
+  return { success: false, error: errors.join("; ") };
 }
 
 export interface RenewResult {

@@ -359,6 +359,13 @@ router.post("/external", async (req: Request, res: Response) => {
     return;
   }
 
+  // Global uniqueness check — a domain can only be claimed by one org
+  const [existingGlobal] = await db.select({ id: domainsTable.id }).from(domainsTable).where(eq(domainsTable.domain, domain));
+  if (existingGlobal) {
+    res.status(409).json({ error: "This domain is already registered with another organization." });
+    return;
+  }
+
   const tld = domain.split(".").pop() ?? "com";
   const [inserted] = await db.insert(domainsTable).values({
     orgId: org.id,
@@ -497,6 +504,63 @@ router.get("/registrar-status", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   res.json({ configured: registrarConfigured(), cnameTarget: STEWARD_CNAME_TARGET });
 });
+
+// ─── Automatic DNS Propagation Poller (called from scheduler) ──────
+// Polls domains in pending/propagating state and transitions them to live
+// automatically — users don't need to click "Check DNS".
+export async function pollDnsPropagation(): Promise<void> {
+  const pendingDomains = await db
+    .select({ domain: domainsTable, org: organizationsTable })
+    .from(domainsTable)
+    .innerJoin(organizationsTable, eq(domainsTable.orgId, organizationsTable.id))
+    .where(
+      or(
+        eq(domainsTable.dnsStatus, "propagating"),
+        and(eq(domainsTable.dnsStatus, "pending"), eq(domainsTable.status, "active"))
+      )
+    );
+
+  for (const { domain: d, org } of pendingDomains) {
+    try {
+      const stewardTarget = STEWARD_CNAME_TARGET.toLowerCase();
+      let dnsLive = false;
+
+      // Check CNAME (www.domain.com)
+      for (const prefix of [`www.${d.domain}`, d.domain]) {
+        try {
+          const cnames = await dns.resolveCname(prefix);
+          const hit = cnames.some(r => {
+            const n = r.toLowerCase().replace(/\.$/, "");
+            return n === stewardTarget || n.endsWith(`.${stewardTarget}`);
+          });
+          if (hit) { dnsLive = true; break; }
+        } catch {
+          // not yet propagated
+        }
+      }
+
+      if (dnsLive) {
+        await db.update(domainsTable).set({
+          dnsStatus: "live",
+          sslStatus: "provisioning",
+          status: "active",
+          updatedAt: new Date(),
+        }).where(eq(domainsTable.id, d.id));
+
+        await createNotification(
+          org.id,
+          "domain_renewed",
+          `Domain is live: ${d.domain}`,
+          `Your domain ${d.domain} is now pointing to Steward. SSL certificate provisioning has started and will complete within 24 hours.`,
+          { domain: d.domain }
+        );
+        logger.info({ domain: d.domain, orgId: org.id }, "DNS auto-poller: domain went live");
+      }
+    } catch (err) {
+      logger.warn({ err, domain: d.domain }, "DNS auto-poller: check failed");
+    }
+  }
+}
 
 // ─── SSL Provisioning Check Job (called from scheduler) ─────────
 // Checks domains that are DNS-live but SSL is still provisioning.
