@@ -72,7 +72,7 @@ async function callOpenAI(
   const client = getOpenAIClient();
   const response = await client.chat.completions.create({
     model: "gpt-5-mini",
-    max_tokens: maxTokens,
+    max_completion_tokens: maxTokens,
     messages,
   });
   return response.choices[0]?.message?.content ?? "";
@@ -91,7 +91,7 @@ async function callOpenAIStreaming(
   const client = getOpenAIClient();
   const stream = await client.chat.completions.create({
     model: "gpt-5-mini",
-    max_tokens: maxTokens,
+    max_completion_tokens: maxTokens,
     messages,
     stream: true,
   });

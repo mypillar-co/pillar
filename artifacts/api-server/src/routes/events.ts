@@ -206,7 +206,7 @@ router.post("/recurring/templates/:id/generate", async (req: Request, res: Respo
         { role: "system", content: "You are an AI assistant for a civic organization. Generate a compelling event description (2-3 sentences, professional and welcoming) for a recurring event. Reply with only the description text." },
         { role: "user", content: `Event: ${template.name}\nDate: ${dateStr}\nTime: ${template.startTime ?? "TBD"}\nLocation: ${template.location ?? "TBD"}\nType: ${template.eventType ?? "general"}\nBase description: ${template.description ?? ""}` },
       ],
-      max_tokens: 200,
+      max_completion_tokens: 200,
     });
     generatedDescription = completion.choices[0]?.message?.content?.trim() ?? generatedDescription;
   } catch {

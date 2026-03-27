@@ -36,7 +36,7 @@ async function callOpenAI(
   const client = getOpenAIClient();
   const response = await client.chat.completions.create({
     model: "gpt-5-mini",
-    max_tokens: maxTokens,
+    max_completion_tokens: maxTokens,
     messages,
   });
   return response.choices[0]?.message?.content ?? "";
@@ -216,7 +216,7 @@ async function runDueRecurringTemplates(): Promise<void> {
           const aiClient = getOpenAIClient();
           const completion = await aiClient.chat.completions.create({
             model: "gpt-5-mini",
-            max_tokens: 200,
+            max_completion_tokens: 200,
             messages: [
               {
                 role: "system",
