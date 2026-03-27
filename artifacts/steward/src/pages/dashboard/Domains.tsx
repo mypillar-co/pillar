@@ -74,9 +74,10 @@ const DNS_STATUS_CONFIG: Record<string, { label: string; color: string; icon: Re
 };
 
 const SSL_STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ElementType }> = {
-  pending: { label: "SSL Pending",  color: "text-slate-400 border-slate-500/30 bg-slate-500/10",    icon: Shield },
-  active:  { label: "SSL Active",   color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/10", icon: ShieldCheck },
-  failed:  { label: "SSL Error",    color: "text-red-400 border-red-500/30 bg-red-500/10",          icon: ShieldAlert },
+  pending:      { label: "SSL Pending",       color: "text-slate-400 border-slate-500/30 bg-slate-500/10",    icon: Shield },
+  provisioning: { label: "SSL Provisioning",  color: "text-amber-400 border-amber-500/30 bg-amber-500/10",   icon: Shield },
+  active:       { label: "SSL Active",        color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/10", icon: ShieldCheck },
+  failed:       { label: "SSL Error",         color: "text-red-400 border-red-500/30 bg-red-500/10",          icon: ShieldAlert },
 };
 
 const FREE_DOMAIN_TIERS = new Set(["tier1a", "tier2", "tier3"]);
@@ -652,25 +653,53 @@ export default function Domains() {
             {d.isExternal ? (
               <>
                 <p className="text-xs text-muted-foreground">
-                  To connect <span className="text-white font-mono">{d.domain}</span> to your Steward site, add the following
-                  CNAME record in your domain registrar's DNS settings. Changes can take up to 48 hours to propagate.
+                  To connect <span className="text-white font-mono">{d.domain}</span> to your Steward site, add the
+                  DNS record below at your registrar. Changes can take up to 48 hours to propagate.
                 </p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-mono">
-                  <div className="p-2.5 rounded-lg bg-white/5 border border-white/8">
-                    <p className="text-muted-foreground mb-0.5">Type</p>
-                    <p className="text-white">CNAME</p>
+                {/* CNAME instruction (for subdomains like www.yourdomain.com) */}
+                <div className="space-y-1">
+                  <p className="text-[11px] font-semibold text-white/70 uppercase tracking-wide">For subdomains (e.g. www)</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-mono">
+                    <div className="p-2.5 rounded-lg bg-white/5 border border-white/8">
+                      <p className="text-muted-foreground mb-0.5">Type</p>
+                      <p className="text-white">CNAME</p>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-white/5 border border-white/8">
+                      <p className="text-muted-foreground mb-0.5">Name / Host</p>
+                      <p className="text-white">www</p>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-white/5 border border-white/8">
+                      <p className="text-muted-foreground mb-0.5 flex items-center gap-1">
+                        Value / Target
+                        <CopyButton value={cnameTarget} />
+                      </p>
+                      <p className="text-white break-all">{cnameTarget}</p>
+                    </div>
                   </div>
-                  <div className="p-2.5 rounded-lg bg-white/5 border border-white/8">
-                    <p className="text-muted-foreground mb-0.5">Name / Host</p>
-                    <p className="text-white">@ (or www)</p>
+                </div>
+                {/* ALIAS/ANAME instruction (for apex/root domains) */}
+                <div className="space-y-1">
+                  <p className="text-[11px] font-semibold text-white/70 uppercase tracking-wide">For apex / root domain (yourdomain.com)</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-mono">
+                    <div className="p-2.5 rounded-lg bg-white/5 border border-white/8">
+                      <p className="text-muted-foreground mb-0.5">Type</p>
+                      <p className="text-white">ALIAS or ANAME</p>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-white/5 border border-white/8">
+                      <p className="text-muted-foreground mb-0.5">Name / Host</p>
+                      <p className="text-white">@ (root)</p>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-white/5 border border-white/8">
+                      <p className="text-muted-foreground mb-0.5 flex items-center gap-1">
+                        Value / Target
+                        <CopyButton value={cnameTarget} />
+                      </p>
+                      <p className="text-white break-all">{cnameTarget}</p>
+                    </div>
                   </div>
-                  <div className="p-2.5 rounded-lg bg-white/5 border border-white/8">
-                    <p className="text-muted-foreground mb-0.5 flex items-center gap-1">
-                      Value / Target
-                      <CopyButton value={cnameTarget} />
-                    </p>
-                    <p className="text-white break-all">{cnameTarget}</p>
-                  </div>
+                  <p className="text-[10px] text-muted-foreground/70">
+                    Not all registrars support ALIAS/ANAME. If yours doesn't, use an A record with Steward's IP or contact support for help.
+                  </p>
                 </div>
               </>
             ) : (

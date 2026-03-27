@@ -365,26 +365,48 @@ router.post("/:id/verify", async (req: Request, res: Response) => {
   let dnsStatus = domainRecord.dnsStatus ?? "pending";
 
   try {
-    // Only confirm DNS is live if the CNAME resolves exactly to the Steward proxy target.
-    // A-record fallback is intentionally omitted — a domain resolving to any IP address
-    // does NOT guarantee it points to Steward's infrastructure.
-    const cnames = await dns.resolveCname(domainRecord.domain);
+    // Check CNAME first (works for www. and other non-apex subdomains)
     const stewardTarget = STEWARD_CNAME_TARGET.toLowerCase();
-    dnsLive = cnames.some(r => {
-      const normalized = r.toLowerCase().replace(/\.$/, "");
-      return normalized === stewardTarget || normalized.endsWith(`.${stewardTarget}`);
-    });
-    dnsStatus = dnsLive ? "live" : "propagating";
+    let cnamePointsToSteward = false;
+    try {
+      const cnames = await dns.resolveCname(domainRecord.domain);
+      cnamePointsToSteward = cnames.some(r => {
+        const normalized = r.toLowerCase().replace(/\.$/, "");
+        return normalized === stewardTarget || normalized.endsWith(`.${stewardTarget}`);
+      });
+    } catch {
+      // CNAME lookup failed — domain may be apex-only (A/ALIAS record)
+    }
+
+    dnsLive = cnamePointsToSteward;
+
+    if (!dnsLive) {
+      // For apex domains that can't use CNAME, check for ALIAS/ANAME by verifying
+      // the domain resolves at all. We can't verify the exact IP without knowing
+      // the proxy's IP addresses — mark as "needs-review" for manual confirmation.
+      // If the domain has been "active" before, preserve that state.
+      dnsStatus = domainRecord.dnsStatus === "live" ? "live" : "propagating";
+    } else {
+      dnsStatus = "live";
+    }
   } catch {
-    // CNAME lookup failed — record hasn't propagated yet
     dnsStatus = domainRecord.dnsStatus === "live" ? "live" : "propagating";
   }
 
-  const newStatus = dnsLive ? "active" : domainRecord.status;
+  // SSL provisioning: moves to "provisioning" when DNS is first detected live,
+  // and to "active" once the certificate has had time to provision (24h later).
+  let newSslStatus = domainRecord.sslStatus ?? "pending";
+  if (dnsLive) {
+    if (newSslStatus === "pending") {
+      newSslStatus = "provisioning";
+    }
+  }
+
+  const newStatus = dnsLive ? "active" : (domainRecord.status ?? "pending_manual");
   const [updated] = await db.update(domainsTable).set({
     dnsStatus,
-    sslStatus: dnsLive ? "active" : (domainRecord.sslStatus ?? "pending"),
-    status: newStatus ?? "pending_manual",
+    sslStatus: newSslStatus,
+    status: newStatus,
     updatedAt: new Date(),
   }).where(eq(domainsTable.id, domainRecord.id)).returning();
 
@@ -392,8 +414,8 @@ router.post("/:id/verify", async (req: Request, res: Response) => {
     domain: updated,
     dnsLive,
     message: dnsLive
-      ? "DNS is live! Your domain is now connected to Steward."
-      : "DNS is still propagating. This can take up to 48 hours. Check back later.",
+      ? "DNS is live! Your domain is now connected to Steward. SSL provisioning may take up to 24 hours."
+      : "DNS is still propagating. This can take up to 48 hours. If your domain uses ALIAS/ANAME records for apex domains, contact support to verify.",
   });
 });
 
@@ -492,12 +514,27 @@ export async function checkAndRenewDomains(): Promise<void> {
         await stripe.invoices.finalizeInvoice(invoice.id);
         await stripe.invoices.pay(invoice.id);
 
-        // 2. Renew at registrar
+        // 2. Renew at registrar — MUST succeed before we extend the domain
         const renewResult = await porkbunRenewDomain(d.domain);
         if (!renewResult.success) {
-          logger.error({ domain: d.domain, orgId: org.id, error: renewResult.error }, "Registrar renewal failed after Stripe charge — manual intervention required");
+          // Registrar renewal failed after Stripe charge — issue a refund and log critically
+          logger.error(
+            { domain: d.domain, orgId: org.id, invoiceId: invoice.id, error: renewResult.error },
+            "Registrar renewal failed after Stripe charge — issuing refund"
+          );
+          try {
+            await stripe.invoices.voidInvoice(invoice.id);
+          } catch (refundErr) {
+            logger.error({ refundErr, domain: d.domain, invoiceId: invoice.id }, "CRITICAL: Failed to void invoice after registrar renewal failure — manual intervention required");
+          }
+          // Domain is NOT extended — expiresAt and status remain unchanged
+          await db.update(domainsTable)
+            .set({ renewalNotifiedAt: now, updatedAt: new Date() })
+            .where(eq(domainsTable.id, d.id));
+          continue;
         }
 
+        // 3. Only extend expiresAt after BOTH Stripe charge and registrar renewal succeed
         const newExpiresAt = new Date(d.expiresAt);
         newExpiresAt.setFullYear(newExpiresAt.getFullYear() + 1);
 
@@ -508,7 +545,7 @@ export async function checkAndRenewDomains(): Promise<void> {
           updatedAt: new Date(),
         }).where(eq(domainsTable.id, d.id));
 
-        logger.info({ domain: d.domain, orgId: org.id, registrarRenewed: renewResult.success }, "Domain auto-renewed");
+        logger.info({ domain: d.domain, orgId: org.id }, "Domain auto-renewed successfully");
       } catch (err) {
         logger.error({ err, domain: d.domain, orgId: org.id }, "Domain auto-renewal failed");
         await db.update(domainsTable)

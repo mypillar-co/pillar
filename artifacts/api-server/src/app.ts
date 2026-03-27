@@ -6,8 +6,8 @@ import { authMiddleware } from "./middlewares/authMiddleware";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { WebhookHandlers } from "./webhookHandlers";
-import { db, sitesTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, sitesTable, domainsTable, organizationsTable } from "@workspace/db";
+import { eq, or } from "drizzle-orm";
 
 const app: Express = express();
 
@@ -60,20 +60,90 @@ app.use(authMiddleware);
 
 app.use("/api", router);
 
-// Public site renderer — serves generated HTML at /sites/:slug
-app.get("/sites/:slug", async (req, res) => {
-  const { slug } = req.params;
-  const [site] = await db.select().from(sitesTable).where(eq(sitesTable.orgSlug, slug));
-  if (!site || site.status !== "published" || !site.generatedHtml) {
-    res.status(404).send(`<!DOCTYPE html><html><head><title>Site Not Found</title><style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#0f172a;color:#94a3b8;text-align:center}.box{max-width:400px;padding:2rem}.title{color:#fff;font-size:1.5rem;margin-bottom:.5rem}</style></head><body><div class="box"><div class="title">Site not found</div><p>This organization hasn't published their site yet.</p><a href="/" style="color:#f59e0b;text-decoration:none">← Steward Home</a></div></body></html>`);
-    return;
-  }
+// Shared site HTML response helper
+function sendSiteHtml(res: express.Response, html: string): void {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "public, max-age=60");
-  // Strict CSP — block all scripts on user-generated HTML pages to prevent XSS
   res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'none'; frame-ancestors 'none'");
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.send(site.generatedHtml);
+  res.send(html);
+}
+
+const SITE_NOT_FOUND_HTML = `<!DOCTYPE html><html><head><title>Site Not Found</title><style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#0f172a;color:#94a3b8;text-align:center}.box{max-width:400px;padding:2rem}.title{color:#fff;font-size:1.5rem;margin-bottom:.5rem}</style></head><body><div class="box"><div class="title">Site not found</div><p>This organization hasn't published their site yet.</p><a href="/" style="color:#f59e0b;text-decoration:none">← Steward Home</a></div></body></html>`;
+
+// Public site renderer — serves generated HTML at /sites/:slug (by slug path)
+app.get("/sites/:slug", async (req, res) => {
+  const { slug } = req.params as { slug: string };
+  const [site] = await db.select().from(sitesTable).where(eq(sitesTable.orgSlug, slug));
+  if (!site || site.status !== "published" || !site.generatedHtml) {
+    res.status(404).send(SITE_NOT_FOUND_HTML);
+    return;
+  }
+  sendSiteHtml(res, site.generatedHtml);
+});
+
+// Host-based site routing — serves sites at <slug>.steward.app or registered custom domains
+// This middleware runs before the fallback so API paths (/api/*) are not intercepted.
+app.use(async (req, res, next) => {
+  // Only intercept non-API, non-static paths
+  if (req.path.startsWith("/api") || req.path.startsWith("/sites")) {
+    return next();
+  }
+
+  const rawHost = (req.headers["x-forwarded-host"] ?? req.headers.host ?? "") as string;
+  const host = rawHost.split(":")[0].toLowerCase();
+
+  if (!host) return next();
+
+  let orgSlug: string | null = null;
+
+  // Pattern 1: <slug>.steward.app subdomain
+  const subdomainMatch = host.match(/^([a-z0-9-]+)\.steward\.app$/);
+  if (subdomainMatch) {
+    orgSlug = subdomainMatch[1];
+  }
+
+  if (orgSlug) {
+    // Serve via slug
+    const [site] = await db.select().from(sitesTable).where(eq(sitesTable.orgSlug, orgSlug));
+    if (site?.status === "published" && site.generatedHtml) {
+      sendSiteHtml(res, site.generatedHtml);
+      return;
+    }
+    // Subdomain exists but site not published yet
+    res.status(404).send(SITE_NOT_FOUND_HTML);
+    return;
+  }
+
+  // Pattern 2: registered custom domain (myorg.com)
+  // Only apply to non-Steward, non-Replit hosts
+  const isInternalHost = host.includes("steward.app") || host.includes("replit.dev") || host.includes("replit.app") || host === "localhost" || host === "127.0.0.1";
+  if (!isInternalHost && host.includes(".")) {
+    const [domainRecord] = await db
+      .select({ domain: domainsTable, org: organizationsTable })
+      .from(domainsTable)
+      .innerJoin(organizationsTable, eq(domainsTable.orgId, organizationsTable.id))
+      .where(eq(domainsTable.domain, host));
+
+    if (domainRecord && (domainRecord.domain.status === "active" || domainRecord.domain.dnsStatus === "live")) {
+      // Look up the org's site
+      const orgId = domainRecord.org.id;
+      const [site] = await db.select().from(sitesTable).where(
+        or(eq(sitesTable.orgId, orgId), eq(sitesTable.orgSlug, domainRecord.org.slug ?? ""))
+      );
+      if (site?.status === "published" && site.generatedHtml) {
+        sendSiteHtml(res, site.generatedHtml);
+        return;
+      }
+    }
+    // Custom domain registered but site not ready
+    if (domainRecord) {
+      res.status(404).send(SITE_NOT_FOUND_HTML);
+      return;
+    }
+  }
+
+  next();
 });
 
 export default app;
