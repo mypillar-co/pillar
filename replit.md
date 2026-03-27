@@ -154,12 +154,29 @@ pnpm --filter @workspace/scripts run seed-products  # Seed Stripe products
 - Date-only fields (startDate, endDate) stored as `varchar` for compatibility with CivicOps patterns
 - Boolean fields use native PostgreSQL `boolean` type
 
+## Security & Reliability Notes
+- **CORS**: Restricted to Replit dev domains (`*.replit.dev`, `*.replit.app`) and `*.steward.app` via regex allowlist
+- **Session cookies**: `httpOnly: true`, `secure: true`, `sameSite: "lax"` — prevents CSRF for mutating requests
+- **Error handling**: Express 5 built-in async error handling + global 4-arg error middleware in `app.ts`
+- **Slug uniqueness**: `organizations.slug` has `.unique()` DB constraint
+
+## Auth Loading Race Conditions Fixed
+- **Onboard.tsx**: Must check `authLoading` before redirecting (`!authLoading && !isAuthenticated`) — otherwise redirect fires before auth state resolves from the server
+- **DashboardLayout.tsx**: Already checks `if (authLoading || orgLoading) return;` before any redirect
+
+## Tier Gating
+- Events: `tier2` or `tier3` required (403 otherwise). Frontend shows upgrade prompt for non-tier users
+- Recurring events: `tier3` only
+- AI site builder: `tier1+` (all tiers)
+- Custom domain (free): `tier1a+`; `tier1` = $24/yr add-on via Stripe checkout
+
 ## Project Tasks (Completed)
 1. ✅ Task #1 — Platform Foundation (auth, billing, organizations, DB, Stripe, frontend shell)
 2. ✅ Task #2 — AI Site Builder + Event Dashboard (events, vendors, sponsors, contacts, payments, AI chat, sidebar layout)
 3. ✅ Task #3 — Event Dashboard (recurring templates, approval queue, comms)
 4. ✅ Task #4 — Social Media Automation (Facebook, X; Instagram gated by design)
 5. ✅ Task #5 — Custom Domain Purchasing & Hosting (Porkbun registration, BYOD/external, DNS/SSL checks, auto-renewal)
+6. ✅ Platform Audit — Security hardening, auth loading race condition fix, tier gate UX improvement
 
 ## Domain System (Task #5)
 - `GET /api/domains` — list org's domains + subdomain + cnameTarget

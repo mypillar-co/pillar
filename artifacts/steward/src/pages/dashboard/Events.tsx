@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus, Calendar, MapPin, Search, ChevronRight, Loader2,
-  Ticket, DollarSign, Clock, CheckCircle, Inbox, RefreshCw,
+  Ticket, DollarSign, Clock, CheckCircle, Inbox, RefreshCw, Lock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -182,9 +182,12 @@ export default function Events() {
   const tier = subscription?.tierId;
   const isTier3 = tier === "tier3";
 
+  const hasEventAccess = tier === "tier2" || tier === "tier3";
+
   const { data: events = [], isLoading: eventsLoading } = useQuery({
     queryKey: ["events"],
     queryFn: () => api.events.list(),
+    enabled: hasEventAccess,
   });
   const { data: metrics } = useQuery({
     queryKey: ["event-metrics"],
@@ -214,7 +217,7 @@ export default function Events() {
           <p className="text-sm text-muted-foreground mt-0.5">Manage your organization's events and track attendance</p>
         </div>
         <div className="flex items-center gap-2">
-          {approvalQueue.length > 0 && (
+          {hasEventAccess && approvalQueue.length > 0 && (
             <Link href="/dashboard/events/approvals">
               <Button variant="outline" className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300">
                 <Inbox className="w-4 h-4 mr-2" />
@@ -229,11 +232,31 @@ export default function Events() {
               </Button>
             </Link>
           )}
-          <Button onClick={() => setCreating(true)}>
-            <Plus className="w-4 h-4 mr-2" /> New Event
-          </Button>
+          {hasEventAccess && (
+            <Button onClick={() => setCreating(true)}>
+              <Plus className="w-4 h-4 mr-2" /> New Event
+            </Button>
+          )}
         </div>
       </div>
+
+      {/* Tier gate — shown for Tier 1 / no-plan users */}
+      {subscription !== undefined && !hasEventAccess && (
+        <div className="flex flex-col items-center justify-center py-16 border border-dashed border-amber-500/30 rounded-xl bg-amber-500/5">
+          <div className="w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center mb-4">
+            <Lock className="w-6 h-6 text-amber-400" />
+          </div>
+          <h3 className="text-lg font-semibold text-white mb-1">Event Management requires Tier 2+</h3>
+          <p className="text-sm text-muted-foreground mb-5 text-center max-w-sm">
+            Upgrade to Tier 2 ($99/mo) to create events, sell tickets, and track attendance.
+          </p>
+          <Link href="/billing">
+            <Button className="bg-amber-500 hover:bg-amber-400 text-black font-semibold">
+              Upgrade Now
+            </Button>
+          </Link>
+        </div>
+      )}
 
       {/* Metrics */}
       {m && (
@@ -267,90 +290,94 @@ export default function Events() {
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search events..." className="pl-9 bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
-        </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-40 bg-white/5 border-white/10 text-white">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="bg-[hsl(224,30%,16%)] border-white/10">
-            <SelectItem value="all" className="text-white">All statuses</SelectItem>
-            {Object.entries(STATUS_LABELS).map(([k, v]) => (
-              <SelectItem key={k} value={k} className="text-white">{v}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      {/* Filters + Event List (only for tier2+ users) */}
+      {hasEventAccess && (
+        <>
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search events..." className="pl-9 bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
+            </div>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-40 bg-white/5 border-white/10 text-white">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-[hsl(224,30%,16%)] border-white/10">
+                <SelectItem value="all" className="text-white">All statuses</SelectItem>
+                {Object.entries(STATUS_LABELS).map(([k, v]) => (
+                  <SelectItem key={k} value={k} className="text-white">{v}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-      {/* Event List */}
-      {eventsLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="text-center py-16 border border-dashed border-white/10 rounded-xl">
-          <Calendar className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-          <p className="text-muted-foreground">{search || statusFilter !== "all" ? "No events match your filter" : "No events yet"}</p>
-          {!search && statusFilter === "all" && (
-            <Button size="sm" className="mt-4" onClick={() => setCreating(true)}>
-              <Plus className="w-4 h-4 mr-2" /> Create your first event
-            </Button>
+          {/* Event List */}
+          {eventsLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="text-center py-16 border border-dashed border-white/10 rounded-xl">
+              <Calendar className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-muted-foreground">{search || statusFilter !== "all" ? "No events match your filter" : "No events yet"}</p>
+              {!search && statusFilter === "all" && (
+                <Button size="sm" className="mt-4" onClick={() => setCreating(true)}>
+                  <Plus className="w-4 h-4 mr-2" /> Create your first event
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filtered.map((event: EventItem) => (
+                <Link key={event.id} href={`/dashboard/events/${event.id}`}>
+                  <div className="flex items-center justify-between p-4 border border-white/8 bg-card/50 rounded-xl hover:bg-white/5 hover:border-white/15 cursor-pointer transition-all group">
+                    <div className="flex items-center gap-4 min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <Calendar className="w-5 h-5 text-primary" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-white truncate">{event.name}</p>
+                          {event.isRecurring && <RefreshCw className="w-3 h-3 text-muted-foreground flex-shrink-0" />}
+                        </div>
+                        <div className="flex items-center gap-3 mt-0.5">
+                          {event.startDate && (
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(event.startDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                              {event.startTime && ` at ${event.startTime}`}
+                            </span>
+                          )}
+                          {event.location && (
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <MapPin className="w-3 h-3" /> {event.location}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      {event.isTicketed && (event.totalSold != null && event.totalSold > 0) && (
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground hidden md:flex">
+                          <Ticket className="w-3 h-3" /> {event.totalSold}
+                        </span>
+                      )}
+                      {event.isTicketed && (event.totalRevenue != null && event.totalRevenue > 0) && (
+                        <span className="flex items-center gap-1 text-xs text-emerald-500 hidden md:flex">
+                          <DollarSign className="w-3 h-3" /> {event.totalRevenue.toFixed(0)}
+                        </span>
+                      )}
+                      {event.eventType && <span className="text-xs text-muted-foreground capitalize hidden sm:block">{event.eventType}</span>}
+                      <Badge variant="outline" className={`text-xs ${STATUS_COLORS[event.status] ?? "border-white/20 text-slate-400"}`}>
+                        {STATUS_LABELS[event.status] ?? event.status}
+                      </Badge>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
           )}
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {filtered.map((event: EventItem) => (
-            <Link key={event.id} href={`/dashboard/events/${event.id}`}>
-              <div className="flex items-center justify-between p-4 border border-white/8 bg-card/50 rounded-xl hover:bg-white/5 hover:border-white/15 cursor-pointer transition-all group">
-                <div className="flex items-center gap-4 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-                    <Calendar className="w-5 h-5 text-primary" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium text-white truncate">{event.name}</p>
-                      {event.isRecurring && <RefreshCw className="w-3 h-3 text-muted-foreground flex-shrink-0" />}
-                    </div>
-                    <div className="flex items-center gap-3 mt-0.5">
-                      {event.startDate && (
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(event.startDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                          {event.startTime && ` at ${event.startTime}`}
-                        </span>
-                      )}
-                      {event.location && (
-                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <MapPin className="w-3 h-3" /> {event.location}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 flex-shrink-0">
-                  {event.isTicketed && (event.totalSold != null && event.totalSold > 0) && (
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground hidden md:flex">
-                      <Ticket className="w-3 h-3" /> {event.totalSold}
-                    </span>
-                  )}
-                  {event.isTicketed && (event.totalRevenue != null && event.totalRevenue > 0) && (
-                    <span className="flex items-center gap-1 text-xs text-emerald-500 hidden md:flex">
-                      <DollarSign className="w-3 h-3" /> {event.totalRevenue.toFixed(0)}
-                    </span>
-                  )}
-                  {event.eventType && <span className="text-xs text-muted-foreground capitalize hidden sm:block">{event.eventType}</span>}
-                  <Badge variant="outline" className={`text-xs ${STATUS_COLORS[event.status] ?? "border-white/20 text-slate-400"}`}>
-                    {STATUS_LABELS[event.status] ?? event.status}
-                  </Badge>
-                  <ChevronRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
+        </>
       )}
 
       <CreateEventDialog open={creating} onClose={() => setCreating(false)} />

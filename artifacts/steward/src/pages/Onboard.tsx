@@ -5,10 +5,12 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@workspace/replit-auth-web";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useCreateOrganization,
   useListTiers,
   useCreateCheckoutSession,
+  getGetOrganizationQueryKey,
 } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -66,7 +68,8 @@ const STEP_LABELS = [
 export default function Onboard() {
   const [, setLocation] = useLocation();
   const searchString = useSearch();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const queryClient = useQueryClient();
   const [currentStep, setCurrentStep] = useState<Step>(1);
   const [createdOrgName, setCreatedOrgName] = useState("");
   const [selectedTierId, setSelectedTierId] = useState<string | null>(null);
@@ -95,11 +98,12 @@ export default function Onboard() {
   });
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!authLoading && !isAuthenticated) {
       setLocation("/");
     }
-  }, [isAuthenticated, setLocation]);
+  }, [authLoading, isAuthenticated, setLocation]);
 
+  if (authLoading) return null;
   if (!isAuthenticated) return null;
 
   const handleOrgSubmit = (data: OrgFormData) => {
@@ -107,6 +111,8 @@ export default function Onboard() {
       { data },
       {
         onSuccess: () => {
+          // Invalidate org query so DashboardLayout finds the new org when navigating there
+          void queryClient.invalidateQueries({ queryKey: getGetOrganizationQueryKey() });
           setCreatedOrgName(data.name);
           setCurrentStep(2);
         },

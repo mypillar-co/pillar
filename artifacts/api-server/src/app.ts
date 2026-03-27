@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
@@ -52,7 +52,20 @@ app.post(
   },
 );
 
-app.use(cors({ credentials: true, origin: true }));
+const ALLOWED_ORIGIN_RE = /^https?:\/\/(localhost|\d{1,3}(?:\.\d{1,3}){3})(:\d+)?$|\.replit\.dev$|\.replit\.app$|\.steward\.app$/;
+
+app.use(
+  cors({
+    credentials: true,
+    origin: (origin, cb) => {
+      if (!origin || ALLOWED_ORIGIN_RE.test(origin)) {
+        cb(null, true);
+      } else {
+        cb(new Error("CORS: origin not allowed"));
+      }
+    },
+  }),
+);
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -146,6 +159,15 @@ app.use(async (req, res, next) => {
   }
 
   next();
+});
+
+// Global error handler — must be last middleware (4 args = Express error handler)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+  const status = (err as NodeJS.ErrnoException & { status?: number }).status ?? 500;
+  req.log?.error({ err }, err.message ?? "Internal server error");
+  if (res.headersSent) return;
+  res.status(status).json({ error: err.message ?? "Internal server error" });
 });
 
 export default app;

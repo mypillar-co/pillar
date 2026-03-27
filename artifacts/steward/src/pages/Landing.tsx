@@ -3,7 +3,7 @@ import { motion, type Variants } from "framer-motion";
 import { Link } from "wouter";
 import { CheckCircle2, Bot, Calendar, Globe, Share2 } from "lucide-react";
 import { useAuth, LoginButton } from "@workspace/replit-auth-web";
-import { useListTiers } from "@workspace/api-client-react";
+import { useListTiers, useGetOrganization } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +34,8 @@ const features = [
 export default function Landing() {
   const { isAuthenticated } = useAuth();
   const { data: tiersData, isLoading: isTiersLoading } = useListTiers();
+  const { data: orgData } = useGetOrganization();
+  const hasOrg = isAuthenticated && Boolean(orgData?.organization);
 
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
@@ -80,8 +82,11 @@ export default function Landing() {
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
               {isAuthenticated ? (
-                <Link href="/dashboard" className="inline-flex items-center justify-center whitespace-nowrap rounded-xl text-sm font-semibold h-14 px-10 bg-primary text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary/90 hover:shadow-xl hover:shadow-primary/30 transition-all hover:-translate-y-1">
-                  Go to Dashboard
+                <Link
+                  href={hasOrg ? "/dashboard" : "/onboard"}
+                  className="inline-flex items-center justify-center whitespace-nowrap rounded-xl text-sm font-semibold h-14 px-10 bg-primary text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary/90 hover:shadow-xl hover:shadow-primary/30 transition-all hover:-translate-y-1"
+                >
+                  {hasOrg ? "Go to Dashboard" : "Set Up Your Organization"}
                 </Link>
               ) : (
                 <LoginButton className="inline-flex items-center justify-center whitespace-nowrap rounded-xl text-base font-semibold h-14 px-10 bg-primary text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary/90 hover:shadow-xl hover:shadow-primary/30 transition-all hover:-translate-y-1 cursor-pointer">
@@ -185,9 +190,9 @@ export default function Landing() {
                   </CardContent>
                   <CardFooter>
                     {isAuthenticated ? (
-                      <Link href="/dashboard" className="w-full">
+                      <Link href={hasOrg ? "/billing" : "/onboard"} className="w-full">
                         <Button className="w-full" variant={tier.highlight ? "default" : "outline"}>
-                          Select Plan
+                          {hasOrg ? "Select Plan" : "Get Started"}
                         </Button>
                       </Link>
                     ) : (

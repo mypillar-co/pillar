@@ -70,6 +70,7 @@ function NotificationBell() {
     domain_expiry_warning: "text-amber-400",
     domain_expired: "text-red-400",
     domain_renewed: "text-emerald-400",
+    domain_live: "text-emerald-400",
     domain_renewal_failed: "text-red-400",
     ssl_active: "text-emerald-400",
     ssl_failed: "text-red-400",
