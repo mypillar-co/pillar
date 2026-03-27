@@ -9,7 +9,19 @@ const CONTEXT_TURNS = 10;
 const MAX_CHAT_TOKENS = 700;
 const MAX_GEN_TOKENS = 4000;
 const MAX_SPEC_TOKENS = 1200;
-const MAX_CHANGE_TOKENS = 4000;
+const MAX_CHANGE_TOKENS = 5000;
+
+const LOGO_MAX_BYTES = 500_000; // 500 KB base64 limit
+const ALLOWED_LOGO_MIME = /^data:image\/(png|jpeg|webp|gif);base64,/;
+
+function validateLogoDataUrl(raw: unknown): string | null {
+  if (typeof raw !== "string" || raw.length === 0) return null;
+  if (!ALLOWED_LOGO_MIME.test(raw)) return null; // reject SVG and any non-image MIME
+  if (raw.length > LOGO_MAX_BYTES) return null; // reject oversized payloads
+  const base64Part = raw.split(",")[1] ?? "";
+  if (!/^[A-Za-z0-9+/=]+$/.test(base64Part)) return null; // reject non-base64 content
+  return raw;
+}
 
 const MONTHLY_LIMITS: Record<string, number> = {
   tier1: 30,
@@ -239,12 +251,19 @@ router.post("/generate", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
 
-  const { history = [], orgName, orgType, logoDataUrl } = req.body as {
+  // Enforce monthly AI usage limit (generation is the most expensive call)
+  const usageInfo = await checkAndResetUsage(org as Parameters<typeof checkAndResetUsage>[0], res);
+  if (!usageInfo) return;
+  const { used, limit: monthlyLimit } = usageInfo;
+
+  const { history = [], orgName, orgType, logoDataUrl: rawLogoDataUrl } = req.body as {
     history: { role: string; content: string }[];
     orgName?: string;
     orgType?: string;
-    logoDataUrl?: string;
+    logoDataUrl?: unknown;
   };
+  // Validate logo on server side — reject SVG, non-image data, oversized payloads
+  const logoDataUrl = validateLogoDataUrl(rawLogoDataUrl);
 
   const name = orgName ?? org.name;
   const type = orgType ?? org.type ?? "organization";
@@ -334,8 +353,10 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
     : (s.events.join(", ") || "");
 
   // Step 4: Generate HTML
+  // Logo instruction is only set when the data URL passed server-side validation (allowlist MIME, base64-only chars, size limit)
+  const safeOrgName = (s.orgName || org.name).replace(/["<>]/g, "");
   const logoInstruction = logoDataUrl
-    ? `\nLOGO: The organization has provided a logo. Display it prominently in the navigation bar as an <img> tag with src="${logoDataUrl}" alt="${s.orgName} logo" style="height:48px;width:auto;object-fit:contain;". Also show it in the footer.`
+    ? `\nLOGO: The organization has uploaded a logo image. In the nav bar, replace the text logo with: <img src="${logoDataUrl}" alt="${safeOrgName} logo" style="height:48px;width:auto;object-fit:contain;display:block;"> — keep it left-aligned. Also include a smaller version in the footer.`
     : "";
 
   const genSystemMsg = `You are an expert web developer. Generate a complete, beautiful, self-contained HTML page.
@@ -418,7 +439,11 @@ Generate the complete HTML now. Start directly with <!DOCTYPE html>.`;
 
     await db.update(websiteSpecsTable).set({ siteId: site.id }).where(eq(websiteSpecsTable.orgId, org.id)).catch(() => {});
 
-    res.json({ site: { ...site, proposedHtml: undefined }, orgSlug: slug, spec: extractedSpec });
+    // Count generation against monthly usage (it's the most expensive AI call)
+    await db.update(organizationsTable).set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` }).where(eq(organizationsTable.id, org.id));
+    const newUsed = used + 1;
+
+    res.json({ site: { ...site, proposedHtml: undefined }, orgSlug: slug, spec: extractedSpec, used: newUsed, limit: monthlyLimit, remaining: monthlyLimit - newUsed });
   } catch {
     res.status(500).json({ error: "Site generation failed. Please try again." });
   }
@@ -546,21 +571,29 @@ router.post("/sync-events", async (req: Request, res: Response) => {
     return parts.join(" | ");
   }).join("\n");
 
+  // Fetch website spec for additional context (improves accuracy of updates)
+  const [websiteSpec] = await db.select().from(websiteSpecsTable).where(eq(websiteSpecsTable.orgId, org.id));
+  const specContext = websiteSpec
+    ? `Site: ${websiteSpec.orgName ?? org.name} | Colors: ${websiteSpec.colors ?? "navy and gold"} | Mission: ${websiteSpec.mission ?? ""}`
+    : `Site: ${org.name}`;
+
   try {
     const client = getOpenAIClient();
     const systemMsg = `You are an expert web developer. You will receive an existing HTML website and a list of upcoming events.
-Your task: Update the events section of the HTML to show exactly the provided events. If no events section exists, add one before the contact/footer section.
-Each event should be displayed in a visually appealing card showing: event name, date, time (if available), and location (if available).
-Output ONLY the complete updated HTML. Start with <!DOCTYPE html>. No markdown, no code fences, no explanation.`;
+Your task: Update the events section of the HTML to show exactly the provided events. If no events section exists, add one before the contact or footer section.
+Each event should display: name (bold/prominent), date, time (if available), and location (if available) in a visually appealing card or list-item style that matches the existing site's CSS design language.
+CRITICAL: Output the COMPLETE updated HTML document. Do not truncate or abbreviate any part. Start with <!DOCTYPE html>. No markdown, no code fences, no explanation.`;
 
-    const userMsg = `Here is the current website HTML:
+    const userMsg = `${specContext}
 
-${existing.generatedHtml.substring(0, 6000)}
+Here is the current website HTML:
+
+${existing.generatedHtml}
 
 Please update the events section to show these upcoming events:
 ${eventsText}
 
-Return the complete updated HTML.`;
+Return the complete updated HTML document.`;
 
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",

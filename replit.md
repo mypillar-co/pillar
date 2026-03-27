@@ -178,6 +178,37 @@ pnpm --filter @workspace/scripts run seed-products  # Seed Stripe products
 - All HTML generation calls in `sites.ts` and `scheduler.ts` use `"gpt-4o-mini"`
 - Site builder chat uses `max_completion_tokens` (reasoning model param); HTML gen uses `max_tokens` (standard model param)
 
+## Site Builder — Key Behaviors & API
+
+### Site Generation (`POST /api/sites/generate`)
+- **Usage enforced**: calls `checkAndResetUsage` and increments `aiMessagesUsed` on success (like all other AI endpoints)
+- **Events from DB**: fetches org's upcoming events (by `startDate >= today`) and injects them into the generation prompt — site always reflects real DB events
+- **Logo upload**: client converts image to base64 with FileReader; sent as `logoDataUrl` in JSON body
+- **Logo server validation** (`validateLogoDataUrl`): allowlist MIME (`image/png|jpeg|webp|gif`), rejects SVG, max 500KB, base64-only character check
+- **Logo in HTML**: AI embeds it as `<img src="data:image/...">` in the nav bar and footer — zero external storage needed
+- Response includes: `{ site, orgSlug, spec, used, limit, remaining }`
+
+### Sync Events (`POST /api/sites/sync-events`)
+- Requires Tier 1+ (`TIERS_ALLOWING_CHANGES`) and an existing generated site
+- Fetches all org events (prefers future events, falls back to all), formats them with date/time/location
+- Also fetches `websiteSpecsTable` for better context (org name, colors, mission)
+- Sends **full site HTML** (no truncation) to AI — model context window handles it (128K tokens)
+- AI returns complete updated HTML with events section updated/added
+- Stored as `proposedHtml` — user reviews in preview and clicks "Apply Change" to publish
+- Success response: `{ proposalReady: true, eventCount: N, used, limit, remaining }`
+
+### Proposal Flow
+1. Sync events (or change request) → writes `proposedHtml` to DB
+2. Frontend fetches `/api/sites/my/proposal-preview` → gets `{ proposedHtml }`
+3. Loads into iframe, shows amber "Previewing proposed change" bar
+4. User clicks "Apply Change" → `POST /api/sites/change-request/apply` → `proposedHtml` copied to `generatedHtml`, cleared
+
+### Logo Upload UX (SiteBuilder.tsx)
+- ImagePlus button appears in chat input once interview starts (not before)
+- File picker accepts `image/*`, max 2MB client-side check
+- Logo preview strip shows thumbnail above chat input with × to remove
+- `logoDataUrl` passed to `/generate`; cleared after generation
+
 ## Project Tasks (Completed)
 1. ✅ Task #1 — Platform Foundation (auth, billing, organizations, DB, Stripe, frontend shell)
 2. ✅ Task #2 — AI Site Builder + Event Dashboard (events, vendors, sponsors, contacts, payments, AI chat, sidebar layout)
@@ -186,6 +217,7 @@ pnpm --filter @workspace/scripts run seed-products  # Seed Stripe products
 5. ✅ Task #5 — Custom Domain Purchasing & Hosting (Porkbun registration, BYOD/external, DNS/SSL checks, auto-renewal)
 6. ✅ Platform Audit — Security hardening, auth loading race condition fix, tier gate UX improvement
 7. ✅ AI Fix — Site builder HTML generation switched from gpt-5-mini to gpt-4o-mini (reasoning model was consuming all tokens internally)
+8. ✅ Site Builder v2 — Events from DB in generation, Sync Events button, logo upload; security hardening + usage enforcement
 
 ## Domain System (Task #5)
 - `GET /api/domains` — list org's domains + subdomain + cnameTarget

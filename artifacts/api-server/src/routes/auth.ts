@@ -83,11 +83,19 @@ async function upsertUser(claims: Record<string, unknown>) {
 }
 
 router.get("/auth/user", (req: Request, res: Response) => {
-  res.json(
-    GetCurrentAuthUserResponse.parse({
-      user: req.isAuthenticated() ? req.user : null,
-    }),
-  );
+  let user: unknown = null;
+  if (req.isAuthenticated() && req.user) {
+    const u = req.user as Record<string, unknown>;
+    // Normalize: ensure all nullable fields are null (not undefined) for schema compatibility
+    user = {
+      id: u.id,
+      email: u.email ?? null,
+      firstName: u.firstName ?? null,
+      lastName: u.lastName ?? null,
+      profileImageUrl: u.profileImageUrl ?? null,
+    };
+  }
+  res.json(GetCurrentAuthUserResponse.parse({ user }));
 });
 
 router.get("/login", async (req: Request, res: Response) => {

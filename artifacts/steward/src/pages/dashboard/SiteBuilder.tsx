@@ -182,12 +182,24 @@ export default function SiteBuilder() {
     setSyncMessage(null);
     try {
       const res = await fetch("/api/sites/sync-events", { method: "POST", credentials: "include" });
-      const data = await res.json() as { proposalReady?: boolean; eventCount?: number; error?: string };
-      if (!res.ok || data.error) {
-        setSyncMessage(data.error ?? "Failed to sync events.");
+      const data = await res.json() as { proposalReady?: boolean; eventCount?: number; used?: number; limit?: number; remaining?: number; error?: string };
+
+      if (res.status === 429) {
+        setUsage(prev => prev ? { ...prev, used: data.used ?? prev.used, remaining: 0 } : null);
+        setSyncMessage("Monthly AI limit reached. Upgrade your plan to sync events.");
         return;
       }
-      // Fetch proposed HTML so the preview updates
+      if (!res.ok || data.error) {
+        setSyncMessage(data.error ?? "Failed to sync events. Please try again.");
+        return;
+      }
+
+      // Update usage counters from response
+      if (data.used !== undefined) {
+        setUsage(prev => prev ? { ...prev, used: data.used!, limit: data.limit ?? prev.limit, remaining: data.remaining ?? 0 } : null);
+      }
+
+      // Fetch proposed HTML and load into preview
       const proposeRes = await fetch("/api/sites/my/proposal-preview", { credentials: "include" });
       if (proposeRes.ok) {
         const proposeData = await proposeRes.json() as { proposedHtml?: string };
@@ -196,8 +208,10 @@ export default function SiteBuilder() {
           loadHtmlIntoIframe(proposeData.proposedHtml);
         }
       }
+
       setActiveTab("preview");
-      setSyncMessage(`${data.eventCount} event${(data.eventCount ?? 0) !== 1 ? "s" : ""} synced to your site. Review the preview below, then confirm to publish.`);
+      const count = data.eventCount ?? 0;
+      setSyncMessage(`${count} event${count !== 1 ? "s" : ""} synced — review the preview, then click "Apply Change" to publish.`);
     } catch {
       setSyncMessage("Connection error. Please try again.");
     } finally {
@@ -272,10 +286,22 @@ export default function SiteBuilder() {
         credentials: "include",
         body: JSON.stringify({ history, orgName: org?.name, orgType: org?.type, logoDataUrl: logoDataUrl ?? undefined }),
       });
+
+      if (res.status === 429) {
+        const data = await res.json() as { used?: number; limit?: number };
+        setUsage(prev => prev ? { ...prev, used: data.used ?? prev.used, remaining: 0 } : null);
+        setMode("interview");
+        alert("You've reached your monthly AI limit. Upgrade your plan to generate more sites.");
+        return;
+      }
+
       if (!res.ok) throw new Error("Generation failed");
-      const data = await res.json() as { site: Site; orgSlug: string };
+      const data = await res.json() as { site: Site; orgSlug: string; used?: number; limit?: number; remaining?: number };
       setSite(data.site);
       setOrgSlug(data.orgSlug);
+      if (data.used !== undefined) {
+        setUsage(prev => prev ? { ...prev, used: data.used!, limit: data.limit ?? prev.limit, remaining: data.remaining ?? 0 } : null);
+      }
       setMode("preview");
       setActiveTab("preview");
     } catch {
