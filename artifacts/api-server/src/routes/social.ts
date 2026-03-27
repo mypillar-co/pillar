@@ -11,7 +11,14 @@ import OpenAI from "openai";
 
 const router = Router();
 
-const oauthStateStore = new Map<string, { orgId: string; platform: string; returnTo?: string; expiresAt: number }>();
+interface OAuthState {
+  orgId: string;
+  platform: string;
+  codeVerifier?: string;
+  expiresAt: number;
+}
+
+const oauthStateStore = new Map<string, OAuthState>();
 
 function cleanOAuthState() {
   const now = Date.now();
@@ -83,15 +90,18 @@ router.get("/oauth/:platform/start", async (req, res) => {
     if (!appId) {
       res.status(400).json({
         error: "Facebook OAuth not configured",
-        message: "Set FACEBOOK_APP_ID and FACEBOOK_APP_SECRET environment variables to enable OAuth. Alternatively, use the manual token connection.",
+        message: "Set FACEBOOK_APP_ID and FACEBOOK_APP_SECRET to enable one-click OAuth. For now, use the manual token option below.",
         manualConnect: true,
       });
       return;
     }
     const state = randomBytes(16).toString("hex");
     oauthStateStore.set(state, { orgId: org.id, platform, expiresAt: Date.now() + 10 * 60 * 1000 });
-    const scope = "pages_manage_posts,pages_read_engagement";
-    const redirectUri = encodeURIComponent(`${process.env.BASE_URL ?? ""}/api/social/oauth/facebook/callback`);
+    // Request scopes for both Facebook page posting and Instagram Business
+    const scope = platform === "instagram"
+      ? "pages_show_list,pages_read_engagement,instagram_basic,instagram_content_publish,instagram_manage_insights"
+      : "pages_show_list,pages_manage_posts,pages_read_engagement";
+    const redirectUri = encodeURIComponent(`${process.env.BASE_URL ?? ""}/api/social/oauth/${platform}/callback`);
     const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirectUri}&scope=${scope}&state=${state}`;
     res.json({ authUrl });
     return;
@@ -102,22 +112,49 @@ router.get("/oauth/:platform/start", async (req, res) => {
     if (!clientId) {
       res.status(400).json({
         error: "Twitter OAuth not configured",
-        message: "Set TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET environment variables to enable OAuth. Alternatively, use the manual token connection.",
+        message: "Set TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET to enable one-click OAuth. For now, use the manual token option below.",
         manualConnect: true,
       });
       return;
     }
     const state = randomBytes(16).toString("hex");
+    // Generate PKCE code verifier and store it server-side with the state
     const codeVerifier = randomBytes(32).toString("base64url");
-    oauthStateStore.set(state, { orgId: org.id, platform, expiresAt: Date.now() + 10 * 60 * 1000 });
+    oauthStateStore.set(state, { orgId: org.id, platform, codeVerifier, expiresAt: Date.now() + 10 * 60 * 1000 });
     const redirectUri = encodeURIComponent(`${process.env.BASE_URL ?? ""}/api/social/oauth/twitter/callback`);
-    const authUrl = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&scope=tweet.write+tweet.read+users.read&state=${state}&code_challenge=${codeVerifier}&code_challenge_method=plain`;
-    res.json({ authUrl, codeVerifier });
+    // Use plain code_challenge (verifier = challenge for plain method)
+    const authUrl = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&scope=tweet.write%20tweet.read%20users.read&state=${state}&code_challenge=${codeVerifier}&code_challenge_method=plain`;
+    res.json({ authUrl });
     return;
   }
 
   res.status(400).json({ error: `Unsupported platform: ${platform}` });
 });
+
+async function upsertSocialAccount(orgId: string, platform: string, accountName: string, encryptedToken: string, accountId: string | null, encryptedRefresh?: string | null): Promise<void> {
+  const existing = await db.select({ id: socialAccountsTable.id }).from(socialAccountsTable)
+    .where(and(eq(socialAccountsTable.orgId, orgId), eq(socialAccountsTable.platform, platform)));
+
+  if (existing.length > 0) {
+    await db.update(socialAccountsTable).set({
+      accountName,
+      accessToken: encryptedToken,
+      refreshToken: encryptedRefresh ?? null,
+      accountId,
+      isConnected: true,
+      updatedAt: new Date(),
+    }).where(eq(socialAccountsTable.id, existing[0].id));
+  } else {
+    await db.insert(socialAccountsTable).values({
+      orgId,
+      platform,
+      accountName,
+      accessToken: encryptedToken,
+      refreshToken: encryptedRefresh ?? null,
+      accountId,
+    });
+  }
+}
 
 router.get("/oauth/facebook/callback", async (req, res) => {
   const { code, state, error: oauthError } = req.query as { code?: string; state?: string; error?: string };
@@ -126,7 +163,6 @@ router.get("/oauth/facebook/callback", async (req, res) => {
     res.redirect(`/dashboard/social?error=${encodeURIComponent("Facebook OAuth denied")}`);
     return;
   }
-
   if (!code || !state) {
     res.redirect("/dashboard/social?error=Invalid+OAuth+callback");
     return;
@@ -156,40 +192,123 @@ router.get("/oauth/facebook/callback", async (req, res) => {
       throw new Error(tokenData.error?.message ?? "No access token received");
     }
 
+    // Exchange for long-lived user token
     const longLivedUrl = `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${tokenData.access_token}`;
     const llResp = await fetch(longLivedUrl);
     const llData = await llResp.json() as { access_token?: string };
-    const finalToken = llData.access_token ?? tokenData.access_token;
+    const userToken = llData.access_token ?? tokenData.access_token;
 
-    const meResp = await fetch(`https://graph.facebook.com/v19.0/me?fields=id,name&access_token=${finalToken}`);
-    const meData = await meResp.json() as { id?: string; name?: string };
+    // Fetch the user's managed Pages to get page-level access tokens
+    const pagesResp = await fetch(`https://graph.facebook.com/v19.0/me/accounts?access_token=${userToken}`);
+    const pagesData = await pagesResp.json() as { data?: Array<{ id: string; name: string; access_token: string }> };
 
-    const encryptedToken = encryptToken(finalToken);
-    const existingAccounts = await db.select({ id: socialAccountsTable.id }).from(socialAccountsTable)
-      .where(and(eq(socialAccountsTable.orgId, stored.orgId), eq(socialAccountsTable.platform, stored.platform)));
-
-    if (existingAccounts.length > 0) {
-      await db.update(socialAccountsTable).set({
-        accountName: meData.name ?? "Facebook Page",
-        accessToken: encryptedToken,
-        accountId: meData.id ?? null,
-        isConnected: true,
-        updatedAt: new Date(),
-      }).where(eq(socialAccountsTable.id, existingAccounts[0].id));
+    const pages = pagesData.data ?? [];
+    if (pages.length === 0) {
+      // No managed pages — store user token with user ID as fallback
+      const meResp = await fetch(`https://graph.facebook.com/v19.0/me?fields=id,name&access_token=${userToken}`);
+      const meData = await meResp.json() as { id?: string; name?: string };
+      await upsertSocialAccount(stored.orgId, "facebook", meData.name ?? "Facebook Profile", encryptToken(userToken), meData.id ?? null);
     } else {
-      await db.insert(socialAccountsTable).values({
-        orgId: stored.orgId,
-        platform: stored.platform,
-        accountName: meData.name ?? "Facebook Page",
-        accessToken: encryptedToken,
-        accountId: meData.id ?? null,
-      });
+      // Store the first page's page-level access token (never expires with long-lived user token)
+      const page = pages[0];
+      await upsertSocialAccount(stored.orgId, "facebook", page.name, encryptToken(page.access_token), page.id);
     }
 
     res.redirect("/dashboard/social?success=Facebook+account+connected");
   } catch (err) {
     logger.error({ err }, "Facebook OAuth callback failed");
     res.redirect(`/dashboard/social?error=${encodeURIComponent("Failed to connect Facebook account")}`);
+  }
+});
+
+router.get("/oauth/instagram/callback", async (req, res) => {
+  const { code, state, error: oauthError } = req.query as { code?: string; state?: string; error?: string };
+
+  if (oauthError) {
+    res.redirect(`/dashboard/social?error=${encodeURIComponent("Instagram OAuth denied")}`);
+    return;
+  }
+  if (!code || !state) {
+    res.redirect("/dashboard/social?error=Invalid+OAuth+callback");
+    return;
+  }
+
+  const stored = oauthStateStore.get(state);
+  if (!stored || stored.expiresAt < Date.now()) {
+    res.redirect("/dashboard/social?error=OAuth+state+expired");
+    return;
+  }
+  oauthStateStore.delete(state);
+
+  const appId = process.env.FACEBOOK_APP_ID;
+  const appSecret = process.env.FACEBOOK_APP_SECRET;
+  if (!appId || !appSecret) {
+    res.redirect("/dashboard/social?error=Instagram+OAuth+not+configured");
+    return;
+  }
+
+  try {
+    const redirectUri = encodeURIComponent(`${process.env.BASE_URL ?? ""}/api/social/oauth/instagram/callback`);
+    const tokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${appId}&redirect_uri=${redirectUri}&client_secret=${appSecret}&code=${code}`;
+    const tokenResp = await fetch(tokenUrl);
+    const tokenData = await tokenResp.json() as { access_token?: string; error?: { message?: string } };
+
+    if (!tokenData.access_token) {
+      throw new Error(tokenData.error?.message ?? "No access token received");
+    }
+
+    // Exchange for long-lived user token
+    const llResp = await fetch(`https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${tokenData.access_token}`);
+    const llData = await llResp.json() as { access_token?: string };
+    const userToken = llData.access_token ?? tokenData.access_token;
+
+    // Get all managed pages
+    const pagesResp = await fetch(`https://graph.facebook.com/v19.0/me/accounts?access_token=${userToken}`);
+    const pagesData = await pagesResp.json() as { data?: Array<{ id: string; name: string; access_token: string }> };
+
+    const pages = pagesData.data ?? [];
+    if (pages.length === 0) {
+      throw new Error("No Facebook Pages found. An Instagram Business account must be linked to a Facebook Page.");
+    }
+
+    // Find the first page with a connected Instagram Business account
+    let igAccountId: string | null = null;
+    let igAccountName = "Instagram Business Account";
+    let pageToken = userToken;
+
+    for (const page of pages) {
+      const igResp = await fetch(
+        `https://graph.facebook.com/v19.0/${page.id}?fields=instagram_business_account,name&access_token=${page.access_token}`
+      );
+      const igData = await igResp.json() as {
+        instagram_business_account?: { id: string };
+        name?: string;
+      };
+
+      if (igData.instagram_business_account?.id) {
+        igAccountId = igData.instagram_business_account.id;
+        pageToken = page.access_token;
+        // Fetch the IG account's username for display
+        const igUserResp = await fetch(
+          `https://graph.facebook.com/v19.0/${igAccountId}?fields=username&access_token=${page.access_token}`
+        );
+        const igUserData = await igUserResp.json() as { username?: string };
+        igAccountName = igUserData.username ? `@${igUserData.username}` : page.name;
+        break;
+      }
+    }
+
+    if (!igAccountId) {
+      throw new Error("No Instagram Business account linked to your Facebook Pages. Please link one in Facebook Business Manager.");
+    }
+
+    await upsertSocialAccount(stored.orgId, "instagram", igAccountName, encryptToken(pageToken), igAccountId);
+
+    res.redirect("/dashboard/social?success=Instagram+account+connected");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to connect Instagram account";
+    logger.error({ err }, "Instagram OAuth callback failed");
+    res.redirect(`/dashboard/social?error=${encodeURIComponent(msg)}`);
   }
 });
 
@@ -204,6 +323,12 @@ router.get("/oauth/twitter/callback", async (req, res) => {
   const stored = oauthStateStore.get(state);
   if (!stored || stored.expiresAt < Date.now()) {
     res.redirect("/dashboard/social?error=OAuth+state+expired");
+    return;
+  }
+  // Retrieve the PKCE verifier stored during /start
+  const codeVerifier = stored.codeVerifier;
+  if (!codeVerifier) {
+    res.redirect("/dashboard/social?error=OAuth+PKCE+state+missing");
     return;
   }
   oauthStateStore.delete(state);
@@ -223,7 +348,12 @@ router.get("/oauth/twitter/callback", async (req, res) => {
         "Content-Type": "application/x-www-form-urlencoded",
         Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
       },
-      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: redirectUri, code_verifier: "" }).toString(),
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: redirectUri,
+        code_verifier: codeVerifier,
+      }).toString(),
     });
     const tokenData = await tokenResp.json() as { access_token?: string; refresh_token?: string; error?: string };
 
@@ -238,29 +368,7 @@ router.get("/oauth/twitter/callback", async (req, res) => {
 
     const encryptedToken = encryptToken(tokenData.access_token);
     const encryptedRefresh = tokenData.refresh_token ? encryptToken(tokenData.refresh_token) : null;
-
-    const existingAccounts = await db.select({ id: socialAccountsTable.id }).from(socialAccountsTable)
-      .where(and(eq(socialAccountsTable.orgId, stored.orgId), eq(socialAccountsTable.platform, "twitter")));
-
-    if (existingAccounts.length > 0) {
-      await db.update(socialAccountsTable).set({
-        accountName: userData.data?.name ?? "X Account",
-        accessToken: encryptedToken,
-        refreshToken: encryptedRefresh,
-        accountId: userData.data?.id ?? null,
-        isConnected: true,
-        updatedAt: new Date(),
-      }).where(eq(socialAccountsTable.id, existingAccounts[0].id));
-    } else {
-      await db.insert(socialAccountsTable).values({
-        orgId: stored.orgId,
-        platform: "twitter",
-        accountName: userData.data?.name ?? "X Account",
-        accessToken: encryptedToken,
-        refreshToken: encryptedRefresh,
-        accountId: userData.data?.id ?? null,
-      });
-    }
+    await upsertSocialAccount(stored.orgId, "twitter", userData.data?.name ?? "X Account", encryptedToken, userData.data?.id ?? null, encryptedRefresh);
 
     res.redirect("/dashboard/social?success=X+account+connected");
   } catch (err) {

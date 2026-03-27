@@ -281,6 +281,10 @@ export const api = {
     create: (data: Partial<ContactItem>) => req<ContactItem>("/api/contacts", { method: "POST", body: JSON.stringify(data) }),
   },
   social: {
+    oauth: {
+      start: (platform: string) =>
+        req<{ authUrl?: string; manualConnect?: boolean; message?: string }>(`/api/social/oauth/${platform}/start`),
+    },
     accounts: {
       list: () => req<SocialAccount[]>("/api/social/accounts"),
       connect: (data: { platform: string; accountName: string; accessToken: string; accountId?: string }) =>

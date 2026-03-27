@@ -6,18 +6,15 @@ const KEY_LENGTH = 32;
 function getEncryptionKey(): Buffer {
   const secret = process.env.SOCIAL_TOKEN_ENCRYPTION_KEY;
   if (!secret) {
-    throw new Error("SOCIAL_TOKEN_ENCRYPTION_KEY env var not set");
+    throw new Error(
+      "SOCIAL_TOKEN_ENCRYPTION_KEY is not set. This environment variable is required to store social media access tokens securely. Please set it as a secret."
+    );
   }
   return scryptSync(secret, "steward-social-salt", KEY_LENGTH);
 }
 
 export function encryptToken(plaintext: string): string {
-  let key: Buffer;
-  try {
-    key = getEncryptionKey();
-  } catch {
-    return `plain:${plaintext}`;
-  }
+  const key = getEncryptionKey();
   const iv = randomBytes(16);
   const cipher = createCipheriv(ALGORITHM, key, iv);
   const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
@@ -26,15 +23,7 @@ export function encryptToken(plaintext: string): string {
 }
 
 export function decryptToken(ciphertext: string): string {
-  if (ciphertext.startsWith("plain:")) {
-    return ciphertext.slice(6);
-  }
-  let key: Buffer;
-  try {
-    key = getEncryptionKey();
-  } catch {
-    return ciphertext;
-  }
+  const key = getEncryptionKey();
   const data = Buffer.from(ciphertext, "base64");
   const iv = data.subarray(0, 16);
   const authTag = data.subarray(16, 32);

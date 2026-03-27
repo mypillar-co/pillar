@@ -18,6 +18,8 @@ tags:
     description: Subscription and billing operations
   - name: events
     description: Event management (Tier 2+). Includes ticket types, sales, approvals, communications, and recurring templates.
+  - name: social
+    description: Social media automation (Tier 1a+). Accounts, posts, automation rules, content strategy, and OAuth flows.
 paths:
   /healthz:
     get:
@@ -775,6 +777,273 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/EventCommunication"
+
+  # ─── Social Media ────────────────────────────────────────────────
+  /social/oauth/{platform}/start:
+    get:
+      operationId: startSocialOAuth
+      tags: [social]
+      summary: Initiate OAuth flow for a social platform
+      description: Returns an authUrl to redirect the user to, or manualConnect:true if OAuth is not configured.
+      parameters:
+        - in: path
+          name: platform
+          required: true
+          schema:
+            type: string
+            enum: [facebook, instagram, twitter]
+      responses:
+        "200":
+          description: OAuth start result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthStartResult"
+
+  /social/accounts:
+    get:
+      operationId: listSocialAccounts
+      tags: [social]
+      summary: List connected social accounts
+      responses:
+        "200":
+          description: List of social accounts (tokens excluded)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SocialAccount"
+    post:
+      operationId: connectSocialAccount
+      tags: [social]
+      summary: Manually connect a social account using a token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConnectSocialAccountRequest"
+      responses:
+        "201":
+          description: Account connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SocialAccount"
+
+  /social/accounts/{id}:
+    delete:
+      operationId: disconnectSocialAccount
+      tags: [social]
+      summary: Disconnect (delete) a social account
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Disconnected
+
+  /social/posts:
+    get:
+      operationId: listSocialPosts
+      tags: [social]
+      summary: List social posts
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [draft, scheduled, published, failed, cancelled]
+      responses:
+        "200":
+          description: Posts list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SocialPost"
+    post:
+      operationId: createSocialPost
+      tags: [social]
+      summary: Create a social post (draft or scheduled)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSocialPostRequest"
+      responses:
+        "201":
+          description: Post created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SocialPost"
+
+  /social/posts/generate:
+    post:
+      operationId: generateSocialPostContent
+      tags: [social]
+      summary: AI-generate post content for a platform
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateSocialPostRequest"
+      responses:
+        "200":
+          description: Generated content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedPostContent"
+
+  /social/posts/{id}:
+    put:
+      operationId: updateSocialPost
+      tags: [social]
+      summary: Edit an unpublished post
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSocialPostRequest"
+      responses:
+        "200":
+          description: Updated post
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SocialPost"
+    delete:
+      operationId: deleteSocialPost
+      tags: [social]
+      summary: Delete or cancel a post
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted or cancelled
+
+  /social/rules:
+    get:
+      operationId: listAutomationRules
+      tags: [social]
+      summary: List automation rules
+      responses:
+        "200":
+          description: Rules list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AutomationRule"
+    post:
+      operationId: createAutomationRule
+      tags: [social]
+      summary: Create an automation rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAutomationRuleRequest"
+      responses:
+        "201":
+          description: Rule created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationRule"
+
+  /social/rules/{id}:
+    put:
+      operationId: updateAutomationRule
+      tags: [social]
+      summary: Update an automation rule
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAutomationRuleRequest"
+      responses:
+        "200":
+          description: Updated rule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationRule"
+    delete:
+      operationId: deleteAutomationRule
+      tags: [social]
+      summary: Delete an automation rule
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /social/strategy:
+    get:
+      operationId: getContentStrategy
+      tags: [social]
+      summary: Get Tier 3 content strategy (null if not set)
+      responses:
+        "200":
+          description: Content strategy or null
+          content:
+            application/json:
+              schema:
+                nullable: true
+                allOf:
+                  - $ref: "#/components/schemas/ContentStrategy"
+    put:
+      operationId: updateContentStrategy
+      tags: [social]
+      summary: Update Tier 3 content strategy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateContentStrategyRequest"
+      responses:
+        "200":
+          description: Updated strategy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentStrategy"
+
 components:
   parameters:
     AuthorizationSessionHeader:
@@ -1314,3 +1583,298 @@ components:
         comments:
           type: string
           description: Optional reviewer comment on the approval or rejection decision
+
+    # ─── Social Media Schemas ─────────────────────────────────────
+    OAuthStartResult:
+      type: object
+      properties:
+        authUrl:
+          type: string
+          description: URL to redirect the user to for OAuth authorization
+        manualConnect:
+          type: boolean
+          description: True when OAuth is not configured — show manual token form
+        message:
+          type: string
+          description: Human-readable explanation when manualConnect is true
+
+    SocialAccount:
+      type: object
+      required: [id, orgId, platform, accountName, isConnected, createdAt]
+      properties:
+        id:
+          type: string
+        orgId:
+          type: string
+        platform:
+          type: string
+          enum: [facebook, instagram, twitter]
+        accountName:
+          type: string
+        accountId:
+          type: string
+          nullable: true
+        isConnected:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ConnectSocialAccountRequest:
+      type: object
+      required: [platform, accountName, accessToken]
+      properties:
+        platform:
+          type: string
+          enum: [facebook, instagram, twitter]
+        accountName:
+          type: string
+        accessToken:
+          type: string
+        accountId:
+          type: string
+
+    SocialPost:
+      type: object
+      required: [id, orgId, platforms, content, status, createdAt]
+      properties:
+        id:
+          type: string
+        orgId:
+          type: string
+        platforms:
+          type: array
+          items:
+            type: string
+        content:
+          type: string
+        mediaUrl:
+          type: string
+          nullable: true
+        scheduledAt:
+          type: string
+          format: date-time
+          nullable: true
+        publishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          type: string
+          enum: [draft, scheduled, published, failed, cancelled]
+        errorMessage:
+          type: string
+          nullable: true
+        retryCount:
+          type: integer
+          default: 0
+        automationRuleId:
+          type: string
+          nullable: true
+        externalPostIds:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateSocialPostRequest:
+      type: object
+      required: [platforms, content]
+      properties:
+        platforms:
+          type: array
+          items:
+            type: string
+        content:
+          type: string
+        mediaUrl:
+          type: string
+        scheduledAt:
+          type: string
+          format: date-time
+
+    UpdateSocialPostRequest:
+      type: object
+      properties:
+        content:
+          type: string
+        platforms:
+          type: array
+          items:
+            type: string
+        scheduledAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [draft, scheduled, cancelled]
+
+    GenerateSocialPostRequest:
+      type: object
+      required: [platform]
+      properties:
+        platform:
+          type: string
+          enum: [facebook, instagram, twitter]
+        topic:
+          type: string
+        eventId:
+          type: string
+        tone:
+          type: string
+
+    GeneratedPostContent:
+      type: object
+      required: [content, platform]
+      properties:
+        content:
+          type: string
+        platform:
+          type: string
+
+    AutomationRule:
+      type: object
+      required: [id, orgId, name, platforms, frequency, isActive, createdAt]
+      properties:
+        id:
+          type: string
+        orgId:
+          type: string
+        name:
+          type: string
+        platforms:
+          type: array
+          items:
+            type: string
+        frequency:
+          type: string
+          enum: [daily, weekly, monthly]
+        dayOfWeek:
+          type: string
+          nullable: true
+        timeOfDay:
+          type: string
+        contentType:
+          type: string
+        customPrompt:
+          type: string
+          nullable: true
+        isActive:
+          type: boolean
+        nextRunAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastRunAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateAutomationRuleRequest:
+      type: object
+      required: [name, platforms, frequency]
+      properties:
+        name:
+          type: string
+        platforms:
+          type: array
+          items:
+            type: string
+        frequency:
+          type: string
+          enum: [daily, weekly, monthly]
+        dayOfWeek:
+          type: string
+        timeOfDay:
+          type: string
+        contentType:
+          type: string
+        customPrompt:
+          type: string
+
+    UpdateAutomationRuleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        platforms:
+          type: array
+          items:
+            type: string
+        frequency:
+          type: string
+        dayOfWeek:
+          type: string
+        timeOfDay:
+          type: string
+        contentType:
+          type: string
+        customPrompt:
+          type: string
+        isActive:
+          type: boolean
+
+    ContentStrategy:
+      type: object
+      required: [id, orgId, createdAt]
+      properties:
+        id:
+          type: string
+        orgId:
+          type: string
+        tone:
+          type: string
+          nullable: true
+        postingFrequency:
+          type: string
+          nullable: true
+        topics:
+          type: array
+          items:
+            type: string
+          nullable: true
+        platforms:
+          type: array
+          items:
+            type: string
+          nullable: true
+        isAutonomous:
+          type: boolean
+          default: false
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UpdateContentStrategyRequest:
+      type: object
+      properties:
+        tone:
+          type: string
+        postingFrequency:
+          type: string
+        topics:
+          type: array
+          items:
+            type: string
+        platforms:
+          type: array
+          items:
+            type: string
+        isAutonomous:
+          type: boolean

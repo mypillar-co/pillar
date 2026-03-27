@@ -49,21 +49,43 @@ const STATUS_META: Record<string, { label: string; color: string; icon: React.El
 };
 
 function ConnectAccountDialog({ open, onClose, onConnected }: { open: boolean; onClose: () => void; onConnected: () => void }) {
-  const [platform, setPlatform] = useState("facebook");
+  const [manualPlatform, setManualPlatform] = useState("facebook");
+  const [showManual, setShowManual] = useState<string | null>(null);
   const [accountName, setAccountName] = useState("");
   const [accessToken, setAccessToken] = useState("");
   const [accountId, setAccountId] = useState("");
   const [loading, setLoading] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState<string | null>(null);
 
-  const handleConnect = async () => {
+  const handleOAuthConnect = async (platform: string) => {
+    setOauthLoading(platform);
+    try {
+      const result = await api.social.oauth.start(platform);
+      if (result.authUrl) {
+        window.location.href = result.authUrl;
+      } else if (result.manualConnect) {
+        setShowManual(platform);
+        setManualPlatform(platform);
+        toast.info(result.message ?? "OAuth not configured — please use manual token connection below.");
+      }
+    } catch {
+      toast.error("Failed to start OAuth. Try connecting manually.");
+      setShowManual(platform);
+      setManualPlatform(platform);
+    } finally {
+      setOauthLoading(null);
+    }
+  };
+
+  const handleManualConnect = async () => {
     if (!accountName || !accessToken) { toast.error("Account name and access token are required"); return; }
     setLoading(true);
     try {
-      await api.social.accounts.connect({ platform, accountName, accessToken, accountId: accountId || undefined });
-      toast.success(`${PLATFORM_META[platform]?.label ?? platform} account connected`);
+      await api.social.accounts.connect({ platform: manualPlatform, accountName, accessToken, accountId: accountId || undefined });
+      toast.success(`${PLATFORM_META[manualPlatform]?.label ?? manualPlatform} account connected`);
       onConnected();
       onClose();
-      setAccountName(""); setAccessToken(""); setAccountId("");
+      setAccountName(""); setAccessToken(""); setAccountId(""); setShowManual(null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to connect account");
     } finally {
@@ -71,88 +93,102 @@ function ConnectAccountDialog({ open, onClose, onConnected }: { open: boolean; o
     }
   };
 
-  const instructions: Record<string, string> = {
-    facebook: "Get a Page Access Token from Meta Business Suite (Settings → Integrations → API). Make sure the token has pages_manage_posts permission.",
-    instagram: "Get an Instagram Business Account access token from Meta Business Suite. You also need the Instagram Business Account ID (found in Instagram Settings).",
-    twitter: "Get a Bearer Token from the Twitter Developer Portal (Projects & Apps → Your App → Keys and Tokens). The app needs Read and Write permissions.",
+  const manualInstructions: Record<string, string> = {
+    facebook: "Get a Page Access Token from Meta Business Suite → Settings → Integrations → API. The token needs pages_manage_posts permission.",
+    instagram: "Get a Page Access Token that has access to your Instagram Business account from Meta Business Suite. Also enter your Instagram Business Account ID from Instagram → Settings → About.",
+    twitter: "Get an OAuth 2.0 Bearer Token from the Twitter/X Developer Portal under Keys and Tokens. The app needs Read and Write permissions.",
   };
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) { setShowManual(null); setAccountName(""); setAccessToken(""); setAccountId(""); } onClose(); }}>
       <DialogContent className="bg-card border-white/10 text-white max-w-md">
         <DialogHeader>
           <DialogTitle>Connect Social Account</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
-          <div>
-            <Label className="text-slate-300 text-sm mb-1.5 block">Platform</Label>
-            <Select value={platform} onValueChange={setPlatform}>
-              <SelectTrigger className="bg-white/5 border-white/10 text-white">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="bg-card border-white/10">
-                {Object.entries(PLATFORM_META).map(([key, meta]) => {
-                  const Icon = meta.icon;
-                  return (
-                    <SelectItem key={key} value={key} className="text-white hover:bg-white/10">
-                      <span className="flex items-center gap-2"><Icon className={`w-4 h-4 ${meta.color}`} /> {meta.label}</span>
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
+
+        {!showManual ? (
+          <div className="space-y-3">
+            <p className="text-xs text-slate-400">Choose a platform to connect. OAuth lets you connect with one click — if it is not configured, you will be prompted to enter a token manually.</p>
+            {Object.entries(PLATFORM_META).map(([key, meta]) => {
+              const Icon = meta.icon;
+              const isLoading = oauthLoading === key;
+              return (
+                <div key={key} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-4 py-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${meta.bgColor}`}>
+                      <Icon className={`w-4 h-4 ${meta.color}`} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-white">{meta.label}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => handleOAuthConnect(key)}
+                      disabled={isLoading || oauthLoading !== null}
+                      className="bg-primary hover:bg-primary/90 h-8 text-xs"
+                    >
+                      {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
+                      Connect
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => { setShowManual(key); setManualPlatform(key); }}
+                      disabled={oauthLoading !== null}
+                      className="border-white/20 text-slate-300 hover:text-white hover:bg-white/10 h-8 text-xs"
+                    >
+                      Manual
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-          <div className="text-xs text-slate-400 bg-white/5 rounded-lg p-3 leading-relaxed">
-            {instructions[platform]}
-          </div>
-          <div>
-            <Label className="text-slate-300 text-sm mb-1.5 block">Account / Page Name</Label>
-            <Input
-              value={accountName}
-              onChange={e => setAccountName(e.target.value)}
-              placeholder="e.g. My Organization Page"
-              className="bg-white/5 border-white/10 text-white placeholder:text-slate-500"
-            />
-          </div>
-          {platform === "instagram" && (
-            <div>
-              <Label className="text-slate-300 text-sm mb-1.5 block">Instagram Business Account ID</Label>
-              <Input
-                value={accountId}
-                onChange={e => setAccountId(e.target.value)}
-                placeholder="e.g. 1234567890"
-                className="bg-white/5 border-white/10 text-white placeholder:text-slate-500"
-              />
+        ) : (
+          <div className="space-y-4">
+            <button
+              onClick={() => { setShowManual(null); setAccountName(""); setAccessToken(""); setAccountId(""); }}
+              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+            >
+              ← Back to platform selection
+            </button>
+            <div className="text-xs text-slate-400 bg-white/5 rounded-lg p-3 leading-relaxed">
+              {manualInstructions[showManual]}
             </div>
-          )}
-          {platform === "facebook" && (
             <div>
-              <Label className="text-slate-300 text-sm mb-1.5 block">Page ID (optional)</Label>
-              <Input
-                value={accountId}
-                onChange={e => setAccountId(e.target.value)}
-                placeholder="e.g. 1234567890 (leave blank for personal feed)"
-                className="bg-white/5 border-white/10 text-white placeholder:text-slate-500"
-              />
+              <Label className="text-slate-300 text-sm mb-1.5 block">Account / Page Name</Label>
+              <Input value={accountName} onChange={e => setAccountName(e.target.value)} placeholder="e.g. My Organization Page" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
             </div>
-          )}
-          <div>
-            <Label className="text-slate-300 text-sm mb-1.5 block">Access Token</Label>
-            <Input
-              type="password"
-              value={accessToken}
-              onChange={e => setAccessToken(e.target.value)}
-              placeholder="Paste your access token here"
-              className="bg-white/5 border-white/10 text-white placeholder:text-slate-500 font-mono text-xs"
-            />
+            {(showManual === "instagram" || showManual === "facebook") && (
+              <div>
+                <Label className="text-slate-300 text-sm mb-1.5 block">
+                  {showManual === "instagram" ? "Instagram Business Account ID" : "Page ID (optional)"}
+                </Label>
+                <Input
+                  value={accountId}
+                  onChange={e => setAccountId(e.target.value)}
+                  placeholder={showManual === "instagram" ? "e.g. 1234567890" : "e.g. 1234567890 (leave blank for personal feed)"}
+                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-500"
+                />
+              </div>
+            )}
+            <div>
+              <Label className="text-slate-300 text-sm mb-1.5 block">Access Token</Label>
+              <Input type="password" value={accessToken} onChange={e => setAccessToken(e.target.value)} placeholder="Paste your access token here" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500 font-mono text-xs" />
+            </div>
           </div>
-        </div>
+        )}
+
         <DialogFooter>
           <Button variant="ghost" onClick={onClose} className="text-slate-400 hover:text-white">Cancel</Button>
-          <Button onClick={handleConnect} disabled={loading} className="bg-primary hover:bg-primary/90">
-            {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-            Connect Account
-          </Button>
+          {showManual && (
+            <Button onClick={handleManualConnect} disabled={loading} className="bg-primary hover:bg-primary/90">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              Connect Account
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1014,12 +1050,32 @@ export default function Social() {
   const hasSocial = TIER_ALLOWS_SOCIAL.has(tier ?? "");
   const hasStrategy = TIER_ALLOWS_STRATEGY.has(tier ?? "");
   const [tab, setTab] = useState("accounts");
+  const queryClient = useQueryClient();
 
   const { data: accounts = [], refetch: refetchAccounts } = useQuery({
     queryKey: ["social-accounts"],
     queryFn: () => api.social.accounts.list(),
     enabled: hasSocial,
   });
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const success = params.get("success");
+    const error = params.get("error");
+    if (success) {
+      toast.success(decodeURIComponent(success));
+      queryClient.invalidateQueries({ queryKey: ["social-accounts"] });
+      const url = new URL(window.location.href);
+      url.searchParams.delete("success");
+      window.history.replaceState({}, "", url.toString());
+    }
+    if (error) {
+      toast.error(decodeURIComponent(error));
+      const url = new URL(window.location.href);
+      url.searchParams.delete("error");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, [queryClient]);
 
   if (!hasSocial) {
     return (
