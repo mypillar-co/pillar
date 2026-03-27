@@ -3,7 +3,7 @@ import {
   Send, Globe, Sparkles, Bot, User, Loader2, AlertCircle,
   Eye, CheckCircle2, ExternalLink, RefreshCw, EyeOff,
   Edit3, Play, Save, Trash2, Zap, ChevronRight,
-  X, Check,
+  X, Check, ImagePlus, CalendarClock,
 } from "lucide-react";
 import { useGetOrganization } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -94,8 +94,14 @@ export default function SiteBuilder() {
   const [scheduleRunning, setScheduleRunning] = useState(false);
   const [scheduleMessage, setScheduleMessage] = useState<string | null>(null);
 
+  const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
+  const [logoFileName, setLogoFileName] = useState<string | null>(null);
+  const [syncingEvents, setSyncingEvents] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
@@ -153,6 +159,51 @@ export default function SiteBuilder() {
   const usagePercent = usage ? Math.round((usage.used / usage.limit) * 100) : 0;
   const usageColor = usagePercent >= 90 ? "text-red-400" : usagePercent >= 70 ? "text-amber-400" : "text-emerald-400";
   const usageBarColor = usagePercent >= 90 ? "bg-red-400" : usagePercent >= 70 ? "bg-amber-400" : "bg-emerald-400";
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      alert("Logo must be under 2MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const dataUrl = ev.target?.result as string;
+      setLogoDataUrl(dataUrl);
+      setLogoFileName(file.name);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const syncEvents = async () => {
+    setSyncingEvents(true);
+    setSyncMessage(null);
+    try {
+      const res = await fetch("/api/sites/sync-events", { method: "POST", credentials: "include" });
+      const data = await res.json() as { proposalReady?: boolean; eventCount?: number; error?: string };
+      if (!res.ok || data.error) {
+        setSyncMessage(data.error ?? "Failed to sync events.");
+        return;
+      }
+      // Fetch proposed HTML so the preview updates
+      const proposeRes = await fetch("/api/sites/my/proposal-preview", { credentials: "include" });
+      if (proposeRes.ok) {
+        const proposeData = await proposeRes.json() as { proposedHtml?: string };
+        if (proposeData.proposedHtml) {
+          setProposedHtml(proposeData.proposedHtml);
+          loadHtmlIntoIframe(proposeData.proposedHtml);
+        }
+      }
+      setActiveTab("preview");
+      setSyncMessage(`${data.eventCount} event${(data.eventCount ?? 0) !== 1 ? "s" : ""} synced to your site. Review the preview below, then confirm to publish.`);
+    } catch {
+      setSyncMessage("Connection error. Please try again.");
+    } finally {
+      setSyncingEvents(false);
+    }
+  };
 
   const send = async (text: string) => {
     if (!text.trim() || chatLoading || isLimitReached) return;
@@ -219,7 +270,7 @@ export default function SiteBuilder() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ history, orgName: org?.name, orgType: org?.type }),
+        body: JSON.stringify({ history, orgName: org?.name, orgType: org?.type, logoDataUrl: logoDataUrl ?? undefined }),
       });
       if (!res.ok) throw new Error("Generation failed");
       const data = await res.json() as { site: Site; orgSlug: string };
@@ -570,6 +621,30 @@ export default function SiteBuilder() {
                   </div>
                 ) : (
                   <>
+                    {/* Sync Events */}
+                    <div className="p-4 rounded-xl border border-white/8 bg-white/3 space-y-3">
+                      <div className="flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          <CalendarClock className="w-4 h-4 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-sm font-semibold text-white mb-0.5">Sync Events to Site</h3>
+                          <p className="text-xs text-muted-foreground">Automatically update your site's events section with events from your Events dashboard.</p>
+                        </div>
+                      </div>
+                      {syncMessage && (
+                        <div className={`flex items-center gap-2 p-2.5 rounded-lg border text-xs ${syncMessage.toLowerCase().includes("fail") || syncMessage.toLowerCase().includes("error") ? "bg-red-500/10 border-red-500/20 text-red-300" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"}`}>
+                          {syncMessage.toLowerCase().includes("fail") || syncMessage.toLowerCase().includes("error")
+                            ? <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                            : <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />}
+                          <span>{syncMessage}</span>
+                        </div>
+                      )}
+                      <Button onClick={syncEvents} disabled={syncingEvents || isLimitReached} size="sm" variant="outline" className="w-full border-white/15 text-white hover:bg-white/8">
+                        {syncingEvents ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Syncing Events…</> : <><CalendarClock className="w-3.5 h-3.5 mr-1.5" /> Sync Events to Site</>}
+                      </Button>
+                    </div>
+
                     <div>
                       <h2 className="text-base font-semibold text-white mb-1">Request a change</h2>
                       <p className="text-xs text-muted-foreground mb-4">
@@ -790,8 +865,31 @@ export default function SiteBuilder() {
             )}
           </div>
 
+          {/* Hidden file input for logo upload */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleLogoUpload}
+          />
+
           {/* Input bar */}
           <div className="px-6 py-4 border-t border-white/8 bg-[hsl(224,40%,10%)] flex-shrink-0 space-y-3">
+            {/* Logo preview strip */}
+            {logoDataUrl && (
+              <div className="flex items-center gap-3 p-2.5 rounded-lg border border-primary/20 bg-primary/5">
+                <img src={logoDataUrl} alt="Logo preview" className="h-10 w-auto max-w-[80px] object-contain rounded" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-white truncate">{logoFileName}</p>
+                  <p className="text-xs text-muted-foreground">Logo will be added to your site</p>
+                </div>
+                <button onClick={() => { setLogoDataUrl(null); setLogoFileName(null); }} className="text-slate-400 hover:text-white transition-colors flex-shrink-0">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
             {canGenerate && (
               <Button onClick={generateSite} disabled={generating} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white">
                 {generating ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Building your site…</> : <><Sparkles className="w-4 h-4 mr-2" /> Generate My Site</>}
@@ -807,7 +905,14 @@ export default function SiteBuilder() {
                 <Link href="/billing"><Button size="sm" variant="outline" className="border-red-500/30 text-red-300 h-8 text-xs">Upgrade</Button></Link>
               </div>
             ) : messages.length > 0 ? (
-              <div className="flex gap-3 items-end">
+              <div className="flex gap-2 items-end">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Upload logo or image"
+                  className="h-10 w-10 flex-shrink-0 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition-colors flex items-center justify-center text-slate-400 hover:text-white"
+                >
+                  <ImagePlus className="w-4 h-4" />
+                </button>
                 <Textarea
                   value={input}
                   onChange={e => setInput(e.target.value)}

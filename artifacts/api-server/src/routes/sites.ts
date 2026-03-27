@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { db, organizationsTable, sitesTable, siteUpdateSchedulesTable, websiteSpecsTable } from "@workspace/db";
+import { db, organizationsTable, sitesTable, siteUpdateSchedulesTable, websiteSpecsTable, eventsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import OpenAI from "openai";
 
@@ -239,10 +239,11 @@ router.post("/generate", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
 
-  const { history = [], orgName, orgType } = req.body as {
+  const { history = [], orgName, orgType, logoDataUrl } = req.body as {
     history: { role: string; content: string }[];
     orgName?: string;
     orgType?: string;
+    logoDataUrl?: string;
   };
 
   const name = orgName ?? org.name;
@@ -309,8 +310,34 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
     await db.insert(websiteSpecsTable).values({ orgId: org.id, ...extractedSpec, rawConversation: history });
   }
 
-  // Step 3: Generate HTML
+  // Step 3: Fetch upcoming events from DB to include in site
   const s = extractedSpec;
+  const today = new Date().toISOString().split("T")[0];
+  const upcomingEvents = await db
+    .select({ name: eventsTable.name, startDate: eventsTable.startDate, startTime: eventsTable.startTime, endTime: eventsTable.endTime, location: eventsTable.location, description: eventsTable.description })
+    .from(eventsTable)
+    .where(eq(eventsTable.orgId, org.id))
+    .limit(10);
+  // Filter to upcoming (or include all if dates not set)
+  const futureEvents = upcomingEvents.filter(e => !e.startDate || e.startDate >= today);
+  const allEvents = futureEvents.length > 0 ? futureEvents : upcomingEvents.slice(0, 5);
+
+  const eventsSection = allEvents.length > 0
+    ? allEvents.map(e => {
+        const parts = [e.name];
+        if (e.startDate) parts.push(new Date(e.startDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }));
+        if (e.startTime) parts.push(`${e.startTime}${e.endTime ? `–${e.endTime}` : ""}`);
+        if (e.location) parts.push(e.location);
+        if (e.description) parts.push(e.description);
+        return parts.join(" | ");
+      }).join("\n")
+    : (s.events.join(", ") || "");
+
+  // Step 4: Generate HTML
+  const logoInstruction = logoDataUrl
+    ? `\nLOGO: The organization has provided a logo. Display it prominently in the navigation bar as an <img> tag with src="${logoDataUrl}" alt="${s.orgName} logo" style="height:48px;width:auto;object-fit:contain;". Also show it in the footer.`
+    : "";
+
   const genSystemMsg = `You are an expert web developer. Generate a complete, beautiful, self-contained HTML page.
 
 STRICT RULES:
@@ -325,11 +352,11 @@ STRICT RULES:
 - Professionally designed: consistent spacing, clear visual hierarchy, good color contrast
 
 REQUIRED SECTIONS (in order):
-1. Sticky navigation bar — org name logo on left, links on right
+1. Sticky navigation bar — org name/logo on left, links on right${logoInstruction}
 2. Hero — large heading, tagline, brief mission blurb, a call-to-action button
 3. About — mission/purpose in more detail
 ${s.services.length > 0 ? `4. Services — responsive grid of cards for: ${s.services.join(", ")}` : "4. Programs — responsive grid of 3 placeholder cards with icons"}
-${s.events.length > 0 ? `5. Events — clean card list for: ${s.events.join(", ")}` : ""}
+${allEvents.length > 0 ? `5. Upcoming Events — visually appealing card list. Each card should show the event name, date, time, and location in a clean layout.` : ""}
 6. Contact — email, phone, address, social media in a clean layout
 7. Footer — org name, © ${new Date().getFullYear()}, tagline
 
@@ -343,7 +370,8 @@ Mission: ${s.mission}
 Services/Programs: ${s.services.join(", ") || "Community programs"}
 Location: ${s.location || "Our community"}
 Hours: ${s.hours || ""}
-Events: ${s.events.join(", ") || ""}
+Upcoming Events:
+${eventsSection || "None listed"}
 Contact Email: ${s.contactEmail || ""}
 Contact Phone: ${s.contactPhone || ""}
 Social Media: ${s.socialMedia.join(", ") || ""}
@@ -475,6 +503,92 @@ router.post("/change-request/apply", async (req: Request, res: Response) => {
     .returning();
 
   res.json({ site: { ...site, proposedHtml: undefined } });
+});
+
+// ─── Sync events from DB into site ───────────────────────────────────────────
+router.post("/sync-events", async (req: Request, res: Response) => {
+  const org = await resolveOrg(req, res);
+  if (!org) return;
+
+  if (!TIERS_ALLOWING_CHANGES.has(org.tier ?? "")) {
+    res.status(403).json({ error: "Syncing events requires a paid plan (Tier 1 or higher)" });
+    return;
+  }
+
+  const [existing] = await db.select().from(sitesTable).where(eq(sitesTable.orgId, org.id));
+  if (!existing?.generatedHtml) { res.status(404).json({ error: "No published site found. Generate your site first." }); return; }
+
+  const usageInfo = await checkAndResetUsage(org, res);
+  if (!usageInfo) return;
+  const { used, limit: monthlyLimit } = usageInfo;
+
+  // Fetch events from DB
+  const today = new Date().toISOString().split("T")[0];
+  const allEventsFromDb = await db
+    .select({ name: eventsTable.name, startDate: eventsTable.startDate, startTime: eventsTable.startTime, endTime: eventsTable.endTime, location: eventsTable.location, description: eventsTable.description })
+    .from(eventsTable)
+    .where(eq(eventsTable.orgId, org.id))
+    .limit(15);
+  const futureEvents = allEventsFromDb.filter(e => !e.startDate || e.startDate >= today);
+  const eventsToShow = futureEvents.length > 0 ? futureEvents : allEventsFromDb.slice(0, 5);
+
+  if (eventsToShow.length === 0) {
+    res.status(400).json({ error: "No events found. Add events in the Events section first." });
+    return;
+  }
+
+  const eventsText = eventsToShow.map(e => {
+    const parts = [e.name];
+    if (e.startDate) parts.push(new Date(e.startDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }));
+    if (e.startTime) parts.push(`${e.startTime}${e.endTime ? `–${e.endTime}` : ""}`);
+    if (e.location) parts.push(e.location);
+    if (e.description) parts.push(e.description);
+    return parts.join(" | ");
+  }).join("\n");
+
+  try {
+    const client = getOpenAIClient();
+    const systemMsg = `You are an expert web developer. You will receive an existing HTML website and a list of upcoming events.
+Your task: Update the events section of the HTML to show exactly the provided events. If no events section exists, add one before the contact/footer section.
+Each event should be displayed in a visually appealing card showing: event name, date, time (if available), and location (if available).
+Output ONLY the complete updated HTML. Start with <!DOCTYPE html>. No markdown, no code fences, no explanation.`;
+
+    const userMsg = `Here is the current website HTML:
+
+${existing.generatedHtml.substring(0, 6000)}
+
+Please update the events section to show these upcoming events:
+${eventsText}
+
+Return the complete updated HTML.`;
+
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "system", content: systemMsg }, { role: "user", content: userMsg }],
+      max_tokens: MAX_CHANGE_TOKENS,
+    });
+
+    let raw = completion.choices[0]?.message?.content ?? "";
+    const start = raw.indexOf("<!DOCTYPE");
+    const altStart = raw.indexOf("<html");
+    const htmlStart = start !== -1 ? start : altStart;
+    if (htmlStart !== -1) raw = raw.substring(htmlStart);
+    const endTag = raw.lastIndexOf("</html>");
+    const cleanedHtml = endTag !== -1 ? raw.substring(0, endTag + 7) : raw;
+
+    if (!cleanedHtml.includes("<html") && !cleanedHtml.includes("<!DOCTYPE")) {
+      res.status(500).json({ error: "AI returned invalid HTML. Please try again." });
+      return;
+    }
+
+    await db.update(sitesTable).set({ proposedHtml: cleanedHtml }).where(eq(sitesTable.orgId, org.id));
+    await db.update(organizationsTable).set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` }).where(eq(organizationsTable.id, org.id));
+    const newUsed = used + 1;
+
+    res.json({ proposalReady: true, eventCount: eventsToShow.length, used: newUsed, limit: monthlyLimit, remaining: monthlyLimit - newUsed });
+  } catch {
+    res.status(500).json({ error: "Failed to sync events. Please try again." });
+  }
 });
 
 // ─── Schedule CRUD (Tier 1a+) ─────────────────────────────────────────────────
