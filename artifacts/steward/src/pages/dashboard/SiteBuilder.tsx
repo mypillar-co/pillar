@@ -261,13 +261,28 @@ export default function SiteBuilder() {
     setChangePending(true);
     setChangeError(null);
     setProposedHtml(null);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90_000);
+
     try {
-      const res = await fetch("/api/sites/change-request/propose", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ changeRequest: changeInput }),
-      });
+      let res: Response;
+      try {
+        res = await fetch("/api/sites/change-request/propose", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ changeRequest: changeInput }),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        const msg = err instanceof DOMException && err.name === "AbortError"
+          ? "Request timed out. Please try again."
+          : "Could not reach the server. Check your connection and try again.";
+        setChangeError(msg);
+        return;
+      }
+
       if (res.status === 403) {
         setChangeError("Change requests require a paid plan (Tier 1 or higher).");
         return;
@@ -277,26 +292,47 @@ export default function SiteBuilder() {
         return;
       }
       if (!res.ok) {
-        const d = await res.json() as { error?: string };
-        setChangeError(d.error ?? "Proposal failed. Please try again.");
+        let errMsg = "Proposal failed. Please try again.";
+        try { const d = await res.json() as { error?: string }; errMsg = d.error ?? errMsg; } catch { /* non-JSON body */ }
+        setChangeError(errMsg);
         return;
       }
-      const data = await res.json() as { proposalReady: boolean; used: number; limit: number; remaining: number };
+
+      let data: { proposalReady: boolean; used: number; limit: number; remaining: number };
+      try {
+        data = await res.json() as typeof data;
+      } catch {
+        setChangeError("Unexpected response from server. Please try again.");
+        return;
+      }
       setUsage(prev => prev ? { ...prev, used: data.used, remaining: data.remaining } : null);
 
       // Fetch the proposal HTML from the server (server-stored, never client-supplied)
-      const previewRes = await fetch("/api/sites/my/proposal-preview", { credentials: "include" });
-      if (!previewRes.ok) {
-        setChangeError("Failed to load preview. Please try again.");
+      let previewRes: Response;
+      try {
+        previewRes = await fetch("/api/sites/my/proposal-preview", { credentials: "include" });
+      } catch {
+        setChangeError("Preview could not be loaded. Please try again.");
         return;
       }
-      const previewData = await previewRes.json() as { proposedHtml: string };
+      if (!previewRes.ok) {
+        let previewErr = "Failed to load preview. Please try again.";
+        try { const d = await previewRes.json() as { error?: string }; previewErr = d.error ?? previewErr; } catch { /* non-JSON body */ }
+        setChangeError(previewErr);
+        return;
+      }
+      let previewData: { proposedHtml: string };
+      try {
+        previewData = await previewRes.json() as typeof previewData;
+      } catch {
+        setChangeError("Preview data was unreadable. Please try again.");
+        return;
+      }
       setProposedHtml(previewData.proposedHtml);
       loadHtmlIntoIframe(previewData.proposedHtml);
       setActiveTab("preview");
-    } catch {
-      setChangeError("Connection error. Please try again.");
     } finally {
+      clearTimeout(timeout);
       setChangePending(false);
     }
   };
