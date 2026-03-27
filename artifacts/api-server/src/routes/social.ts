@@ -81,6 +81,54 @@ function validateAutomationPlatforms(platforms: unknown): string | null {
   return null;
 }
 
+const VALID_FREQUENCIES = new Set(["daily", "weekly", "monthly"]);
+const VALID_CONTENT_TYPES = new Set(["events", "updates", "promotions", "community", "custom"]);
+const VALID_DAYS = new Set(["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]);
+const VALID_POST_STATUSES = new Set(["draft", "scheduled"]);
+const TIME_OF_DAY_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function validateFrequency(freq: string): string | null {
+  if (!VALID_FREQUENCIES.has(freq)) {
+    return `Invalid frequency "${freq}". Allowed: ${[...VALID_FREQUENCIES].join(", ")}`;
+  }
+  return null;
+}
+
+function validateTimeOfDay(time: string): string | null {
+  if (!TIME_OF_DAY_RE.test(time)) {
+    return `Invalid timeOfDay "${time}". Expected HH:MM (24-hour format, e.g. "09:00")`;
+  }
+  return null;
+}
+
+function validateContentType(ct: string): string | null {
+  if (!VALID_CONTENT_TYPES.has(ct)) {
+    return `Invalid contentType "${ct}". Allowed: ${[...VALID_CONTENT_TYPES].join(", ")}`;
+  }
+  return null;
+}
+
+function validateDayOfWeek(day: string): string | null {
+  if (!VALID_DAYS.has(day.toLowerCase())) {
+    return `Invalid dayOfWeek "${day}". Allowed: ${[...VALID_DAYS].join(", ")}`;
+  }
+  return null;
+}
+
+function validateFutureDate(iso: string): string | null {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return `Invalid date "${iso}"`;
+  if (d.getTime() < Date.now() + 60_000) return "scheduledAt must be at least 1 minute in the future";
+  return null;
+}
+
+function validatePostStatus(s: string): string | null {
+  if (!VALID_POST_STATUSES.has(s)) {
+    return `Invalid status "${s}". Allowed: ${[...VALID_POST_STATUSES].join(", ")}`;
+  }
+  return null;
+}
+
 function tierAllowsSocial(tier: string | null | undefined): boolean {
   return tier === "tier1a" || tier === "tier2" || tier === "tier3";
 }
@@ -663,6 +711,10 @@ router.post("/posts", async (req, res) => {
     res.status(400).json({ error: `X/Twitter posts must be 280 characters or fewer (current: ${content.length}).` });
     return;
   }
+  if (scheduledAt) {
+    const dateErr = validateFutureDate(scheduledAt);
+    if (dateErr) { res.status(400).json({ error: dateErr }); return; }
+  }
 
   const status = scheduledAt ? "scheduled" : "draft";
   const [post] = await db
@@ -710,6 +762,14 @@ router.put("/posts/:id", async (req, res) => {
   if (effectivePlatforms.includes("twitter") && effectiveContent.length > 280) {
     res.status(400).json({ error: `X/Twitter posts must be 280 characters or fewer (current: ${effectiveContent.length}).` });
     return;
+  }
+  if (scheduledAt) {
+    const dateErr = validateFutureDate(scheduledAt);
+    if (dateErr) { res.status(400).json({ error: dateErr }); return; }
+  }
+  if (status !== undefined) {
+    const statusErr = validatePostStatus(status);
+    if (statusErr) { res.status(400).json({ error: statusErr }); return; }
   }
 
   const newStatus = status ?? (scheduledAt !== undefined ? (scheduledAt ? "scheduled" : "draft") : existing.status);
@@ -789,9 +849,20 @@ router.post("/rules", async (req, res) => {
     return;
   }
   const platformError = validateAutomationPlatforms(platforms);
-  if (platformError) {
-    res.status(400).json({ error: platformError });
-    return;
+  if (platformError) { res.status(400).json({ error: platformError }); return; }
+  const freqErr = validateFrequency(frequency);
+  if (freqErr) { res.status(400).json({ error: freqErr }); return; }
+  if (timeOfDay) {
+    const timeErr = validateTimeOfDay(timeOfDay);
+    if (timeErr) { res.status(400).json({ error: timeErr }); return; }
+  }
+  if (dayOfWeek) {
+    const dayErr = validateDayOfWeek(dayOfWeek);
+    if (dayErr) { res.status(400).json({ error: dayErr }); return; }
+  }
+  if (contentType) {
+    const ctErr = validateContentType(contentType);
+    if (ctErr) { res.status(400).json({ error: ctErr }); return; }
   }
 
   const nextRunAt = computeNextRun(frequency, dayOfWeek, timeOfDay);
@@ -823,10 +894,23 @@ router.put("/rules/:id", async (req, res) => {
 
   if (platforms !== undefined) {
     const platformError = validateAutomationPlatforms(platforms);
-    if (platformError) {
-      res.status(400).json({ error: platformError });
-      return;
-    }
+    if (platformError) { res.status(400).json({ error: platformError }); return; }
+  }
+  if (frequency !== undefined) {
+    const freqErr = validateFrequency(frequency);
+    if (freqErr) { res.status(400).json({ error: freqErr }); return; }
+  }
+  if (timeOfDay !== undefined) {
+    const timeErr = validateTimeOfDay(timeOfDay);
+    if (timeErr) { res.status(400).json({ error: timeErr }); return; }
+  }
+  if (dayOfWeek !== undefined) {
+    const dayErr = validateDayOfWeek(dayOfWeek);
+    if (dayErr) { res.status(400).json({ error: dayErr }); return; }
+  }
+  if (contentType !== undefined) {
+    const ctErr = validateContentType(contentType);
+    if (ctErr) { res.status(400).json({ error: ctErr }); return; }
   }
 
   const newFreq = frequency ?? existing.frequency;
