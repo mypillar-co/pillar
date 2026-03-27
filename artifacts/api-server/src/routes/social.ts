@@ -34,6 +34,19 @@ function getOpenAIClient() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 }
 
+const VALID_PLATFORMS = new Set(["facebook", "instagram", "twitter"]);
+
+function validatePlatforms(platforms: unknown): string | null {
+  if (!Array.isArray(platforms) || platforms.length === 0) {
+    return "platforms must be a non-empty array";
+  }
+  const invalid = (platforms as string[]).filter(p => !VALID_PLATFORMS.has(p));
+  if (invalid.length > 0) {
+    return `Invalid platforms: ${invalid.join(", ")}. Allowed: facebook, instagram, twitter`;
+  }
+  return null;
+}
+
 function tierAllowsSocial(tier: string | null | undefined): boolean {
   return tier === "tier1a" || tier === "tier2" || tier === "tier3";
 }
@@ -539,8 +552,13 @@ router.post("/posts", async (req, res) => {
     platforms: string[]; content: string; mediaUrl?: string; scheduledAt?: string;
   };
 
-  if (!platforms || !platforms.length || !content) {
-    res.status(400).json({ error: "platforms and content are required" });
+  if (!content) {
+    res.status(400).json({ error: "content is required" });
+    return;
+  }
+  const platformError = validatePlatforms(platforms);
+  if (platformError) {
+    res.status(400).json({ error: platformError });
     return;
   }
 
@@ -568,6 +586,14 @@ router.put("/posts/:id", async (req, res) => {
   const { platforms, content, mediaUrl, scheduledAt, status } = req.body as {
     platforms?: string[]; content?: string; mediaUrl?: string; scheduledAt?: string; status?: string;
   };
+
+  if (platforms !== undefined) {
+    const platformError = validatePlatforms(platforms);
+    if (platformError) {
+      res.status(400).json({ error: platformError });
+      return;
+    }
+  }
 
   const newStatus = status ?? (scheduledAt !== undefined ? (scheduledAt ? "scheduled" : "draft") : existing.status);
 
@@ -640,8 +666,13 @@ router.post("/rules", async (req, res) => {
     timeOfDay?: string; contentType?: string; customPrompt?: string;
   };
 
-  if (!name || !platforms?.length || !frequency) {
-    res.status(400).json({ error: "name, platforms, and frequency are required" });
+  if (!name || !frequency) {
+    res.status(400).json({ error: "name and frequency are required" });
+    return;
+  }
+  const platformError = validatePlatforms(platforms);
+  if (platformError) {
+    res.status(400).json({ error: platformError });
     return;
   }
 
@@ -670,6 +701,14 @@ router.put("/rules/:id", async (req, res) => {
     name?: string; platforms?: string[]; frequency?: string; dayOfWeek?: string;
     timeOfDay?: string; contentType?: string; customPrompt?: string; isActive?: boolean;
   };
+
+  if (platforms !== undefined) {
+    const platformError = validatePlatforms(platforms);
+    if (platformError) {
+      res.status(400).json({ error: platformError });
+      return;
+    }
+  }
 
   const newFreq = frequency ?? existing.frequency;
   const newDay = dayOfWeek ?? existing.dayOfWeek;

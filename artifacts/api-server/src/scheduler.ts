@@ -358,10 +358,18 @@ async function runDueSocialPosts(): Promise<void> {
     logger.info({ count: duePosts.length }, "Publishing due social posts");
 
     for (const post of duePosts) {
-      const externalIds: Record<string, string> = {};
+      // Parse any platforms that already succeeded in a previous attempt
+      const alreadySucceeded: Record<string, string> = post.externalPostIds
+        ? (JSON.parse(post.externalPostIds) as Record<string, string>)
+        : {};
+
+      // Only attempt platforms that haven't succeeded yet
+      const pendingPlatforms = post.platforms.filter(p => !(p in alreadySucceeded));
+
+      const newSuccesses: Record<string, string> = {};
       const errors: string[] = [];
 
-      for (const platform of post.platforms) {
+      for (const platform of pendingPlatforms) {
         const [account] = await db
           .select()
           .from(socialAccountsTable)
@@ -384,8 +392,11 @@ async function runDueSocialPosts(): Promise<void> {
             postId = await publishToInstagram(post.content, account.accessToken, account.accountId, post.mediaUrl);
           } else if (platform === "twitter") {
             postId = await publishToTwitter(post.content, account.accessToken);
+          } else {
+            errors.push(`${platform}: unsupported platform`);
+            continue;
           }
-          externalIds[platform] = postId;
+          newSuccesses[platform] = postId;
           logger.info({ platform, postId, orgId: post.orgId }, "Post published");
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Unknown error";
@@ -394,32 +405,36 @@ async function runDueSocialPosts(): Promise<void> {
         }
       }
 
+      // Merge previously succeeded platforms with newly succeeded platforms
+      const allSucceeded: Record<string, string> = { ...alreadySucceeded, ...newSuccesses };
+      const allPlatformsSucceeded = post.platforms.every(p => p in allSucceeded);
       const currentRetries = post.retryCount ?? 0;
-      const allFailed = errors.length > 0 && Object.keys(externalIds).length === 0;
-      const someFailed = errors.length > 0;
 
-      if (allFailed && currentRetries < MAX_POST_RETRIES) {
+      if (!allPlatformsSucceeded && errors.length > 0 && currentRetries < MAX_POST_RETRIES) {
+        // Retry: reschedule, preserving already-succeeded platforms
         const retryAt = new Date(now.getTime() + RETRY_DELAY_MS);
         await db.update(socialPostsTable).set({
           status: "scheduled",
           scheduledAt: retryAt,
           retryCount: currentRetries + 1,
-          errorMessage: `Attempt ${currentRetries + 1}/${MAX_POST_RETRIES}: ${errors.join("; ")}`,
+          externalPostIds: Object.keys(allSucceeded).length > 0 ? JSON.stringify(allSucceeded) : null,
+          errorMessage: `Attempt ${currentRetries + 1}/${MAX_POST_RETRIES} — pending: ${errors.join("; ")}`,
           updatedAt: new Date(),
         }).where(eq(socialPostsTable.id, post.id));
-        logger.warn({ postId: post.id, retryCount: currentRetries + 1, retryAt }, "Post publish failed — scheduled for retry");
+        logger.warn({ postId: post.id, retryCount: currentRetries + 1, retryAt, errors }, "Partial publish failure — scheduled for retry");
       } else {
-        const finalStatus = allFailed && currentRetries >= MAX_POST_RETRIES ? "failed" : (someFailed ? "published" : "published");
+        // All platforms succeeded, or we've exhausted retries
+        const finalStatus = allPlatformsSucceeded ? "published" : "failed";
         await db.update(socialPostsTable).set({
           status: finalStatus,
           publishedAt: finalStatus === "published" ? now : null,
-          externalPostIds: Object.keys(externalIds).length > 0 ? JSON.stringify(externalIds) : null,
-          errorMessage: errors.length > 0 ? `Final attempt: ${errors.join("; ")}` : null,
+          externalPostIds: Object.keys(allSucceeded).length > 0 ? JSON.stringify(allSucceeded) : null,
+          errorMessage: errors.length > 0 ? `Final: ${errors.join("; ")}` : null,
           updatedAt: new Date(),
         }).where(eq(socialPostsTable.id, post.id));
 
         if (finalStatus === "failed") {
-          logger.error({ postId: post.id, orgId: post.orgId, errors }, "Post permanently failed after max retries");
+          logger.error({ postId: post.id, orgId: post.orgId, errors, allSucceeded }, "Post permanently failed after max retries");
         }
       }
     }
