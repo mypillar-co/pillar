@@ -889,7 +889,7 @@ function PostsSection({ accounts }: { accounts: SocialAccount[] }) {
         <TabsContent value="calendar" className="mt-3">
           <CalendarView />
         </TabsContent>
-        <TabsContent value={tab} className="mt-3">
+        <TabsContent value={tab === "calendar" ? "__none__" : tab} className="mt-3">
           {isLoading ? (
             <div className="flex items-center justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
           ) : !posts?.length ? (

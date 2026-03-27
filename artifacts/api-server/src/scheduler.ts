@@ -402,6 +402,16 @@ async function runDueSocialPosts(): Promise<void> {
           const msg = err instanceof Error ? err.message : "Unknown error";
           errors.push(`${platform}: ${msg}`);
           logger.error({ err, platform, postId: post.id }, "Failed to publish to platform");
+
+          // If the error looks like a token expiry / auth failure, mark the account
+          // as disconnected so the user knows to reconnect — and stop retrying.
+          const authFailure = /401|403|invalid.*(oauth|token)|token.*invalid|expired|Unauthorized/i.test(msg);
+          if (authFailure) {
+            await db.update(socialAccountsTable)
+              .set({ isConnected: false, updatedAt: new Date() })
+              .where(eq(socialAccountsTable.id, account.id));
+            logger.warn({ platform, accountId: account.id, orgId: post.orgId }, "Auth failure detected — account marked disconnected");
+          }
         }
       }
 

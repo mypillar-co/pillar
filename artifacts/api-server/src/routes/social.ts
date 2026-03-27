@@ -655,6 +655,14 @@ router.post("/posts", async (req, res) => {
     res.status(400).json({ error: platformError });
     return;
   }
+  if (platforms.includes("instagram") && !mediaUrl) {
+    res.status(400).json({ error: "Instagram posts require a media URL. Provide a mediaUrl (hosted image URL)." });
+    return;
+  }
+  if (platforms.includes("twitter") && content.length > 280) {
+    res.status(400).json({ error: `X/Twitter posts must be 280 characters or fewer (current: ${content.length}).` });
+    return;
+  }
 
   const status = scheduledAt ? "scheduled" : "draft";
   const [post] = await db
@@ -688,6 +696,20 @@ router.put("/posts/:id", async (req, res) => {
       res.status(400).json({ error: platformError });
       return;
     }
+  }
+
+  // Platform-specific constraints on effective (post-update) values
+  const effectivePlatforms = platforms ?? existing.platforms;
+  const effectiveMediaUrl = mediaUrl !== undefined ? (mediaUrl || null) : existing.mediaUrl;
+  const effectiveContent = content ?? existing.content;
+
+  if (effectivePlatforms.includes("instagram") && !effectiveMediaUrl) {
+    res.status(400).json({ error: "Instagram posts require a media URL. Provide a mediaUrl (hosted image URL)." });
+    return;
+  }
+  if (effectivePlatforms.includes("twitter") && effectiveContent.length > 280) {
+    res.status(400).json({ error: `X/Twitter posts must be 280 characters or fewer (current: ${effectiveContent.length}).` });
+    return;
   }
 
   const newStatus = status ?? (scheduledAt !== undefined ? (scheduledAt ? "scheduled" : "draft") : existing.status);
