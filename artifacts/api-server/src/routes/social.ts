@@ -72,6 +72,15 @@ function validatePlatforms(platforms: unknown): string | null {
   return null;
 }
 
+function validateAutomationPlatforms(platforms: unknown): string | null {
+  const base = validatePlatforms(platforms);
+  if (base) return base;
+  if ((platforms as string[]).includes("instagram")) {
+    return "Instagram cannot be used in automation rules or content strategy because automated posts require a hosted image URL. Post to Instagram manually from the Posts tab.";
+  }
+  return null;
+}
+
 function tierAllowsSocial(tier: string | null | undefined): boolean {
   return tier === "tier1a" || tier === "tier2" || tier === "tier3";
 }
@@ -757,7 +766,7 @@ router.post("/rules", async (req, res) => {
     res.status(400).json({ error: "name and frequency are required" });
     return;
   }
-  const platformError = validatePlatforms(platforms);
+  const platformError = validateAutomationPlatforms(platforms);
   if (platformError) {
     res.status(400).json({ error: platformError });
     return;
@@ -791,7 +800,7 @@ router.put("/rules/:id", async (req, res) => {
   };
 
   if (platforms !== undefined) {
-    const platformError = validatePlatforms(platforms);
+    const platformError = validateAutomationPlatforms(platforms);
     if (platformError) {
       res.status(400).json({ error: platformError });
       return;
@@ -862,6 +871,14 @@ router.put("/strategy", async (req, res) => {
   const { tone, postingFrequency, topics, platforms, isAutonomous } = req.body as {
     tone?: string; postingFrequency?: string; topics?: string[]; platforms?: string[]; isAutonomous?: boolean;
   };
+
+  if (platforms !== undefined && platforms.length > 0) {
+    const platformError = validateAutomationPlatforms(platforms);
+    if (platformError) {
+      res.status(400).json({ error: platformError });
+      return;
+    }
+  }
 
   const [existing] = await db
     .select({ id: contentStrategyTable.id })

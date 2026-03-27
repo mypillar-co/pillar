@@ -553,7 +553,7 @@ function AutomationRuleDialog({
           <div>
             <Label className="text-slate-300 text-sm mb-2 block">Platforms</Label>
             <div className="flex flex-wrap gap-2">
-              {Object.entries(PLATFORM_META).map(([key, meta]) => {
+              {Object.entries(PLATFORM_META).filter(([key]) => key !== "instagram").map(([key, meta]) => {
                 const Icon = meta.icon;
                 const isConnected = connectedPlatforms.includes(key);
                 const isSelected = platforms.includes(key);
@@ -576,6 +576,7 @@ function AutomationRuleDialog({
                 );
               })}
             </div>
+            <p className="text-xs text-slate-500 mt-1.5">Instagram requires a media URL per post and is not available for automation. Post to Instagram manually from the Posts tab.</p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -1200,7 +1201,7 @@ function ContentStrategySection() {
       <div>
         <Label className="text-slate-300 text-sm mb-2 block">Target Platforms</Label>
         <div className="flex flex-wrap gap-2">
-          {Object.entries(PLATFORM_META).map(([key, meta]) => {
+          {Object.entries(PLATFORM_META).filter(([key]) => key !== "instagram").map(([key, meta]) => {
             const Icon = meta.icon;
             const isSelected = platforms.includes(key);
             return (
@@ -1219,6 +1220,7 @@ function ContentStrategySection() {
             );
           })}
         </div>
+        <p className="text-xs text-slate-500 mt-1.5">Instagram is excluded from autonomous posting as it requires a media URL per post. Post to Instagram manually.</p>
       </div>
 
       <Button onClick={handleSave} disabled={saving} className="bg-primary hover:bg-primary/90">

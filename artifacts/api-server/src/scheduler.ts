@@ -476,9 +476,16 @@ async function generateAndSchedulePost(
   tone: string,
   ruleId?: string,
 ): Promise<void> {
+  // Instagram requires a hosted image URL for every post and cannot be
+  // generated automatically without image hosting infrastructure.
+  // Automation rules and Tier 3 strategy must exclude Instagram.
+  if (platform === "instagram") {
+    logger.warn({ orgId, platform }, "Skipping automated Instagram post: Instagram requires a media URL and is not supported in automation");
+    return;
+  }
+
   const platformGuidelines: Record<string, string> = {
     facebook: "Facebook post (up to 400 characters). Be engaging. Include a call to action.",
-    instagram: "Instagram caption (up to 300 characters). Include 3-5 hashtags.",
     twitter: "Tweet (under 280 characters). Be concise. 1-2 hashtags.",
   };
   const guideline = platformGuidelines[platform] ?? "Social media post (under 300 characters).";
