@@ -361,7 +361,7 @@ export default function SiteBuilder() {
       }
 
       if (res.status === 403) {
-        setChangeError("Change requests require a paid plan (Tier 1 or higher).");
+        setChangeError("Change requests require a paid plan (Starter or higher).");
         return;
       }
       if (res.status === 429) {
@@ -641,7 +641,7 @@ export default function SiteBuilder() {
                     </div>
                     <div>
                       <h3 className="text-base font-semibold text-white mb-1">Upgrade to edit your site</h3>
-                      <p className="text-sm text-muted-foreground max-w-xs">Change requests are available on Tier 1 and higher plans.</p>
+                      <p className="text-sm text-muted-foreground max-w-xs">Change requests are available on the Starter plan and above.</p>
                     </div>
                     <Link href="/billing"><Button>Upgrade Plan</Button></Link>
                   </div>

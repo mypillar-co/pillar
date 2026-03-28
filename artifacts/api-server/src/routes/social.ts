@@ -175,7 +175,7 @@ function computeNextRun(frequency: string, dayOfWeek?: string | null, timeOfDay?
 router.get("/oauth/:platform/start", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require Tier 1a or higher" }); return; }
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
   const { platform } = req.params;
 
@@ -486,7 +486,7 @@ router.get("/oauth/twitter/callback", async (req, res) => {
 router.get("/accounts", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require Tier 1a or higher" }); return; }
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
   const accounts = await db
     .select()
@@ -500,7 +500,7 @@ router.get("/accounts", async (req, res) => {
 router.post("/accounts", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require Tier 1a or higher" }); return; }
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
   const { platform, accountName, accessToken, accountId } = req.body as {
     platform: string; accountName: string; accessToken: string; accountId?: string;
@@ -544,7 +544,7 @@ router.post("/accounts", async (req, res) => {
 router.delete("/accounts/:id", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require Tier 1a or higher" }); return; }
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
   const [account] = await db
     .select()
@@ -590,7 +590,7 @@ router.delete("/accounts/:id", async (req, res) => {
 router.post("/posts/generate", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require Tier 1a or higher" }); return; }
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
   const { platform, topic, eventId, tone } = req.body as {
     platform: string; topic?: string; eventId?: string; tone?: string;
@@ -671,7 +671,7 @@ router.post("/posts/generate", async (req, res) => {
 router.get("/posts", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require Tier 1a or higher" }); return; }
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
   const { status } = req.query as { status?: string };
   const baseCondition = eq(socialPostsTable.orgId, org.id);
@@ -688,7 +688,7 @@ router.get("/posts", async (req, res) => {
 router.post("/posts", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require Tier 1a or higher" }); return; }
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
   const { platforms, content, mediaUrl, scheduledAt } = req.body as {
     platforms: string[]; content: string; mediaUrl?: string; scheduledAt?: string;
@@ -728,7 +728,7 @@ router.post("/posts", async (req, res) => {
 router.put("/posts/:id", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require Tier 1a or higher" }); return; }
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
   const [existing] = await db
     .select()
@@ -800,7 +800,7 @@ router.put("/posts/:id", async (req, res) => {
 router.delete("/posts/:id", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require Tier 1a or higher" }); return; }
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
   const [existing] = await db
     .select()
@@ -830,7 +830,7 @@ router.delete("/posts/:id", async (req, res) => {
 router.get("/rules", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require Tier 1a or higher" }); return; }
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
   const rules = await db
     .select()
@@ -844,7 +844,7 @@ router.get("/rules", async (req, res) => {
 router.post("/rules", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require Tier 1a or higher" }); return; }
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
   const { name, platforms, frequency, dayOfWeek, timeOfDay, contentType, customPrompt } = req.body as {
     name: string; platforms: string[]; frequency: string; dayOfWeek?: string;
@@ -885,7 +885,7 @@ router.post("/rules", async (req, res) => {
 router.put("/rules/:id", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require Tier 1a or higher" }); return; }
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
   const [existing] = await db
     .select()
@@ -948,7 +948,7 @@ router.put("/rules/:id", async (req, res) => {
 router.delete("/rules/:id", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require Tier 1a or higher" }); return; }
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
   const [existing] = await db
     .select()
@@ -966,7 +966,7 @@ router.delete("/rules/:id", async (req, res) => {
 router.get("/strategy", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsStrategy(org.tier)) { res.status(403).json({ error: "Content strategy requires Tier 3" }); return; }
+  if (!tierAllowsStrategy(org.tier)) { res.status(403).json({ error: "Content strategy requires the Total Operations plan" }); return; }
 
   const [strategy] = await db
     .select()
@@ -979,7 +979,7 @@ router.get("/strategy", async (req, res) => {
 router.put("/strategy", async (req, res) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsStrategy(org.tier)) { res.status(403).json({ error: "Content strategy requires Tier 3" }); return; }
+  if (!tierAllowsStrategy(org.tier)) { res.status(403).json({ error: "Content strategy requires the Total Operations plan" }); return; }
 
   const { tone, postingFrequency, topics, platforms, isAutonomous } = req.body as {
     tone?: string; postingFrequency?: string; topics?: string[]; platforms?: string[]; isAutonomous?: boolean;

@@ -423,7 +423,7 @@ export default function Domains() {
           <div>
             <p className="text-sm font-medium text-white">Domain add-on — $24/year</p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Purchase a custom domain below, or bring your own. Upgrade to Tier 1a for a free included domain.
+              Purchase a custom domain below, or bring your own. Upgrade to the Autopilot plan for a free included domain.
             </p>
           </div>
         </div>

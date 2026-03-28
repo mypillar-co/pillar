@@ -1,7 +1,7 @@
 import React from "react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Calendar, Users, Star, ArrowRight, Plus, Globe, Contact2, Share2, Lock, Sparkles } from "lucide-react";
+import { Calendar, Users, Star, ArrowRight, Plus, Globe, Contact2, Share2, Lock, Sparkles, CheckCircle2, Circle, CreditCard, Zap } from "lucide-react";
 import { useGetOrganization, useGetSubscription, useCreateCheckoutSession } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,13 @@ import { toast } from "sonner";
 
 const TIER_INCLUDES_EVENTS = new Set(["tier2", "tier3"]);
 const TIER_INCLUDES_SOCIAL = new Set(["tier1a", "tier2", "tier3"]);
+
+const TIER_LABELS: Record<string, string> = {
+  tier1: "Starter",
+  tier1a: "Autopilot",
+  tier2: "Events",
+  tier3: "Total Operations",
+};
 
 function FeatureCard({
   icon: Icon, title, description, href, available, requiredTier, onUpgrade,
@@ -66,6 +73,15 @@ function StatCard({ title, value, icon: Icon, sub }: { title: string; value: num
   );
 }
 
+interface SetupStep {
+  key: string;
+  label: string;
+  description: string;
+  href: string;
+  icon: React.ElementType;
+  done: boolean;
+}
+
 export default function Overview() {
   const { data: orgData } = useGetOrganization();
   const org = orgData?.organization;
@@ -73,6 +89,14 @@ export default function Overview() {
   const { mutate: createCheckout } = useCreateCheckoutSession();
   const { data: stats } = useQuery({ queryKey: ["stats"], queryFn: () => api.stats.get() });
   const { data: events } = useQuery({ queryKey: ["events"], queryFn: () => api.events.list() });
+  const { data: siteData } = useQuery({
+    queryKey: ["site-status"],
+    queryFn: () => fetch("/api/sites/my", { credentials: "include" }).then(r => r.ok ? r.json() : null),
+  });
+  const { data: socialAccounts } = useQuery({
+    queryKey: ["social-accounts"],
+    queryFn: () => fetch("/api/social/accounts", { credentials: "include" }).then(r => r.ok ? r.json() : []),
+  });
 
   const upcomingEvents = events
     ?.filter((e: EventItem) => e.startDate && e.startDate >= new Date().toISOString().split("T")[0])
@@ -90,9 +114,49 @@ export default function Overview() {
     });
   };
 
+  const hasSite = !!siteData?.site?.generatedHtml;
+  const hasAnyEvents = (stats?.activeEvents ?? 0) > 0;
+
+  const setupSteps: SetupStep[] = [
+    {
+      key: "plan",
+      label: "Choose a plan",
+      description: "Select the right level of automation for your organization",
+      href: "/billing",
+      icon: CreditCard,
+      done: hasPlan,
+    },
+    {
+      key: "site",
+      label: "Build your website",
+      description: "Chat with our AI to create your organization's website",
+      href: "/dashboard/site",
+      icon: Globe,
+      done: hasSite,
+    },
+    {
+      key: "event",
+      label: "Create your first event",
+      description: "Set up an event to start selling tickets and managing RSVPs",
+      href: "/dashboard/events",
+      icon: Calendar,
+      done: hasAnyEvents,
+    },
+    {
+      key: "social",
+      label: "Connect social media",
+      description: "Link Facebook, Instagram, or X for automated posting",
+      href: "/dashboard/social",
+      icon: Share2,
+      done: Array.isArray(socialAccounts) && socialAccounts.length > 0,
+    },
+  ];
+
+  const completedSteps = setupSteps.filter(s => s.done).length;
+  const allDone = completedSteps === setupSteps.length;
+
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
-      {/* Header */}
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">
@@ -100,14 +164,61 @@ export default function Overview() {
           </h1>
           <p className="text-muted-foreground text-sm mt-1">Here's what's happening with your organization.</p>
         </div>
-        {subscription?.tierId && (
+        {currentTierId && (
           <Badge variant="outline" className="border-primary/30 text-primary capitalize text-xs">
-            {subscription.tierId.replace(/_/g, " ")} Plan
+            {TIER_LABELS[currentTierId] ?? currentTierId} Plan
           </Badge>
         )}
       </div>
 
-      {/* Stat Cards */}
+      {!allDone && (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center">
+                  <Zap className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <CardTitle className="text-base text-white">Get set up</CardTitle>
+                  <CardDescription className="text-xs">{completedSteps} of {setupSteps.length} steps complete</CardDescription>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {setupSteps.map((s) => (
+                  <div
+                    key={s.key}
+                    className={`w-2 h-2 rounded-full ${s.done ? "bg-primary" : "bg-white/15"}`}
+                  />
+                ))}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="space-y-1">
+              {setupSteps.map((step) => (
+                <Link key={step.key} href={step.done ? "#" : step.href}>
+                  <div className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${step.done ? "opacity-60" : "hover:bg-white/5 cursor-pointer"}`}>
+                    {step.done ? (
+                      <CheckCircle2 className="w-5 h-5 text-primary flex-shrink-0" />
+                    ) : (
+                      <Circle className="w-5 h-5 text-muted-foreground/40 flex-shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium ${step.done ? "text-muted-foreground line-through" : "text-white"}`}>
+                        {step.label}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{step.description}</p>
+                    </div>
+                    {!step.done && <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard title="Active Events" value={stats?.activeEvents ?? 0} icon={Calendar} sub="Published events" />
         <StatCard title="Vendors" value={stats?.totalVendors ?? 0} icon={Users} sub="Active vendors" />
@@ -115,9 +226,7 @@ export default function Overview() {
         <StatCard title="Contacts" value={stats?.totalContacts ?? 0} icon={Contact2} sub="In your database" />
       </div>
 
-      {/* Main grid */}
       <div className="grid lg:grid-cols-3 gap-6">
-        {/* Upcoming Events */}
         <div className="lg:col-span-2">
           <Card className="border-white/10 bg-card/60 h-full">
             <CardHeader className="pb-3">
@@ -176,7 +285,6 @@ export default function Overview() {
           </Card>
         </div>
 
-        {/* Quick Actions */}
         <div>
           <Card className="border-white/10 bg-card/60">
             <CardHeader className="pb-3">
@@ -208,7 +316,6 @@ export default function Overview() {
         </div>
       </div>
 
-      {/* Feature Sections — org name + tier + Website/Events/Automation placeholder cards */}
       <div>
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -219,9 +326,9 @@ export default function Overview() {
                 : "Choose a plan to activate these features."}
             </p>
           </div>
-          {hasPlan && subscription?.tierId && (
+          {hasPlan && currentTierId && (
             <Badge variant="outline" className="border-primary/30 text-primary capitalize text-xs">
-              {subscription.tierId.replace(/_/g, " ")} Plan
+              {TIER_LABELS[currentTierId] ?? currentTierId} Plan
             </Badge>
           )}
         </div>
@@ -232,7 +339,7 @@ export default function Overview() {
             description="Your AI-generated website is live. Chat with Steward to request updates, add pages, or change content."
             href="/dashboard/site"
             available={hasPlan}
-            requiredTier="Tier 1"
+            requiredTier="Starter"
             onUpgrade={() => handleUpgrade("tier1")}
           />
           <FeatureCard
@@ -241,7 +348,7 @@ export default function Overview() {
             description="Create and manage events, track ticket sales, handle approvals, and send communications to attendees."
             href="/dashboard/events"
             available={hasEvents}
-            requiredTier="Tier 2"
+            requiredTier="Events"
             onUpgrade={() => handleUpgrade("tier2")}
           />
           <FeatureCard
@@ -249,7 +356,7 @@ export default function Overview() {
             title="Automation"
             description="Automatically post updates to social media and keep your site current based on your organization's schedule."
             available={hasSocial}
-            requiredTier="Tier 1a"
+            requiredTier="Autopilot"
             onUpgrade={() => handleUpgrade("tier1a")}
           />
         </div>

@@ -1287,7 +1287,7 @@ export default function Social() {
             <Lock className="w-10 h-10 text-slate-500 mx-auto mb-3" />
             <h2 className="text-white font-semibold mb-2">Upgrade to unlock Social Media</h2>
             <p className="text-sm text-slate-400 max-w-sm mx-auto mb-4">
-              Social media automation is available on Tier 1a ($59/mo) and above. Connect Facebook, Instagram, and X to start posting automatically.
+              Social media automation is available on the Autopilot plan ($59/mo) and above. Connect Facebook, Instagram, and X to start posting automatically.
             </p>
             <Button asChild className="bg-primary hover:bg-primary/90">
               <a href="/billing">View Plans</a>

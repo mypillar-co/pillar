@@ -1,31 +1,30 @@
-// Steward subscription tier catalog
-// stripePriceId is populated after running the seed-products script
-
 export interface TierDefinition {
   id: string;
   name: string;
   description: string;
-  price: number; // monthly, USD
+  price: number;
+  annualPrice: number;
   features: string[];
   stripePriceId: string | null;
   highlight?: boolean;
-  domainIncluded: boolean;    // free domain with plan
-  domainAddonAvailable: boolean; // can purchase domain add-on
+  domainIncluded: boolean;
+  domainAddonAvailable: boolean;
 }
 
 export const TIERS: TierDefinition[] = [
   {
     id: "tier1",
-    name: "Tier 1 — Website",
-    description: "AI builds your website. You interact with the AI to request any changes.",
+    name: "Starter",
+    description: "Your AI-built website, live in minutes. Chat to update anytime.",
     price: 29,
+    annualPrice: 24,
     features: [
-      "AI-generated website",
-      "Chat to request updates",
+      "AI-generated website in under 10 minutes",
+      "Chat-based updates anytime",
       "Subdomain hosting (yourorg.steward.app)",
       "Mobile-responsive design",
-      "SEO basics included",
-      "Custom domain add-on available (+$24/yr)",
+      "SEO fundamentals included",
+      "Custom domain add-on (+$24/yr)",
     ],
     stripePriceId: null,
     domainIncluded: false,
@@ -33,15 +32,16 @@ export const TIERS: TierDefinition[] = [
   },
   {
     id: "tier1a",
-    name: "Tier 1a — Hands-Off Website",
-    description: "Website + automatic maintenance. Tell us your schedule once and the AI keeps everything current — including social media.",
+    name: "Autopilot",
+    description: "Set it and forget it. Your website and social media stay current without you lifting a finger.",
     price: 59,
+    annualPrice: 49,
     features: [
-      "Everything in Tier 1",
+      "Everything in Starter",
       "Autonomous content updates",
       "Social media posting (Facebook, Instagram, X)",
       "Recurring schedule management",
-      "No interaction required",
+      "Zero maintenance required",
       "1 free custom domain included",
     ],
     stripePriceId: null,
@@ -51,16 +51,17 @@ export const TIERS: TierDefinition[] = [
   },
   {
     id: "tier2",
-    name: "Tier 2 — Website + Events",
-    description: "Website + event dashboard. Manage events, track ticket sales, handle approvals and communications.",
+    name: "Events",
+    description: "Run events, sell tickets, and manage attendees alongside your autonomous website.",
     price: 99,
+    annualPrice: 84,
     features: [
-      "Everything in Tier 1",
+      "Everything in Autopilot",
       "Event creation & management",
-      "Ticket sales tracking",
+      "Online ticket sales & collection",
       "Attendee communications",
       "Approval workflows",
-      "Event metrics dashboard",
+      "Event metrics & revenue dashboard",
       "1 free custom domain included",
     ],
     stripePriceId: null,
@@ -69,14 +70,15 @@ export const TIERS: TierDefinition[] = [
   },
   {
     id: "tier3",
-    name: "Tier 3 — Fully Autonomous",
-    description: "Complete hands-off operation. The AI runs your website, events, and social media. You only check in if you want to.",
+    name: "Total Operations",
+    description: "The full digital agency experience. AI runs your website, events, and social media end to end.",
     price: 149,
+    annualPrice: 124,
     features: [
-      "Everything in Tier 2",
+      "Everything in Events",
       "Fully autonomous event scheduling",
-      "AI-generated social content",
-      "Autonomous website updates",
+      "AI-generated social content calendar",
+      "Autonomous website refreshes",
       "Priority support",
       "1 free custom domain included",
     ],

@@ -146,23 +146,23 @@ router.post("/builder", async (req: Request, res: Response) => {
   const type = orgType ?? org.type ?? "organization";
   const trimmedHistory = history.slice(-(CONTEXT_TURNS * 2));
 
-  const systemPrompt = `You are a friendly website consultant helping ${name} (a ${type}) build their public website through Steward.
+  const systemPrompt = `You are a friendly, professional website consultant for Steward — an AI platform that builds websites for civic organizations, nonprofits, clubs, and community groups.
 
-Your job is to conduct a structured interview to gather website content. Ask ONE question at a time.
+You're helping ${name} (a ${type}) build their public website. Your job is to conduct a focused interview, asking ONE question at a time. Be warm but efficient.
 
 Interview sequence — follow this order exactly:
-1. "Let's build your website! First — what is ${name}'s mission or main purpose? Describe it in 1-2 sentences."
-2. "What services, programs, or activities do you offer your members or community?"
-3. "Where are you located? Include your address or meeting location, and when you typically meet or operate."
-4. "Do you host events or programs throughout the year? If so, give a couple of examples."
-5. "How can visitors contact you? (email address, phone number, and any social media handles)"
-6. "Who is your primary audience — who do you serve or want to attract to your site?"
-7. "Any color preferences for the site? (e.g., 'navy and gold', 'forest green and white', 'clean and modern black')"
-8. "Last one — is there anything else to feature? (announcements, sponsor logos, history, membership info, etc.)"
+1. "Let's build ${name}'s website! First — in one or two sentences, what is your mission or main purpose? What does ${name} do for the community?"
+2. "What programs, services, or activities do you offer? These will become feature cards on your site."
+3. "Where are you located? Include the address or meeting place, plus your regular schedule (meeting days, office hours, etc.)."
+4. "Tell me about your events — any recurring gatherings, annual fundraisers, community events, or programs people can attend?"
+5. "How should visitors reach you? Share an email, phone number, and any social media profiles (Facebook page, Instagram, etc.)."
+6. "Who are you trying to reach? New members, volunteers, donors, community residents, families?"
+7. "Any color or style preferences? For example: 'navy and gold', 'earth tones', 'clean and modern'. If not sure, I'll pick something that fits your organization's character."
+8. "Last question — anything else to highlight? For example: founding history, membership benefits, sponsor recognition, upcoming announcements, or a call for volunteers."
 
-After each answer, acknowledge in ONE brief sentence, then ask the next question.
+After each answer, acknowledge warmly in ONE sentence that shows you understood, then ask the next question.
 After collecting all 8 answers, say EXACTLY: "I have everything I need! Click **Generate My Site** to build your website."
-Keep every response under 60 words. Stay focused — no extra suggestions.`;
+Keep every response under 60 words. Stay conversational and encouraging. Never suggest changes or improvements — just collect info.`;
 
   const messages: OpenAI.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
@@ -224,7 +224,7 @@ router.get("/my/proposal-preview", async (req: Request, res: Response) => {
   if (!org) return;
 
   if (!TIERS_ALLOWING_CHANGES.has(org.tier ?? "")) {
-    res.status(403).json({ error: "Change requests require a paid plan (Tier 1 or higher)" });
+    res.status(403).json({ error: "Change requests require a paid plan (Starter or higher)" });
     return;
   }
 
@@ -359,30 +359,41 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
     ? `\nLOGO: The organization has uploaded a logo image. In the nav bar, replace the text logo with: <img src="${logoDataUrl}" alt="${safeOrgName} logo" style="height:48px;width:auto;object-fit:contain;display:block;"> — keep it left-aligned. Also include a smaller version in the footer.`
     : "";
 
-  const genSystemMsg = `You are an expert web developer. Generate a complete, beautiful, self-contained HTML page.
+  const genSystemMsg = `You are an elite web designer creating a polished, modern website for a civic organization. Generate a complete, self-contained HTML page that looks like it was designed by a professional agency.
 
 STRICT RULES:
 - Output ONLY valid HTML — start with <!DOCTYPE html>, end with </html>
 - No markdown, no code fences, no text before or after the HTML
 - All CSS must be in a <style> tag inside <head> — no external stylesheets or CDN links
-- No external dependencies — use system font stacks only (e.g. -apple-system, Georgia, sans-serif)
+- No external dependencies — use system font stacks: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif for body; Georgia, 'Times New Roman', serif for headings if a classic feel is requested
 - No JavaScript whatsoever
-- Fully responsive with CSS flexbox/grid and media queries
+- Fully responsive with CSS flexbox/grid and @media queries for mobile (max-width: 768px)
 - Use semantic HTML5 (header, main, section, footer, nav)
-- Smooth transitions/hover effects via CSS only
-- Professionally designed: consistent spacing, clear visual hierarchy, good color contrast
+
+DESIGN STANDARDS — follow these closely:
+- Generous whitespace: sections should have 80-100px vertical padding, cards should breathe
+- Typography hierarchy: hero heading 3-4rem, section headings 2rem, body 1rem, with clear weight contrast
+- Subtle depth: use box-shadow (0 2px 15px rgba(0,0,0,0.08)) on cards, not heavy borders
+- Smooth hover transitions on buttons and cards (transition: all 0.3s ease)
+- Rounded corners (border-radius: 12px for cards, 8px for buttons)
+- Full-width sections with max-width containers (1200px) centered inside
+- Buttons with padding (14px 32px), bold text, subtle shadows, and hover lift effect
+- Navigation should be clean with good spacing between links, slightly transparent on scroll
+- Use CSS gradients tastefully — e.g., a subtle gradient overlay on the hero
+- The hero section should be visually striking — at least 70vh height with a bold heading
+- Color palette: use the primary color for CTAs and accents, a darker shade for backgrounds/nav, white or light for text contrast
 
 REQUIRED SECTIONS (in order):
-1. Sticky navigation bar — org name/logo on left, links on right${logoInstruction}
-2. Hero — large heading, tagline, brief mission blurb, a call-to-action button
-3. About — mission/purpose in more detail
-${s.services.length > 0 ? `4. Services — responsive grid of cards for: ${s.services.join(", ")}` : "4. Programs — responsive grid of 3 placeholder cards with icons"}
-${allEvents.length > 0 ? `5. Upcoming Events — visually appealing card list. Each card should show the event name, date, time, and location in a clean layout.` : ""}
-6. Contact — email, phone, address, social media in a clean layout
-7. Footer — org name, © ${new Date().getFullYear()}, tagline
+1. Sticky navigation bar — org name/logo on left, section links on right, clean and minimal${logoInstruction}
+2. Hero — full-width, dramatic heading with tagline, a CTA button ("Join Us", "Learn More", or similar), subtle gradient overlay
+3. About / Mission — clean two-column or centered layout explaining the organization's purpose
+${s.services.length > 0 ? `4. Programs & Services — responsive grid (2-3 columns) of cards with subtle icons or colored accents for: ${s.services.join(", ")}` : "4. What We Do — responsive grid of 3 cards describing key activities"}
+${allEvents.length > 0 ? `5. Upcoming Events — card-based layout. Each card: event name (bold), date/time, location, and a brief description. Use a subtle left border accent in the primary color.` : ""}
+6. Contact — clean layout with email, phone, address, and social links. Consider a two-column layout (info on left, a simple styled box on right)
+7. Footer — org name, links, copyright © ${new Date().getFullYear()}, tagline. Dark background with lighter text.
 
 COLOR SCHEME: ${s.colors || "professional navy and gold"}.
-Use real content from the spec — never use lorem ipsum or placeholder text.`;
+Use ONLY real content from the spec below — never use lorem ipsum, placeholder text, or made-up information.`;
 
   const genUserMsg = `Build a website for:
 Name: ${s.orgName}
@@ -455,7 +466,7 @@ router.post("/change-request/propose", async (req: Request, res: Response) => {
   if (!org) return;
 
   if (!TIERS_ALLOWING_CHANGES.has(org.tier ?? "")) {
-    res.status(403).json({ error: "Change requests require a paid plan (Tier 1 or higher)" });
+    res.status(403).json({ error: "Change requests require a paid plan (Starter or higher)" });
     return;
   }
 
@@ -513,7 +524,7 @@ router.post("/change-request/apply", async (req: Request, res: Response) => {
   if (!org) return;
 
   if (!TIERS_ALLOWING_CHANGES.has(org.tier ?? "")) {
-    res.status(403).json({ error: "Change requests require a paid plan (Tier 1 or higher)" });
+    res.status(403).json({ error: "Change requests require a paid plan (Starter or higher)" });
     return;
   }
 
@@ -536,7 +547,7 @@ router.post("/sync-events", async (req: Request, res: Response) => {
   if (!org) return;
 
   if (!TIERS_ALLOWING_CHANGES.has(org.tier ?? "")) {
-    res.status(403).json({ error: "Syncing events requires a paid plan (Tier 1 or higher)" });
+    res.status(403).json({ error: "Syncing events requires a paid plan (Starter or higher)" });
     return;
   }
 
@@ -628,7 +639,7 @@ Return the complete updated HTML document.`;
 router.get("/schedule", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsSchedule(org.tier)) { res.status(403).json({ error: "Schedule requires Tier 1a or higher" }); return; }
+  if (!tierAllowsSchedule(org.tier)) { res.status(403).json({ error: "Schedule requires the Autopilot plan or higher" }); return; }
   const [schedule] = await db.select().from(siteUpdateSchedulesTable).where(eq(siteUpdateSchedulesTable.orgId, org.id));
   res.json({ schedule: schedule ?? null });
 });
@@ -636,7 +647,7 @@ router.get("/schedule", async (req: Request, res: Response) => {
 router.post("/schedule", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsSchedule(org.tier)) { res.status(403).json({ error: "Schedule requires Tier 1a or higher" }); return; }
+  if (!tierAllowsSchedule(org.tier)) { res.status(403).json({ error: "Schedule requires the Autopilot plan or higher" }); return; }
 
   const { frequency, dayOfWeek, updateItems, customInstructions, isActive } = req.body as {
     frequency: string; dayOfWeek?: string; updateItems?: string[];
@@ -669,7 +680,7 @@ router.post("/schedule", async (req: Request, res: Response) => {
 router.delete("/schedule", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsSchedule(org.tier)) { res.status(403).json({ error: "Schedule requires Tier 1a or higher" }); return; }
+  if (!tierAllowsSchedule(org.tier)) { res.status(403).json({ error: "Schedule requires the Autopilot plan or higher" }); return; }
   await db.delete(siteUpdateSchedulesTable).where(eq(siteUpdateSchedulesTable.orgId, org.id));
   res.json({ success: true });
 });
@@ -678,7 +689,7 @@ router.delete("/schedule", async (req: Request, res: Response) => {
 router.post("/schedule/run", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
-  if (!tierAllowsSchedule(org.tier)) { res.status(403).json({ error: "Schedule requires Tier 1a or higher" }); return; }
+  if (!tierAllowsSchedule(org.tier)) { res.status(403).json({ error: "Schedule requires the Autopilot plan or higher" }); return; }
 
   const [site] = await db.select().from(sitesTable).where(eq(sitesTable.orgId, org.id));
   if (!site?.generatedHtml) { res.status(404).json({ error: "No site to update" }); return; }

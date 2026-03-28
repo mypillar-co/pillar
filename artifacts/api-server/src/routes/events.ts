@@ -56,7 +56,7 @@ router.use(async (req: Request, res: Response, next: NextFunction) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
   const [org] = await db.select({ tier: organizationsTable.tier }).from(organizationsTable).where(eq(organizationsTable.userId, req.user.id));
   if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
-  if (!tierAllowsEvents(org.tier)) { res.status(403).json({ error: "Event features require Tier 2 or higher" }); return; }
+  if (!tierAllowsEvents(org.tier)) { res.status(403).json({ error: "Event features require the Events plan or higher" }); return; }
   next();
 });
 
@@ -121,7 +121,7 @@ router.get("/recurring/templates", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
   if (!tierAllowsRecurring(org.tier)) {
-    res.status(403).json({ error: "Recurring events require Tier 3" });
+    res.status(403).json({ error: "Recurring events require the Total Operations plan" });
     return;
   }
   const templates = await db.select().from(recurringEventTemplatesTable).where(eq(recurringEventTemplatesTable.orgId, org.id)).orderBy(asc(recurringEventTemplatesTable.name));
@@ -133,7 +133,7 @@ router.post("/recurring/templates", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
   if (!tierAllowsRecurring(org.tier)) {
-    res.status(403).json({ error: "Recurring events require Tier 3" });
+    res.status(403).json({ error: "Recurring events require the Total Operations plan" });
     return;
   }
   const body = req.body as Record<string, unknown>;
@@ -163,7 +163,7 @@ router.put("/recurring/templates/:id", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
   if (!tierAllowsRecurring(org.tier)) {
-    res.status(403).json({ error: "Recurring events require Tier 3" });
+    res.status(403).json({ error: "Recurring events require the Total Operations plan" });
     return;
   }
   const body = req.body as Record<string, unknown>;
@@ -190,7 +190,7 @@ router.post("/recurring/templates/:id/generate", async (req: Request, res: Respo
   const org = await resolveOrg(req, res);
   if (!org) return;
   if (!tierAllowsRecurring(org.tier)) {
-    res.status(403).json({ error: "Recurring events require Tier 3" });
+    res.status(403).json({ error: "Recurring events require the Total Operations plan" });
     return;
   }
   const [template] = await db.select().from(recurringEventTemplatesTable).where(and(eq(recurringEventTemplatesTable.id, String(req.params.id)), eq(recurringEventTemplatesTable.orgId, org.id)));

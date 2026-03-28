@@ -246,9 +246,9 @@ export default function Events() {
           <div className="w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center mb-4">
             <Lock className="w-6 h-6 text-amber-400" />
           </div>
-          <h3 className="text-lg font-semibold text-white mb-1">Event Management requires Tier 2+</h3>
+          <h3 className="text-lg font-semibold text-white mb-1">Event Management requires the Events plan</h3>
           <p className="text-sm text-muted-foreground mb-5 text-center max-w-sm">
-            Upgrade to Tier 2 ($99/mo) to create events, sell tickets, and track attendance.
+            Upgrade to the Events plan ($99/mo) to create events, sell tickets, and track attendance.
           </p>
           <Link href="/billing">
             <Button className="bg-amber-500 hover:bg-amber-400 text-black font-semibold">
