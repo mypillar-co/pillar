@@ -43,7 +43,8 @@ The project is organized as a monorepo containing several distinct packages:
 | tier3 | Total Operations | $149 | $124/mo | + fully autonomous events, AI social content |
 
 ### Core Features
-- **AI Site Builder**: Chat-based interview (8 questions) using AI models to generate and update organizational websites. Includes event data injection and logo upload. Enhanced design prompts for professional-quality output.
+- **AI Site Builder**: Chat-based interview (8 questions) using AI models to generate and update organizational websites. Includes event data injection, logo upload, Google Fonts typography, Unsplash photography, scroll animations, parallax effects, and responsive hamburger navigation. Sites are Squarespace-quality with CSS custom properties architecture.
+- **Guided Tour**: First-time dashboard visitors see a 5-step guided tour highlighting key features (Overview, Site Builder, Events, Social, Payments). Uses localStorage to track completion.
 - **Event Dashboard**: Management of events, vendors, sponsors, contacts, and payments.
 - **Payment Collection (Stripe Connect)**: Organizations connect their bank accounts via Stripe Express to collect ticket sales, vendor fees, and sponsorship payments. Steward takes 2.9% + $0.30 per transaction. Public ticket purchase pages at `/events/:slug/tickets` with Stripe Checkout. Atomic inventory reservation prevents overselling. Webhook handles `checkout.session.completed`, `checkout.session.expired` (releases inventory), and `charge.refunded` (marks refunds). Tax liability notice and nonprofit support built into Payments page.
 - **Social Media Automation**: Scheduling and publishing posts to platforms like Facebook, Instagram, and X.
