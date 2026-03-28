@@ -1,5 +1,5 @@
 import { db, organizationsTable, subscriptionsTable, ticketSalesTable, ticketTypesTable } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { getStripeSync } from "./stripeClient";
 import { logger } from "./lib/logger";
 import type Stripe from "stripe";
@@ -101,9 +101,6 @@ async function cancelSubscription(
 }
 
 async function handleTicketPaymentCompleted(session: Stripe.Checkout.Session): Promise<void> {
-  const { eventId, ticketTypeId, quantity } = session.metadata ?? {};
-  if (!eventId || !ticketTypeId || !quantity) return;
-
   const paymentIntentId = typeof session.payment_intent === "string"
     ? session.payment_intent
     : session.payment_intent?.id ?? null;
@@ -123,18 +120,61 @@ async function handleTicketPaymentCompleted(session: Stripe.Checkout.Session): P
     .returning({ id: ticketSalesTable.id });
 
   if (updated.length === 0) {
-    logger.info({ sessionId: session.id }, "Ticket payment already processed (idempotent skip)");
+    logger.info({ sessionId: session.id }, "Ticket payment already processed or not found (idempotent skip)");
     return;
   }
 
-  await db
-    .update(ticketTypesTable)
-    .set({
-      sold: sql`${ticketTypesTable.sold} + ${parseInt(quantity)}`,
-    })
-    .where(eq(ticketTypesTable.id, ticketTypeId));
+  logger.info({ sessionId: session.id, paymentIntentId }, "Ticket payment completed");
+}
 
-  logger.info({ eventId, ticketTypeId, quantity, sessionId: session.id }, "Ticket payment completed");
+async function handleCheckoutExpired(session: Stripe.Checkout.Session): Promise<void> {
+  const sale = await db
+    .update(ticketSalesTable)
+    .set({ paymentStatus: "expired" })
+    .where(
+      and(
+        eq(ticketSalesTable.stripeCheckoutSessionId, session.id),
+        sql`${ticketSalesTable.paymentStatus} = 'pending'`
+      )
+    )
+    .returning({ id: ticketSalesTable.id, ticketTypeId: ticketSalesTable.ticketTypeId, quantity: ticketSalesTable.quantity });
+
+  if (sale.length > 0) {
+    await db
+      .update(ticketTypesTable)
+      .set({ sold: sql`${ticketTypesTable.sold} - ${sale[0].quantity}` })
+      .where(eq(ticketTypesTable.id, sale[0].ticketTypeId));
+    logger.info({ sessionId: session.id, saleId: sale[0].id }, "Checkout expired — inventory released");
+  }
+}
+
+async function handleChargeRefunded(charge: Stripe.Charge): Promise<void> {
+  const paymentIntentId = typeof charge.payment_intent === "string"
+    ? charge.payment_intent
+    : charge.payment_intent?.id ?? null;
+
+  if (!paymentIntentId) return;
+
+  const sale = await db
+    .update(ticketSalesTable)
+    .set({ paymentStatus: charge.amount_refunded >= charge.amount ? "refunded" : "partial_refund" })
+    .where(
+      and(
+        eq(ticketSalesTable.stripePaymentIntentId, paymentIntentId),
+        sql`${ticketSalesTable.paymentStatus} = 'paid'`
+      )
+    )
+    .returning({ id: ticketSalesTable.id, ticketTypeId: ticketSalesTable.ticketTypeId, quantity: ticketSalesTable.quantity });
+
+  if (sale.length > 0 && charge.amount_refunded >= charge.amount) {
+    await db
+      .update(ticketTypesTable)
+      .set({ sold: sql`${ticketTypesTable.sold} - ${sale[0].quantity}` })
+      .where(eq(ticketTypesTable.id, sale[0].ticketTypeId));
+    logger.info({ paymentIntentId, saleId: sale[0].id }, "Full refund — inventory released");
+  } else if (sale.length > 0) {
+    logger.info({ paymentIntentId, saleId: sale[0].id }, "Partial refund recorded");
+  }
 }
 
 async function handleConnectAccountUpdated(account: Stripe.Account): Promise<void> {
@@ -169,14 +209,7 @@ export class WebhookHandlers {
       return;
     }
 
-    try {
-      await WebhookHandlers.handleEvent(event);
-    } catch (err) {
-      logger.error(
-        { err, eventType: event.type },
-        "Error handling webhook event for app-level persistence",
-      );
-    }
+    await WebhookHandlers.handleEvent(event);
   }
 
   static async handleEvent(event: Stripe.Event): Promise<void> {
@@ -218,9 +251,21 @@ export class WebhookHandlers {
           logger.info({ userId, tierId }, "Updated org customer from checkout.session.completed");
         }
 
-        if (session.metadata?.eventId && session.metadata?.ticketTypeId) {
+        if (session.metadata?.saleId || (session.metadata?.eventId && session.metadata?.ticketTypeId)) {
           await handleTicketPaymentCompleted(session);
         }
+        break;
+      }
+
+      case "checkout.session.expired": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        await handleCheckoutExpired(session);
+        break;
+      }
+
+      case "charge.refunded": {
+        const charge = event.data.object as Stripe.Charge;
+        await handleChargeRefunded(charge);
         break;
       }
 

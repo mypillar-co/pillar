@@ -177,19 +177,36 @@ router.post("/public/events/:slug/checkout", async (req: Request, res: Response)
     return;
   }
 
-  if (ticketType.quantity !== null && ticketType.sold + quantity > ticketType.quantity) {
-    res.status(400).json({ error: "Not enough tickets available" });
-    return;
-  }
-
   const [org] = await db
     .select()
     .from(organizationsTable)
     .where(eq(organizationsTable.id, event.orgId));
 
-  const totalAmount = ticketType.price * quantity;
+  const totalAmountCents = Math.round(ticketType.price * 100) * quantity;
 
-  if (totalAmount === 0) {
+  const reserveResult = ticketType.quantity !== null
+    ? await db
+        .update(ticketTypesTable)
+        .set({ sold: sql`${ticketTypesTable.sold} + ${quantity}` })
+        .where(
+          and(
+            eq(ticketTypesTable.id, ticketTypeId),
+            sql`${ticketTypesTable.sold} + ${quantity} <= ${ticketTypesTable.quantity}`
+          )
+        )
+        .returning()
+    : await db
+        .update(ticketTypesTable)
+        .set({ sold: sql`${ticketTypesTable.sold} + ${quantity}` })
+        .where(eq(ticketTypesTable.id, ticketTypeId))
+        .returning();
+
+  if (!reserveResult.length) {
+    res.status(400).json({ error: "Not enough tickets available" });
+    return;
+  }
+
+  if (totalAmountCents === 0) {
     const [sale] = await db
       .insert(ticketSalesTable)
       .values({
@@ -206,63 +223,18 @@ router.post("/public/events/:slug/checkout", async (req: Request, res: Response)
       })
       .returning();
 
-    await db
-      .update(ticketTypesTable)
-      .set({ sold: sql`${ticketTypesTable.sold} + ${quantity}` })
-      .where(eq(ticketTypesTable.id, ticketTypeId));
-
     res.json({ checkoutUrl: null, saleId: sale.id, free: true });
     return;
   }
 
   if (!org.stripeConnectAccountId || !org.stripeConnectOnboarded) {
+    await db
+      .update(ticketTypesTable)
+      .set({ sold: sql`${ticketTypesTable.sold} - ${quantity}` })
+      .where(eq(ticketTypesTable.id, ticketTypeId));
     res.status(400).json({ error: "This organization has not completed payment setup yet" });
     return;
   }
-
-  const stripe = await getUncachableStripeClient();
-  const unitAmountCents = Math.round(ticketType.price * 100);
-  const totalCents = unitAmountCents * quantity;
-
-  const applicationFeeAmount = Math.max(1, Math.round(totalCents * 0.029 + 30));
-
-  const origin = `${req.headers["x-forwarded-proto"] ?? "https"}://${req.headers["x-forwarded-host"] ?? req.headers["host"]}`;
-
-  const session = await stripe.checkout.sessions.create({
-    payment_method_types: ["card"],
-    line_items: [
-      {
-        price_data: {
-          currency: "usd",
-          product_data: {
-            name: `${ticketType.name} — ${event.name}`,
-            description: ticketType.description ?? `Ticket for ${event.name}`,
-          },
-          unit_amount: unitAmountCents,
-        },
-        quantity,
-      },
-    ],
-    mode: "payment",
-    customer_email: attendeeEmail || undefined,
-    payment_intent_data: {
-      application_fee_amount: applicationFeeAmount,
-      transfer_data: {
-        destination: org.stripeConnectAccountId,
-      },
-    },
-    metadata: {
-      eventId: event.id,
-      orgId: org.id,
-      ticketTypeId,
-      quantity: String(quantity),
-      attendeeName,
-      attendeeEmail: attendeeEmail ?? "",
-      attendeePhone: attendeePhone ?? "",
-    },
-    success_url: `${origin}/events/${slug}/tickets/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${origin}/events/${slug}/tickets?cancelled=true`,
-  });
 
   const [sale] = await db
     .insert(ticketSalesTable)
@@ -274,14 +246,80 @@ router.post("/public/events/:slug/checkout", async (req: Request, res: Response)
       attendeeEmail: attendeeEmail ?? null,
       attendeePhone: attendeePhone ?? null,
       quantity,
-      amountPaid: totalAmount,
+      amountPaid: totalAmountCents / 100,
       paymentMethod: "stripe",
-      stripeCheckoutSessionId: session.id,
       paymentStatus: "pending",
     })
     .returning();
 
-  res.json({ checkoutUrl: session.url, saleId: sale.id });
+  const stripe = await getUncachableStripeClient();
+  const unitAmountCents = Math.round(ticketType.price * 100);
+
+  const applicationFeeAmount = Math.max(1, Math.round(totalAmountCents * 0.029 + 30));
+  if (applicationFeeAmount >= totalAmountCents) {
+    await db.delete(ticketSalesTable).where(eq(ticketSalesTable.id, sale.id));
+    await db
+      .update(ticketTypesTable)
+      .set({ sold: sql`${ticketTypesTable.sold} - ${quantity}` })
+      .where(eq(ticketTypesTable.id, ticketTypeId));
+    res.status(400).json({ error: "Ticket price is too low for paid processing. Consider making this ticket free." });
+    return;
+  }
+
+  const appUrl = process.env.APP_URL
+    || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null)
+    || `${req.headers["x-forwarded-proto"] ?? "https"}://${req.headers["x-forwarded-host"] ?? req.headers["host"]}`;
+
+  try {
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: `${ticketType.name} — ${event.name}`,
+              description: ticketType.description ?? `Ticket for ${event.name}`,
+            },
+            unit_amount: unitAmountCents,
+          },
+          quantity,
+        },
+      ],
+      mode: "payment",
+      customer_email: attendeeEmail || undefined,
+      payment_intent_data: {
+        application_fee_amount: applicationFeeAmount,
+        transfer_data: {
+          destination: org.stripeConnectAccountId,
+        },
+      },
+      metadata: {
+        saleId: sale.id,
+        eventId: event.id,
+        orgId: org.id,
+        ticketTypeId,
+        quantity: String(quantity),
+      },
+      success_url: `${appUrl}/events/${slug}/tickets/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appUrl}/events/${slug}/tickets?cancelled=true`,
+      expires_after: 1800,
+    });
+
+    await db
+      .update(ticketSalesTable)
+      .set({ stripeCheckoutSessionId: session.id })
+      .where(eq(ticketSalesTable.id, sale.id));
+
+    res.json({ checkoutUrl: session.url, saleId: sale.id });
+  } catch (err) {
+    await db.delete(ticketSalesTable).where(eq(ticketSalesTable.id, sale.id));
+    await db
+      .update(ticketTypesTable)
+      .set({ sold: sql`${ticketTypesTable.sold} - ${quantity}` })
+      .where(eq(ticketTypesTable.id, ticketTypeId));
+    throw err;
+  }
 });
 
 router.get("/public/events/:slug", async (req: Request, res: Response) => {
