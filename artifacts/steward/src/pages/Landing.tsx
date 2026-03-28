@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { motion, type Variants } from "framer-motion";
 import { Link } from "wouter";
-import { CheckCircle2, Bot, Calendar, Globe, Share2, Shield, Zap, Users, ArrowRight, MessageSquare, Clock } from "lucide-react";
+import { CheckCircle2, Bot, Calendar, Globe, Share2, Shield, Zap, Users, ArrowRight, MessageSquare, Clock, Building2, Heart, Trophy, Megaphone, TreePine, Coffee, GraduationCap } from "lucide-react";
 import { useAuth, LoginButton } from "@workspace/replit-auth-web";
 import { useListTiers, useGetOrganization } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -65,6 +65,36 @@ const stats = [
   { value: "24/7", label: "Automated updates" },
   { value: "3-in-1", label: "Website + Events + Social" },
   { value: "$0", label: "Setup fees" },
+];
+
+const orgTypes = [
+  { icon: <Building2 className="w-5 h-5" />, label: "Chambers of Commerce" },
+  { icon: <Heart className="w-5 h-5" />, label: "Nonprofits" },
+  { icon: <Trophy className="w-5 h-5" />, label: "Civic Clubs" },
+  { icon: <Megaphone className="w-5 h-5" />, label: "Community Groups" },
+  { icon: <TreePine className="w-5 h-5" />, label: "Conservation Orgs" },
+  { icon: <Coffee className="w-5 h-5" />, label: "Business Associations" },
+  { icon: <Users className="w-5 h-5" />, label: "Fraternal Organizations" },
+  { icon: <GraduationCap className="w-5 h-5" />, label: "Alumni Chapters" },
+];
+
+const painPoints = [
+  {
+    before: "Paying $200–$500/mo to update a website",
+    after: "AI updates your site in seconds, for free",
+  },
+  {
+    before: "Posting on social media manually every week",
+    after: "Steward writes and schedules posts automatically",
+  },
+  {
+    before: "Using 4 different tools for events, payments, and contacts",
+    after: "One dashboard. Everything connected.",
+  },
+  {
+    before: "Events don't appear on your website until someone updates it",
+    after: "Events publish to your website the moment you create them",
+  },
 ];
 
 export default function Landing() {
@@ -153,6 +183,33 @@ export default function Landing() {
                 <span>Cancel anytime</span>
               </div>
             </div>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* Built for section */}
+      <section className="py-14 border-y border-white/6 bg-secondary/20">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <p className="text-center text-sm text-muted-foreground mb-8 uppercase tracking-widest font-medium">Built for civic &amp; community organizations</p>
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="flex flex-wrap items-center justify-center gap-3"
+          >
+            {orgTypes.map((org, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, scale: 0.9 }}
+                whileInView={{ opacity: 1, scale: 1 }}
+                viewport={{ once: true }}
+                transition={{ delay: i * 0.05 }}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-full border border-white/10 bg-white/4 text-sm text-slate-300 hover:border-primary/30 hover:text-white hover:bg-primary/5 transition-all"
+              >
+                <span className="text-primary">{org.icon}</span>
+                {org.label}
+              </motion.div>
+            ))}
           </motion.div>
         </div>
       </section>
@@ -277,6 +334,39 @@ export default function Landing() {
               </div>
             ))}
           </motion.div>
+        </div>
+      </section>
+
+      {/* Pain Points / Before-After */}
+      <section className="py-24 bg-secondary/30 relative">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-14">
+            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">Stop doing it the hard way</h2>
+            <p className="text-muted-foreground text-lg max-w-xl mx-auto">
+              Most civic organizations are managing their digital presence with outdated, expensive, or time-consuming tools. Here's what changes with Steward.
+            </p>
+          </div>
+          <div className="space-y-4">
+            {painPoints.map((point, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, x: -20 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: i * 0.1 }}
+                className="grid grid-cols-1 md:grid-cols-2 gap-3"
+              >
+                <div className="flex items-start gap-3 px-5 py-4 rounded-xl border border-red-500/15 bg-red-500/5">
+                  <span className="text-red-400 mt-0.5 flex-shrink-0 text-lg leading-none">✗</span>
+                  <p className="text-sm text-slate-400 leading-relaxed">{point.before}</p>
+                </div>
+                <div className="flex items-start gap-3 px-5 py-4 rounded-xl border border-primary/20 bg-primary/5">
+                  <span className="text-primary mt-0.5 flex-shrink-0 text-lg leading-none">✓</span>
+                  <p className="text-sm text-slate-200 leading-relaxed font-medium">{point.after}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
         </div>
       </section>
 

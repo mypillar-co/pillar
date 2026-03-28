@@ -363,7 +363,7 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
   const isLight = /white|light|pastel|cream|beige|soft/i.test(colorHints);
   const heroStyle = isLight ? "light hero with dark text" : "dark hero with light text";
 
-  const genSystemMsg = `You are a Squarespace-level web designer. Create a website that looks like a premium $15,000 template. The output must be indistinguishable from a professionally designed site.
+  const genSystemMsg = `You are an award-winning web designer. Your output must be indistinguishable from a $25,000 custom design studio build — visually stunning, animated, and polished to pixel perfection.
 
 OUTPUT RULES:
 - Output ONLY valid HTML. Start with <!DOCTYPE html>, end with </html>
@@ -381,77 +381,120 @@ SEO — include ALL of these in <head> (fill in real values from the spec):
   { "@context":"https://schema.org","@type":"Organization","name":"...","description":"...","email":"...","telephone":"...","address":{"@type":"PostalAddress","streetAddress":"..."} }
 ${allEvents.length > 0 ? `- A second <script type="application/ld+json"> for the first upcoming event using schema.org/Event type` : ""}
 
-FONTS — Use Google Fonts via <link> tags in <head>. Pick a beautiful pairing:
-- For a modern/clean feel: "Inter" for body + "Playfair Display" for headings
-- For a warm/classic feel: "Source Sans 3" for body + "Merriweather" for headings  
-- For a bold/contemporary feel: "DM Sans" for body + "Fraunces" for headings
-- Choose the pairing that best fits the organization's character. Always load weights 400, 500, 600, 700 for body font and 400, 700 for heading font.
+FONTS — Use Google Fonts via <link> tags in <head>. Pick the pairing that fits the org's personality:
+- Modern/clean: "Inter" body + "Plus Jakarta Sans" headings
+- Warm/classic: "Source Sans 3" body + "Lora" headings
+- Bold/contemporary: "DM Sans" body + "Syne" headings
+- Elegant/civic: "Nunito" body + "Fraunces" headings
+Always load weights 300, 400, 500, 600, 700 for body and 400, 600, 700 for headings.
 
-IMAGES — Use Unsplash source URLs for section backgrounds and visual content:
-- Hero background: <img src="https://images.unsplash.com/photo-[ID]?auto=format&fit=crop&w=1920&q=80"> — pick a photo that matches the organization type (community gathering, city hall, volunteers, people shaking hands, etc.)
-- About section: use a relevant Unsplash photo (people collaborating, community event, etc.)
-- Use real Unsplash photo IDs from popular images. Examples of safe IDs:
-  - Community/people: 1529156069898-aa78f52d3b87, 1559027615-cd4628902d4a, 1582213782179-e0d53f98f2ca
-  - Buildings/civic: 1486406146926-c627a92ad1ab, 1577495508326-19a1b3cf65b7
-  - Events/gathering: 1540575467063-178a50c9c6d0, 1511795409834-ef04bbd61622
+IMAGES — Use Unsplash source URLs:
+- Hero: <img src="https://images.unsplash.com/photo-[ID]?auto=format&fit=crop&w=1920&q=80"> — relevant to org type
+- About: supporting photo (community, collaboration, people)
+- Safe Unsplash IDs:
+  - Community/people: 1529156069898-aa78f52d3b87, 1559027615-cd4628902d4a, 1582213782179-e0d53f98f2ca, 1600880292203-757bb62b4baf
+  - Buildings/civic: 1486406146926-c627a92ad1ab, 1577495508326-19a1b3cf65b7, 1568992687947-868a62a9f521
+  - Events/gathering: 1540575467063-178a50c9c6d0, 1511795409834-ef04bbd61622, 1515187029135-18ee286d815b
   - Nature/outdoors: 1441974231531-c6227db76b6e, 1469474968028-56623f02e42e
-- Images must have: object-fit: cover; width: 100%; and appropriate height
-- Hero image should be used as a background with a color overlay for text readability
+- Hero image: position absolute, width 100%, height 100%, object-fit cover, with a multi-stop gradient overlay
 
-CSS ARCHITECTURE — all in a <style> tag:
-- CSS custom properties (variables) at :root for colors, fonts, spacing, border-radius
-- Example: :root { --primary: #1a365d; --primary-light: #2a4a7f; --accent: #d4a843; --text: #1a1a2e; --text-light: #64748b; --bg: #ffffff; --bg-alt: #f8fafc; --font-body: 'Inter', sans-serif; --font-heading: 'Playfair Display', serif; --radius: 12px; --shadow: 0 4px 6px -1px rgba(0,0,0,0.07), 0 10px 20px -2px rgba(0,0,0,0.05); --shadow-lg: 0 20px 40px -4px rgba(0,0,0,0.1); --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-- * { margin: 0; padding: 0; box-sizing: border-box; }
-- Fully responsive: mobile (<768px), tablet (<1024px), desktop. Mobile-first preferred.
+CSS ARCHITECTURE:
+:root {
+  --primary: [main brand color from spec];
+  --primary-light: [lighter variant];
+  --accent: [secondary accent color];
+  --text: #0f172a;
+  --text-light: #64748b;
+  --text-muted: #94a3b8;
+  --bg: #ffffff;
+  --bg-alt: #f8fafc;
+  --bg-dark: #0f172a;
+  --font-body: 'ChosenBody', sans-serif;
+  --font-heading: 'ChosenHeading', serif;
+  --radius: 14px;
+  --radius-lg: 24px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow: 0 4px 16px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04);
+  --shadow-lg: 0 20px 60px rgba(0,0,0,0.12), 0 8px 20px rgba(0,0,0,0.06);
+  --shadow-glow: 0 0 40px rgba([primary-rgb], 0.25);
+  --transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+Fully responsive: mobile-first, breakpoints at 768px and 1024px.
 
-TYPOGRAPHY — this is 50% of the design:
-- Hero heading: var(--font-heading), 3.5rem mobile / 5rem desktop, font-weight 700, letter-spacing -0.03em, line-height 1.1
-- Section headings: var(--font-heading), 2.2rem / 3rem, font-weight 700
-- Body text: var(--font-body), 1.05rem, line-height 1.8, color var(--text-light)
-- Small labels/captions: var(--font-body), 0.85rem, font-weight 500, uppercase, letter-spacing 0.08em, color var(--accent)
+TYPOGRAPHY — the foundation of a premium design:
+- Hero heading: var(--font-heading), clamp(2.8rem, 6vw, 5.5rem), font-weight 700, letter-spacing -0.04em, line-height 1.05
+- Gradient hero text: use background-clip: text + linear-gradient for a stunning heading accent color effect
+- Section headings: var(--font-heading), clamp(1.8rem, 3.5vw, 2.8rem), font-weight 700, letter-spacing -0.02em
+- Eyebrow labels: 0.78rem, font-weight 600, letter-spacing 0.12em, uppercase, var(--accent)
+- Body: var(--font-body), 1.05rem, line-height 1.85, color var(--text-light)
+- Lead paragraph: 1.2rem, line-height 1.7, color var(--text-light), max-width 560px
 
-LAYOUT PATTERNS — use these Squarespace-style layouts:
-- Hero: full-viewport image background with dark gradient overlay (linear-gradient(to bottom, rgba(0,0,0,0.5), rgba(0,0,0,0.7))), centered text, oversized heading
-- About: asymmetric two-column (60/40 split) — text block on one side, full-height image on the other, with generous padding
-- Services/Programs: CSS grid, 3 columns on desktop, 1 on mobile. Cards with white background, subtle shadow, hover lift, icon or accent top-border
-- Events: clean list or card layout with prominent date formatting
-- Contact: split layout or centered with subtle background tint
-- Footer: dark background, 3-4 column grid, clean typography
+VISUAL DEPTH — what separates elite from average:
+1. GRADIENT OVERLAYS: multi-stop gradients on hero (e.g. linear-gradient(160deg, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.3) 60%, rgba(0,0,0,0.6) 100%))
+2. GLASSMORPHISM cards: background: rgba(255,255,255,0.7); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.6); (use on overlaid elements)
+3. FLOATING BLOBS: 2-3 absolutely-positioned radial gradient blobs behind hero/featured sections. Example: position:absolute; width:600px; height:600px; background:radial-gradient(circle, rgba([primary-rgb],0.15) 0%, transparent 70%); border-radius:50%; pointer-events:none;
+4. CARD DESIGN: white bg, var(--radius), var(--shadow), a colored top border (4px solid var(--accent)), hover: translateY(-8px) + var(--shadow-lg) with transition. No flat cards.
+5. SECTION DIVIDERS: use clip-path on section tops for diagonal/wave separators: clip-path: polygon(0 0, 100% 4%, 100% 100%, 0 100%); (adjust %)
+6. ACCENT LINES: .accent-line { width:64px; height:4px; background:var(--accent); border-radius:2px; margin: 16px 0 32px; }
 
-WHITESPACE — the #1 quality indicator:
-- Sections: 120px vertical padding desktop, 80px mobile
-- Between heading and content: 48px
-- Card inner padding: 36px
-- Grid gaps: 32px
-- Container max-width: 1200px, centered with auto margins, padding 0 24px
+LAYOUT PATTERNS:
+- Hero: 100vh, full-bleed background image + multi-stop gradient overlay + floating blobs. Center-aligned content with oversized heading, lead paragraph, two CTA buttons (primary + ghost/outline). Animated scroll-down chevron bouncing at bottom.
+- About: true asymmetric grid (55/45): image side has a decorative frame (box-shadow + border + slight rotation -2deg), text side has eyebrow + heading + accent line + paragraph + stat strip (3 numbers with labels).
+- Services/Programs: 3-column card grid on desktop. Each card: colored top border, large Unicode emoji/icon, title, description, bottom link/arrow. Hover: lift + glow shadow.
+- Events: horizontal card layout (date block on left = large day + month abbreviated, bold, accent color; content on right = title, time, location, excerpt). Left border accent strip.
+- Contact: two-column on desktop. Left: heading + details (each line: icon symbol + text). Right: floating glass card with call-to-action and social links as pill buttons.
+- Footer: dark bg (--bg-dark), 3-col grid. Bottom bar with copyright + subtle rule.
 
-INTERACTIVE JAVASCRIPT — inline <script> at end of <body>:
-1. Scroll reveal: IntersectionObserver adds .visible class to .reveal elements (fade in + slide up)
-2. Navbar: transparent on top, gains white/dark background + shadow after scrolling 80px
-3. Smooth anchor scrolling for nav links
-4. Mobile hamburger menu: hide nav links on mobile, show ☰ button that toggles menu. Menu slides down with animation.
-5. Parallax: hero background-position shifts slightly on scroll for depth
+WHITESPACE:
+- Sections: padding clamp(80px, 10vw, 140px) 0
+- Container: max-width 1200px; margin 0 auto; padding 0 clamp(20px, 5vw, 40px)
+- Heading to content gap: 52px
+- Card padding: 36px 32px
+- Grid gaps: 28px–36px
 
-ANIMATION CSS:
-- .reveal { opacity: 0; transform: translateY(40px); transition: opacity 0.8s ease, transform 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94); }
-- .reveal.visible { opacity: 1; transform: translateY(0); }
-- Staggered delays for grid children: .reveal-child:nth-child(1) { transition-delay: 0s; } :nth-child(2) { 0.1s; } :nth-child(3) { 0.2s; } :nth-child(4) { 0.3s; }
-- Card hover: transform: translateY(-6px); box-shadow: var(--shadow-lg);
-- Button hover: slight scale (1.02), enhanced shadow, brightness increase
-- Nav transition: background-color 0.3s, box-shadow 0.3s
+ANIMATIONS — this is what makes it feel alive:
 
-REQUIRED SECTIONS (in order):
-1. NAVIGATION — Fixed, starts transparent. Logo/org name left, nav links right ("About", "Programs", "Events", "Contact"). Mobile hamburger. On scroll: white/solid bg + subtle shadow.${logoInstruction}
-2. HERO — 90vh height, ${heroStyle}. Full-bleed Unsplash background image with gradient overlay. Oversized heading (the org name or tagline), a subtitle line, and a CTA button. The text should be centered vertically and horizontally. Add a subtle scroll-down indicator (animated chevron or arrow).
-3. ABOUT / MISSION — Asymmetric two-column: image on one side (Unsplash, rounded corners, subtle shadow), text on the other with a small uppercase label ("Our Mission"), heading, and paragraph. Add .reveal class.
-${s.services.length > 0 ? `4. PROGRAMS & SERVICES — Small uppercase label ("What We Do"), heading, then a 3-column card grid. Each card: subtle top accent border in --accent color, icon (use Unicode: ★ ♦ ● ◆ ▸ or emoji), title, description. Cards: ${s.services.join(", ")}. Add .reveal to each card.` : `4. WHAT WE DO — 3-column card grid with accent borders describing the organization's key activities. Add .reveal class.`}
-${allEvents.length > 0 ? `5. UPCOMING EVENTS — Section MUST have id="events-section" on the <section> tag. Clean card layout. Each event card shows: a styled date element (large day number + month abbreviation in --accent color), event name as heading, time and location as details, description as body text. Subtle left border accent. Add .reveal.` : ""}
-6. CONTACT — Subtle tinted background (--bg-alt). Split layout: left side has heading + contact details (email, phone, address — each with a simple icon or Unicode symbol). Right side: a clean card encouraging visitors to reach out, with any social media links as styled buttons/links.
-7. FOOTER — Dark background (--primary or darker). 3-column layout: col 1 = logo + tagline + brief description, col 2 = quick links, col 3 = contact info. Bottom bar: copyright © ${new Date().getFullYear()}, separated by a subtle border-top.
+CSS animations (define in <style>):
+@keyframes fadeUp { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:translateY(0); } }
+@keyframes scaleIn { from { opacity:0; transform:scale(0.95); } to { opacity:1; transform:scale(1); } }
+@keyframes float { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-12px); } }
+@keyframes pulse-glow { 0%,100% { box-shadow: 0 0 20px rgba([primary-rgb],0.3); } 50% { box-shadow: 0 0 40px rgba([primary-rgb],0.6); } }
+@keyframes bounce-arrow { 0%,100% { transform:translateY(0); } 50% { transform:translateY(8px); } }
+@keyframes gradientShift { 0%,100% { background-position:0% 50%; } 50% { background-position:100% 50%; } }
 
-COLOR: ${s.colors || "navy and gold"}. Define all colors as CSS custom properties. Ensure WCAG AA contrast (4.5:1) for all text.
-CONTENT: Use ONLY real content from the spec — never lorem ipsum or placeholder text.
-Add .reveal class to every section's inner content for scroll animations.`;
+Inline hero content: animation: fadeUp 0.9s ease both; with staggered delays for h1 (0.1s), p (0.3s), buttons (0.5s).
+Floating blobs: animation: float 8s ease-in-out infinite; (different durations for each blob: 8s, 11s, 14s)
+Hero background: background-size:120%; animation: none (parallax via JS).
+Scroll-down arrow: animation: bounce-arrow 1.8s ease-in-out infinite;
+CTA button primary: animation: pulse-glow 3s ease-in-out infinite; on :hover
+
+.reveal { opacity:0; transform:translateY(36px); transition:opacity 0.75s ease, transform 0.75s cubic-bezier(0.25, 0.46, 0.45, 0.94); }
+.reveal.visible { opacity:1; transform:translateY(0); }
+.reveal-child:nth-child(1){transition-delay:0s} :nth-child(2){transition-delay:0.1s} :nth-child(3){transition-delay:0.2s} :nth-child(4){transition-delay:0.3s}
+
+INTERACTIVE JAVASCRIPT (inline <script> at end of <body>):
+1. IntersectionObserver: adds .visible to .reveal elements when they enter viewport (threshold:0.12)
+2. Navbar: starts transparent with white text; on scroll >60px adds solid bg + shadow; on scroll back <20px removes it. Smooth CSS transition.
+3. Smooth anchor scroll for all nav links
+4. Mobile hamburger: full-width slide-down menu panel with links, close on link click, animated hamburger→X icon
+5. Parallax: hero background moves at 0.4x scroll speed (background-position-y update on scroll)
+6. Animated counters: on .stat-number elements that have data-target attr, count up from 0 when they enter viewport (requestAnimationFrame, 1.5s duration, easeOutExpo easing)
+
+REQUIRED SECTIONS:
+1. NAV — Fixed. Transparent start, solid on scroll. Logo left (text or img), links right. Mobile hamburger. Active link underline accent.${logoInstruction}
+2. HERO — 100vh. Full-bleed photo + multi-stop gradient overlay + 2–3 floating gradient blobs. Eyebrow badge ("Est. YYYY" or org type). Oversized gradient-text heading. Lead paragraph. Two buttons: primary (filled, pulse glow on hover) + secondary (ghost/outline). Bouncing scroll-down chevron. Staggered fadeUp animation on load.
+3. ABOUT / MISSION — Asymmetric (55/45). Image with decorative frame (slight rotation, box-shadow, border). Text: eyebrow + accent line + heading + paragraph. Stat strip: 3 numbers (years active, members, events/year etc — use plausible values if not in spec). .reveal
+${s.services.length > 0 ? `4. PROGRAMS & SERVICES — Eyebrow + heading + 3-col card grid. Each card: 4px top border in --accent, large emoji icon, bold title, description. Hover: lift + glow. Cards: ${s.services.join(", ")}. All .reveal-child for stagger.` : `4. WHAT WE DO — 3-col card grid with accent top-borders describing key activities. All .reveal-child.`}
+${allEvents.length > 0 ? `5. EVENTS — id="events-section" on the <section>. Horizontal cards: date block (large day + abbreviated month, accent color) + content (title, time, location, description). Left accent border strip. .reveal` : ""}
+6. CONTACT — Diagonal clip-path on section top. Two-column: left = contact details with Unicode icons (📧 📞 📍). Right = floating glass card with headline + social link pill buttons. .reveal
+7. FOOTER — Dark (--bg-dark). 3-col: col1 = wordmark + tagline, col2 = quick links, col3 = contact summary. Bottom bar: copyright ${new Date().getFullYear()}.
+
+COLOR: "${s.colors || "navy and gold"}". Map to CSS custom properties. Ensure WCAG AA contrast (4.5:1). Derive --primary-rgb as comma-separated r,g,b for use in rgba() calls.
+CONTENT: Real content only — never lorem ipsum. Make up plausible stat numbers if not in spec (e.g. "Founded 1987", "200+ Members", "30+ Annual Events").
+Add .reveal to every section's inner wrapper.`;
+
 
   const genUserMsg = `Build a website for:
 Name: ${s.orgName}

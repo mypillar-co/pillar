@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Save, Building2, Loader2 } from "lucide-react";
+import { Save, Building2, Loader2, Sparkles, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { useGetOrganization } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { resetTour } from "@/components/GuidedTour";
 
 const ORG_TYPES = [
   { value: "chamber", label: "Chamber of Commerce" },
@@ -98,6 +99,33 @@ export default function DashboardSettings() {
           >
             {mutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
             Save Changes
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Guided Tour */}
+      <Card className="border-white/10 bg-card/60">
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-primary" />
+            <CardTitle className="text-base text-white">Guided Tour</CardTitle>
+          </div>
+          <CardDescription className="text-slate-400 text-sm">
+            Replay the onboarding walkthrough that highlights each feature
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-white/10 text-slate-300 hover:text-white hover:bg-white/5"
+            onClick={() => {
+              resetTour();
+              window.location.href = "/dashboard";
+            }}
+          >
+            <RotateCcw className="w-3.5 h-3.5 mr-2" />
+            Restart Tour
           </Button>
         </CardContent>
       </Card>

@@ -201,17 +201,28 @@ function ComposePostDialog({
 }: {
   open: boolean; onClose: () => void; onCreated: () => void; accounts: SocialAccount[];
 }) {
-  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(["facebook"]);
+  const connectedPlatforms = accounts.filter(a => a.isConnected).map(a => a.platform);
+  const defaultPlatforms = connectedPlatforms.length > 0 ? [connectedPlatforms[0]] : [];
+
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(defaultPlatforms);
   const [content, setContent] = useState("");
   const [mediaUrl, setMediaUrl] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [topic, setTopic] = useState("");
-  const [activePlatformForGen, setActivePlatformForGen] = useState("facebook");
+  const [activePlatformForGen, setActivePlatformForGen] = useState(connectedPlatforms[0] ?? "facebook");
   const [imagePromptSuggestion, setImagePromptSuggestion] = useState("");
 
-  const connectedPlatforms = accounts.filter(a => a.isConnected).map(a => a.platform);
+  useEffect(() => {
+    if (open) {
+      const connected = accounts.filter(a => a.isConnected).map(a => a.platform);
+      setSelectedPlatforms(connected.length > 0 ? [connected[0]] : []);
+      setActivePlatformForGen(connected[0] ?? "facebook");
+      setContent(""); setMediaUrl(""); setScheduledAt(""); setImagePromptSuggestion(""); setTopic("");
+    }
+  }, [open, accounts]);
+
   const needsMedia = selectedPlatforms.includes("instagram");
 
   const togglePlatform = (p: string) => {
@@ -251,7 +262,6 @@ function ComposePostDialog({
       toast.success(scheduledAt ? "Post scheduled" : "Post saved as draft");
       onCreated();
       onClose();
-      setContent(""); setMediaUrl(""); setScheduledAt(""); setSelectedPlatforms(["facebook"]); setImagePromptSuggestion("");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to create post");
     } finally {
@@ -377,7 +387,12 @@ function ComposePostDialog({
               onChange={e => setScheduledAt(e.target.value)}
               className="bg-white/5 border-white/10 text-white text-sm"
             />
-            <p className="text-xs text-slate-500 mt-1">Leave blank to save as draft</p>
+            <div className="flex items-start gap-1.5 mt-1.5">
+              <Clock className="w-3 h-3 text-primary/70 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-slate-500 leading-relaxed">
+                <span className="text-slate-400 font-medium">Best times for civic orgs:</span> Tue–Thu 10 am–12 pm or 7–9 pm. Leave blank to save as draft.
+              </p>
+            </div>
           </div>
         </div>
         <DialogFooter>
