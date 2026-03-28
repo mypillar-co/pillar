@@ -14,6 +14,7 @@ import socialRouter from "./social";
 import notificationsRouter from "./notifications";
 import connectRouter from "./connect";
 import adminRouter from "./admin";
+import contentRouter from "./content";
 
 const router: IRouter = Router();
 
@@ -30,6 +31,7 @@ router.use("/stats", statsRouter);
 router.use("/sites", sitesRouter);
 router.use("/domains", domainsRouter);
 router.use("/social", socialRouter);
+router.use("/content", contentRouter);
 router.use("/notifications", notificationsRouter);
 router.use(connectRouter);
 

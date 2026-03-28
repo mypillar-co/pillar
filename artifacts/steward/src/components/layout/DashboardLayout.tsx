@@ -19,6 +19,7 @@ import {
   Loader2,
   LinkIcon,
   Share2,
+  Sparkles,
 } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetOrganization } from "@workspace/api-client-react";
@@ -38,6 +39,7 @@ const NAV_ITEMS: NavItemExt[] = [
   { label: "Overview", href: "/dashboard", icon: LayoutDashboard, tourId: "overview" },
   { label: "Events", href: "/dashboard/events", icon: Calendar, tourId: "events" },
   { label: "Social Media", href: "/dashboard/social", icon: Share2, tourId: "social" },
+  { label: "Content Studio", href: "/dashboard/studio", icon: Sparkles },
   { label: "Vendors", href: "/dashboard/vendors", icon: Users },
   { label: "Sponsors", href: "/dashboard/sponsors", icon: Star },
   { label: "Payments", href: "/dashboard/payments", icon: DollarSign, tourId: "payments" },

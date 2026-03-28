@@ -25,6 +25,7 @@ import SiteBuilder from "./pages/dashboard/SiteBuilder";
 import Domains from "./pages/dashboard/Domains";
 import DashboardSettings from "./pages/dashboard/DashboardSettings";
 import Social from "./pages/dashboard/Social";
+import ContentStudio from "./pages/dashboard/ContentStudio";
 import Admin from "./pages/Admin";
 
 const queryClient = new QueryClient({
@@ -53,6 +54,7 @@ function DashboardRouter() {
         <Route path="/dashboard/domains" component={Domains} />
         <Route path="/dashboard/settings" component={DashboardSettings} />
         <Route path="/dashboard/social" component={Social} />
+        <Route path="/dashboard/studio" component={ContentStudio} />
         <Route component={NotFound} />
       </Switch>
     </DashboardLayout>
