@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Share2, Facebook, Instagram, Twitter, Plus, Loader2, Trash2, Zap,
   Calendar, Clock, CheckCircle, AlertCircle, Edit2, X, Send, Sparkles,
   ToggleLeft, ToggleRight, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
-  Settings2, Lock, Pencil,
+  Settings2, Lock, Pencil, ImagePlus, Image,
 } from "lucide-react";
+import { uploadImage, ACCEPTED_IMAGE_TYPES, MAX_IMAGE_SIZE_MB } from "@/lib/uploadImage";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -210,9 +211,11 @@ function ComposePostDialog({
   const [scheduledAt, setScheduledAt] = useState("");
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [imageUploading, setImageUploading] = useState(false);
   const [topic, setTopic] = useState("");
   const [activePlatformForGen, setActivePlatformForGen] = useState(connectedPlatforms[0] ?? "facebook");
   const [imagePromptSuggestion, setImagePromptSuggestion] = useState("");
+  const imageFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
@@ -220,8 +223,29 @@ function ComposePostDialog({
       setSelectedPlatforms(connected.length > 0 ? [connected[0]] : []);
       setActivePlatformForGen(connected[0] ?? "facebook");
       setContent(""); setMediaUrl(""); setScheduledAt(""); setImagePromptSuggestion(""); setTopic("");
+      setImageUploading(false);
     }
   }, [open, accounts]);
+
+  const handleImageFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
+      toast.error(`Image must be under ${MAX_IMAGE_SIZE_MB}MB`);
+      return;
+    }
+    setImageUploading(true);
+    try {
+      const url = await uploadImage(file);
+      setMediaUrl(url);
+      toast.success("Image uploaded");
+    } catch {
+      toast.error("Failed to upload image. Try pasting a URL instead.");
+    } finally {
+      setImageUploading(false);
+      if (imageFileRef.current) imageFileRef.current.value = "";
+    }
+  };
 
   const needsMedia = selectedPlatforms.includes("instagram");
 
@@ -329,18 +353,48 @@ function ComposePostDialog({
 
           <div className="space-y-1.5">
             <Label className="text-slate-300 text-sm block">
-              Image URL
+              Image
               {needsMedia
                 ? <span className="text-pink-400 ml-1 font-medium">* required for Instagram</span>
                 : <span className="text-slate-500 ml-1">(optional)</span>
               }
             </Label>
-            <Input
-              value={mediaUrl}
-              onChange={e => setMediaUrl(e.target.value)}
-              placeholder="https://example.com/image.jpg"
-              className={`bg-white/5 text-white placeholder:text-slate-500 text-sm ${needsMedia && !mediaUrl.trim() ? "border-pink-500/50" : "border-white/10"}`}
+            <input
+              ref={imageFileRef}
+              type="file"
+              accept={ACCEPTED_IMAGE_TYPES}
+              className="hidden"
+              onChange={handleImageFileSelect}
             />
+            {mediaUrl ? (
+              <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                <Image className="w-4 h-4 text-primary flex-shrink-0" />
+                <span className="text-xs text-slate-300 truncate flex-1">{mediaUrl.split("/").pop()}</span>
+                <button onClick={() => setMediaUrl("")} className="text-slate-500 hover:text-red-400 transition-colors flex-shrink-0">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => imageFileRef.current?.click()}
+                  disabled={imageUploading}
+                  className="border-white/10 text-slate-300 hover:text-white hover:bg-white/10 h-9 text-xs flex-shrink-0"
+                >
+                  {imageUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <ImagePlus className="w-3.5 h-3.5 mr-1.5" />}
+                  {imageUploading ? "Uploading..." : "Upload Photo"}
+                </Button>
+                <Input
+                  value={mediaUrl}
+                  onChange={e => setMediaUrl(e.target.value)}
+                  placeholder="or paste image URL..."
+                  className={`bg-white/5 text-white placeholder:text-slate-500 text-sm h-9 ${needsMedia && !mediaUrl.trim() ? "border-pink-500/50" : "border-white/10"}`}
+                />
+              </div>
+            )}
             {imagePromptSuggestion && (
               <div className="rounded-md bg-pink-500/10 border border-pink-500/20 p-2.5">
                 <p className="text-xs text-pink-300 font-medium mb-1 flex items-center gap-1">
@@ -419,6 +473,8 @@ function EditPostDialog({
     post.scheduledAt ? new Date(post.scheduledAt).toISOString().slice(0, 16) : ""
   );
   const [loading, setLoading] = useState(false);
+  const [imageUploading, setImageUploading] = useState(false);
+  const editImageFileRef = useRef<HTMLInputElement>(null);
 
   const needsMedia = post.platforms.includes("instagram");
 
@@ -427,6 +483,26 @@ function EditPostDialog({
     setMediaUrl(post.mediaUrl ?? "");
     setScheduledAt(post.scheduledAt ? new Date(post.scheduledAt).toISOString().slice(0, 16) : "");
   }, [post]);
+
+  const handleEditImageFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
+      toast.error(`Image must be under ${MAX_IMAGE_SIZE_MB}MB`);
+      return;
+    }
+    setImageUploading(true);
+    try {
+      const url = await uploadImage(file);
+      setMediaUrl(url);
+      toast.success("Image uploaded");
+    } catch {
+      toast.error("Failed to upload image. Try pasting a URL instead.");
+    } finally {
+      setImageUploading(false);
+      if (editImageFileRef.current) editImageFileRef.current.value = "";
+    }
+  };
 
   const handleSave = async () => {
     if (!content.trim()) { toast.error("Post content is required"); return; }
@@ -478,18 +554,48 @@ function EditPostDialog({
           </div>
           <div className="space-y-1.5">
             <Label className="text-slate-300 text-sm block">
-              Image URL
+              Image
               {needsMedia
                 ? <span className="text-pink-400 ml-1 font-medium">* required for Instagram</span>
                 : <span className="text-slate-500 ml-1">(optional)</span>
               }
             </Label>
-            <Input
-              value={mediaUrl}
-              onChange={e => setMediaUrl(e.target.value)}
-              placeholder="https://example.com/image.jpg"
-              className={`bg-white/5 text-white placeholder:text-slate-500 text-sm ${needsMedia && !mediaUrl.trim() ? "border-pink-500/50" : "border-white/10"}`}
+            <input
+              ref={editImageFileRef}
+              type="file"
+              accept={ACCEPTED_IMAGE_TYPES}
+              className="hidden"
+              onChange={handleEditImageFileSelect}
             />
+            {mediaUrl ? (
+              <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                <Image className="w-4 h-4 text-primary flex-shrink-0" />
+                <span className="text-xs text-slate-300 truncate flex-1">{mediaUrl.split("/").pop()}</span>
+                <button onClick={() => setMediaUrl("")} className="text-slate-500 hover:text-red-400 transition-colors flex-shrink-0">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => editImageFileRef.current?.click()}
+                  disabled={imageUploading}
+                  className="border-white/10 text-slate-300 hover:text-white hover:bg-white/10 h-9 text-xs flex-shrink-0"
+                >
+                  {imageUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <ImagePlus className="w-3.5 h-3.5 mr-1.5" />}
+                  {imageUploading ? "Uploading..." : "Upload Photo"}
+                </Button>
+                <Input
+                  value={mediaUrl}
+                  onChange={e => setMediaUrl(e.target.value)}
+                  placeholder="or paste image URL..."
+                  className={`bg-white/5 text-white placeholder:text-slate-500 text-sm h-9 ${needsMedia && !mediaUrl.trim() ? "border-pink-500/50" : "border-white/10"}`}
+                />
+              </div>
+            )}
           </div>
           <div>
             <Label className="text-slate-300 text-sm mb-1.5 block">Schedule Date/Time (optional)</Label>

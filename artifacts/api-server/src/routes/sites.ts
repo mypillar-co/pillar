@@ -256,14 +256,21 @@ router.post("/generate", async (req: Request, res: Response) => {
   if (!usageInfo) return;
   const { used, limit: monthlyLimit } = usageInfo;
 
-  const { history = [], orgName, orgType, logoDataUrl: rawLogoDataUrl } = req.body as {
+  const { history = [], orgName, orgType, logoDataUrl: rawLogoDataUrl, photoUrls: rawPhotoUrls } = req.body as {
     history: { role: string; content: string }[];
     orgName?: string;
     orgType?: string;
     logoDataUrl?: unknown;
+    photoUrls?: unknown;
   };
   // Validate logo on server side — reject SVG, non-image data, oversized payloads
   const logoDataUrl = validateLogoDataUrl(rawLogoDataUrl);
+  // Validate photo URLs — must be strings, same origin (/api/storage/...) or https://
+  const photoUrls: string[] = Array.isArray(rawPhotoUrls)
+    ? (rawPhotoUrls as unknown[])
+        .filter((u): u is string => typeof u === "string" && (u.startsWith("/api/storage/") || u.startsWith("https://")))
+        .slice(0, 6)
+    : [];
 
   const name = orgName ?? org.name;
   const type = orgType ?? org.type ?? "organization";
@@ -357,6 +364,15 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
   const safeOrgName = (s.orgName || org.name).replace(/["<>]/g, "");
   const logoInstruction = logoDataUrl
     ? `\nLOGO: The organization has uploaded a logo image. In the nav bar, replace the text logo with: <img src="${logoDataUrl}" alt="${safeOrgName} logo" style="height:48px;width:auto;object-fit:contain;display:block;"> — keep it left-aligned. Also include a smaller version in the footer.`
+    : "";
+
+  const photoInstruction = photoUrls.length > 0
+    ? `\nPHOTOS: The organization has uploaded ${photoUrls.length} real photo(s) of their organization. Use them authentically in the site:
+${photoUrls.map((url, i) => `- Photo ${i + 1}: <img src="${url}" alt="${safeOrgName} photo ${i + 1}" loading="lazy">`).join("\n")}
+Rules for photo usage:
+1. Use Photo 1 as the primary hero background image (replace the Unsplash hero placeholder with this real photo).
+2. Use remaining photos in an "Our Organization" or "Gallery" section — a responsive CSS grid of 2–3 columns, cards with object-fit:cover, aspect-ratio:4/3, border-radius var(--radius), box-shadow var(--shadow), and a subtle hover:scale(1.03) transform. Give this section the class "reveal".
+3. Never use placeholder Unsplash images for sections that have a real uploaded photo available.`
     : "";
 
   const colorHints = (s.colors || "navy and gold").toLowerCase();
@@ -483,7 +499,7 @@ INTERACTIVE JAVASCRIPT (inline <script> at end of <body>):
 6. Animated counters: on .stat-number elements that have data-target attr, count up from 0 when they enter viewport (requestAnimationFrame, 1.5s duration, easeOutExpo easing)
 
 REQUIRED SECTIONS:
-1. NAV — Fixed. Transparent start, solid on scroll. Logo left (text or img), links right. Mobile hamburger. Active link underline accent.${logoInstruction}
+1. NAV — Fixed. Transparent start, solid on scroll. Logo left (text or img), links right. Mobile hamburger. Active link underline accent.${logoInstruction}${photoInstruction}
 2. HERO — 100vh. Full-bleed photo + multi-stop gradient overlay + 2–3 floating gradient blobs. Eyebrow badge ("Est. YYYY" or org type). Oversized gradient-text heading. Lead paragraph. Two buttons: primary (filled, pulse glow on hover) + secondary (ghost/outline). Bouncing scroll-down chevron. Staggered fadeUp animation on load.
 3. ABOUT / MISSION — Asymmetric (55/45). Image with decorative frame (slight rotation, box-shadow, border). Text: eyebrow + accent line + heading + paragraph. Stat strip: 3 numbers (years active, members, events/year etc — use plausible values if not in spec). .reveal
 ${s.services.length > 0 ? `4. PROGRAMS & SERVICES — Eyebrow + heading + 3-col card grid. Each card: 4px top border in --accent, large emoji icon, bold title, description. Hover: lift + glow. Cards: ${s.services.join(", ")}. All .reveal-child for stagger.` : `4. WHAT WE DO — 3-col card grid with accent top-borders describing key activities. All .reveal-child.`}

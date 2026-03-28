@@ -3,8 +3,9 @@ import {
   Send, Globe, Sparkles, Bot, User, Loader2, AlertCircle,
   Eye, CheckCircle2, ExternalLink, RefreshCw, EyeOff,
   Edit3, Play, Save, Trash2, Zap, ChevronRight,
-  X, Check, ImagePlus, CalendarClock,
+  X, Check, ImagePlus, CalendarClock, Images,
 } from "lucide-react";
+import { uploadImage, ACCEPTED_IMAGE_TYPES, MAX_IMAGE_SIZE_MB } from "@/lib/uploadImage";
 import { useGetOrganization } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -99,9 +100,13 @@ export default function SiteBuilder() {
   const [syncingEvents, setSyncingEvents] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
+  const [uploadedPhotos, setUploadedPhotos] = useState<{ url: string; name: string }[]>([]);
+  const [photoUploading, setPhotoUploading] = useState(false);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
@@ -175,6 +180,31 @@ export default function SiteBuilder() {
     };
     reader.readAsDataURL(file);
     e.target.value = "";
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    if (uploadedPhotos.length + files.length > 6) {
+      alert("You can upload up to 6 photos.");
+      return;
+    }
+    setPhotoUploading(true);
+    try {
+      const results = await Promise.all(
+        files.map(async file => {
+          if (file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) throw new Error(`${file.name} exceeds ${MAX_IMAGE_SIZE_MB}MB`);
+          const url = await uploadImage(file);
+          return { url, name: file.name };
+        })
+      );
+      setUploadedPhotos(prev => [...prev, ...results]);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to upload photo. Please try again.");
+    } finally {
+      setPhotoUploading(false);
+      if (photoInputRef.current) photoInputRef.current.value = "";
+    }
   };
 
   const syncEvents = async () => {
@@ -284,7 +314,13 @@ export default function SiteBuilder() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ history, orgName: org?.name, orgType: org?.type, logoDataUrl: logoDataUrl ?? undefined }),
+        body: JSON.stringify({
+          history,
+          orgName: org?.name,
+          orgType: org?.type,
+          logoDataUrl: logoDataUrl ?? undefined,
+          photoUrls: uploadedPhotos.length > 0 ? uploadedPhotos.map(p => p.url) : undefined,
+        }),
       });
 
       if (res.status === 429) {
@@ -891,13 +927,21 @@ export default function SiteBuilder() {
             )}
           </div>
 
-          {/* Hidden file input for logo upload */}
+          {/* Hidden file inputs */}
           <input
             ref={fileInputRef}
             type="file"
             accept="image/*"
             className="hidden"
             onChange={handleLogoUpload}
+          />
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept={ACCEPTED_IMAGE_TYPES}
+            multiple
+            className="hidden"
+            onChange={handlePhotoUpload}
           />
 
           {/* Input bar */}
@@ -913,6 +957,35 @@ export default function SiteBuilder() {
                 <button onClick={() => { setLogoDataUrl(null); setLogoFileName(null); }} className="text-slate-400 hover:text-white transition-colors flex-shrink-0">
                   <X className="w-4 h-4" />
                 </button>
+              </div>
+            )}
+
+            {/* Photo preview strip */}
+            {uploadedPhotos.length > 0 && (
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2.5">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-medium text-emerald-300 flex items-center gap-1.5">
+                    <Images className="w-3.5 h-3.5" /> {uploadedPhotos.length} photo{uploadedPhotos.length !== 1 ? "s" : ""} added to site
+                  </p>
+                  {uploadedPhotos.length < 6 && (
+                    <button onClick={() => photoInputRef.current?.click()} className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors">
+                      + Add more
+                    </button>
+                  )}
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  {uploadedPhotos.map((photo, i) => (
+                    <div key={i} className="relative group">
+                      <img src={photo.url} alt={photo.name} className="h-14 w-14 object-cover rounded-md border border-white/10" />
+                      <button
+                        onClick={() => setUploadedPhotos(prev => prev.filter((_, idx) => idx !== i))}
+                        className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -934,10 +1007,18 @@ export default function SiteBuilder() {
               <div className="flex gap-2 items-end">
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  title="Upload logo or image"
+                  title="Upload logo"
                   className="h-10 w-10 flex-shrink-0 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition-colors flex items-center justify-center text-slate-400 hover:text-white"
                 >
                   <ImagePlus className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => photoInputRef.current?.click()}
+                  disabled={photoUploading || uploadedPhotos.length >= 6}
+                  title="Upload site photos (up to 6)"
+                  className="h-10 w-10 flex-shrink-0 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition-colors flex items-center justify-center text-slate-400 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {photoUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Images className="w-4 h-4" />}
                 </button>
                 <Textarea
                   value={input}

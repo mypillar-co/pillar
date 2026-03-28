@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { motion, type Variants } from "framer-motion";
 import { Link } from "wouter";
-import { CheckCircle2, Bot, Calendar, Globe, Share2, Shield, Zap, Users, ArrowRight, MessageSquare, Clock, Building2, Heart, Trophy, Megaphone, TreePine, Coffee, GraduationCap } from "lucide-react";
+import { CheckCircle2, Bot, Calendar, Globe, Share2, Shield, Zap, Users, ArrowRight, MessageSquare, Clock, Building2, Heart, Trophy, Megaphone, TreePine, Coffee, GraduationCap, DollarSign } from "lucide-react";
 import { useAuth, LoginButton } from "@workspace/replit-auth-web";
 import { useListTiers, useGetOrganization } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -60,13 +60,6 @@ const comparisons = [
   { task: "Custom domain + hosting", without: "$100 – $200/yr", with: "Included" },
 ];
 
-const stats = [
-  { value: "10 min", label: "Average site build time" },
-  { value: "24/7", label: "Automated updates" },
-  { value: "3-in-1", label: "Website + Events + Social" },
-  { value: "$0", label: "Setup fees" },
-];
-
 const orgTypes = [
   { icon: <Building2 className="w-5 h-5" />, label: "Chambers of Commerce" },
   { icon: <Heart className="w-5 h-5" />, label: "Nonprofits" },
@@ -95,6 +88,44 @@ const painPoints = [
     before: "Events don't appear on your website until someone updates it",
     after: "Events publish to your website the moment you create them",
   },
+];
+
+const scenarios = [
+  {
+    icon: <Calendar className="w-5 h-5 text-primary" />,
+    org: "Annual Gala Planning",
+    headline: "From zero to sold-out in an afternoon",
+    description: "Create the event, set ticket tiers, publish to your website, and share it on social media — all without leaving the dashboard.",
+    tags: ["Events", "Ticketing", "Social Posts"],
+  },
+  {
+    icon: <Globe className="w-5 h-5 text-primary" />,
+    org: "New Chapter Launch",
+    headline: "Professional website live before your kickoff meeting",
+    description: "Answer 8 questions in a chat. Steward generates a complete, branded website in minutes. No designer needed.",
+    tags: ["AI Website", "Domain", "Publishing"],
+  },
+  {
+    icon: <Share2 className="w-5 h-5 text-primary" />,
+    org: "Weekly Communications",
+    headline: "Consistent presence without the Monday scramble",
+    description: "Connect your accounts once. Steward drafts your posts, you approve or adjust, and they go out on schedule — automatically.",
+    tags: ["Social Media", "Scheduling", "AI Content"],
+  },
+  {
+    icon: <DollarSign className="w-5 h-5 text-emerald-400" />,
+    org: "Dues & Donations",
+    headline: "Collect payments without a separate platform",
+    description: "Accept membership dues, event fees, and one-time donations directly through your Steward dashboard. All in one place.",
+    tags: ["Payments", "Stripe", "Reporting"],
+  },
+];
+
+const highlights = [
+  { value: "10 min", label: "Average website build time" },
+  { value: "80%", label: "Less time on digital admin" },
+  { value: "3-in-1", label: "Website + Events + Social" },
+  { value: "$0", label: "Setup or hidden fees" },
 ];
 
 export default function Landing() {
@@ -319,24 +350,6 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="py-20 relative overflow-hidden">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8"
-          >
-            {stats.map((stat, i) => (
-              <div key={i} className="text-center">
-                <p className="text-3xl md:text-4xl font-bold text-primary mb-1">{stat.value}</p>
-                <p className="text-sm text-muted-foreground">{stat.label}</p>
-              </div>
-            ))}
-          </motion.div>
-        </div>
-      </section>
-
       {/* Pain Points / Before-After */}
       <section className="py-24 bg-secondary/30 relative">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -367,6 +380,70 @@ export default function Landing() {
               </motion.div>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* Social Proof — Scenario Cards */}
+      <section className="py-24 relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-primary/3 to-transparent pointer-events-none" />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
+          <div className="text-center mb-16">
+            <Badge variant="outline" className="px-3 py-1 text-xs mb-4 border-primary/25 text-primary bg-primary/5">
+              Real-world workflows
+            </Badge>
+            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
+              See exactly what Steward does for your org
+            </h2>
+            <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
+              Every civic organization has the same recurring pain points. Here's how Steward handles them automatically.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-20">
+            {scenarios.map((scenario, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 24 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: i * 0.1, duration: 0.5 }}
+                className="group relative rounded-2xl border border-white/8 bg-card/40 p-6 hover:border-primary/25 hover:bg-card/60 transition-all duration-300"
+              >
+                <div className="flex items-start gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/15 transition-colors">
+                    {scenario.icon}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-primary font-medium mb-1 uppercase tracking-wide">{scenario.org}</p>
+                    <h3 className="text-lg font-semibold text-white mb-2 leading-snug">{scenario.headline}</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed mb-4">{scenario.description}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {scenario.tags.map((tag, j) => (
+                        <span key={j} className="text-xs px-2.5 py-1 rounded-full border border-white/8 bg-white/4 text-slate-400">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+
+          {/* Key metrics strip */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="grid grid-cols-2 md:grid-cols-4 gap-6 py-10 px-8 rounded-2xl border border-white/8 bg-secondary/30"
+          >
+            {highlights.map((h, i) => (
+              <div key={i} className="text-center">
+                <p className="text-3xl md:text-4xl font-bold text-primary mb-1">{h.value}</p>
+                <p className="text-sm text-muted-foreground">{h.label}</p>
+              </div>
+            ))}
+          </motion.div>
         </div>
       </section>
 
