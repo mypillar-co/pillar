@@ -24,6 +24,7 @@ import { useAuth } from "@workspace/replit-auth-web";
 import { useGetOrganization } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { GuidedTour } from "@/components/GuidedTour";
 
 type NavItem = {
   label: string;
@@ -31,15 +32,17 @@ type NavItem = {
   icon: React.ElementType;
 };
 
-const NAV_ITEMS: NavItem[] = [
-  { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Events", href: "/dashboard/events", icon: Calendar },
-  { label: "Social Media", href: "/dashboard/social", icon: Share2 },
+type NavItemExt = NavItem & { tourId?: string };
+
+const NAV_ITEMS: NavItemExt[] = [
+  { label: "Overview", href: "/dashboard", icon: LayoutDashboard, tourId: "overview" },
+  { label: "Events", href: "/dashboard/events", icon: Calendar, tourId: "events" },
+  { label: "Social Media", href: "/dashboard/social", icon: Share2, tourId: "social" },
   { label: "Vendors", href: "/dashboard/vendors", icon: Users },
   { label: "Sponsors", href: "/dashboard/sponsors", icon: Star },
-  { label: "Payments", href: "/dashboard/payments", icon: DollarSign },
+  { label: "Payments", href: "/dashboard/payments", icon: DollarSign, tourId: "payments" },
   { label: "Contacts", href: "/dashboard/contacts", icon: Contact2 },
-  { label: "Site Builder", href: "/dashboard/site", icon: Globe },
+  { label: "Site Builder", href: "/dashboard/site", icon: Globe, tourId: "site-builder" },
   { label: "Domain", href: "/dashboard/domains", icon: LinkIcon },
   { label: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
@@ -48,7 +51,7 @@ const BOTTOM_NAV: NavItem[] = [
   { label: "Billing", href: "/billing", icon: CreditCard },
 ];
 
-function NavLink({ item, collapsed, onClick }: { item: NavItem; collapsed: boolean; onClick?: () => void }) {
+function NavLink({ item, collapsed, onClick }: { item: NavItemExt; collapsed: boolean; onClick?: () => void }) {
   const [location] = useLocation();
   const isActive = item.href === "/dashboard" 
     ? location === "/dashboard" 
@@ -56,6 +59,7 @@ function NavLink({ item, collapsed, onClick }: { item: NavItem; collapsed: boole
   return (
     <Link href={item.href} onClick={onClick}>
       <div
+        data-tour={item.tourId}
         className={cn(
           "flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all duration-150",
           isActive
@@ -178,6 +182,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
+      <GuidedTour />
       {/* Desktop sidebar */}
       <aside
         className={cn(

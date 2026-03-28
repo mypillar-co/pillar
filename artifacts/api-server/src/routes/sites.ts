@@ -7,7 +7,7 @@ const router = Router();
 
 const CONTEXT_TURNS = 10;
 const MAX_CHAT_TOKENS = 700;
-const MAX_GEN_TOKENS = 4000;
+const MAX_GEN_TOKENS = 8000;
 const MAX_SPEC_TOKENS = 1200;
 const MAX_CHANGE_TOKENS = 5000;
 
@@ -359,41 +359,70 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
     ? `\nLOGO: The organization has uploaded a logo image. In the nav bar, replace the text logo with: <img src="${logoDataUrl}" alt="${safeOrgName} logo" style="height:48px;width:auto;object-fit:contain;display:block;"> — keep it left-aligned. Also include a smaller version in the footer.`
     : "";
 
-  const genSystemMsg = `You are an elite web designer creating a polished, modern website for a civic organization. Generate a complete, self-contained HTML page that looks like it was designed by a professional agency.
+  const genSystemMsg = `You are an award-winning web designer creating a stunning, modern website for a civic organization. Generate a complete, self-contained HTML page that looks like it cost $10,000 to build.
 
 STRICT RULES:
 - Output ONLY valid HTML — start with <!DOCTYPE html>, end with </html>
 - No markdown, no code fences, no text before or after the HTML
 - All CSS must be in a <style> tag inside <head> — no external stylesheets or CDN links
-- No external dependencies — use system font stacks: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif for body; Georgia, 'Times New Roman', serif for headings if a classic feel is requested
-- No JavaScript whatsoever
-- Fully responsive with CSS flexbox/grid and @media queries for mobile (max-width: 768px)
+- No external dependencies — use system font stacks: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif for body; Georgia, 'Times New Roman', serif for accent headings
+- Fully responsive with CSS flexbox/grid and @media queries for mobile (max-width: 768px) and tablet (max-width: 1024px)
 - Use semantic HTML5 (header, main, section, footer, nav)
 
-DESIGN STANDARDS — follow these closely:
-- Generous whitespace: sections should have 80-100px vertical padding, cards should breathe
-- Typography hierarchy: hero heading 3-4rem, section headings 2rem, body 1rem, with clear weight contrast
-- Subtle depth: use box-shadow (0 2px 15px rgba(0,0,0,0.08)) on cards, not heavy borders
-- Smooth hover transitions on buttons and cards (transition: all 0.3s ease)
-- Rounded corners (border-radius: 12px for cards, 8px for buttons)
+JAVASCRIPT — add these dynamic features using inline <script> at the end of <body>:
+- Scroll-triggered fade-in animations: elements with class "reveal" should fade in and slide up when they enter the viewport using IntersectionObserver
+- Smooth scroll for anchor links
+- Mobile hamburger menu toggle (hide nav links on mobile, show hamburger button that toggles a dropdown)
+- Sticky nav that adds a background/shadow on scroll (starts transparent, gains background when scrolled past 50px)
+- Counter animation for any statistics/numbers: animate from 0 to the target number when visible
+
+ANIMATION CSS — include these in <style>:
+- @keyframes fadeInUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+- @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+- @keyframes slideInLeft { from { opacity: 0; transform: translateX(-30px); } to { opacity: 1; transform: translateX(0); } }
+- @keyframes slideInRight { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: translateX(0); } }
+- .reveal { opacity: 0; transform: translateY(30px); transition: opacity 0.8s ease, transform 0.8s ease; }
+- .reveal.visible { opacity: 1; transform: translateY(0); }
+- Add staggered animation delays: .reveal:nth-child(2) { transition-delay: 0.15s; } .reveal:nth-child(3) { transition-delay: 0.3s; } etc.
+- Hover effects: cards should lift (transform: translateY(-8px)) with enhanced shadow on hover
+- Buttons should have hover glow effect: box-shadow: 0 8px 25px rgba(primary-color, 0.4) on hover
+
+DESIGN STANDARDS — these are non-negotiable:
+- Generous whitespace: sections should have 100-120px vertical padding, cards need 32px inner padding
+- Typography hierarchy: hero heading 3.5-5rem (bold, letter-spacing: -0.02em), section headings 2.5rem, sub-headings 1.25rem, body 1.05rem with line-height: 1.7
+- Use font-weight contrast: 800 for hero, 700 for section titles, 400 for body, 300 for captions
+- Subtle depth: use layered shadows (0 4px 6px rgba(0,0,0,0.04), 0 10px 30px rgba(0,0,0,0.08)) on cards
+- Rounded corners: 16px for cards, 12px for inner elements, 50px for pill buttons
 - Full-width sections with max-width containers (1200px) centered inside
-- Buttons with padding (14px 32px), bold text, subtle shadows, and hover lift effect
-- Navigation should be clean with good spacing between links, slightly transparent on scroll
-- Use CSS gradients tastefully — e.g., a subtle gradient overlay on the hero
-- The hero section should be visually striking — at least 70vh height with a bold heading
-- Color palette: use the primary color for CTAs and accents, a darker shade for backgrounds/nav, white or light for text contrast
+- Alternating section backgrounds: alternate between white/light and a very subtle tinted background (e.g., primary color at 3-5% opacity)
+- Buttons: padding 16px 36px, font-weight 600, subtle shadow, hover lift + glow, rounded-full style
+- Navigation: clean, well-spaced links, starts transparent with white text, gains solid background on scroll
+- Use CSS gradients artfully — hero should have a multi-stop gradient (e.g., 135deg, primary-dark, primary, accent)
+- The hero should be dramatic — 85vh minimum height, oversized heading, decorative gradient orbs or shapes using CSS pseudo-elements (::before, ::after with blurred colored circles)
+- Add decorative elements: use ::before and ::after pseudo-elements for accent dots, lines, or gradient blobs behind sections
+- Cards should have subtle top-border accent (3px solid primary color) or a colored left bar
+- Use CSS grid with gap: 32px for card layouts
+- Section headings should have a decorative underline or accent element beneath them (a small colored bar, 60px wide, 3px tall, centered)
+
+VISUAL DEPTH TECHNIQUES:
+- Add a subtle dot-grid or radial gradient pattern to at least one section background
+- Use backdrop-filter: blur() for glassmorphism effects on the nav bar
+- Add a gradient border on the hero CTA button (using border-image or a wrapper technique)
+- Event cards should have a date badge — a small box with the month abbreviation and day number, styled prominently
+- Statistics section (if applicable): large numbers with counter animation, brief label underneath, arranged in a 3-4 column grid
 
 REQUIRED SECTIONS (in order):
-1. Sticky navigation bar — org name/logo on left, section links on right, clean and minimal${logoInstruction}
-2. Hero — full-width, dramatic heading with tagline, a CTA button ("Join Us", "Learn More", or similar), subtle gradient overlay
-3. About / Mission — clean two-column or centered layout explaining the organization's purpose
-${s.services.length > 0 ? `4. Programs & Services — responsive grid (2-3 columns) of cards with subtle icons or colored accents for: ${s.services.join(", ")}` : "4. What We Do — responsive grid of 3 cards describing key activities"}
-${allEvents.length > 0 ? `5. Upcoming Events — card-based layout. Each card: event name (bold), date/time, location, and a brief description. Use a subtle left border accent in the primary color.` : ""}
-6. Contact — clean layout with email, phone, address, and social links. Consider a two-column layout (info on left, a simple styled box on right)
-7. Footer — org name, links, copyright © ${new Date().getFullYear()}, tagline. Dark background with lighter text.
+1. Navigation bar — starts transparent with backdrop-blur, gains solid background on scroll. Org name/logo on left, section links on right, mobile hamburger${logoInstruction}
+2. Hero — 85vh, dramatic multi-color gradient background with decorative CSS shapes (blurred circles via ::before/::after). Oversized heading (4-5rem), tagline, prominent CTA button with glow effect. Add floating decorative elements.
+3. About / Mission — clean two-column layout (text on one side, a colored accent card or stat highlight on the other). Add a "reveal" animation class.
+${s.services.length > 0 ? `4. Programs & Services — responsive grid (2-3 columns) of cards with colored top-border accents, each with a small emoji or Unicode icon, title, and description. Cards: ${s.services.join(", ")}` : "4. What We Do — responsive grid of 3 elegant cards with colored accents describing key activities"}
+${allEvents.length > 0 ? `5. Upcoming Events — card layout with date badges (styled month+day boxes in primary color). Each card: date badge on left, event name (bold), time, location, and description on right. Add hover lift effect.` : ""}
+6. Contact — elegant split layout. Left side: heading + description + contact details (email, phone, address with small icons or Unicode symbols). Right side: a styled card with a "Get in Touch" message and social media links as icon buttons. Add subtle background pattern.
+7. Footer — full-width dark background. Multi-column layout: org info + tagline, quick links, contact info. Copyright © ${new Date().getFullYear()}. Add a subtle top-border gradient line.
 
 COLOR SCHEME: ${s.colors || "professional navy and gold"}.
-Use ONLY real content from the spec below — never use lorem ipsum, placeholder text, or made-up information.`;
+Use ONLY real content from the spec below — never use lorem ipsum, placeholder text, or made-up information.
+Every section should use the "reveal" class for scroll-triggered animations.`;
 
   const genUserMsg = `Build a website for:
 Name: ${s.orgName}
@@ -486,6 +515,7 @@ router.post("/change-request/propose", async (req: Request, res: Response) => {
         role: "system",
         content: `You are an expert web developer proposing a specific edit to an existing HTML website.
 Apply ONLY the user's requested change — nothing more.
+IMPORTANT: Preserve ALL existing JavaScript, CSS animations, hover effects, and interactive features. Do not remove or break any dynamic functionality.
 Output ONLY the complete, updated HTML document starting with <!DOCTYPE html>. No explanations or commentary.`,
       },
       {

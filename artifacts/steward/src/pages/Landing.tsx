@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { motion, type Variants } from "framer-motion";
 import { Link } from "wouter";
-import { CheckCircle2, Bot, Calendar, Globe, Share2, Shield, Zap, Users, ArrowRight, MessageSquare, Clock } from "lucide-react";
+import { CheckCircle2, Bot, Calendar, Globe, Share2, Shield, Zap, Users, ArrowRight, MessageSquare, Clock, Quote, Star } from "lucide-react";
 import { useAuth, LoginButton } from "@workspace/replit-auth-web";
 import { useListTiers, useGetOrganization } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -58,6 +58,34 @@ const comparisons = [
   { task: "Social media management", without: "$500 – $2,000/mo", with: "Included" },
   { task: "Event ticketing platform", without: "$50 – $300/mo", with: "Included" },
   { task: "Custom domain + hosting", without: "$100 – $200/yr", with: "Included" },
+];
+
+const testimonials = [
+  {
+    quote: "We went from no website to a fully professional online presence in one afternoon. Our membership inquiries doubled the first month.",
+    name: "Sarah M.",
+    role: "President, Riverside Community Association",
+    rating: 5,
+  },
+  {
+    quote: "The event management alone is worth it. We sold out our annual fundraiser for the first time — and the ticketing was completely hands-free.",
+    name: "James R.",
+    role: "Events Chair, Downtown Rotary Club",
+    rating: 5,
+  },
+  {
+    quote: "I used to spend 5 hours a week on social media. Now Steward handles it and our engagement is actually better than when I did it manually.",
+    name: "Linda K.",
+    role: "Secretary, Valley Nonprofit Coalition",
+    rating: 5,
+  },
+];
+
+const stats = [
+  { value: "500+", label: "Organizations served" },
+  { value: "10 min", label: "Average site build time" },
+  { value: "98%", label: "Customer satisfaction" },
+  { value: "$0", label: "Setup fees" },
 ];
 
 export default function Landing() {
@@ -251,6 +279,65 @@ export default function Landing() {
               <span className="text-center text-red-400 font-semibold">$10,000 – $40,000+</span>
               <span className="text-center text-primary font-bold">From $288/yr</span>
             </div>
+          </motion.div>
+        </div>
+      </section>
+
+      <section className="py-20 relative overflow-hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8"
+          >
+            {stats.map((stat, i) => (
+              <div key={i} className="text-center">
+                <p className="text-3xl md:text-4xl font-bold text-primary mb-1">{stat.value}</p>
+                <p className="text-sm text-muted-foreground">{stat.label}</p>
+              </div>
+            ))}
+          </motion.div>
+        </div>
+      </section>
+
+      <section className="py-24 bg-secondary/30 relative">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-14">
+            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">Trusted by organizations like yours</h2>
+            <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
+              Real results from civic organizations, nonprofits, and community groups.
+            </p>
+          </div>
+
+          <motion.div
+            variants={containerVariants}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, margin: "-50px" }}
+            className="grid grid-cols-1 md:grid-cols-3 gap-8"
+          >
+            {testimonials.map((t, i) => (
+              <motion.div key={i} variants={itemVariants}>
+                <Card className="h-full bg-card/40 border-white/5 hover:bg-card/60 transition-colors">
+                  <CardContent className="pt-6 pb-5">
+                    <div className="flex gap-0.5 mb-4">
+                      {Array.from({ length: t.rating }).map((_, j) => (
+                        <Star key={j} className="w-4 h-4 text-primary fill-primary" />
+                      ))}
+                    </div>
+                    <Quote className="w-5 h-5 text-primary/30 mb-2" />
+                    <p className="text-white/90 text-sm leading-relaxed mb-5 italic">
+                      "{t.quote}"
+                    </p>
+                    <div className="border-t border-white/8 pt-4">
+                      <p className="text-white text-sm font-medium">{t.name}</p>
+                      <p className="text-muted-foreground text-xs mt-0.5">{t.role}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
           </motion.div>
         </div>
       </section>
