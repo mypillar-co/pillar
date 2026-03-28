@@ -370,6 +370,17 @@ OUTPUT RULES:
 - No markdown, no code fences, no commentary
 - Use semantic HTML5: header, main, section, footer, nav
 
+SEO — include ALL of these in <head> (fill in real values from the spec):
+- <meta name="description" content="..."> (the org's mission, max 155 chars)
+- <meta property="og:title" content="...">
+- <meta property="og:description" content="...">
+- <meta property="og:type" content="website">
+- <meta name="twitter:card" content="summary_large_image">
+- <link rel="canonical" href="https://${slug}.steward.app">
+- A <script type="application/ld+json"> block with Organization schema:
+  { "@context":"https://schema.org","@type":"Organization","name":"...","description":"...","email":"...","telephone":"...","address":{"@type":"PostalAddress","streetAddress":"..."} }
+${allEvents.length > 0 ? `- A second <script type="application/ld+json"> for the first upcoming event using schema.org/Event type` : ""}
+
 FONTS — Use Google Fonts via <link> tags in <head>. Pick a beautiful pairing:
 - For a modern/clean feel: "Inter" for body + "Playfair Display" for headings
 - For a warm/classic feel: "Source Sans 3" for body + "Merriweather" for headings  
@@ -434,7 +445,7 @@ REQUIRED SECTIONS (in order):
 2. HERO — 90vh height, ${heroStyle}. Full-bleed Unsplash background image with gradient overlay. Oversized heading (the org name or tagline), a subtitle line, and a CTA button. The text should be centered vertically and horizontally. Add a subtle scroll-down indicator (animated chevron or arrow).
 3. ABOUT / MISSION — Asymmetric two-column: image on one side (Unsplash, rounded corners, subtle shadow), text on the other with a small uppercase label ("Our Mission"), heading, and paragraph. Add .reveal class.
 ${s.services.length > 0 ? `4. PROGRAMS & SERVICES — Small uppercase label ("What We Do"), heading, then a 3-column card grid. Each card: subtle top accent border in --accent color, icon (use Unicode: ★ ♦ ● ◆ ▸ or emoji), title, description. Cards: ${s.services.join(", ")}. Add .reveal to each card.` : `4. WHAT WE DO — 3-column card grid with accent borders describing the organization's key activities. Add .reveal class.`}
-${allEvents.length > 0 ? `5. UPCOMING EVENTS — Clean card layout. Each event card shows: a styled date element (large day number + month abbreviation in --accent color), event name as heading, time and location as details, description as body text. Subtle left border accent. Add .reveal.` : ""}
+${allEvents.length > 0 ? `5. UPCOMING EVENTS — Section MUST have id="events-section" on the <section> tag. Clean card layout. Each event card shows: a styled date element (large day number + month abbreviation in --accent color), event name as heading, time and location as details, description as body text. Subtle left border accent. Add .reveal.` : ""}
 6. CONTACT — Subtle tinted background (--bg-alt). Split layout: left side has heading + contact details (email, phone, address — each with a simple icon or Unicode symbol). Right side: a clean card encouraging visitors to reach out, with any social media links as styled buttons/links.
 7. FOOTER — Dark background (--primary or darker). 3-column layout: col 1 = logo + tagline + brief description, col 2 = quick links, col 3 = contact info. Bottom bar: copyright © ${new Date().getFullYear()}, separated by a subtle border-top.
 
@@ -818,6 +829,86 @@ function computeNextRun(frequency: string, dayOfWeek?: string | null): Date {
     next.setHours(9, 0, 0, 0);
   }
   return next;
+}
+
+// ─── Exported utility: rebuild events section when an event is published ──────
+
+function escHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function buildEventsHtml(events: { name: string; startDate: string | null; startTime: string | null; endTime: string | null; location: string | null; description: string | null }[]): string {
+  if (events.length === 0) return "";
+
+  const cards = events.map((e) => {
+    const date = e.startDate ? new Date(e.startDate + "T00:00:00") : null;
+    const day = date ? date.getDate() : "";
+    const month = date ? date.toLocaleString("en-US", { month: "short" }).toUpperCase() : "";
+    const timeStr = e.startTime ? `${e.startTime}${e.endTime ? ` – ${e.endTime}` : ""}` : "";
+
+    return `<div class="reveal" style="background:var(--bg,#fff);border-radius:var(--radius,12px);padding:28px 32px;box-shadow:var(--shadow,0 2px 12px rgba(0,0,0,0.08));display:flex;gap:24px;align-items:flex-start;border-left:4px solid var(--accent,#d4a843);">
+      ${date ? `<div style="text-align:center;min-width:52px;flex-shrink:0"><div style="font-size:2rem;font-weight:700;line-height:1;color:var(--accent,#d4a843)">${day}</div><div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-light,#64748b);font-weight:600;margin-top:2px">${month}</div></div>` : ""}
+      <div style="flex:1">
+        <h3 style="font-family:var(--font-heading,serif);font-size:1.15rem;font-weight:700;margin-bottom:8px;color:var(--text,#1a1a2e)">${escHtml(e.name)}</h3>
+        ${timeStr ? `<div style="font-size:0.85rem;color:var(--text-light,#64748b);margin-bottom:4px">🕐 ${escHtml(timeStr)}</div>` : ""}
+        ${e.location ? `<div style="font-size:0.85rem;color:var(--text-light,#64748b);margin-bottom:8px">📍 ${escHtml(e.location)}</div>` : ""}
+        ${e.description ? `<p style="font-size:0.95rem;line-height:1.7;color:var(--text-light,#64748b);margin:0">${escHtml(e.description)}</p>` : ""}
+      </div>
+    </div>`;
+  }).join("\n");
+
+  return `<section id="events-section" style="padding:100px 0 80px;background:var(--bg-alt,#f8fafc)">
+  <div style="max-width:1200px;margin:0 auto;padding:0 24px">
+    <p class="reveal" style="font-size:0.8rem;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:var(--accent,#d4a843);margin-bottom:12px">Upcoming Events</p>
+    <h2 class="reveal" style="font-family:var(--font-heading,serif);font-size:2.5rem;font-weight:700;color:var(--text,#1a1a2e);margin-bottom:48px;letter-spacing:-0.02em">What's Coming Up</h2>
+    <div style="display:flex;flex-direction:column;gap:20px">
+      ${cards}
+    </div>
+  </div>
+</section>`;
+}
+
+export async function refreshSiteEventsSection(orgId: string): Promise<void> {
+  try {
+    const [site] = await db.select({ id: sitesTable.id, generatedHtml: sitesTable.generatedHtml }).from(sitesTable).where(eq(sitesTable.orgId, orgId));
+    if (!site?.generatedHtml) return;
+
+    const today = new Date().toISOString().split("T")[0];
+    const events = await db
+      .select({ name: eventsTable.name, startDate: eventsTable.startDate, startTime: eventsTable.startTime, endTime: eventsTable.endTime, location: eventsTable.location, description: eventsTable.description })
+      .from(eventsTable)
+      .where(eq(eventsTable.orgId, orgId))
+      .limit(8);
+
+    const upcoming = events.filter(e => !e.startDate || e.startDate >= today);
+    const toShow = upcoming.length > 0 ? upcoming : events.slice(0, 5);
+
+    const newSection = buildEventsHtml(toShow);
+
+    let updatedHtml: string;
+
+    const sectionRegex = /<section[^>]*id=["']events-section["'][^>]*>[\s\S]*?<\/section>/i;
+    if (sectionRegex.test(site.generatedHtml)) {
+      updatedHtml = site.generatedHtml.replace(sectionRegex, newSection);
+    } else if (toShow.length > 0) {
+      // No events section yet — inject before the contact section or footer
+      const insertBefore = /<section[^>]*id=["']contact["'][^>]*>/i.test(site.generatedHtml)
+        ? site.generatedHtml.replace(/(<section[^>]*id=["']contact["'][^>]*>)/i, `${newSection}\n$1`)
+        : site.generatedHtml.replace(/(<footer[\s>])/i, `${newSection}\n$1`);
+      updatedHtml = insertBefore;
+    } else {
+      return;
+    }
+
+    await db.update(sitesTable).set({ generatedHtml: updatedHtml, updatedAt: new Date() }).where(eq(sitesTable.orgId, orgId));
+  } catch (err) {
+    // Non-fatal — log but don't throw so the event publish still succeeds
+    console.error("[refreshSiteEventsSection] failed:", err);
+  }
 }
 
 export default router;

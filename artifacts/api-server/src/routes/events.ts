@@ -11,6 +11,7 @@ import {
 } from "@workspace/db";
 import { eq, and, asc, desc, gte, sum, sql } from "drizzle-orm";
 import OpenAI from "openai";
+import { refreshSiteEventsSection } from "./sites";
 
 const router = Router();
 
@@ -412,6 +413,8 @@ router.post("/:id/submit", async (req: Request, res: Response) => {
   if (!event.requiresApproval) {
     const [updated] = await db.update(eventsTable).set({ status: "published" }).where(eq(eventsTable.id, eventId)).returning();
     res.json(updated);
+    // Fire-and-forget: update the org's website events section
+    refreshSiteEventsSection(org.id).catch(() => {});
     return;
   }
   await db.insert(eventApprovalsTable).values({
@@ -446,6 +449,8 @@ router.post("/:id/approve", async (req: Request, res: Response) => {
   const [updated] = await db.update(eventsTable).set({ status: "published" }).where(and(eq(eventsTable.id, eventId), eq(eventsTable.orgId, org.id))).returning();
   if (!updated) { res.status(404).json({ error: "Event not found" }); return; }
   res.json(updated);
+  // Fire-and-forget: update the org's website events section
+  refreshSiteEventsSection(org.id).catch(() => {});
 });
 
 // POST /api/events/:id/reject
