@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, varchar, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, varchar, integer, boolean } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -13,6 +13,10 @@ export const organizationsTable = pgTable("organizations", {
   stripeCustomerId: varchar("stripe_customer_id"),
   stripeSubscriptionId: varchar("stripe_subscription_id"),
   subscriptionStatus: varchar("subscription_status"),
+  stripeConnectAccountId: varchar("stripe_connect_account_id"),
+  stripeConnectOnboarded: boolean("stripe_connect_onboarded").default(false),
+  isNonprofit: boolean("is_nonprofit").default(false),
+  taxIdNumber: varchar("tax_id_number"),
   slug: varchar("slug").unique(),
   aiMessagesUsed: integer("ai_messages_used").notNull().default(0),
   aiMessagesResetAt: timestamp("ai_messages_reset_at", { withTimezone: true }).notNull().defaultNow(),

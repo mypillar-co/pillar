@@ -1,5 +1,5 @@
-import { db, organizationsTable, subscriptionsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, organizationsTable, subscriptionsTable, ticketSalesTable, ticketTypesTable } from "@workspace/db";
+import { eq, sql } from "drizzle-orm";
 import { getStripeSync } from "./stripeClient";
 import { logger } from "./lib/logger";
 import type Stripe from "stripe";
@@ -100,6 +100,54 @@ async function cancelSubscription(
   logger.info({ userId, subscriptionId: subscription.id }, "Subscription cancelled");
 }
 
+async function handleTicketPaymentCompleted(session: Stripe.Checkout.Session): Promise<void> {
+  const { eventId, ticketTypeId, quantity } = session.metadata ?? {};
+  if (!eventId || !ticketTypeId || !quantity) return;
+
+  const paymentIntentId = typeof session.payment_intent === "string"
+    ? session.payment_intent
+    : session.payment_intent?.id ?? null;
+
+  const updated = await db
+    .update(ticketSalesTable)
+    .set({
+      paymentStatus: "paid",
+      stripePaymentIntentId: paymentIntentId,
+    })
+    .where(
+      and(
+        eq(ticketSalesTable.stripeCheckoutSessionId, session.id),
+        sql`${ticketSalesTable.paymentStatus} != 'paid'`
+      )
+    )
+    .returning({ id: ticketSalesTable.id });
+
+  if (updated.length === 0) {
+    logger.info({ sessionId: session.id }, "Ticket payment already processed (idempotent skip)");
+    return;
+  }
+
+  await db
+    .update(ticketTypesTable)
+    .set({
+      sold: sql`${ticketTypesTable.sold} + ${parseInt(quantity)}`,
+    })
+    .where(eq(ticketTypesTable.id, ticketTypeId));
+
+  logger.info({ eventId, ticketTypeId, quantity, sessionId: session.id }, "Ticket payment completed");
+}
+
+async function handleConnectAccountUpdated(account: Stripe.Account): Promise<void> {
+  if (account.metadata?.orgId) {
+    const isOnboarded = (account.charges_enabled && account.payouts_enabled) ?? false;
+    await db
+      .update(organizationsTable)
+      .set({ stripeConnectOnboarded: isOnboarded })
+      .where(eq(organizationsTable.id, account.metadata.orgId));
+    logger.info({ orgId: account.metadata.orgId, isOnboarded }, "Connect account updated");
+  }
+}
+
 export class WebhookHandlers {
   static async processWebhook(payload: Buffer, signature: string): Promise<void> {
     if (!Buffer.isBuffer(payload)) {
@@ -160,7 +208,6 @@ export class WebhookHandlers {
             : (session.customer?.id ?? null);
 
         if (userId && customerId) {
-          // Ensure the org has the customer ID stored
           await db
             .update(organizationsTable)
             .set({
@@ -170,11 +217,20 @@ export class WebhookHandlers {
             .where(eq(organizationsTable.userId, userId));
           logger.info({ userId, tierId }, "Updated org customer from checkout.session.completed");
         }
+
+        if (session.metadata?.eventId && session.metadata?.ticketTypeId) {
+          await handleTicketPaymentCompleted(session);
+        }
+        break;
+      }
+
+      case "account.updated": {
+        const account = event.data.object as Stripe.Account;
+        await handleConnectAccountUpdated(account);
         break;
       }
 
       default:
-        // Other event types are handled by stripe-replit-sync
         break;
     }
   }

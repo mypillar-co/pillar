@@ -9,6 +9,8 @@ import Landing from "./pages/Landing";
 import Onboard from "./pages/Onboard";
 import Billing from "./pages/Billing";
 import NotFound from "./pages/not-found";
+import PublicEvent from "./pages/PublicEvent";
+import TicketSuccess from "./pages/TicketSuccess";
 
 import Overview from "./pages/dashboard/Overview";
 import Events from "./pages/dashboard/Events";
@@ -72,6 +74,8 @@ function AppRouter() {
           <main><Billing /></main>
         </>
       </Route>
+      <Route path="/events/:slug/tickets/success" component={TicketSuccess} />
+      <Route path="/events/:slug/tickets" component={PublicEvent} />
       <Route path="/dashboard/:rest*" component={DashboardRouter} />
       <Route path="/dashboard" component={DashboardRouter} />
       <Route>

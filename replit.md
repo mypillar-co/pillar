@@ -37,6 +37,7 @@ The project is organized as a monorepo containing several distinct packages:
 ### Core Features
 - **AI Site Builder**: Chat-based interface using AI models to generate and update organizational websites. Includes event data injection and logo upload.
 - **Event Dashboard**: Management of events, vendors, sponsors, contacts, and payments.
+- **Payment Collection (Stripe Connect)**: Organizations connect their bank accounts via Stripe Express to collect ticket sales, vendor fees, and sponsorship payments. Steward takes 2.9% + $0.30 per transaction. Public ticket purchase pages at `/events/:slug/tickets` with Stripe Checkout. Webhook handles `checkout.session.completed` to mark sales as paid and update ticket counts. Tax liability notice and nonprofit support built into Payments page.
 - **Social Media Automation**: Scheduling and publishing posts to platforms like Facebook and X.
 - **Custom Domain Management**: Support for purchasing domains via Porkbun, external domains, DNS/SSL checks, and auto-renewal.
 - **Subscription Tiers**: Multiple tiers offering varying levels of automation and features.

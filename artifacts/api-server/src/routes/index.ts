@@ -12,6 +12,7 @@ import sitesRouter from "./sites";
 import domainsRouter from "./domains";
 import socialRouter from "./social";
 import notificationsRouter from "./notifications";
+import connectRouter from "./connect";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use("/sites", sitesRouter);
 router.use("/domains", domainsRouter);
 router.use("/social", socialRouter);
 router.use("/notifications", notificationsRouter);
+router.use(connectRouter);
 
 export default router;
