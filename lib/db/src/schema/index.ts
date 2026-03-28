@@ -12,3 +12,4 @@ export * from "./siteSchedules";
 export * from "./websiteSpecs";
 export * from "./social";
 export * from "./notifications";
+export * from "./studioOutputs";
