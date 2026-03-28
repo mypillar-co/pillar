@@ -25,6 +25,7 @@ import SiteBuilder from "./pages/dashboard/SiteBuilder";
 import Domains from "./pages/dashboard/Domains";
 import DashboardSettings from "./pages/dashboard/DashboardSettings";
 import Social from "./pages/dashboard/Social";
+import Admin from "./pages/Admin";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -76,6 +77,7 @@ function AppRouter() {
       </Route>
       <Route path="/events/:slug/tickets/success" component={TicketSuccess} />
       <Route path="/events/:slug/tickets" component={PublicEvent} />
+      <Route path="/admin" component={Admin} />
       <Route path="/dashboard/:rest*" component={DashboardRouter} />
       <Route path="/dashboard" component={DashboardRouter} />
       <Route>

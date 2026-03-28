@@ -13,9 +13,11 @@ import domainsRouter from "./domains";
 import socialRouter from "./social";
 import notificationsRouter from "./notifications";
 import connectRouter from "./connect";
+import adminRouter from "./admin";
 
 const router: IRouter = Router();
 
+router.use(adminRouter);
 router.use(healthRouter);
 router.use(authRouter);
 router.use(billingRouter);
