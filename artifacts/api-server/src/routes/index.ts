@@ -16,6 +16,7 @@ import notificationsRouter from "./notifications";
 import connectRouter from "./connect";
 import adminRouter from "./admin";
 import contentRouter from "./content";
+import boardLinksRouter from "./boardLinks";
 
 const router: IRouter = Router();
 
@@ -35,6 +36,7 @@ router.use("/domains", domainsRouter);
 router.use("/social", socialRouter);
 router.use("/content", contentRouter);
 router.use("/notifications", notificationsRouter);
+router.use("/board-links", boardLinksRouter);
 router.use(connectRouter);
 
 export default router;

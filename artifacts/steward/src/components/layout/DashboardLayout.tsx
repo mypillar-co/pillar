@@ -20,6 +20,7 @@ import {
   LinkIcon,
   Share2,
   Sparkles,
+  Vote,
 } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetOrganization } from "@workspace/api-client-react";
@@ -46,6 +47,7 @@ const NAV_ITEMS: NavItemExt[] = [
   { label: "Contacts", href: "/dashboard/contacts", icon: Contact2 },
   { label: "Site Builder", href: "/dashboard/site", icon: Globe, tourId: "site-builder" },
   { label: "Domain", href: "/dashboard/domains", icon: LinkIcon },
+  { label: "Board Approval", href: "/dashboard/board-links", icon: Vote },
   { label: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 

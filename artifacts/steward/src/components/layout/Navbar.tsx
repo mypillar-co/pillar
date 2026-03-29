@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link } from "wouter";
-import { Shield, Bell, X } from "lucide-react";
+import { Shield, Bell, X, ChevronDown, Building2, Users, Home, BookOpen, Heart, GraduationCap } from "lucide-react";
 import { useAuth, LoginButton, LogoutButton } from "@workspace/replit-auth-web";
 
 type Notification = {
@@ -11,6 +11,15 @@ type Notification = {
   read: boolean;
   createdAt: string;
 };
+
+const VERTICALS = [
+  { href: "/for/lodges", label: "Masonic & Fraternal Lodges", icon: Shield },
+  { href: "/for/rotary", label: "Rotary & Service Clubs", icon: Users },
+  { href: "/for/vfw", label: "Veterans Organizations", icon: BookOpen },
+  { href: "/for/hoa", label: "Homeowner Associations", icon: Home },
+  { href: "/for/pta", label: "PTAs & School Groups", icon: GraduationCap },
+  { href: "/for/nonprofits", label: "Nonprofits", icon: Heart },
+];
 
 function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -134,6 +143,51 @@ function NotificationBell() {
   );
 }
 
+function SolutionsDropdown() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    if (open) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-white transition-colors"
+      >
+        Solutions
+        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full mt-2 w-64 bg-card border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden py-1">
+          {VERTICALS.map(v => {
+            const Icon = v.icon;
+            return (
+              <Link
+                key={v.href}
+                href={v.href}
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 transition-colors group"
+              >
+                <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  <Icon className="w-3.5 h-3.5 text-primary" />
+                </div>
+                <span className="text-sm text-slate-300 group-hover:text-white transition-colors">{v.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Navbar() {
   const { isAuthenticated, isLoading } = useAuth();
 
@@ -150,12 +204,13 @@ export function Navbar() {
             </span>
           </Link>
 
-          <nav className="flex items-center gap-4">
+          <nav className="flex items-center gap-5">
             {!isLoading && (
               <>
+                {!isAuthenticated && <SolutionsDropdown />}
                 {isAuthenticated ? (
                   <>
-                    <Link href="/dashboard" className="text-sm font-medium text-muted-foreground hover:text-white transition-colors mr-2">
+                    <Link href="/dashboard" className="text-sm font-medium text-muted-foreground hover:text-white transition-colors">
                       Dashboard
                     </Link>
                     <NotificationBell />
