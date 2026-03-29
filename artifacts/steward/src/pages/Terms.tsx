@@ -185,7 +185,7 @@ export default function Terms() {
             </section>
 
             <section>
-              <h2 className="text-xl font-semibold text-white mb-3">14. Governing Law</h2>
+              <h2 className="text-xl font-semibold text-white mb-3">15. Governing Law</h2>
               <p>
                 These Terms are governed by the laws of the United States. Any disputes shall be resolved in the courts of competent jurisdiction. If any provision
                 of these Terms is found unenforceable, the remaining provisions remain in full effect.
@@ -193,7 +193,7 @@ export default function Terms() {
             </section>
 
             <section>
-              <h2 className="text-xl font-semibold text-white mb-3">15. Changes to These Terms</h2>
+              <h2 className="text-xl font-semibold text-white mb-3">16. Changes to These Terms</h2>
               <p>
                 We may update these Terms from time to time. Material changes will be communicated via email or a notice within the Service at least 14 days before
                 taking effect. Continued use of the Service after that date constitutes acceptance.
@@ -201,7 +201,7 @@ export default function Terms() {
             </section>
 
             <section>
-              <h2 className="text-xl font-semibold text-white mb-3">16. Contact</h2>
+              <h2 className="text-xl font-semibold text-white mb-3">17. Contact</h2>
               <p>
                 Questions about these Terms? Contact us at <a href={`mailto:${CONTACT_EMAIL}`} className="text-primary hover:underline">{CONTACT_EMAIL}</a>.
               </p>
