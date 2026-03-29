@@ -10,6 +10,7 @@ import Onboard from "./pages/Onboard";
 import Billing from "./pages/Billing";
 import Terms from "./pages/Terms";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
+import DPA from "./pages/DPA";
 import BoardApproval from "./pages/BoardApproval";
 import NotFound from "./pages/not-found";
 import PublicEvent from "./pages/PublicEvent";
@@ -87,6 +88,7 @@ function AppRouter() {
       <Route path="/events/:slug/tickets" component={PublicEvent} />
       <Route path="/terms" component={Terms} />
       <Route path="/privacy" component={PrivacyPolicy} />
+      <Route path="/dpa" component={DPA} />
       <Route path="/board/:token" component={BoardApproval} />
       <Route path="/for/lodges" component={LodgesPage} />
       <Route path="/for/rotary" component={RotaryPage} />

@@ -211,6 +211,7 @@ export default function Terms() {
 
           <div className="mt-12 pt-8 border-t border-white/10 flex flex-wrap gap-4 text-sm text-muted-foreground">
             <Link href="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link>
+            <Link href="/dpa" className="hover:text-white transition-colors">Data Processing Agreement</Link>
             <Link href="/" className="hover:text-white transition-colors">← Back to Home</Link>
           </div>
         </div>
