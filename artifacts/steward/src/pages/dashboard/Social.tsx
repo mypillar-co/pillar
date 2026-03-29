@@ -111,6 +111,12 @@ function ConnectAccountDialog({ open, onClose, onConnected }: { open: boolean; o
         {!showManual ? (
           <div className="space-y-3">
             <p className="text-xs text-slate-400">Choose a platform to connect. OAuth lets you connect with one click — if it is not configured, you will be prompted to enter a token manually.</p>
+            <div className="flex items-start gap-2 rounded-lg bg-amber-500/5 border border-amber-500/20 px-3 py-2.5">
+              <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-400/90 leading-relaxed">
+                By connecting, Steward will securely store your access token to post on your behalf. Your token is encrypted and never shared. You can revoke access anytime from this page or from the social platform's app settings.
+              </p>
+            </div>
             {Object.entries(PLATFORM_META).map(([key, meta]) => {
               const Icon = meta.icon;
               const isLoading = oauthLoading === key;

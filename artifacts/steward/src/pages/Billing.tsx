@@ -394,11 +394,11 @@ export default function Billing() {
                       );
                     })}
                   </div>
-                  {hasActiveSubscription && (
-                    <p className="text-xs text-muted-foreground mt-4 text-center">
-                      Plan changes are processed via the Stripe billing portal with prorated billing.
-                    </p>
-                  )}
+                  <p className="text-xs text-muted-foreground mt-4 text-center leading-relaxed">
+                    {hasActiveSubscription
+                      ? "Plan changes are processed via the Stripe billing portal with prorated billing."
+                      : "Subscriptions renew automatically each month until cancelled. Cancel anytime — access continues until the end of your billing period."}
+                  </p>
                 </CardContent>
               </Card>
 

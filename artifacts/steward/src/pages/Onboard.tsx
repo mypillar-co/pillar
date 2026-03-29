@@ -29,7 +29,9 @@ import {
   CheckCircle2,
   ChevronRight,
   ChevronLeft,
+  RefreshCw,
 } from "lucide-react";
+import { Link } from "wouter";
 import { toast } from "sonner";
 
 const orgSchema = z.object({
@@ -73,6 +75,7 @@ export default function Onboard() {
   const [currentStep, setCurrentStep] = useState<Step>(1);
   const [createdOrgName, setCreatedOrgName] = useState("");
   const [selectedTierId, setSelectedTierId] = useState<string | null>(null);
+  const [tosAccepted, setTosAccepted] = useState(false);
 
   // When returning from Stripe Checkout, the success_url includes ?step=3
   // Jump directly to the correct step based on the query param
@@ -286,10 +289,26 @@ export default function Onboard() {
                       />
                     </div>
 
+                    <label className="flex items-start gap-3 cursor-pointer group mt-1">
+                      <input
+                        type="checkbox"
+                        checked={tosAccepted}
+                        onChange={(e) => setTosAccepted(e.target.checked)}
+                        className="mt-0.5 w-4 h-4 rounded accent-primary shrink-0"
+                      />
+                      <span className="text-xs text-muted-foreground group-hover:text-slate-300 transition-colors leading-relaxed">
+                        I agree to Steward's{" "}
+                        <Link href="/terms" className="text-primary hover:underline" target="_blank">Terms of Service</Link>
+                        {" "}and{" "}
+                        <Link href="/privacy" className="text-primary hover:underline" target="_blank">Privacy Policy</Link>.
+                        I understand that AI-generated content may be inaccurate and I am responsible for reviewing it before publishing.
+                      </span>
+                    </label>
+
                     <Button
                       type="submit"
                       className="w-full h-11 text-base mt-2"
-                      disabled={orgPending}
+                      disabled={orgPending || !tosAccepted}
                     >
                       {orgPending ? (
                         "Saving..."
@@ -388,7 +407,12 @@ export default function Onboard() {
                         );
                       })}
 
-                      <div className="pt-2">
+                      <p className="text-center text-xs text-muted-foreground pt-2 flex items-center justify-center gap-1.5">
+                        <RefreshCw className="w-3 h-3 shrink-0" />
+                        Subscriptions auto-renew monthly. Cancel anytime from your billing page.
+                      </p>
+
+                      <div className="pt-1">
                         <button
                           onClick={handleSkipBilling}
                           className="w-full text-center text-sm text-muted-foreground hover:text-white transition-colors py-2"

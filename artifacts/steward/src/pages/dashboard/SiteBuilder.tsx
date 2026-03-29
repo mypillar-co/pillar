@@ -98,6 +98,8 @@ export default function SiteBuilder() {
   const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
   const [logoFileName, setLogoFileName] = useState<string | null>(null);
   const [syncingEvents, setSyncingEvents] = useState(false);
+  const [showPublishDisclaimer, setShowPublishDisclaimer] = useState(false);
+  const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   const [uploadedPhotos, setUploadedPhotos] = useState<{ url: string; name: string }[]>([]);
@@ -346,6 +348,22 @@ export default function SiteBuilder() {
     } finally {
       setGenerating(false);
     }
+  };
+
+  const handlePublishClick = () => {
+    if (!site) return;
+    if (site.status !== "published" && !localStorage.getItem("steward_publish_disclaimer_accepted")) {
+      setDisclaimerAccepted(false);
+      setShowPublishDisclaimer(true);
+      return;
+    }
+    void togglePublish();
+  };
+
+  const confirmPublish = () => {
+    localStorage.setItem("steward_publish_disclaimer_accepted", "1");
+    setShowPublishDisclaimer(false);
+    void togglePublish();
   };
 
   const togglePublish = async () => {
@@ -635,7 +653,7 @@ export default function SiteBuilder() {
                 </a>
               )}
             </div>
-            <Button size="sm" onClick={togglePublish} disabled={publishing} className={`h-7 text-xs ${site.status === "published" ? "bg-slate-600 hover:bg-slate-500" : "bg-emerald-600 hover:bg-emerald-500"}`}>
+            <Button size="sm" onClick={handlePublishClick} disabled={publishing} className={`h-7 text-xs ${site.status === "published" ? "bg-slate-600 hover:bg-slate-500" : "bg-emerald-600 hover:bg-emerald-500"}`}>
               {publishing ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : site.status === "published" ? <EyeOff className="w-3 h-3 mr-1.5" /> : <CheckCircle2 className="w-3 h-3 mr-1.5" />}
               {site.status === "published" ? "Unpublish" : "Publish"}
             </Button>
@@ -1036,6 +1054,55 @@ export default function SiteBuilder() {
             ) : null}
           </div>
         </>
+      )}
+
+      {showPublishDisclaimer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="bg-card border border-white/10 rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center gap-3 mb-1">
+              <div className="w-10 h-10 rounded-full bg-amber-500/15 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-5 h-5 text-amber-400" />
+              </div>
+              <h2 className="text-lg font-semibold text-white">Before you publish</h2>
+            </div>
+            <p className="text-sm text-slate-300 leading-relaxed">
+              Your site was built using AI and may contain inaccuracies. Please review all content — including your organization name, contact details,
+              meeting times, and any other information — before making it live.
+            </p>
+            <ul className="text-sm text-slate-400 space-y-1.5 pl-4">
+              <li className="flex items-start gap-2"><span className="text-amber-400 mt-0.5">•</span> Verify all facts, dates, and contact info are correct</li>
+              <li className="flex items-start gap-2"><span className="text-amber-400 mt-0.5">•</span> Ensure you have rights to any photos or content used</li>
+              <li className="flex items-start gap-2"><span className="text-amber-400 mt-0.5">•</span> AI-generated text may not reflect your organization exactly</li>
+            </ul>
+            <label className="flex items-start gap-3 cursor-pointer group pt-1">
+              <input
+                type="checkbox"
+                checked={disclaimerAccepted}
+                onChange={(e) => setDisclaimerAccepted(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded accent-primary shrink-0"
+              />
+              <span className="text-sm text-muted-foreground group-hover:text-slate-300 transition-colors leading-relaxed">
+                I have reviewed the content and understand that I am responsible for all published material.
+              </span>
+            </label>
+            <div className="flex gap-3 pt-1">
+              <Button
+                variant="outline"
+                className="flex-1 border-white/20 text-white hover:bg-white/5"
+                onClick={() => setShowPublishDisclaimer(false)}
+              >
+                Go back and review
+              </Button>
+              <Button
+                className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white"
+                disabled={!disclaimerAccepted}
+                onClick={confirmPublish}
+              >
+                Publish site
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

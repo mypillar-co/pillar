@@ -8,6 +8,8 @@ import { DashboardLayout } from "./components/layout/DashboardLayout";
 import Landing from "./pages/Landing";
 import Onboard from "./pages/Onboard";
 import Billing from "./pages/Billing";
+import Terms from "./pages/Terms";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
 import NotFound from "./pages/not-found";
 import PublicEvent from "./pages/PublicEvent";
 import TicketSuccess from "./pages/TicketSuccess";
@@ -79,6 +81,8 @@ function AppRouter() {
       </Route>
       <Route path="/events/:slug/tickets/success" component={TicketSuccess} />
       <Route path="/events/:slug/tickets" component={PublicEvent} />
+      <Route path="/terms" component={Terms} />
+      <Route path="/privacy" component={PrivacyPolicy} />
       <Route path="/admin" component={Admin} />
       <Route path="/dashboard/:rest*" component={DashboardRouter} />
       <Route path="/dashboard" component={DashboardRouter} />

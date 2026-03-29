@@ -124,6 +124,7 @@ export default function Domains() {
   const [checking, setChecking] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
   const [claiming, setClaiming] = useState(false);
+  const [icannAccepted, setIcannAccepted] = useState(false);
 
   const [byodInput, setByodInput] = useState("");
   const [addingExternal, setAddingExternal] = useState(false);
@@ -192,6 +193,7 @@ export default function Domains() {
     if (!domain.trim()) return;
     setChecking(true);
     setCheckResult(null);
+    setIcannAccepted(false);
     try {
       const res = await fetch("/api/domains/check", {
         method: "POST",
@@ -447,7 +449,7 @@ export default function Domains() {
           </div>
 
           {checkResult && (
-            <div className={`p-4 rounded-xl border ${checkResult.available ? "border-emerald-500/20 bg-emerald-500/5" : "border-red-500/20 bg-red-500/5"}`}>
+            <div className={`p-4 rounded-xl border space-y-3 ${checkResult.available ? "border-emerald-500/20 bg-emerald-500/5" : "border-red-500/20 bg-red-500/5"}`}>
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   {checkResult.available
@@ -460,20 +462,39 @@ export default function Domains() {
                       : <p className="text-xs text-red-400/80">{checkResult.reason ?? "Not available"}</p>}
                   </div>
                 </div>
-                {checkResult.available && (
-                  isFreeForTier ? (
-                    <Button size="sm" onClick={handleClaim} disabled={claiming} className="gap-2 flex-shrink-0">
-                      {claiming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Gift className="w-3.5 h-3.5" />}
-                      Claim Free
-                    </Button>
-                  ) : (
-                    <Button size="sm" onClick={handlePurchase} disabled={purchasing} className="gap-2 flex-shrink-0">
-                      {purchasing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShoppingCart className="w-3.5 h-3.5" />}
-                      Buy $24/yr
-                    </Button>
-                  )
-                )}
               </div>
+              {checkResult.available && (
+                <>
+                  <label className="flex items-start gap-3 cursor-pointer group border-t border-white/10 pt-3">
+                    <input
+                      type="checkbox"
+                      checked={icannAccepted}
+                      onChange={(e) => setIcannAccepted(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 rounded accent-primary shrink-0"
+                    />
+                    <span className="text-xs text-muted-foreground group-hover:text-slate-300 transition-colors leading-relaxed">
+                      I agree to Porkbun's{" "}
+                      <a href="https://porkbun.com/policies/registrationAgreement" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Domain Registration Agreement</a>
+                      {" "}and ICANN's{" "}
+                      <a href="https://www.icann.org/resources/pages/udrp-2012-02-25-en" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">UDRP policy</a>.
+                      I confirm my WHOIS information is accurate.
+                    </span>
+                  </label>
+                  <div className="flex justify-end">
+                    {isFreeForTier ? (
+                      <Button size="sm" onClick={handleClaim} disabled={claiming || !icannAccepted} className="gap-2">
+                        {claiming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Gift className="w-3.5 h-3.5" />}
+                        Claim Free
+                      </Button>
+                    ) : (
+                      <Button size="sm" onClick={handlePurchase} disabled={purchasing || !icannAccepted} className="gap-2">
+                        {purchasing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShoppingCart className="w-3.5 h-3.5" />}
+                        Buy $24/yr
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
