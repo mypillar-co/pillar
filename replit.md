@@ -1,5 +1,11 @@
 # Steward — Your Organization, on Autopilot
 
+## Owner Action Items
+
+These are tasks that require manual action by you (not code changes):
+
+- [ ] **Register a DMCA agent with copyright.gov** — Required for DMCA safe harbor protection under 17 U.S.C. § 512. Go to https://www.copyright.gov/dmca-directory/, register "Steward" as the service provider, and pay the $6/year fee. Once done, update the placeholder in `artifacts/steward/src/pages/Terms.tsx` (search for `[Company Address — register at copyright.gov]`) with your registered agent name and address.
+
 ## Overview
 Steward is an AI-powered SaaS platform designed to autonomously manage websites, event dashboards, and social media for civic organizations, nonprofits, clubs, and community groups. It provides a "Wix meets Eventbrite" experience, putting organizational management on autopilot. The platform offers tiered subscriptions ranging from basic AI website generation to fully autonomous management across websites, events, and social media.
 
