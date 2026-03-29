@@ -68,7 +68,21 @@ export default function Terms() {
             </section>
 
             <section>
-              <h2 className="text-xl font-semibold text-white mb-3">5. Domain Registration</h2>
+              <h2 className="text-xl font-semibold text-white mb-3">5. Refund Policy</h2>
+              <p>We want you to feel confident subscribing to {COMPANY}. Our refund policy is as follows:</p>
+              <ul className="list-disc pl-5 space-y-2 mt-3">
+                <li><strong>7-day money-back guarantee (monthly plans):</strong> If you are unsatisfied with the Service within the first 7 days of your first paid subscription, contact us at <a href={`mailto:${CONTACT_EMAIL}`} className="text-primary hover:underline">{CONTACT_EMAIL}</a> for a full refund. This applies to first-time subscribers only.</li>
+                <li><strong>7-day money-back guarantee (annual plans):</strong> Annual plan subscribers may request a full refund within the first 7 days of the initial subscription or at the start of each annual renewal. After 7 days, annual plans are non-refundable.</li>
+                <li><strong>No refunds for partial months:</strong> Cancellations mid-cycle do not result in a prorated refund. Access continues through the end of the paid billing period.</li>
+                <li><strong>Plan downgrades:</strong> Downgrading to a lower tier takes effect at the start of the next billing period. No refund is issued for the remaining days at the higher tier.</li>
+                <li><strong>Domain registration fees:</strong> Domain registration and renewal fees are non-refundable once processed with the registrar, in accordance with Porkbun's policies.</li>
+                <li><strong>Disputes:</strong> To dispute a charge, contact us at <a href={`mailto:${CONTACT_EMAIL}`} className="text-primary hover:underline">{CONTACT_EMAIL}</a> before initiating a chargeback. We resolve billing issues promptly and chargebacks may result in account suspension.</li>
+                <li><strong>Required refunds by law:</strong> Nothing in this policy limits rights you may have under applicable consumer protection law.</li>
+              </ul>
+            </section>
+
+            <section>
+              <h2 className="text-xl font-semibold text-white mb-3">6. Domain Registration</h2>
               <p>
                 Domain registration services are provided in partnership with Porkbun LLC ("<strong>Registrar</strong>"). By registering or claiming a domain
                 through {COMPANY}, you agree to:
@@ -86,7 +100,7 @@ export default function Terms() {
             </section>
 
             <section>
-              <h2 className="text-xl font-semibold text-white mb-3">6. Social Media Accounts</h2>
+              <h2 className="text-xl font-semibold text-white mb-3">7. Social Media Accounts</h2>
               <p>
                 When you connect a social media account to {COMPANY}, you authorize the Service to store your access token securely and use it to post
                 content on your behalf according to your configured schedule and preferences. Tokens are encrypted at rest and in transit. You may revoke
@@ -96,7 +110,7 @@ export default function Terms() {
             </section>
 
             <section>
-              <h2 className="text-xl font-semibold text-white mb-3">7. Acceptable Use</h2>
+              <h2 className="text-xl font-semibold text-white mb-3">8. Acceptable Use</h2>
               <p>You agree not to use the Service to:</p>
               <ul className="list-disc pl-5 space-y-2 mt-3">
                 <li>Publish content that is illegal, defamatory, fraudulent, harassing, or violates any third party's rights</li>
@@ -108,7 +122,7 @@ export default function Terms() {
             </section>
 
             <section>
-              <h2 className="text-xl font-semibold text-white mb-3">8. Intellectual Property</h2>
+              <h2 className="text-xl font-semibold text-white mb-3">9. Intellectual Property</h2>
               <p>
                 You retain ownership of all content you upload or provide to the Service. By using the Service, you grant {COMPANY} a non-exclusive,
                 royalty-free license to host, store, transmit, and display your content solely as necessary to provide the Service. AI-generated content
@@ -121,14 +135,14 @@ export default function Terms() {
             </section>
 
             <section>
-              <h2 className="text-xl font-semibold text-white mb-3">9. Data and Privacy</h2>
+              <h2 className="text-xl font-semibold text-white mb-3">10. Data and Privacy</h2>
               <p>
                 Your use of the Service is governed by our <Link href="/privacy" className="text-primary hover:underline">Privacy Policy</Link>, which is incorporated into these Terms by reference.
               </p>
             </section>
 
             <section>
-              <h2 className="text-xl font-semibold text-white mb-3">10. Disclaimer of Warranties</h2>
+              <h2 className="text-xl font-semibold text-white mb-3">11. Disclaimer of Warranties</h2>
               <p>
                 THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED. {COMPANY.toUpperCase()} DISCLAIMS ALL
                 WARRANTIES, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. WE DO NOT WARRANT THAT THE
@@ -137,7 +151,7 @@ export default function Terms() {
             </section>
 
             <section>
-              <h2 className="text-xl font-semibold text-white mb-3">11. Limitation of Liability</h2>
+              <h2 className="text-xl font-semibold text-white mb-3">12. Limitation of Liability</h2>
               <p>
                 TO THE MAXIMUM EXTENT PERMITTED BY LAW, {COMPANY.toUpperCase()} SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR
                 PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS OR REVENUES, WHETHER INCURRED DIRECTLY OR INDIRECTLY, OR ANY LOSS OF DATA, USE, GOODWILL, OR OTHER
@@ -147,7 +161,7 @@ export default function Terms() {
             </section>
 
             <section>
-              <h2 className="text-xl font-semibold text-white mb-3">12. DMCA Notice</h2>
+              <h2 className="text-xl font-semibold text-white mb-3">13. DMCA Notice</h2>
               <p>
                 If you believe content on the Service infringes your copyright, send a DMCA notice to our designated agent:
               </p>
@@ -162,7 +176,7 @@ export default function Terms() {
             </section>
 
             <section>
-              <h2 className="text-xl font-semibold text-white mb-3">13. Termination</h2>
+              <h2 className="text-xl font-semibold text-white mb-3">14. Termination</h2>
               <p>
                 Either party may terminate the service relationship at any time. {COMPANY} may suspend or terminate your access for violation of these Terms, non-payment,
                 or for any other reason with reasonable notice. Upon termination, your data will be retained for 30 days during which you may request an export,

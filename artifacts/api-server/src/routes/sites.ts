@@ -448,12 +448,14 @@ TYPOGRAPHY — the foundation of a premium design:
 - Lead paragraph: 1.2rem, line-height 1.7, color var(--text-light), max-width 560px
 
 VISUAL DEPTH — what separates elite from average:
-1. GRADIENT OVERLAYS: multi-stop gradients on hero (e.g. linear-gradient(160deg, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.3) 60%, rgba(0,0,0,0.6) 100%))
-2. GLASSMORPHISM cards: background: rgba(255,255,255,0.7); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.6); (use on overlaid elements)
-3. FLOATING BLOBS: 2-3 absolutely-positioned radial gradient blobs behind hero/featured sections. Example: position:absolute; width:600px; height:600px; background:radial-gradient(circle, rgba([primary-rgb],0.15) 0%, transparent 70%); border-radius:50%; pointer-events:none;
-4. CARD DESIGN: white bg, var(--radius), var(--shadow), a colored top border (4px solid var(--accent)), hover: translateY(-8px) + var(--shadow-lg) with transition. No flat cards.
-5. SECTION DIVIDERS: use clip-path on section tops for diagonal/wave separators: clip-path: polygon(0 0, 100% 4%, 100% 100%, 0 100%); (adjust %)
-6. ACCENT LINES: .accent-line { width:64px; height:4px; background:var(--accent); border-radius:2px; margin: 16px 0 32px; }
+1. GRADIENT OVERLAYS: multi-stop gradients on hero (e.g. linear-gradient(160deg, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.28) 55%, rgba(0,0,0,0.62) 100%))
+2. GLASSMORPHISM cards: background: rgba(255,255,255,0.72); backdrop-filter: blur(20px) saturate(1.4); border: 1px solid rgba(255,255,255,0.55); box-shadow: 0 8px 32px rgba(0,0,0,0.08); (use on overlaid elements, nav on scroll)
+3. FLOATING BLOBS: 2-3 absolutely-positioned radial gradient blobs. Position one top-right, one bottom-left, one center. Example: position:absolute; width:700px; height:700px; background:radial-gradient(circle at center, rgba(var(--primary-rgb),0.12) 0%, transparent 65%); border-radius:50%; pointer-events:none; animation:float Xs ease-in-out infinite;
+4. GRADIENT MESH (alternate sections): background: radial-gradient(ellipse at 20% 50%, rgba(var(--primary-rgb),0.06) 0%, transparent 50%), radial-gradient(ellipse at 80% 20%, rgba(var(--accent-rgb,var(--primary-rgb)),0.04) 0%, transparent 50%), var(--bg-alt); This creates a subtle colorful depth in non-hero sections.
+5. CARD DESIGN: white bg, var(--radius), var(--shadow), a colored top border (4px solid var(--accent)), position:relative; overflow:hidden; hover: translateY(-10px) + var(--shadow-lg) with transition 0.35s. Add subtle shimmer on hover (::after pseudo-element). No flat cards.
+6. SECTION DIVIDERS: use clip-path on section tops for diagonal separators: clip-path: polygon(0 0, 100% 5%, 100% 100%, 0 100%); or inverted polygon(0 5%, 100% 0, 100% 100%, 0 100%); alternate for variety.
+7. ACCENT LINES: .accent-line { width:56px; height:3px; background:linear-gradient(90deg, var(--primary), var(--accent,var(--primary-light))); border-radius:2px; margin: 14px 0 28px; }
+8. TEXT GRADIENT HEADINGS: for section headings, wrap key words in <span style="background:linear-gradient(135deg, var(--primary), var(--accent,var(--primary-light))); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;">word</span>
 
 LAYOUT PATTERNS:
 - Hero: 100vh, full-bleed background image + multi-stop gradient overlay + floating blobs. Center-aligned content with oversized heading, lead paragraph, two CTA buttons (primary + ghost/outline). Animated scroll-down chevron bouncing at bottom.
@@ -473,30 +475,42 @@ WHITESPACE:
 ANIMATIONS — this is what makes it feel alive:
 
 CSS animations (define in <style>):
-@keyframes fadeUp { from { opacity:0; transform:translateY(30px); } to { opacity:1; transform:translateY(0); } }
-@keyframes scaleIn { from { opacity:0; transform:scale(0.95); } to { opacity:1; transform:scale(1); } }
-@keyframes float { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-12px); } }
-@keyframes pulse-glow { 0%,100% { box-shadow: 0 0 20px rgba([primary-rgb],0.3); } 50% { box-shadow: 0 0 40px rgba([primary-rgb],0.6); } }
-@keyframes bounce-arrow { 0%,100% { transform:translateY(0); } 50% { transform:translateY(8px); } }
-@keyframes gradientShift { 0%,100% { background-position:0% 50%; } 50% { background-position:100% 50%; } }
+@keyframes fadeUp { from { opacity:0; transform:translateY(36px); } to { opacity:1; transform:translateY(0); } }
+@keyframes fadeLeft { from { opacity:0; transform:translateX(-36px); } to { opacity:1; transform:translateX(0); } }
+@keyframes fadeRight { from { opacity:0; transform:translateX(36px); } to { opacity:1; transform:translateX(0); } }
+@keyframes scaleIn { from { opacity:0; transform:scale(0.92); } to { opacity:1; transform:scale(1); } }
+@keyframes float { 0%,100% { transform:translateY(0) rotate(0deg); } 50% { transform:translateY(-18px) rotate(1deg); } }
+@keyframes pulse-glow { 0%,100% { box-shadow: 0 0 24px rgba(var(--primary-rgb),0.35), 0 4px 16px rgba(0,0,0,0.2); } 50% { box-shadow: 0 0 48px rgba(var(--primary-rgb),0.65), 0 4px 24px rgba(0,0,0,0.25); } }
+@keyframes bounce-arrow { 0%,100% { transform:translateY(0); opacity:0.7; } 50% { transform:translateY(10px); opacity:1; } }
+@keyframes gradientShift { 0%,100% { background-position:0% 60%; } 50% { background-position:100% 40%; } }
+@keyframes shimmer { from { background-position:-200% center; } to { background-position:200% center; } }
+@keyframes spin-slow { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
 
-Inline hero content: animation: fadeUp 0.9s ease both; with staggered delays for h1 (0.1s), p (0.3s), buttons (0.5s).
-Floating blobs: animation: float 8s ease-in-out infinite; (different durations for each blob: 8s, 11s, 14s)
-Hero background: background-size:120%; animation: none (parallax via JS).
-Scroll-down arrow: animation: bounce-arrow 1.8s ease-in-out infinite;
-CTA button primary: animation: pulse-glow 3s ease-in-out infinite; on :hover
+Inline hero content: animation: fadeUp 1s cubic-bezier(0.25,0.46,0.45,0.94) both; staggered: h1 delay 0.1s, p delay 0.35s, buttons delay 0.6s.
+Floating blobs: animation: float Xs ease-in-out infinite; use different durations (9s, 13s, 17s) and delays (0s, -4s, -8s) for each blob.
+Scroll-down arrow: animation: bounce-arrow 2s ease-in-out infinite;
+CTA button primary: on :hover → animation: pulse-glow 2.5s ease-in-out infinite; + transform:translateY(-2px); transition 0.3s.
+Gradient heading text: background-size:200% auto; animation: gradientShift 4s ease infinite;
+Shimmer effect on cards: card::after { content:''; position:absolute; inset:0; background:linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.08) 50%, transparent 60%); background-size:200% 100%; opacity:0; transition:opacity 0.3s; } card:hover::after { opacity:1; animation: shimmer 0.8s ease; }
 
-.reveal { opacity:0; transform:translateY(36px); transition:opacity 0.75s ease, transform 0.75s cubic-bezier(0.25, 0.46, 0.45, 0.94); }
+.reveal { opacity:0; transform:translateY(40px); transition:opacity 0.8s cubic-bezier(0.25,0.46,0.45,0.94), transform 0.8s cubic-bezier(0.25,0.46,0.45,0.94); }
 .reveal.visible { opacity:1; transform:translateY(0); }
-.reveal-child:nth-child(1){transition-delay:0s} :nth-child(2){transition-delay:0.1s} :nth-child(3){transition-delay:0.2s} :nth-child(4){transition-delay:0.3s}
+.reveal-left { opacity:0; transform:translateX(-40px); transition:opacity 0.8s cubic-bezier(0.25,0.46,0.45,0.94), transform 0.8s cubic-bezier(0.25,0.46,0.45,0.94); }
+.reveal-left.visible { opacity:1; transform:translateX(0); }
+.reveal-right { opacity:0; transform:translateX(40px); transition:opacity 0.8s cubic-bezier(0.25,0.46,0.45,0.94), transform 0.8s cubic-bezier(0.25,0.46,0.45,0.94); }
+.reveal-right.visible { opacity:1; transform:translateX(0); }
+.reveal-child:nth-child(1){transition-delay:0s} .reveal-child:nth-child(2){transition-delay:0.12s} .reveal-child:nth-child(3){transition-delay:0.24s} .reveal-child:nth-child(4){transition-delay:0.36s} .reveal-child:nth-child(5){transition-delay:0.48s}
+
+Use .reveal-left on the image side of asymmetric sections, .reveal-right on the text side, .reveal on symmetric sections.
 
 INTERACTIVE JAVASCRIPT (inline <script> at end of <body>):
-1. IntersectionObserver: adds .visible to .reveal elements when they enter viewport (threshold:0.12)
-2. Navbar: starts transparent with white text; on scroll >60px adds solid bg + shadow; on scroll back <20px removes it. Smooth CSS transition.
-3. Smooth anchor scroll for all nav links
-4. Mobile hamburger: full-width slide-down menu panel with links, close on link click, animated hamburger→X icon
-5. Parallax: hero background moves at 0.4x scroll speed (background-position-y update on scroll)
-6. Animated counters: on .stat-number elements that have data-target attr, count up from 0 when they enter viewport (requestAnimationFrame, 1.5s duration, easeOutExpo easing)
+1. IntersectionObserver (threshold:0.1, rootMargin:'0px 0px -60px 0px'): adds .visible to .reveal, .reveal-left, and .reveal-right elements when they enter viewport.
+2. Navbar: starts with background:transparent, color:white; on scroll >80px → background:rgba(15,23,42,0.92), backdrop-filter:blur(16px), box-shadow:0 2px 24px rgba(0,0,0,0.15). Smooth CSS transition: background 0.4s ease, backdrop-filter 0.4s ease, box-shadow 0.4s ease. On scroll <30px → remove styles.
+3. Smooth anchor scroll for all nav links (preventDefault, scrollIntoView behavior:'smooth')
+4. Mobile hamburger: overlay full-viewport nav panel slides in from left (transform:translateX(-100%) → translateX(0), transition 0.35s ease). Hamburger icon morphs to X using CSS transform. Close on link click or outside click. Add aria-expanded.
+5. Parallax: hero background moves at 0.35x scroll speed (requestAnimationFrame, background-position-y update).
+6. Animated counters: find all [data-target] elements. On intersection: count from 0 to data-target value over 1800ms using easeOutExpo easing (t => 1 - Math.pow(2, -10*t)). Format with commas and "+" suffix if needed.
+7. Active nav link: on scroll, detect which section is in view, add active class (underline accent, color var(--primary)) to corresponding nav link.
 
 REQUIRED SECTIONS:
 1. NAV — Fixed. Transparent start, solid on scroll. Logo left (text or img), links right. Mobile hamburger. Active link underline accent.${logoInstruction}${photoInstruction}
