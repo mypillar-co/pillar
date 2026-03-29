@@ -2,6 +2,8 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { Readable } from "stream";
 import { z } from "zod";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
+import { db, organizationsTable } from "@workspace/db";
+import { eq, sql } from "drizzle-orm";
 
 const RequestUploadUrlBody = z.object({
   name: z.string(),
@@ -22,6 +24,24 @@ const RequestUploadUrlResponse = z.object({
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
 
+const STORAGE_LIMITS: Record<string, number> = {
+  tier1:  500 * 1024 * 1024,       // 500 MB
+  tier1a: 2 * 1024 * 1024 * 1024,  // 2 GB
+  tier2:  5 * 1024 * 1024 * 1024,  // 5 GB
+  tier3:  10 * 1024 * 1024 * 1024, // 10 GB
+};
+const DEFAULT_STORAGE_LIMIT = 100 * 1024 * 1024; // 100 MB (no active plan)
+
+function storageLimitForTier(tier: string | null | undefined): number {
+  if (!tier) return DEFAULT_STORAGE_LIMIT;
+  return STORAGE_LIMITS[tier] ?? DEFAULT_STORAGE_LIMIT;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
+}
+
 router.post("/storage/uploads/request-url", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
@@ -34,10 +54,38 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
     return;
   }
 
+  const { name, size, contentType } = parsed.data;
+
+  const [org] = await db
+    .select({ id: organizationsTable.id, tier: organizationsTable.tier, storageUsedBytes: organizationsTable.storageUsedBytes })
+    .from(organizationsTable)
+    .where(eq(organizationsTable.userId, req.user!.id));
+
+  if (!org) {
+    res.status(404).json({ error: "Organization not found" });
+    return;
+  }
+
+  const limit = storageLimitForTier(org.tier);
+  const used = org.storageUsedBytes ?? 0;
+
+  if (used + size > limit) {
+    res.status(413).json({
+      error: `Storage limit reached. Your plan includes ${formatBytes(limit)} and you have used ${formatBytes(used)}. Please upgrade your plan or remove unused files.`,
+      storageUsed: used,
+      storageLimit: limit,
+    });
+    return;
+  }
+
   try {
-    const { name, size, contentType } = parsed.data;
     const uploadURL = await objectStorageService.getObjectEntityUploadURL();
     const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+
+    await db
+      .update(organizationsTable)
+      .set({ storageUsedBytes: sql`${organizationsTable.storageUsedBytes} + ${size}` })
+      .where(eq(organizationsTable.id, org.id));
 
     res.json(
       RequestUploadUrlResponse.parse({

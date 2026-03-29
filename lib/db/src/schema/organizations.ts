@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, varchar, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, varchar, integer, boolean, real } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -20,6 +20,7 @@ export const organizationsTable = pgTable("organizations", {
   slug: varchar("slug").unique(),
   aiMessagesUsed: integer("ai_messages_used").notNull().default(0),
   aiMessagesResetAt: timestamp("ai_messages_reset_at", { withTimezone: true }).notNull().defaultNow(),
+  storageUsedBytes: real("storage_used_bytes").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

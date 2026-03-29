@@ -57,6 +57,7 @@ export const ticketSalesTable = pgTable("ticket_sales", {
   attendeePhone: text("attendee_phone"),
   quantity: integer("quantity").notNull().default(1),
   amountPaid: real("amount_paid").notNull().default(0),
+  platformFee: real("platform_fee").notNull().default(0),
   paymentMethod: varchar("payment_method").default("manual"),
   stripeCheckoutSessionId: varchar("stripe_checkout_session_id"),
   stripePaymentIntentId: varchar("stripe_payment_intent_id"),

@@ -92,13 +92,15 @@ async function createNotification(orgId: string, type: string, title: string, bo
   }
 }
 
-function validateDomain(domain: string): { valid: boolean; error?: string } {
+const ALL_ALLOWED_TLDS = ["com", "org", "net", "app", "info", "us", "io"];
+const FREE_ALLOWED_TLDS = ["com", "org", "net", "us"];
+
+function validateDomain(domain: string, allowedTlds: string[] = ALL_ALLOWED_TLDS): { valid: boolean; error?: string } {
   const parts = domain.split(".");
   if (parts.length < 2) return { valid: false, error: "Please enter a full domain like 'myorg.com'" };
   const tld = parts[parts.length - 1];
-  const allowedTlds = ["com", "org", "net", "app", "info", "us", "io"];
   if (!allowedTlds.includes(tld)) {
-    return { valid: false, error: `Supported TLDs: ${allowedTlds.join(", ")}` };
+    return { valid: false, error: `Supported extensions: ${allowedTlds.map(t => `.${t}`).join(", ")}` };
   }
   const sld = parts.slice(0, -1).join(".");
   if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(sld) && !/^[a-z0-9]$/.test(sld)) {
@@ -128,7 +130,9 @@ router.post("/check", async (req: Request, res: Response) => {
   if (!rawDomain) { res.status(400).json({ error: "domain is required" }); return; }
 
   const domain = normalizeDomain(rawDomain);
-  const validation = validateDomain(domain);
+  const isFreeForTier = org.tier ? FREE_DOMAIN_TIERS.has(org.tier) : false;
+  const allowedTlds = isFreeForTier ? FREE_ALLOWED_TLDS : ALL_ALLOWED_TLDS;
+  const validation = validateDomain(domain, allowedTlds);
   if (!validation.valid) { res.status(400).json({ error: validation.error }); return; }
 
   const [existing] = await db.select().from(domainsTable).where(eq(domainsTable.domain, domain));
@@ -138,13 +142,13 @@ router.post("/check", async (req: Request, res: Response) => {
   }
 
   const result = await checkAvailability(domain);
-  const isFreeForTier = org.tier ? FREE_DOMAIN_TIERS.has(org.tier) : false;
 
   res.json({
     ...result,
     isFreeForTier,
     price: isFreeForTier ? 0 : DOMAIN_ADDON_PRICE_CENTS / 100,
     priceFormatted: isFreeForTier ? "Included in your plan" : "$24/year",
+    allowedTlds,
   });
 });
 
@@ -301,7 +305,7 @@ router.post("/claim", async (req: Request, res: Response) => {
   if (!rawDomain) { res.status(400).json({ error: "domain is required" }); return; }
 
   const domain = normalizeDomain(rawDomain);
-  const validation = validateDomain(domain);
+  const validation = validateDomain(domain, FREE_ALLOWED_TLDS);
   if (!validation.valid) { res.status(400).json({ error: validation.error }); return; }
 
   const [existingForOrg] = await db.select().from(domainsTable).where(eq(domainsTable.orgId, org.id));

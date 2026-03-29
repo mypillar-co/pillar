@@ -313,7 +313,8 @@ router.get("/:id", async (req: Request, res: Response) => {
   ]);
   const totalRevenue = sales.reduce((s, r) => s + r.amountPaid, 0);
   const totalSold = sales.reduce((s, r) => s + r.quantity, 0);
-  res.json({ event, ticketTypes, sales, approvals, communications, totalRevenue, totalSold });
+  const totalPlatformFees = Math.round(sales.reduce((s, r) => s + (r.platformFee ?? 0), 0) * 100) / 100;
+  res.json({ event, ticketTypes, sales, approvals, communications, totalRevenue, totalSold, totalPlatformFees });
 });
 
 // POST /api/events
@@ -541,6 +542,8 @@ router.get("/:id/sales", async (req: Request, res: Response) => {
   res.json(sales);
 });
 
+const PLATFORM_FEE_RATE = 0.025;
+
 router.post("/:id/sales", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
@@ -550,6 +553,8 @@ router.post("/:id/sales", async (req: Request, res: Response) => {
   const { attendeeName, attendeeEmail, attendeePhone, ticketTypeId, quantity, amountPaid, paymentMethod, notes } = req.body as Record<string, unknown>;
   if (!attendeeName || typeof attendeeName !== "string") { res.status(400).json({ error: "attendeeName is required" }); return; }
   const qty = quantity ? Number(quantity) : 1;
+  const paid = amountPaid ? Number(amountPaid) : 0;
+  const platformFee = Math.round(paid * PLATFORM_FEE_RATE * 100) / 100;
   const [sale] = await db.insert(ticketSalesTable).values({
     eventId,
     orgId: org.id,
@@ -558,7 +563,8 @@ router.post("/:id/sales", async (req: Request, res: Response) => {
     attendeeEmail: attendeeEmail ? String(attendeeEmail) : undefined,
     attendeePhone: attendeePhone ? String(attendeePhone) : undefined,
     quantity: qty,
-    amountPaid: amountPaid ? Number(amountPaid) : 0,
+    amountPaid: paid,
+    platformFee,
     paymentMethod: paymentMethod ? String(paymentMethod) : "manual",
     notes: notes ? String(notes) : undefined,
   }).returning();
