@@ -455,6 +455,18 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
       padding: var(--section-pad) 0;
       background: var(--bg);
     }
+    .shop {
+      padding: var(--section-pad) 0;
+      background: var(--bg-subtle);
+    }
+    .shop-embed-wrap {
+      margin-top: 48px;
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      padding: 32px;
+    }
     .events-list {
       display: flex;
       flex-direction: column;
@@ -795,6 +807,9 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
   <!-- EVENTS (injected only when events exist) -->
   %%EVENTS_SECTION%%
 
+  <!-- SHOP (injected only when embed code is set) -->
+  %%SHOP_SECTION%%
+
   <!-- CONTACT -->
   <section class="contact" id="contact">
     <div class="container">
@@ -976,6 +991,7 @@ export type SiteContent = {
   statsBlock: string;
   programsBlock: string;
   eventsSection: string;
+  shopSection: string;
   navEventsLink: string;
   mobileEventsLink: string;
   footerEventsLink: string;
@@ -1013,6 +1029,7 @@ export function buildSiteFromTemplate(content: SiteContent): string {
     STATS_BLOCK: content.statsBlock,
     PROGRAMS_BLOCK: content.programsBlock,
     EVENTS_SECTION: content.eventsSection,
+    SHOP_SECTION: content.shopSection,
     NAV_EVENTS_LINK: content.navEventsLink,
     MOBILE_EVENTS_LINK: content.mobileEventsLink,
     FOOTER_EVENTS_LINK: content.footerEventsLink,

@@ -521,6 +521,23 @@ Rules: use REAL content from the spec — no lorem ipsum. If stat values not giv
   </section>` : "";
 
   const eventsSectionHtml = gallerySection + eventsHtml;
+
+  // Shop section — injected if the org has a saved embed code
+  const shopEmbedCode = org.shopEmbedCode?.trim() ?? "";
+  const shopSectionHtml = shopEmbedCode
+    ? `<section class="shop" id="shop">
+    <div class="container">
+      <div class="section-header reveal">
+        <span class="eyebrow">Our Shop</span>
+        <h2>Support Our Work</h2>
+      </div>
+      <div class="shop-embed-wrap reveal">
+        ${shopEmbedCode}
+      </div>
+    </div>
+  </section>`
+    : "";
+
   const navEventsLink = allEvents.length > 0 ? '<a href="#events">Events</a>' : "";
   const mobileEventsLink = allEvents.length > 0 ? '<a href="#events" class="mobile-link">Events</a>' : "";
   const footerEventsLink = allEvents.length > 0 ? '<li><a href="#events">Events</a></li>' : "";
@@ -570,6 +587,7 @@ Rules: use REAL content from the spec — no lorem ipsum. If stat values not giv
     statsBlock,
     programsBlock,
     eventsSection: eventsSectionHtml,
+    shopSection: shopSectionHtml,
     navEventsLink,
     mobileEventsLink,
     footerEventsLink,
@@ -1011,5 +1029,39 @@ export async function refreshSiteEventsSection(orgId: string): Promise<void> {
     console.error("[refreshSiteEventsSection] failed:", err);
   }
 }
+
+// ─── Embed Code (shop integration) ───────────────────────────────────────────
+
+router.get("/embed-code", async (req: Request, res: Response) => {
+  const org = await resolveOrg(req, res);
+  if (!org) return;
+  res.json({ embedCode: org.shopEmbedCode ?? "" });
+});
+
+router.put("/embed-code", async (req: Request, res: Response) => {
+  const org = await resolveOrg(req, res);
+  if (!org) return;
+
+  const raw = (req.body as { embedCode?: unknown }).embedCode;
+  if (typeof raw !== "string") {
+    res.status(400).json({ error: "embedCode must be a string" });
+    return;
+  }
+
+  // Basic safety: strip javascript: and data: URIs from src/href attributes.
+  // We allow <script> tags from trusted CDNs (Shopify, Gumroad, Square etc.)
+  // because the embed runs inside the published site, not in the Steward dashboard.
+  const sanitized = raw
+    .replace(/\bon\w+\s*=/gi, "data-blocked=") // strip inline event handlers
+    .replace(/(src|href)\s*=\s*["']javascript:[^"']*["']/gi, "") // strip js: URIs
+    .trim();
+
+  await db
+    .update(organizationsTable)
+    .set({ shopEmbedCode: sanitized || null })
+    .where(eq(organizationsTable.id, org.id));
+
+  res.json({ success: true, embedCode: sanitized });
+});
 
 export default router;

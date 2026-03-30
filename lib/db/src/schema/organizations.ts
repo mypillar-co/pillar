@@ -21,6 +21,7 @@ export const organizationsTable = pgTable("organizations", {
   aiMessagesUsed: integer("ai_messages_used").notNull().default(0),
   aiMessagesResetAt: timestamp("ai_messages_reset_at", { withTimezone: true }).notNull().defaultNow(),
   storageUsedBytes: real("storage_used_bytes").notNull().default(0),
+  shopEmbedCode: text("shop_embed_code"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

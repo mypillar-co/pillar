@@ -3,7 +3,7 @@ import {
   Send, Globe, Sparkles, Bot, User, Loader2, AlertCircle,
   Eye, CheckCircle2, ExternalLink, RefreshCw, EyeOff,
   Edit3, Play, Save, Trash2, Zap, ChevronRight,
-  X, Check, ImagePlus, CalendarClock, Images,
+  X, Check, ImagePlus, CalendarClock, Images, ShoppingBag,
 } from "lucide-react";
 import { uploadImage, ACCEPTED_IMAGE_TYPES, MAX_IMAGE_SIZE_MB } from "@/lib/uploadImage";
 import { useGetOrganization } from "@workspace/api-client-react";
@@ -76,7 +76,7 @@ export default function SiteBuilder() {
   const [tier, setTier] = useState<string | null>(null);
 
   const [mode, setMode] = useState<"interview" | "generating" | "preview">("interview");
-  const [activeTab, setActiveTab] = useState<"preview" | "edit" | "schedule">("preview");
+  const [activeTab, setActiveTab] = useState<"preview" | "edit" | "schedule" | "shop">("preview");
 
   const [changeInput, setChangeInput] = useState("");
   const [changePending, setChangePending] = useState(false);
@@ -104,6 +104,9 @@ export default function SiteBuilder() {
 
   const [uploadedPhotos, setUploadedPhotos] = useState<{ url: string; name: string }[]>([]);
   const [photoUploading, setPhotoUploading] = useState(false);
+  const [shopEmbedCode, setShopEmbedCode] = useState("");
+  const [shopSaving, setShopSaving] = useState(false);
+  const [shopMessage, setShopMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -154,6 +157,33 @@ export default function SiteBuilder() {
       loadHtmlIntoIframe(proposedHtml ?? site.generatedHtml);
     }
   }, [activeTab]);
+
+  // Load saved embed code
+  useEffect(() => {
+    fetch("/api/sites/embed-code", { credentials: "include" })
+      .then(r => r.json())
+      .then((d: { embedCode?: string }) => { if (d.embedCode) setShopEmbedCode(d.embedCode); })
+      .catch(() => null);
+  }, []);
+
+  const handleShopSave = async () => {
+    setShopSaving(true);
+    setShopMessage(null);
+    try {
+      const res = await fetch("/api/sites/embed-code", {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ embedCode: shopEmbedCode }),
+      });
+      if (!res.ok) throw new Error("Save failed");
+      setShopMessage({ type: "success", text: "Embed code saved. Rebuild your site to add the shop section." });
+    } catch {
+      setShopMessage({ type: "error", text: "Failed to save. Please try again." });
+    } finally {
+      setShopSaving(false);
+    }
+  };
 
   const isLimitReached = usage !== null && usage.remaining <= 0;
   const userMsgCount = messages.filter(m => m.role === "user").length;
@@ -665,6 +695,7 @@ export default function SiteBuilder() {
               { id: "preview", label: "Preview", icon: Eye },
               { id: "edit", label: "Edit", icon: Edit3, locked: !tierAllowsChanges(tier) },
               ...(tierAllowsSchedule(tier) ? [{ id: "schedule", label: "Auto-Update", icon: Zap, locked: false }] : []),
+              { id: "shop", label: "Shop", icon: ShoppingBag, locked: false, dot: !!shopEmbedCode },
             ].map(tab => (
               <button
                 key={tab.id}
@@ -674,6 +705,7 @@ export default function SiteBuilder() {
                 <tab.icon className="w-3.5 h-3.5" />
                 {tab.label}
                 {tab.id === "schedule" && schedule?.isActive && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 ml-0.5" />}
+                {"dot" in tab && tab.dot && <div className="w-1.5 h-1.5 rounded-full bg-primary ml-0.5" />}
               </button>
             ))}
           </div>
@@ -874,6 +906,71 @@ export default function SiteBuilder() {
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* Shop tab */}
+            {activeTab === "shop" && (
+              <div className="h-full overflow-y-auto p-6 space-y-5">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <ShoppingBag className="w-4 h-4 text-primary" />
+                    <h2 className="text-base font-semibold text-white">Embed Your Shop</h2>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Paste an embed snippet from Shopify, Square, Gumroad, PayHip, Ko-fi, or any other platform. It will appear as a "Shop" section on your public site after you rebuild.</p>
+                </div>
+
+                {/* Platform pills */}
+                <div className="flex flex-wrap gap-2">
+                  {["Shopify Buy Button", "Gumroad", "Square", "PayHip", "Ko-fi", "Stripe Payment Link"].map(p => (
+                    <span key={p} className="px-2.5 py-1 rounded-full text-xs border border-white/10 text-slate-400 bg-white/3">{p}</span>
+                  ))}
+                </div>
+
+                {/* Embed code textarea */}
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-slate-300">Embed Code</label>
+                  <Textarea
+                    value={shopEmbedCode}
+                    onChange={e => setShopEmbedCode(e.target.value)}
+                    placeholder={'Paste your embed code here, e.g.:\n<div id="product-component-..."></div>\n<script type="text/javascript">...</script>'}
+                    rows={8}
+                    className="bg-white/5 border-white/10 text-white placeholder:text-slate-600 resize-none text-xs font-mono"
+                  />
+                  <p className="text-[10px] text-muted-foreground">Inline event handlers (onclick, etc.) are stripped for security. Scripts from external CDNs are allowed.</p>
+                </div>
+
+                {shopMessage && (
+                  <div className={`flex items-center gap-2 p-3 rounded-lg border text-xs ${shopMessage.type === "error" ? "bg-red-500/10 border-red-500/20 text-red-300" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"}`}>
+                    {shopMessage.type === "error" ? <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /> : <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />}
+                    <span>{shopMessage.text}</span>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3">
+                  <Button onClick={handleShopSave} disabled={shopSaving} className="flex-1 bg-primary hover:bg-primary/90">
+                    {shopSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                    Save Embed Code
+                  </Button>
+                  {shopEmbedCode && (
+                    <Button
+                      onClick={async () => { setShopEmbedCode(""); await fetch("/api/sites/embed-code", { method: "PUT", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ embedCode: "" }) }); setShopMessage({ type: "success", text: "Embed code removed." }); }}
+                      variant="ghost" size="icon" className="text-red-400 hover:text-red-300 hover:bg-red-500/10 flex-shrink-0"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  )}
+                </div>
+
+                <div className="p-4 rounded-xl border border-white/8 bg-white/3 space-y-2">
+                  <p className="text-xs font-medium text-white">How it works</p>
+                  <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside">
+                    <li>Get your embed snippet from your store platform (Shopify → Buy Button, Gumroad → Share, etc.)</li>
+                    <li>Paste it above and click Save</li>
+                    <li>Rebuild your site — a "Shop" section will appear between your events and contact sections</li>
+                    <li>Publish — visitors can browse and buy without leaving your site</li>
+                  </ol>
                 </div>
               </div>
             )}
