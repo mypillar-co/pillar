@@ -43,29 +43,8 @@ const queryClient = new QueryClient({
   },
 });
 
-function DashboardRouter() {
-  return (
-    <DashboardLayout>
-      <Switch>
-        <Route path="/dashboard" component={Overview} />
-        <Route path="/dashboard/events/approvals" component={ApprovalQueue} />
-        <Route path="/dashboard/events/recurring" component={RecurringTemplates} />
-        <Route path="/dashboard/events/:id" component={EventDetail} />
-        <Route path="/dashboard/events" component={Events} />
-        <Route path="/dashboard/vendors" component={Vendors} />
-        <Route path="/dashboard/sponsors" component={Sponsors} />
-        <Route path="/dashboard/contacts" component={Contacts} />
-        <Route path="/dashboard/payments" component={Payments} />
-        <Route path="/dashboard/site" component={SiteBuilder} />
-        <Route path="/dashboard/domains" component={Domains} />
-        <Route path="/dashboard/settings" component={DashboardSettings} />
-        <Route path="/dashboard/social" component={Social} />
-        <Route path="/dashboard/studio" component={ContentStudio} />
-        <Route path="/dashboard/board-links" component={BoardLinksPage} />
-        <Route component={NotFound} />
-      </Switch>
-    </DashboardLayout>
-  );
+function DB({ children }: { children: React.ReactNode }) {
+  return <DashboardLayout>{children}</DashboardLayout>;
 }
 
 function AppRouter() {
@@ -97,8 +76,24 @@ function AppRouter() {
       <Route path="/for/pta" component={PTAPage} />
       <Route path="/for/nonprofits" component={NonprofitsPage} />
       <Route path="/admin" component={Admin} />
-      <Route path="/dashboard/:rest*" component={DashboardRouter} />
-      <Route path="/dashboard" component={DashboardRouter} />
+
+      {/* Dashboard routes — listed explicitly to avoid wouter v3 nested-context issues */}
+      <Route path="/dashboard/events/approvals"><DB><ApprovalQueue /></DB></Route>
+      <Route path="/dashboard/events/recurring"><DB><RecurringTemplates /></DB></Route>
+      <Route path="/dashboard/events/:id"><DB><EventDetail /></DB></Route>
+      <Route path="/dashboard/events"><DB><Events /></DB></Route>
+      <Route path="/dashboard/vendors"><DB><Vendors /></DB></Route>
+      <Route path="/dashboard/sponsors"><DB><Sponsors /></DB></Route>
+      <Route path="/dashboard/contacts"><DB><Contacts /></DB></Route>
+      <Route path="/dashboard/payments"><DB><Payments /></DB></Route>
+      <Route path="/dashboard/site"><DB><SiteBuilder /></DB></Route>
+      <Route path="/dashboard/domains"><DB><Domains /></DB></Route>
+      <Route path="/dashboard/settings"><DB><DashboardSettings /></DB></Route>
+      <Route path="/dashboard/social"><DB><Social /></DB></Route>
+      <Route path="/dashboard/studio"><DB><ContentStudio /></DB></Route>
+      <Route path="/dashboard/board-links"><DB><BoardLinksPage /></DB></Route>
+      <Route path="/dashboard"><DB><Overview /></DB></Route>
+
       <Route>
         <>
           <Navbar />
