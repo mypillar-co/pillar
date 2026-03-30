@@ -79,7 +79,7 @@ export default function PrivacyPolicy() {
               <p className="mt-3">We also work with the following third-party services:</p>
               <ul className="list-disc pl-5 space-y-2 mt-2">
                 <li><strong>Stripe</strong> — Payment processing. Subject to <a href="https://stripe.com/privacy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Stripe's Privacy Policy</a>.</li>
-                <li><strong>Porkbun</strong> — Domain registration. Subject to <a href="https://porkbun.com/policies/privacy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Porkbun's Privacy Policy</a>. WHOIS data is shared as required by ICANN.</li>
+                <li><strong>Porkbun</strong> — Domain registration. Subject to <a href="https://porkbun.com/legal/agreement/privacy_policy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Porkbun's Privacy Policy</a>. WHOIS data is shared as required by ICANN.</li>
                 <li><strong>Replit</strong> — Authentication. Subject to <a href="https://replit.com/site/privacy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Replit's Privacy Policy</a>.</li>
               </ul>
             </section>

@@ -88,7 +88,7 @@ export default function Terms() {
                 through {COMPANY}, you agree to:
               </p>
               <ul className="list-disc pl-5 space-y-2 mt-3">
-                <li>Porkbun's <a href="https://porkbun.com/policies/registrationAgreement" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Domain Registration Agreement</a></li>
+                <li>Porkbun's <a href="https://porkbun.com/legal/agreement/domain_name_registration_agreement" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Domain Registration Agreement</a></li>
                 <li>ICANN's <a href="https://www.icann.org/resources/pages/udrp-2012-02-25-en" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Uniform Domain-Name Dispute-Resolution Policy (UDRP)</a></li>
                 <li>The requirement that WHOIS information you provide is accurate and complete</li>
                 <li>Auto-renewal terms as specified in your plan; you may disable auto-renewal at any time from the Domains dashboard</li>
