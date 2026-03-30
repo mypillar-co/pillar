@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { db, organizationsTable, sitesTable, siteUpdateSchedulesTable, websiteSpecsTable, eventsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import OpenAI from "openai";
+import { buildSiteFromTemplate, type SiteContent } from "../siteTemplate";
 
 const router = Router();
 
@@ -344,224 +345,251 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
     .from(eventsTable)
     .where(eq(eventsTable.orgId, org.id))
     .limit(10);
-  // Filter to upcoming (or include all if dates not set)
   const futureEvents = upcomingEvents.filter(e => !e.startDate || e.startDate >= today);
   const allEvents = futureEvents.length > 0 ? futureEvents : upcomingEvents.slice(0, 5);
 
-  const eventsSection = allEvents.length > 0
-    ? allEvents.map(e => {
-        const parts = [e.name];
-        if (e.startDate) parts.push(new Date(e.startDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }));
-        if (e.startTime) parts.push(`${e.startTime}${e.endTime ? `–${e.endTime}` : ""}`);
-        if (e.location) parts.push(e.location);
-        if (e.description) parts.push(e.description);
-        return parts.join(" | ");
-      }).join("\n")
-    : (s.events.join(", ") || "");
+  // Step 4: AI generates CONTENT JSON only — not design, not CSS
+  const safeOrgName = (s.orgName || org.name).replace(/["<>&]/g, c => c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;");
+  const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-  // Step 4: Generate HTML
-  // Logo instruction is only set when the data URL passed server-side validation (allowlist MIME, base64-only chars, size limit)
-  const safeOrgName = (s.orgName || org.name).replace(/["<>]/g, "");
-  const logoInstruction = logoDataUrl
-    ? `\nLOGO: The organization has uploaded a logo image. In the nav bar, replace the text logo with: <img src="${logoDataUrl}" alt="${safeOrgName} logo" style="height:48px;width:auto;object-fit:contain;display:block;"> — keep it left-aligned. Also include a smaller version in the footer.`
-    : "";
+  const HERO_IDS = ["1529156069898-aa78f52d3b87","1559027615-cd4628902d4a","1582213782179-e0d53f98f2ca","1600880292203-757bb62b4baf","1540575467063-178a50c9c6d0","1511795409834-ef04bbd61622","1515187029135-18ee286d815b","1486406146926-c627a92ad1ab"];
+  const ABOUT_IDS = ["1568992687947-868a62a9f521","1577495508326-19a1b3cf65b7","1441974231531-c6227db76b6e","1469474968028-56623f02e42e","1582213782179-e0d53f98f2ca","1559027615-cd4628902d4a"];
 
-  const photoInstruction = photoUrls.length > 0
-    ? `\nPHOTOS: The organization has uploaded ${photoUrls.length} real photo(s) of their organization. Use them authentically in the site:
-${photoUrls.map((url, i) => `- Photo ${i + 1}: <img src="${url}" alt="${safeOrgName} photo ${i + 1}" loading="lazy">`).join("\n")}
-Rules for photo usage:
-1. Use Photo 1 as the primary hero background image (replace the Unsplash hero placeholder with this real photo).
-2. Use remaining photos in an "Our Organization" or "Gallery" section — a responsive CSS grid of 2–3 columns, cards with object-fit:cover, aspect-ratio:4/3, border-radius var(--radius), box-shadow var(--shadow), and a subtle hover:scale(1.03) transform. Give this section the class "reveal".
-3. Never use placeholder Unsplash images for sections that have a real uploaded photo available.`
-    : "";
+  type ContentData = {
+    primaryHex: string; accentHex: string; primaryRgb: string;
+    heroUnsplashId: string; aboutUnsplashId: string;
+    orgTypeLabel: string; aboutHeading: string; missionExpanded: string;
+    stat1Value: string; stat1Label: string;
+    stat2Value: string; stat2Label: string;
+    stat3Value: string; stat3Label: string;
+    programs: Array<{ icon: string; title: string; description: string }>;
+    contactHeading: string; contactIntro: string;
+    contactCardHeading: string; contactCardText: string;
+  };
 
-  const colorHints = (s.colors || "navy and gold").toLowerCase();
-  const isLight = /white|light|pastel|cream|beige|soft/i.test(colorHints);
-  const heroStyle = isLight ? "light hero with dark text" : "dark hero with light text";
+  const defaultPrograms = s.services.length > 0
+    ? s.services.slice(0, 3).map((svc, i) => ({
+        icon: ["🤝","📚","🌟"][i] ?? "⭐",
+        title: svc,
+        description: `Our ${svc} program brings community members together for meaningful impact and lasting connection.`,
+      }))
+    : [
+        { icon: "🤝", title: "Community Service", description: "We unite volunteers around shared goals through regular service projects that address local needs and strengthen our community bonds." },
+        { icon: "📚", title: "Education & Training", description: "From youth programs to professional development, we invest in learning opportunities that help our members and neighbors grow." },
+        { icon: "🌟", title: "Leadership Development", description: "Our programs identify and develop the next generation of civic leaders through mentorship, training, and hands-on experience." },
+      ];
 
-  const genSystemMsg = `You are an award-winning web designer. Your output must be indistinguishable from a $25,000 custom design studio build — visually stunning, animated, and polished to pixel perfection.
+  let contentData: ContentData = {
+    primaryHex: "#1e3a5f", accentHex: "#c9a84c", primaryRgb: "30,58,95",
+    heroUnsplashId: HERO_IDS[0], aboutUnsplashId: ABOUT_IDS[0],
+    orgTypeLabel: "Civic Organization",
+    aboutHeading: "Serving Our Community",
+    missionExpanded: s.mission || `${safeOrgName} is committed to serving our community through dedicated programs, meaningful connections, and a shared vision for a better tomorrow.`,
+    stat1Value: "1985", stat1Label: "Year Founded",
+    stat2Value: "200+", stat2Label: "Active Members",
+    stat3Value: "20+", stat3Label: "Annual Events",
+    programs: defaultPrograms,
+    contactHeading: "Come Join Our Community",
+    contactIntro: "Whether you're curious about membership or want to partner with us, we'd love to connect. Our doors are open to all who share our values.",
+    contactCardHeading: "Ready to get involved?",
+    contactCardText: "Getting started is easy. Reach out and we'll personally connect you with the right program or membership pathway.",
+  };
 
-OUTPUT RULES:
-- Output ONLY valid HTML. Start with <!DOCTYPE html>, end with </html>
-- No markdown, no code fences, no commentary
-- Use semantic HTML5: header, main, section, footer, nav
+  const colorHints = s.colors || "navy and gold";
+  try {
+    const contentJson = await callOpenAI([
+      {
+        role: "system",
+        content: `You are a copywriter for civic and community organizations. Given org info, output ONLY a valid JSON object — no explanation, no markdown fences.
 
-SEO — include ALL of these in <head> (fill in real values from the spec):
-- <meta name="description" content="..."> (the org's mission, max 155 chars)
-- <meta property="og:title" content="...">
-- <meta property="og:description" content="...">
-- <meta property="og:type" content="website">
-- <meta name="twitter:card" content="summary_large_image">
-- <link rel="canonical" href="https://${slug}.steward.app">
-- A <script type="application/ld+json"> block with Organization schema:
-  { "@context":"https://schema.org","@type":"Organization","name":"...","description":"...","email":"...","telephone":"...","address":{"@type":"PostalAddress","streetAddress":"..."} }
-${allEvents.length > 0 ? `- A second <script type="application/ld+json"> for the first upcoming event using schema.org/Event type` : ""}
-
-FONTS — Use Google Fonts via <link> tags in <head>. Pick the pairing that fits the org's personality:
-- Modern/clean: "Inter" body + "Plus Jakarta Sans" headings
-- Warm/classic: "Source Sans 3" body + "Lora" headings
-- Bold/contemporary: "DM Sans" body + "Syne" headings
-- Elegant/civic: "Nunito" body + "Fraunces" headings
-Always load weights 300, 400, 500, 600, 700 for body and 400, 600, 700 for headings.
-
-IMAGES — Use Unsplash source URLs:
-- Hero: <img src="https://images.unsplash.com/photo-[ID]?auto=format&fit=crop&w=1920&q=80"> — relevant to org type
-- About: supporting photo (community, collaboration, people)
-- Safe Unsplash IDs:
-  - Community/people: 1529156069898-aa78f52d3b87, 1559027615-cd4628902d4a, 1582213782179-e0d53f98f2ca, 1600880292203-757bb62b4baf
-  - Buildings/civic: 1486406146926-c627a92ad1ab, 1577495508326-19a1b3cf65b7, 1568992687947-868a62a9f521
-  - Events/gathering: 1540575467063-178a50c9c6d0, 1511795409834-ef04bbd61622, 1515187029135-18ee286d815b
-  - Nature/outdoors: 1441974231531-c6227db76b6e, 1469474968028-56623f02e42e
-- Hero image: position absolute, width 100%, height 100%, object-fit cover, with a multi-stop gradient overlay
-
-CSS ARCHITECTURE:
-:root {
-  --primary: [main brand color from spec];
-  --primary-light: [lighter variant];
-  --accent: [secondary accent color];
-  --text: #0f172a;
-  --text-light: #64748b;
-  --text-muted: #94a3b8;
-  --bg: #ffffff;
-  --bg-alt: #f8fafc;
-  --bg-dark: #0f172a;
-  --font-body: 'ChosenBody', sans-serif;
-  --font-heading: 'ChosenHeading', serif;
-  --radius: 14px;
-  --radius-lg: 24px;
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-  --shadow: 0 4px 16px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04);
-  --shadow-lg: 0 20px 60px rgba(0,0,0,0.12), 0 8px 20px rgba(0,0,0,0.06);
-  --shadow-glow: 0 0 40px rgba([primary-rgb], 0.25);
-  --transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow: all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+Required JSON structure:
+{
+  "primaryHex": "#hex derived from: "${colorHints}". Navy=#1e3a5f, Gold=#c9a84c, Green=#2d6a4f, Red=#9b2226, Blue=#0077b6, Purple=#5e2d91",
+  "accentHex": "#hex complementary accent — use gold/amber (#c9a84c) if primary is dark, use navy if primary is warm",
+  "primaryRgb": "r,g,b comma-separated of primaryHex e.g. 30,58,95",
+  "heroUnsplashId": "one ID from: ${HERO_IDS.join(",")}",
+  "aboutUnsplashId": "different ID from: ${ABOUT_IDS.join(",")}",
+  "orgTypeLabel": "2-3 word label e.g. Civic Organization, Masonic Lodge, Community Association, Service Club, Homeowners Association, Rotary Club",
+  "aboutHeading": "compelling 3-6 word heading for mission section e.g. 'Serving Our Community Since 1952' or 'Building Stronger Neighborhoods'",
+  "missionExpanded": "2-3 compelling sentences about their mission. Make it specific and meaningful. Use real details from the spec.",
+  "stat1Value": "founding year e.g. '1952'", "stat1Label": "Year Founded",
+  "stat2Value": "member count e.g. '340+'", "stat2Label": "Active Members",
+  "stat3Value": "annual events e.g. '28+'", "stat3Label": "Annual Events",
+  "programs": [
+    {"icon":"relevant emoji","title":"program name","description":"2 compelling sentences about this specific program"},
+    {"icon":"emoji","title":"program name","description":"2 sentences"},
+    {"icon":"emoji","title":"program name","description":"2 sentences"}
+  ],
+  "contactHeading": "3-5 word invitation e.g. 'Come Join Our Community'",
+  "contactIntro": "1-2 sentences warmly inviting contact or membership",
+  "contactCardHeading": "short CTA headline e.g. 'Ready to get involved?'",
+  "contactCardText": "1-2 sentences for the contact card body"
 }
-* { margin: 0; padding: 0; box-sizing: border-box; }
-Fully responsive: mobile-first, breakpoints at 768px and 1024px.
+Rules: use REAL content from the spec — no lorem ipsum. If stat values not given, infer plausible ones. Use relevant emojis (🤝🎓🌿🎭🏛️🌟📚🤲🎵🏅).`,
+      },
+      {
+        role: "user",
+        content: `Name: ${s.orgName}\nType: ${type}\nTagline: ${s.tagline}\nMission: ${s.mission}\nServices: ${s.services.join(", ") || ""}\nLocation: ${s.location || ""}\nColors: ${colorHints}\nEmail: ${s.contactEmail || ""}\nPhone: ${s.contactPhone || ""}\nAudience: ${s.audience || ""}\nExtras: ${s.extras || ""}`,
+      },
+    ], 2000, "gpt-5-mini");
 
-TYPOGRAPHY — the foundation of a premium design:
-- Hero heading: var(--font-heading), clamp(2.8rem, 6vw, 5.5rem), font-weight 700, letter-spacing -0.04em, line-height 1.05
-- Gradient hero text: use background-clip: text + linear-gradient for a stunning heading accent color effect
-- Section headings: var(--font-heading), clamp(1.8rem, 3.5vw, 2.8rem), font-weight 700, letter-spacing -0.02em
-- Eyebrow labels: 0.78rem, font-weight 600, letter-spacing 0.12em, uppercase, var(--accent)
-- Body: var(--font-body), 1.05rem, line-height 1.85, color var(--text-light)
-- Lead paragraph: 1.2rem, line-height 1.7, color var(--text-light), max-width 560px
+    const jsonMatch = contentJson.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]) as Partial<ContentData>;
+      contentData = { ...contentData, ...parsed };
+      if (!Array.isArray(contentData.programs) || contentData.programs.length === 0) {
+        contentData.programs = defaultPrograms;
+      }
+      contentData.programs = contentData.programs.slice(0, 3);
+    }
+  } catch {
+    // Use defaults
+  }
 
-VISUAL DEPTH — what separates elite from average:
-1. GRADIENT OVERLAYS: multi-stop gradients on hero (e.g. linear-gradient(160deg, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.28) 55%, rgba(0,0,0,0.62) 100%))
-2. GLASSMORPHISM cards: background: rgba(255,255,255,0.72); backdrop-filter: blur(20px) saturate(1.4); border: 1px solid rgba(255,255,255,0.55); box-shadow: 0 8px 32px rgba(0,0,0,0.08); (use on overlaid elements, nav on scroll)
-3. FLOATING BLOBS: 2-3 absolutely-positioned radial gradient blobs. Position one top-right, one bottom-left, one center. Example: position:absolute; width:700px; height:700px; background:radial-gradient(circle at center, rgba(var(--primary-rgb),0.12) 0%, transparent 65%); border-radius:50%; pointer-events:none; animation:float Xs ease-in-out infinite;
-4. GRADIENT MESH (alternate sections): background: radial-gradient(ellipse at 20% 50%, rgba(var(--primary-rgb),0.06) 0%, transparent 50%), radial-gradient(ellipse at 80% 20%, rgba(var(--accent-rgb,var(--primary-rgb)),0.04) 0%, transparent 50%), var(--bg-alt); This creates a subtle colorful depth in non-hero sections.
-5. CARD DESIGN: white bg, var(--radius), var(--shadow), a colored top border (4px solid var(--accent)), position:relative; overflow:hidden; hover: translateY(-10px) + var(--shadow-lg) with transition 0.35s. Add subtle shimmer on hover (::after pseudo-element). No flat cards.
-6. SECTION DIVIDERS: use clip-path on section tops for diagonal separators: clip-path: polygon(0 0, 100% 5%, 100% 100%, 0 100%); or inverted polygon(0 5%, 100% 0, 100% 100%, 0 100%); alternate for variety.
-7. ACCENT LINES: .accent-line { width:56px; height:3px; background:linear-gradient(90deg, var(--primary), var(--accent,var(--primary-light))); border-radius:2px; margin: 14px 0 28px; }
-8. TEXT GRADIENT HEADINGS: for section headings, wrap key words in <span style="background:linear-gradient(135deg, var(--primary), var(--accent,var(--primary-light))); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;">word</span>
+  // Step 5: Build all HTML blocks server-side from real data
+  const heroImageUrl = photoUrls.length > 0
+    ? photoUrls[0]
+    : `https://images.unsplash.com/photo-${contentData.heroUnsplashId}?auto=format&fit=crop&w=1920&q=80`;
+  const aboutImageUrl = photoUrls.length > 1
+    ? photoUrls[1]
+    : `https://images.unsplash.com/photo-${contentData.aboutUnsplashId}?auto=format&fit=crop&w=900&q=80`;
 
-LAYOUT PATTERNS:
-- Hero: 100vh, full-bleed background image + multi-stop gradient overlay + floating blobs. Center-aligned content with oversized heading, lead paragraph, two CTA buttons (primary + ghost/outline). Animated scroll-down chevron bouncing at bottom.
-- About: true asymmetric grid (55/45): image side has a decorative frame (box-shadow + border + slight rotation -2deg), text side has eyebrow + heading + accent line + paragraph + stat strip (3 numbers with labels).
-- Services/Programs: 3-column card grid on desktop. Each card: colored top border, large Unicode emoji/icon, title, description, bottom link/arrow. Hover: lift + glow shadow.
-- Events: horizontal card layout (date block on left = large day + month abbreviated, bold, accent color; content on right = title, time, location, excerpt). Left border accent strip.
-- Contact: two-column on desktop. Left: heading + details (each line: icon symbol + text). Right: floating glass card with call-to-action and social links as pill buttons.
-- Footer: dark bg (--bg-dark), 3-col grid. Bottom bar with copyright + subtle rule.
+  const navLogoHtml = logoDataUrl
+    ? `<div class="nav-logo"><img src="${logoDataUrl}" alt="${safeOrgName} logo"></div>`
+    : `<div class="nav-logo">${safeOrgName}</div>`;
+  const footerLogoHtml = logoDataUrl
+    ? `<div class="footer-brand-name"><img src="${logoDataUrl}" alt="${safeOrgName} logo"></div>`
+    : `<div class="footer-brand-name">${safeOrgName}</div>`;
 
-WHITESPACE:
-- Sections: padding clamp(80px, 10vw, 140px) 0
-- Container: max-width 1200px; margin 0 auto; padding 0 clamp(20px, 5vw, 40px)
-- Heading to content gap: 52px
-- Card padding: 36px 32px
-- Grid gaps: 28px–36px
+  const programsBlock = contentData.programs.map(p => `
+    <div class="card reveal-child">
+      <span class="card-icon">${p.icon}</span>
+      <h3>${esc(p.title)}</h3>
+      <p>${esc(p.description)}</p>
+    </div>`).join("\n");
 
-ANIMATIONS — this is what makes it feel alive:
+  const buildEventRow = (e: typeof allEvents[0]) => {
+    const dateObj = e.startDate ? new Date(e.startDate + "T00:00:00") : null;
+    const day = dateObj ? String(dateObj.getDate()) : "";
+    const month = dateObj ? dateObj.toLocaleDateString("en-US", { month: "short" }).toUpperCase() : "";
+    const timeStr = e.startTime ? `${e.startTime}${e.endTime ? ` – ${e.endTime}` : ""}` : "";
+    return `
+    <div class="event-row reveal">
+      <div class="event-date-block">
+        ${day ? `<span class="event-day">${day}</span><span class="event-month">${month}</span>` : `<span class="event-day" style="font-size:0.8rem">TBD</span>`}
+      </div>
+      <div class="event-info">
+        <h4>${esc(e.name)}</h4>
+        ${e.description ? `<p>${esc(e.description)}</p>` : ""}
+        <div class="event-meta">
+          ${timeStr ? `<span>🕐 ${esc(timeStr)}</span>` : ""}
+          ${e.location ? `<span>📍 ${esc(e.location)}</span>` : ""}
+        </div>
+      </div>
+    </div>`;
+  };
 
-CSS animations (define in <style>):
-@keyframes fadeUp { from { opacity:0; transform:translateY(36px); } to { opacity:1; transform:translateY(0); } }
-@keyframes fadeLeft { from { opacity:0; transform:translateX(-36px); } to { opacity:1; transform:translateX(0); } }
-@keyframes fadeRight { from { opacity:0; transform:translateX(36px); } to { opacity:1; transform:translateX(0); } }
-@keyframes scaleIn { from { opacity:0; transform:scale(0.92); } to { opacity:1; transform:scale(1); } }
-@keyframes float { 0%,100% { transform:translateY(0) rotate(0deg); } 50% { transform:translateY(-18px) rotate(1deg); } }
-@keyframes pulse-glow { 0%,100% { box-shadow: 0 0 24px rgba(var(--primary-rgb),0.35), 0 4px 16px rgba(0,0,0,0.2); } 50% { box-shadow: 0 0 48px rgba(var(--primary-rgb),0.65), 0 4px 24px rgba(0,0,0,0.25); } }
-@keyframes bounce-arrow { 0%,100% { transform:translateY(0); opacity:0.7; } 50% { transform:translateY(10px); opacity:1; } }
-@keyframes gradientShift { 0%,100% { background-position:0% 60%; } 50% { background-position:100% 40%; } }
-@keyframes shimmer { from { background-position:-200% center; } to { background-position:200% center; } }
-@keyframes spin-slow { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
+  // Gallery section for uploaded photos beyond hero+about
+  const extraPhotos = photoUrls.slice(2);
+  const gallerySection = extraPhotos.length > 0 ? `
+  <section class="programs" id="gallery" style="background:var(--bg)">
+    <div class="container">
+      <div class="section-header reveal">
+        <span class="eyebrow">Our Organization</span>
+        <h2>Life at ${safeOrgName}</h2>
+      </div>
+      <div class="cards-grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">
+        ${extraPhotos.map((url, i) => `
+        <div class="card reveal-child" style="padding:0;overflow:hidden;border-top:none">
+          <img src="${url}" alt="${safeOrgName} photo ${i + 3}" loading="lazy" style="width:100%;height:220px;object-fit:cover;display:block">
+        </div>`).join("\n")}
+      </div>
+    </div>
+  </section>` : "";
 
-Inline hero content: animation: fadeUp 1s cubic-bezier(0.25,0.46,0.45,0.94) both; staggered: h1 delay 0.1s, p delay 0.35s, buttons delay 0.6s.
-Floating blobs: animation: float Xs ease-in-out infinite; use different durations (9s, 13s, 17s) and delays (0s, -4s, -8s) for each blob.
-Scroll-down arrow: animation: bounce-arrow 2s ease-in-out infinite;
-CTA button primary: on :hover → animation: pulse-glow 2.5s ease-in-out infinite; + transform:translateY(-2px); transition 0.3s.
-Gradient heading text: background-size:200% auto; animation: gradientShift 4s ease infinite;
-Shimmer effect on cards: card::after { content:''; position:absolute; inset:0; background:linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.08) 50%, transparent 60%); background-size:200% 100%; opacity:0; transition:opacity 0.3s; } card:hover::after { opacity:1; animation: shimmer 0.8s ease; }
+  const eventsHtml = allEvents.length > 0 ? `
+  <section class="events" id="events">
+    <div class="container">
+      <div class="section-header reveal">
+        <span class="eyebrow">Upcoming Events</span>
+        <h2>What&#8217;s Happening</h2>
+      </div>
+      <div class="events-list">
+        ${allEvents.map(buildEventRow).join("\n")}
+      </div>
+    </div>
+  </section>` : "";
 
-.reveal { opacity:0; transform:translateY(40px); transition:opacity 0.8s cubic-bezier(0.25,0.46,0.45,0.94), transform 0.8s cubic-bezier(0.25,0.46,0.45,0.94); }
-.reveal.visible { opacity:1; transform:translateY(0); }
-.reveal-left { opacity:0; transform:translateX(-40px); transition:opacity 0.8s cubic-bezier(0.25,0.46,0.45,0.94), transform 0.8s cubic-bezier(0.25,0.46,0.45,0.94); }
-.reveal-left.visible { opacity:1; transform:translateX(0); }
-.reveal-right { opacity:0; transform:translateX(40px); transition:opacity 0.8s cubic-bezier(0.25,0.46,0.45,0.94), transform 0.8s cubic-bezier(0.25,0.46,0.45,0.94); }
-.reveal-right.visible { opacity:1; transform:translateX(0); }
-.reveal-child:nth-child(1){transition-delay:0s} .reveal-child:nth-child(2){transition-delay:0.12s} .reveal-child:nth-child(3){transition-delay:0.24s} .reveal-child:nth-child(4){transition-delay:0.36s} .reveal-child:nth-child(5){transition-delay:0.48s}
+  const eventsSectionHtml = gallerySection + eventsHtml;
+  const navEventsLink = allEvents.length > 0 ? '<a href="#events">Events</a>' : "";
+  const mobileEventsLink = allEvents.length > 0 ? '<a href="#events" class="mobile-link">Events</a>' : "";
+  const footerEventsLink = allEvents.length > 0 ? '<li><a href="#events">Events</a></li>' : "";
 
-Use .reveal-left on the image side of asymmetric sections, .reveal-right on the text side, .reveal on symmetric sections.
+  const statsBlock = [
+    `<div class="stat-item"><div class="stat-value">${esc(contentData.stat1Value)}</div><div class="stat-label">${esc(contentData.stat1Label)}</div></div>`,
+    `<div class="stat-item"><div class="stat-value">${esc(contentData.stat2Value)}</div><div class="stat-label">${esc(contentData.stat2Label)}</div></div>`,
+    `<div class="stat-item"><div class="stat-value">${esc(contentData.stat3Value)}</div><div class="stat-label">${esc(contentData.stat3Label)}</div></div>`,
+  ].join("\n");
 
-INTERACTIVE JAVASCRIPT (inline <script> at end of <body>):
-1. IntersectionObserver (threshold:0.1, rootMargin:'0px 0px -60px 0px'): adds .visible to .reveal, .reveal-left, and .reveal-right elements when they enter viewport.
-2. Navbar: starts with background:transparent, color:white; on scroll >80px → background:rgba(15,23,42,0.92), backdrop-filter:blur(16px), box-shadow:0 2px 24px rgba(0,0,0,0.15). Smooth CSS transition: background 0.4s ease, backdrop-filter 0.4s ease, box-shadow 0.4s ease. On scroll <30px → remove styles.
-3. Smooth anchor scroll for all nav links (preventDefault, scrollIntoView behavior:'smooth')
-4. Mobile hamburger: overlay full-viewport nav panel slides in from left (transform:translateX(-100%) → translateX(0), transition 0.35s ease). Hamburger icon morphs to X using CSS transform. Close on link click or outside click. Add aria-expanded.
-5. Parallax: hero background moves at 0.35x scroll speed (requestAnimationFrame, background-position-y update).
-6. Animated counters: find all [data-target] elements. On intersection: count from 0 to data-target value over 1800ms using easeOutExpo easing (t => 1 - Math.pow(2, -10*t)). Format with commas and "+" suffix if needed.
-7. Active nav link: on scroll, detect which section is in view, add active class (underline accent, color var(--primary)) to corresponding nav link.
+  const contactDetails = [
+    s.contactEmail ? `<div class="contact-item"><div class="contact-icon">📧</div><a href="mailto:${esc(s.contactEmail)}" style="color:inherit">${esc(s.contactEmail)}</a></div>` : "",
+    s.contactPhone ? `<div class="contact-item"><div class="contact-icon">📞</div><a href="tel:${s.contactPhone}" style="color:inherit">${esc(s.contactPhone)}</a></div>` : "",
+    s.location ? `<div class="contact-item"><div class="contact-icon">📍</div><span>${esc(s.location)}</span></div>` : "",
+    s.hours ? `<div class="contact-item"><div class="contact-icon">🕐</div><span>${esc(s.hours)}</span></div>` : "",
+  ].filter(Boolean).join("\n") || '<div class="contact-item"><div class="contact-icon">📧</div><span>Reach out to connect with us</span></div>';
 
-REQUIRED SECTIONS:
-1. NAV — Fixed. Transparent start, solid on scroll. Logo left (text or img), links right. Mobile hamburger. Active link underline accent.${logoInstruction}${photoInstruction}
-2. HERO — 100vh. Full-bleed photo + multi-stop gradient overlay + 2–3 floating gradient blobs. Eyebrow badge ("Est. YYYY" or org type). Oversized gradient-text heading. Lead paragraph. Two buttons: primary (filled, pulse glow on hover) + secondary (ghost/outline). Bouncing scroll-down chevron. Staggered fadeUp animation on load.
-3. ABOUT / MISSION — Asymmetric (55/45). Image with decorative frame (slight rotation, box-shadow, border). Text: eyebrow + accent line + heading + paragraph. Stat strip: 3 numbers (years active, members, events/year etc — use plausible values if not in spec). .reveal
-${s.services.length > 0 ? `4. PROGRAMS & SERVICES — Eyebrow + heading + 3-col card grid. Each card: 4px top border in --accent, large emoji icon, bold title, description. Hover: lift + glow. Cards: ${s.services.join(", ")}. All .reveal-child for stagger.` : `4. WHAT WE DO — 3-col card grid with accent top-borders describing key activities. All .reveal-child.`}
-${allEvents.length > 0 ? `5. EVENTS — id="events-section" on the <section>. Horizontal cards: date block (large day + abbreviated month, accent color) + content (title, time, location, description). Left accent border strip. .reveal` : ""}
-6. CONTACT — Diagonal clip-path on section top. Two-column: left = contact details with Unicode icons (📧 📞 📍). Right = floating glass card with headline + social link pill buttons. .reveal
-7. FOOTER — Dark (--bg-dark). 3-col: col1 = wordmark + tagline, col2 = quick links, col3 = contact summary. Bottom bar: copyright ${new Date().getFullYear()}.
+  const footerContact = [
+    s.contactEmail ? `<span>📧 <a href="mailto:${esc(s.contactEmail)}" style="color:inherit">${esc(s.contactEmail)}</a></span>` : "",
+    s.contactPhone ? `<span>📞 ${esc(s.contactPhone)}</span>` : "",
+    s.location ? `<span>📍 ${esc(s.location)}</span>` : "",
+  ].filter(Boolean).join("\n");
 
-COLOR: "${s.colors || "navy and gold"}". Map to CSS custom properties. Ensure WCAG AA contrast (4.5:1). Derive --primary-rgb as comma-separated r,g,b for use in rgba() calls.
-CONTENT: Real content only — never lorem ipsum. Make up plausible stat numbers if not in spec (e.g. "Founded 1987", "200+ Members", "30+ Annual Events").
-Add .reveal to every section's inner wrapper.`;
+  const schemaJson = JSON.stringify({
+    "@context": "https://schema.org", "@type": "Organization",
+    name: safeOrgName,
+    description: (s.mission || contentData.missionExpanded).substring(0, 200),
+    ...(s.contactEmail ? { email: s.contactEmail } : {}),
+    ...(s.contactPhone ? { telephone: s.contactPhone } : {}),
+    ...(s.location ? { address: { "@type": "PostalAddress", streetAddress: s.location } } : {}),
+  });
 
-
-  const genUserMsg = `Build a website for:
-Name: ${s.orgName}
-Tagline: ${s.tagline}
-Mission: ${s.mission}
-Services/Programs: ${s.services.join(", ") || "Community programs"}
-Location: ${s.location || "Our community"}
-Hours: ${s.hours || ""}
-Upcoming Events:
-${eventsSection || "None listed"}
-Contact Email: ${s.contactEmail || ""}
-Contact Phone: ${s.contactPhone || ""}
-Social Media: ${s.socialMedia.join(", ") || ""}
-Audience: ${s.audience || "Community members"}
-Additional: ${s.extras || ""}
-
-Generate the complete HTML now. Start directly with <!DOCTYPE html>.`;
+  const siteContent: SiteContent = {
+    orgName: safeOrgName,
+    orgTagline: esc(s.tagline || contentData.orgTypeLabel),
+    orgMission: esc(contentData.missionExpanded),
+    orgTypeLabel: esc(contentData.orgTypeLabel),
+    primaryHex: contentData.primaryHex || "#1e3a5f",
+    accentHex: contentData.accentHex || "#c9a84c",
+    primaryRgb: contentData.primaryRgb || "30,58,95",
+    heroImageUrl,
+    aboutImageUrl,
+    aboutHeading: esc(contentData.aboutHeading),
+    stat1Value: esc(contentData.stat1Value), stat1Label: esc(contentData.stat1Label),
+    stat2Value: esc(contentData.stat2Value), stat2Label: esc(contentData.stat2Label),
+    stat3Value: esc(contentData.stat3Value), stat3Label: esc(contentData.stat3Label),
+    statsBlock,
+    programsBlock,
+    eventsSection: eventsSectionHtml,
+    navEventsLink,
+    mobileEventsLink,
+    footerEventsLink,
+    contactHeading: esc(contentData.contactHeading),
+    contactIntro: esc(contentData.contactIntro),
+    contactCardHeading: esc(contentData.contactCardHeading),
+    contactCardText: esc(contentData.contactCardText),
+    contactEmail: esc(s.contactEmail || ""),
+    contactDetails,
+    footerContact,
+    navLogo: navLogoHtml,
+    footerLogo: footerLogoHtml,
+    metaDescription: esc((s.mission || contentData.missionExpanded).substring(0, 155)),
+    canonicalUrl: `https://${slug}.steward.app`,
+    schemaJson,
+    currentYear: String(new Date().getFullYear()),
+  };
 
   try {
-    const html = await callOpenAI([
-      { role: "system", content: genSystemMsg },
-      { role: "user", content: genUserMsg },
-    ], MAX_GEN_TOKENS, "gpt-4o-mini");
-
-    let cleanedHtml = html.trim();
-    if (!cleanedHtml) {
-      res.status(500).json({ error: "Site generation returned empty content. Please try again." });
-      return;
-    }
-    const htmlStart = cleanedHtml.indexOf("<!DOCTYPE");
-    const altStart = cleanedHtml.indexOf("<html");
-    const startIdx = htmlStart >= 0 ? htmlStart : (altStart >= 0 ? altStart : -1);
-    if (startIdx > 0) cleanedHtml = cleanedHtml.substring(startIdx);
-    if (!cleanedHtml.includes("<html") && !cleanedHtml.includes("<!DOCTYPE")) {
-      res.status(500).json({ error: "Site generation returned invalid HTML. Please try again." });
-      return;
-    }
+    const cleanedHtml = buildSiteFromTemplate(siteContent);
 
     const metaTitle = s.orgName || name;
     const metaDescription = s.mission || `Welcome to ${name}`;
