@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus, Calendar, MapPin, Search, ChevronRight, Loader2,
   Ticket, DollarSign, Clock, CheckCircle, Inbox, RefreshCw, Lock,
+  Link2, Copy, ExternalLink, CalendarPlus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -178,9 +179,15 @@ export default function Events() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [creating, setCreating] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const { data: subscription } = useGetSubscription();
   const tier = subscription?.tierId;
   const isTier3 = tier === "tier3";
+
+  const { data: orgData } = useQuery<{ slug: string; name: string }>({
+    queryKey: ["org-info"],
+    queryFn: () => fetch("/api/organizations", { credentials: "include" }).then(r => r.json()),
+  });
 
   const hasEventAccess = tier === "tier2" || tier === "tier3";
 
@@ -232,6 +239,11 @@ export default function Events() {
               </Button>
             </Link>
           )}
+          {hasEventAccess && orgData?.slug && (
+            <Button variant="outline" onClick={() => setCalendarOpen(v => !v)} className="border-white/10 text-slate-300 hover:bg-white/5">
+              <CalendarPlus className="w-4 h-4 mr-2" /> Subscribe
+            </Button>
+          )}
           {hasEventAccess && (
             <Button onClick={() => setCreating(true)}>
               <Plus className="w-4 h-4 mr-2" /> New Event
@@ -258,6 +270,48 @@ export default function Events() {
         </div>
       )}
 
+      {/* Calendar subscribe panel (header button trigger, no upcoming events case) */}
+      {calendarOpen && orgData?.slug && !(m && m.upcomingEvents.length > 0) && (() => {
+        const feedUrl = `${window.location.origin}/api/events/public/calendar/${orgData.slug}`;
+        const webcalUrl = feedUrl.replace(/^https?:\/\//, "webcal://");
+        const googleUrl = `https://www.google.com/calendar/render?cid=${encodeURIComponent(webcalUrl)}`;
+        return (
+          <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 space-y-3">
+            <div className="flex items-center gap-2">
+              <Link2 className="w-4 h-4 text-primary flex-shrink-0" />
+              <p className="text-sm font-medium text-white">Calendar Sync</p>
+              <p className="text-xs text-muted-foreground">— stays up-to-date automatically</p>
+            </div>
+            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-white/5 border border-white/10">
+              <code className="flex-1 text-xs text-slate-300 truncate select-all">{feedUrl}</code>
+              <button
+                onClick={() => { navigator.clipboard.writeText(feedUrl); toast.success("Feed URL copied"); }}
+                className="flex-shrink-0 text-slate-400 hover:text-white transition-colors"
+              >
+                <Copy className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <a href={googleUrl} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/8 border border-white/10 hover:bg-white/12 text-xs text-white transition-colors">
+                <ExternalLink className="w-3.5 h-3.5" />Add to Google Calendar
+              </a>
+              <a href={webcalUrl}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/8 border border-white/10 hover:bg-white/12 text-xs text-white transition-colors">
+                <Calendar className="w-3.5 h-3.5" />Add to Apple / Outlook
+              </a>
+              <a href={feedUrl} download={`${orgData.slug}-events.ics`}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/8 border border-white/10 hover:bg-white/12 text-xs text-white transition-colors">
+                <CalendarPlus className="w-3.5 h-3.5" />Download .ics file
+              </a>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Share this link with members so they can subscribe in their own calendar app. Syncs automatically.
+            </p>
+          </div>
+        );
+      })()}
+
       {/* Metrics */}
       {m && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -271,7 +325,18 @@ export default function Events() {
       {/* Upcoming mini-calendar */}
       {m && m.upcomingEvents.length > 0 && (
         <div className="p-4 rounded-xl border border-white/8 bg-card/40">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Upcoming</p>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Upcoming</p>
+            {orgData?.slug && (
+              <button
+                onClick={() => setCalendarOpen(v => !v)}
+                className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors"
+              >
+                <CalendarPlus className="w-3.5 h-3.5" />
+                Subscribe to Calendar
+              </button>
+            )}
+          </div>
           <div className="flex flex-wrap gap-2">
             {m.upcomingEvents.map(e => (
               <Link key={e.id} href={`/dashboard/events/${e.id}`}>
@@ -287,6 +352,60 @@ export default function Events() {
               </Link>
             ))}
           </div>
+
+          {/* Calendar subscribe panel */}
+          {calendarOpen && orgData?.slug && (() => {
+            const feedUrl = `${window.location.origin}/api/events/public/calendar/${orgData.slug}`;
+            const webcalUrl = feedUrl.replace(/^https?:\/\//, "webcal://");
+            const googleUrl = `https://www.google.com/calendar/render?cid=${encodeURIComponent(webcalUrl)}`;
+            return (
+              <div className="mt-4 p-4 rounded-xl border border-primary/20 bg-primary/5 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Link2 className="w-4 h-4 text-primary flex-shrink-0" />
+                  <p className="text-sm font-medium text-white">Calendar Sync</p>
+                  <p className="text-xs text-muted-foreground">— stays up-to-date automatically</p>
+                </div>
+                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-white/5 border border-white/10">
+                  <code className="flex-1 text-xs text-slate-300 truncate select-all">{feedUrl}</code>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(feedUrl); toast.success("Feed URL copied"); }}
+                    className="flex-shrink-0 text-slate-400 hover:text-white transition-colors"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <a
+                    href={googleUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/8 border border-white/10 hover:bg-white/12 text-xs text-white transition-colors"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Add to Google Calendar
+                  </a>
+                  <a
+                    href={webcalUrl}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/8 border border-white/10 hover:bg-white/12 text-xs text-white transition-colors"
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                    Add to Apple / Outlook
+                  </a>
+                  <a
+                    href={feedUrl}
+                    download={`${orgData.slug}-events.ics`}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/8 border border-white/10 hover:bg-white/12 text-xs text-white transition-colors"
+                  >
+                    <CalendarPlus className="w-3.5 h-3.5" />
+                    Download .ics file
+                  </a>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Your published events sync automatically every hour. Share this link with members so they can subscribe in their own calendar app.
+                </p>
+              </div>
+            );
+          })()}
         </div>
       )}
 

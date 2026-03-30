@@ -235,6 +235,129 @@ router.post("/recurring/templates/:id/generate", async (req: Request, res: Respo
   res.status(201).json(event);
 });
 
+// GET /api/events/public/calendar/:orgSlug — public iCal/ICS feed (works with Google, Apple, Outlook)
+router.get("/public/calendar/:orgSlug", async (req: Request, res: Response) => {
+  const orgSlug = String(req.params.orgSlug);
+  const [org] = await db
+    .select({ id: organizationsTable.id, name: organizationsTable.name, slug: organizationsTable.slug, tier: organizationsTable.tier })
+    .from(organizationsTable)
+    .where(eq(organizationsTable.slug, orgSlug));
+  if (!org) { res.status(404).send("Organization not found"); return; }
+
+  const events = await db
+    .select({
+      id: eventsTable.id,
+      name: eventsTable.name,
+      slug: eventsTable.slug,
+      description: eventsTable.description,
+      startDate: eventsTable.startDate,
+      endDate: eventsTable.endDate,
+      startTime: eventsTable.startTime,
+      endTime: eventsTable.endTime,
+      location: eventsTable.location,
+      updatedAt: eventsTable.updatedAt,
+    })
+    .from(eventsTable)
+    .where(and(eq(eventsTable.orgId, org.id), eq(eventsTable.status, "published"), eq(eventsTable.isActive, true)))
+    .orderBy(asc(eventsTable.startDate))
+    .limit(200);
+
+  function foldLine(line: string): string {
+    const chunks: string[] = [];
+    while (line.length > 75) { chunks.push(line.substring(0, 75)); line = " " + line.substring(75); }
+    chunks.push(line);
+    return chunks.join("\r\n");
+  }
+
+  function escapeIcal(str: string): string {
+    return str.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+  }
+
+  function parseTime(t: string | null | undefined): { h: number; m: number } | null {
+    if (!t) return null;
+    const m = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+    if (!m) return null;
+    let h = parseInt(m[1]); const min = parseInt(m[2]); const p = m[3]?.toUpperCase();
+    if (p === "PM" && h !== 12) h += 12;
+    if (p === "AM" && h === 12) h = 0;
+    return { h, m: min };
+  }
+
+  function toIcalDate(dateStr: string | null | undefined, timeStr: string | null | undefined): { value: string; allDay: boolean } | null {
+    if (!dateStr) return null;
+    const datePart = dateStr.replace(/-/g, "");
+    const t = parseTime(timeStr);
+    if (t) {
+      const hh = String(t.h).padStart(2, "0"); const mm = String(t.m).padStart(2, "0");
+      return { value: `${datePart}T${hh}${mm}00`, allDay: false };
+    }
+    return { value: datePart, allDay: true };
+  }
+
+  const now = new Date().toISOString().replace(/[-:.]/g, "").substring(0, 15) + "Z";
+  const baseUrl = process.env.REPLIT_DEV_DOMAIN
+    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+    : "https://steward.app";
+
+  const lines: string[] = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Steward//Steward Events//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    foldLine(`X-WR-CALNAME:${escapeIcal(org.name)} Events`),
+    foldLine(`X-WR-CALDESC:Events from ${escapeIcal(org.name)}, powered by Steward`),
+    "X-PUBLISHED-TTL:PT1H",
+    "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
+  ];
+
+  for (const e of events) {
+    const start = toIcalDate(e.startDate, e.startTime);
+    if (!start) continue;
+
+    const rawEndDate = e.endDate ?? e.startDate;
+    let end = toIcalDate(rawEndDate, e.endTime ?? e.startTime);
+    if (!end) end = start;
+
+    // iCal all-day DTEND is exclusive (next day)
+    if (start.allDay) {
+      const d = new Date((rawEndDate ?? e.startDate) + "T00:00:00");
+      d.setDate(d.getDate() + 1);
+      end = { value: d.toISOString().split("T")[0].replace(/-/g, ""), allDay: true };
+    }
+
+    const url = e.slug ? `${baseUrl}/events/${org.slug}/${e.slug}` : `${baseUrl}`;
+    const lastMod = e.updatedAt
+      ? String(e.updatedAt).replace(/[-:.T]/g, "").substring(0, 15) + "Z"
+      : now;
+
+    lines.push("BEGIN:VEVENT");
+    lines.push(`UID:${e.id}@steward.app`);
+    lines.push(`DTSTAMP:${now}`);
+    lines.push(`LAST-MODIFIED:${lastMod}`);
+    if (start.allDay) {
+      lines.push(`DTSTART;VALUE=DATE:${start.value}`);
+      lines.push(`DTEND;VALUE=DATE:${end.value}`);
+    } else {
+      lines.push(`DTSTART:${start.value}`);
+      lines.push(`DTEND:${end.value}`);
+    }
+    lines.push(foldLine(`SUMMARY:${escapeIcal(e.name)}`));
+    if (e.description) lines.push(foldLine(`DESCRIPTION:${escapeIcal(e.description)}`));
+    if (e.location) lines.push(foldLine(`LOCATION:${escapeIcal(e.location)}`));
+    lines.push(foldLine(`URL:${url}`));
+    lines.push("END:VEVENT");
+  }
+
+  lines.push("END:VCALENDAR");
+  const body = lines.join("\r\n") + "\r\n";
+
+  res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${org.slug}-events.ics"`);
+  res.setHeader("Cache-Control", "public, max-age=3600");
+  res.send(body);
+});
+
 // GET /api/events/public/:orgSlug
 router.get("/public/:orgSlug", async (req: Request, res: Response) => {
   const orgSlug = String(req.params.orgSlug);
