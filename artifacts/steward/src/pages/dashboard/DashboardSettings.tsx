@@ -20,10 +20,14 @@ import {
 import { resetTour } from "@/components/GuidedTour";
 
 const ORG_TYPES = [
+  { value: "lodge", label: "Masonic Lodge" },
+  { value: "rotary", label: "Rotary Club" },
+  { value: "vfw", label: "VFW Post" },
+  { value: "hoa", label: "Homeowners Association (HOA)" },
+  { value: "pta", label: "PTA / Parent Organization" },
+  { value: "nonprofit", label: "Nonprofit Organization" },
   { value: "chamber", label: "Chamber of Commerce" },
   { value: "downtown_assoc", label: "Downtown Association" },
-  { value: "nonprofit", label: "Nonprofit Organization" },
-  { value: "lodge", label: "Masonic Lodge" },
   { value: "festival_committee", label: "Festival Committee" },
   { value: "civic_org", label: "Civic Organization" },
   { value: "other", label: "Other" },

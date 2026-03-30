@@ -44,11 +44,16 @@ type OrgFormData = z.infer<typeof orgSchema>;
 
 const ORG_TYPES = [
   "Masonic Lodge",
+  "Rotary Club",
+  "VFW Post",
+  "Homeowners Association (HOA)",
+  "PTA / Parent Organization",
+  "Nonprofit Organization",
+  "Chamber of Commerce",
   "Civic Organization",
   "Fraternal Organization",
   "Social Club",
-  "Local Business",
-  "Nonprofit",
+  "Festival Committee",
   "Other",
 ];
 
