@@ -65,7 +65,7 @@ export function VerticalLanding({ config }: { config: VerticalConfig }) {
                   </Button>
                 </Link>
               </div>
-              <p className="text-xs text-muted-foreground mt-4">Free to try · No credit card required · Live in 10 minutes</p>
+              <p className="text-xs text-muted-foreground mt-4">14-day free trial · Cancel anytime · Live in 10 minutes</p>
             </motion.div>
           </div>
         </section>

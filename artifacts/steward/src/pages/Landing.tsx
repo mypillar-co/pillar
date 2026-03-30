@@ -203,7 +203,7 @@ export default function Landing() {
             <div className="flex items-center justify-center gap-8 pt-6 text-sm text-muted-foreground">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-primary" />
-                <span>No credit card required</span>
+                <span>14-day free trial</span>
               </div>
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-primary" />

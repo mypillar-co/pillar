@@ -110,6 +110,7 @@ router.post("/billing/checkout", async (req: Request, res: Response) => {
     // customer.subscription.updated/deleted webhooks can map back to a user
     subscription_data: {
       metadata: { userId, tierId },
+      trial_period_days: 14,
     },
   });
 
