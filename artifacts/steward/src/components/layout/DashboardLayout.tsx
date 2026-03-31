@@ -21,6 +21,7 @@ import {
   Share2,
   Sparkles,
   Vote,
+  HelpCircle,
 } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetOrganization } from "@workspace/api-client-react";
@@ -49,6 +50,7 @@ const NAV_ITEMS: NavItemExt[] = [
   { label: "Domain", href: "/dashboard/domains", icon: LinkIcon },
   { label: "Board Approval", href: "/dashboard/board-links", icon: Vote },
   { label: "Settings", href: "/dashboard/settings", icon: Settings },
+  { label: "Help & Support", href: "/dashboard/help", icon: HelpCircle },
 ];
 
 const BOTTOM_NAV: NavItem[] = [

@@ -70,12 +70,14 @@ export default function Admin() {
   const { isAuthenticated, isLoading } = useAuth();
   const [, navigate] = useLocation();
 
-  const [tab, setTab] = useState<"overview" | "financials" | "subscribers" | "churn" | "health">("overview");
+  const [tab, setTab] = useState<"overview" | "financials" | "subscribers" | "churn" | "health" | "support">("overview");
   const [overview, setOverview] = useState<any>(null);
   const [financials, setFinancials] = useState<any>(null);
   const [subscribers, setSubscribers] = useState<any[]>([]);
   const [churn, setChurn] = useState<any>(null);
   const [health, setHealth] = useState<any>(null);
+  const [tickets, setTickets] = useState<any[]>([]);
+  const [ticketUpdating, setTicketUpdating] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [subFilter, setSubFilter] = useState("");
@@ -94,13 +96,15 @@ export default function Admin() {
       apiFetch("/api/admin/subscribers"),
       apiFetch("/api/admin/churn"),
       apiFetch("/api/admin/health"),
+      apiFetch("/api/support/tickets"),
     ])
-      .then(([ov, fin, subs, ch, he]) => {
+      .then(([ov, fin, subs, ch, he, tix]) => {
         setOverview(ov);
         setFinancials(fin);
         setSubscribers(subs);
         setChurn(ch);
         setHealth(he);
+        setTickets(tix);
         setLoading(false);
       })
       .catch((err) => {
@@ -119,6 +123,7 @@ export default function Admin() {
     { key: "subscribers", label: "Subscribers" },
     { key: "churn", label: "Churn" },
     { key: "health", label: "Server Health" },
+    { key: "support", label: `Support ${tickets.filter(t => t.status === "open").length > 0 ? `(${tickets.filter(t => t.status === "open").length})` : ""}`.trim() },
   ] as const;
 
   const styles = {
@@ -644,6 +649,93 @@ export default function Admin() {
               </div>
             </div>
           </>
+        )}
+
+        {tab === "support" && (
+          <div style={styles.section}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+              <div style={styles.sectionTitle}>Support Tickets ({tickets.length})</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {["open", "in_progress", "resolved"].map(s => (
+                  <span key={s} style={{
+                    background: s === "open" ? "#dc262622" : s === "in_progress" ? "#d9770622" : "#16a34a22",
+                    color: s === "open" ? "#f87171" : s === "in_progress" ? "#fb923c" : "#34d399",
+                    border: `1px solid ${s === "open" ? "#dc262644" : s === "in_progress" ? "#d9770644" : "#16a34a44"}`,
+                    borderRadius: 6, padding: "2px 10px", fontSize: 12, fontWeight: 600,
+                  }}>
+                    {tickets.filter(t => t.status === s).length} {s.replace("_", " ")}
+                  </span>
+                ))}
+              </div>
+            </div>
+            {tickets.length === 0 ? (
+              <div style={{ ...styles.card, textAlign: "center", padding: "40px 24px" }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>🎉</div>
+                <div style={{ color: "#8b9ab5", fontSize: 14 }}>No support tickets yet</div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {tickets.map((ticket: any) => (
+                  <div key={ticket.id} style={{
+                    ...styles.card,
+                    borderLeft: `3px solid ${ticket.severity === "critical" ? "#dc2626" : ticket.severity === "high" ? "#d97706" : ticket.severity === "low" ? "#6b7280" : "#3b82f6"}`,
+                    padding: "16px 20px",
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                          <span style={{ fontWeight: 600, fontSize: 14 }}>{ticket.subject}</span>
+                          <span style={{
+                            background: ticket.severity === "critical" ? "#dc262622" : ticket.severity === "high" ? "#d9770622" : "#3b82f622",
+                            color: ticket.severity === "critical" ? "#f87171" : ticket.severity === "high" ? "#fb923c" : "#60a5fa",
+                            border: `1px solid ${ticket.severity === "critical" ? "#dc262644" : ticket.severity === "high" ? "#d9770644" : "#3b82f644"}`,
+                            borderRadius: 4, padding: "1px 7px", fontSize: 11, fontWeight: 600, textTransform: "uppercase",
+                          }}>{ticket.severity}</span>
+                        </div>
+                        <div style={{ color: "#8b9ab5", fontSize: 12, marginBottom: 8 }}>
+                          {ticket.orgName ?? "Unknown org"} · {ticket.userEmail ?? ticket.userId} · {new Date(ticket.createdAt).toLocaleDateString()}
+                        </div>
+                        <div style={{ color: "#cbd5e1", fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{ticket.description}</div>
+                        {ticket.adminNotes && (
+                          <div style={{ marginTop: 10, padding: "8px 12px", background: "rgba(232,184,75,0.08)", border: "1px solid rgba(232,184,75,0.2)", borderRadius: 6, fontSize: 12, color: "#e8b84b" }}>
+                            <strong>Admin notes:</strong> {ticket.adminNotes}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0, minWidth: 140 }}>
+                        <select
+                          value={ticket.status}
+                          disabled={ticketUpdating === ticket.id}
+                          onChange={async (e) => {
+                            const newStatus = e.target.value;
+                            setTicketUpdating(ticket.id);
+                            try {
+                              const updated = await apiFetch(`/api/support/tickets/${ticket.id}`, {
+                                method: "PUT",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ status: newStatus }),
+                              });
+                              setTickets(prev => prev.map(t => t.id === ticket.id ? updated : t));
+                            } catch {}
+                            setTicketUpdating(null);
+                          }}
+                          style={{
+                            background: "#0f1e35", border: "1px solid rgba(255,255,255,0.12)", color: "#e2e8f0",
+                            borderRadius: 6, padding: "4px 8px", fontSize: 12, cursor: "pointer", width: "100%",
+                          }}
+                        >
+                          <option value="open">Open</option>
+                          <option value="in_progress">In Progress</option>
+                          <option value="resolved">Resolved</option>
+                          <option value="closed">Closed</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </main>
     </div>

@@ -32,6 +32,7 @@ import DashboardSettings from "./pages/dashboard/DashboardSettings";
 import Social from "./pages/dashboard/Social";
 import ContentStudio from "./pages/dashboard/ContentStudio";
 import BoardLinksPage from "./pages/dashboard/BoardLinks";
+import Help from "./pages/dashboard/Help";
 import Admin from "./pages/Admin";
 
 const queryClient = new QueryClient({
@@ -92,6 +93,7 @@ function AppRouter() {
       <Route path="/dashboard/social"><DB><Social /></DB></Route>
       <Route path="/dashboard/studio"><DB><ContentStudio /></DB></Route>
       <Route path="/dashboard/board-links"><DB><BoardLinksPage /></DB></Route>
+      <Route path="/dashboard/help"><DB><Help /></DB></Route>
       <Route path="/dashboard"><DB><Overview /></DB></Route>
 
       <Route>
