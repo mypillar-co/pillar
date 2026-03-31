@@ -200,7 +200,7 @@ export function Navbar() {
               <Shield className="w-6 h-6 text-primary-foreground" />
             </div>
             <span className="font-display font-bold text-2xl tracking-tight text-white group-hover:text-primary transition-colors">
-              Steward
+              Pillar
             </span>
           </Link>
 

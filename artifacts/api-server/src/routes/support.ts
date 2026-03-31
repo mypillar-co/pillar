@@ -17,9 +17,9 @@ async function resolveOrgForUser(userId: string) {
   return org ?? null;
 }
 
-const STEWARD_SYSTEM_PROMPT = `You are the Steward support assistant — a friendly, knowledgeable helper for Steward, an AI-powered management platform for civic organizations (nonprofits, community groups, HOAs, unions, clubs, etc.).
+const PILLAR_SYSTEM_PROMPT = `You are the Pillar support assistant — a friendly, knowledgeable helper for Pillar, an AI-powered management platform for civic organizations (nonprofits, community groups, HOAs, unions, clubs, etc.).
 
-Steward's key features:
+Pillar's key features:
 - **Events**: Create and manage events, sell tickets, track attendance, handle board approvals
 - **Social Media**: Connect Facebook, Instagram, and X. Schedule posts, create drafts, automate posting, AI-generated content
 - **Payments**: Connect Stripe, collect dues, accept donations, generate financial reports
@@ -82,7 +82,7 @@ router.post("/chat", async (req: Request, res: Response) => {
     const response = await anthropic.messages.create({
       model: "claude-haiku-4-5",
       max_tokens: 512,
-      system: STEWARD_SYSTEM_PROMPT,
+      system: PILLAR_SYSTEM_PROMPT,
       messages: chatMessages,
     });
 

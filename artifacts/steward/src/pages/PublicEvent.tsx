@@ -352,15 +352,15 @@ export default function PublicEvent() {
         )}
       </div>
 
-      {/* Powered by Steward */}
+      {/* Powered by Pillar */}
       <div className="border-t border-white/5 py-3 text-center">
         <a
-          href="https://steward.app"
+          href="https://mypillar.co"
           target="_blank"
           rel="noopener noreferrer"
           className="text-xs text-muted-foreground hover:text-slate-300 transition-colors"
         >
-          Powered by <span className="text-primary font-semibold">Steward</span> — AI for civic organizations
+          Powered by <span className="text-primary font-semibold">Pillar</span> — AI for civic organizations
         </a>
       </div>
     </div>

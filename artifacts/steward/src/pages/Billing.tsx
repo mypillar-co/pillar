@@ -304,7 +304,7 @@ export default function Billing() {
                   <CardDescription>
                     {hasActiveSubscription
                       ? "Upgrade or downgrade via the secure Stripe portal — changes take effect immediately with prorated billing."
-                      : "Select a plan to unlock the full Steward experience."}
+                      : "Select a plan to unlock the full Pillar experience."}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>

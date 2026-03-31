@@ -21,7 +21,7 @@ export const TIERS: TierDefinition[] = [
     features: [
       "AI-generated website in under 10 minutes",
       "Chat-based updates anytime",
-      "Subdomain hosting (yourorg.steward.app)",
+      "Subdomain hosting (yourorg.mypillar.co)",
       "Mobile-responsive design",
       "SEO fundamentals included",
       "500 MB media storage",

@@ -93,14 +93,14 @@ export default function Login() {
         <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
           <Shield className="w-4 h-4 text-primary-foreground" />
         </div>
-        <span className="text-white font-bold text-lg">Steward</span>
+        <span className="text-white font-bold text-lg">Pillar</span>
       </div>
 
       <div className="flex-1 flex items-center justify-center px-4">
         <div className="w-full max-w-sm">
           <div className="text-center mb-8">
             <h1 className="text-2xl font-bold text-white mb-2">Welcome back</h1>
-            <p className="text-slate-400 text-sm">Sign in to your Steward account</p>
+            <p className="text-slate-400 text-sm">Sign in to your Pillar account</p>
           </div>
 
           <div className="bg-[hsl(224,40%,12%)] border border-white/8 rounded-2xl p-6 space-y-5">

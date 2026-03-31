@@ -118,7 +118,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             <div className="w-7 h-7 bg-primary rounded-lg flex items-center justify-center">
               <Zap className="w-4 h-4 text-primary-foreground" />
             </div>
-            <span className="font-bold text-white tracking-tight">Steward</span>
+            <span className="font-bold text-white tracking-tight">Pillar</span>
           </div>
         )}
         {!mobile && (
@@ -227,7 +227,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               <div className="w-6 h-6 bg-primary rounded-md flex items-center justify-center">
                 <Zap className="w-3.5 h-3.5 text-primary-foreground" />
               </div>
-              <span className="font-bold text-white text-sm">Steward</span>
+              <span className="font-bold text-white text-sm">Pillar</span>
             </div>
           </div>
           {org && <p className="text-xs text-slate-400 truncate max-w-[140px]">{org.name}</p>}

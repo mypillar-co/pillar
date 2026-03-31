@@ -2,8 +2,8 @@ import { Navbar } from "@/components/layout/Navbar";
 import { Link } from "wouter";
 
 const EFFECTIVE_DATE = "March 29, 2025";
-const COMPANY = "Steward";
-const CONTACT_EMAIL = "privacy@steward.app";
+const COMPANY = "Pillar";
+const CONTACT_EMAIL = "privacy@mypillar.co";
 
 export default function DPA() {
   return (

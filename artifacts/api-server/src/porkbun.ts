@@ -144,7 +144,7 @@ interface PorkbunDnsCreateResponse {
  * Creates two records:
  *  1. ALIAS at "@" (apex root) — Porkbun supports apex ALIAS internally.
  *  2. CNAME at "www" — for www.domain.com.
- * Used immediately after registration to automatically wire DNS → Steward.
+ * Used immediately after registration to automatically wire DNS → Pillar.
  */
 export async function createCnameRecord(
   domain: string,

@@ -293,7 +293,7 @@ export default function Admin() {
               <rect x="88" y="113" width="24" height="76" rx="10" fill="#e8b84b"/>
             </g>
           </svg>
-          Steward
+          Pillar
         </div>
         <span style={styles.adminBadge}>Admin Console</span>
         <nav style={styles.nav}>

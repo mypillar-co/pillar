@@ -73,7 +73,7 @@ app.use(authMiddleware);
 
 app.use("/api", router);
 
-const POWERED_BY_FOOTER = `<div style="position:fixed;bottom:0;left:0;right:0;text-align:center;padding:5px 12px;background:rgba(10,14,26,0.93);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.07);font-family:system-ui,-apple-system,sans-serif;font-size:11px;color:rgba(148,163,184,0.75);z-index:2147483647;letter-spacing:0.01em">Powered by&nbsp;<a href="https://steward.app" style="color:#f59e0b;text-decoration:none;font-weight:600" target="_blank" rel="noopener noreferrer">Steward</a>&nbsp;— AI for civic organizations</div>`;
+const POWERED_BY_FOOTER = `<div style="position:fixed;bottom:0;left:0;right:0;text-align:center;padding:5px 12px;background:rgba(10,14,26,0.93);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.07);font-family:system-ui,-apple-system,sans-serif;font-size:11px;color:rgba(148,163,184,0.75);z-index:2147483647;letter-spacing:0.01em">Powered by&nbsp;<a href="https://mypillar.co" style="color:#f59e0b;text-decoration:none;font-weight:600" target="_blank" rel="noopener noreferrer">Pillar</a>&nbsp;— AI for civic organizations</div>`;
 
 // Shared site HTML response helper
 function sendSiteHtml(res: express.Response, html: string): void {
@@ -87,7 +87,7 @@ function sendSiteHtml(res: express.Response, html: string): void {
   res.send(injected);
 }
 
-const SITE_NOT_FOUND_HTML = `<!DOCTYPE html><html><head><title>Site Not Found</title><style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#0f172a;color:#94a3b8;text-align:center}.box{max-width:400px;padding:2rem}.title{color:#fff;font-size:1.5rem;margin-bottom:.5rem}</style></head><body><div class="box"><div class="title">Site not found</div><p>This organization hasn't published their site yet.</p><a href="/" style="color:#f59e0b;text-decoration:none">← Steward Home</a></div></body></html>`;
+const SITE_NOT_FOUND_HTML = `<!DOCTYPE html><html><head><title>Site Not Found</title><style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#0f172a;color:#94a3b8;text-align:center}.box{max-width:400px;padding:2rem}.title{color:#fff;font-size:1.5rem;margin-bottom:.5rem}</style></head><body><div class="box"><div class="title">Site not found</div><p>This organization hasn't published their site yet.</p><a href="/" style="color:#f59e0b;text-decoration:none">← Pillar Home</a></div></body></html>`;
 
 // Public site renderer — serves generated HTML at /sites/:slug (by slug path)
 app.get("/sites/:slug", async (req, res) => {
@@ -100,7 +100,7 @@ app.get("/sites/:slug", async (req, res) => {
   sendSiteHtml(res, site.generatedHtml);
 });
 
-// Host-based site routing — serves sites at <slug>.steward.app or registered custom domains
+// Host-based site routing — serves sites at <slug>.mypillar.co or registered custom domains
 // This middleware runs before the fallback so API paths (/api/*) are not intercepted.
 app.use(async (req, res, next) => {
   // Only intercept non-API, non-static paths
@@ -115,7 +115,7 @@ app.use(async (req, res, next) => {
 
   let orgSlug: string | null = null;
 
-  // Pattern 1: <slug>.steward.app subdomain
+  // Pattern 1: <slug>.mypillar.co subdomain
   const subdomainMatch = host.match(/^([a-z0-9-]+)\.steward\.app$/);
   if (subdomainMatch) {
     orgSlug = subdomainMatch[1];
@@ -134,8 +134,8 @@ app.use(async (req, res, next) => {
   }
 
   // Pattern 2: registered custom domain (myorg.com or www.myorg.com)
-  // Only apply to non-Steward, non-Replit hosts
-  const isInternalHost = host.includes("steward.app") || host.includes("replit.dev") || host.includes("replit.app") || host === "localhost" || host === "127.0.0.1";
+  // Only apply to non-Pillar, non-Replit hosts
+  const isInternalHost = host.includes("mypillar.co") || host.includes("replit.dev") || host.includes("replit.app") || host === "localhost" || host === "127.0.0.1";
   if (!isInternalHost && host.includes(".")) {
     // Normalize: domains are stored without www. prefix, so strip it from lookup host
     const lookupHost = host.replace(/^www\./, "");

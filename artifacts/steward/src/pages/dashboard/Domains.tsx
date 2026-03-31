@@ -115,7 +115,7 @@ export default function Domains() {
 
   const [domains, setDomains] = useState<Domain[]>([]);
   const [subdomain, setSubdomain] = useState<string | null>(null);
-  const [cnameTarget, setCnameTarget] = useState<string>("proxy.steward.app");
+  const [cnameTarget, setCnameTarget] = useState<string>("proxy.mypillar.co");
   const [proxyIp, setProxyIp] = useState<string>("76.76.21.21");
   const [loadingDomains, setLoadingDomains] = useState(true);
 
@@ -140,7 +140,7 @@ export default function Domains() {
       .then((data: DomainsResponse) => {
         setDomains(data.domains ?? []);
         setSubdomain(data.subdomain ?? null);
-        setCnameTarget(data.cnameTarget ?? "proxy.steward.app");
+        setCnameTarget(data.cnameTarget ?? "proxy.mypillar.co");
         if (data.proxyIp) setProxyIp(data.proxyIp);
       })
       .catch(() => null)
@@ -354,7 +354,7 @@ export default function Domains() {
       <div>
         <h1 className="text-2xl font-bold text-white">Custom Domain</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Connect a professional domain to your Steward website.
+          Connect a professional domain to your Pillar website.
         </p>
       </div>
 
@@ -685,7 +685,7 @@ export default function Domains() {
             {d.isExternal ? (
               <>
                 <p className="text-xs text-muted-foreground">
-                  To connect <span className="text-white font-mono">{d.domain}</span> to your Steward site, add the
+                  To connect <span className="text-white font-mono">{d.domain}</span> to your Pillar site, add the
                   DNS record below at your registrar. Changes can take up to 48 hours to propagate.
                 </p>
                 {/* CNAME instruction (for subdomains like www.yourdomain.com) */}
@@ -755,7 +755,7 @@ export default function Domains() {
             ) : (
               <>
                 <p className="text-xs text-muted-foreground">
-                  Your domain is registered. To point it at your Steward site, add this CNAME record in Porkbun's DNS manager,
+                  Your domain is registered. To point it at your Pillar site, add this CNAME record in Porkbun's DNS manager,
                   or contact support if you need help.
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-mono">

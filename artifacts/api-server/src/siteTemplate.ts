@@ -1,5 +1,5 @@
 /**
- * Steward Site Template — hand-crafted 2026-quality civic org website.
+ * Pillar Site Template — hand-crafted 2026-quality civic org website.
  * The design is locked here. The AI only fills content tokens.
  * Tokens use %%TOKEN_NAME%% syntax and are replaced server-side.
  */
@@ -891,7 +891,7 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
       </div>
       <div class="footer-bar">
         <p>&copy; %%CURRENT_YEAR%% %%ORG_NAME%%. All rights reserved.</p>
-        <span class="footer-badge">Powered by Steward</span>
+        <span class="footer-badge">Powered by Pillar</span>
       </div>
     </div>
   </footer>

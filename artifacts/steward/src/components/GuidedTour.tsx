@@ -12,7 +12,7 @@ interface TourStep {
 const TOUR_STEPS: TourStep[] = [
   {
     target: null,
-    title: "Welcome to Steward!",
+    title: "Welcome to Pillar!",
     description: "You're set up and ready to go. Let us walk you through your new command center — it only takes 30 seconds.",
     position: "center",
   },

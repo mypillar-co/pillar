@@ -91,7 +91,7 @@ export default function Register() {
         <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
           <Shield className="w-4 h-4 text-primary-foreground" />
         </div>
-        <span className="text-white font-bold text-lg">Steward</span>
+        <span className="text-white font-bold text-lg">Pillar</span>
       </div>
 
       <div className="flex-1 flex items-center justify-center px-4">

@@ -123,7 +123,7 @@ export default function BoardLinks() {
         <div>
           <h2 className="text-xl font-bold text-white">Board Approval Links</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Generate a shareable link your board members can open — no login required. They review a Steward pitch and cast a vote.
+            Generate a shareable link your board members can open — no login required. They review a Pillar pitch and cast a vote.
           </p>
         </div>
         <Button
@@ -172,7 +172,7 @@ export default function BoardLinks() {
         <div className="flex flex-col items-center justify-center h-40 text-center border border-dashed border-white/10 rounded-2xl">
           <Share2 className="w-8 h-8 text-muted-foreground mb-3" />
           <p className="text-sm font-medium text-white">No board links yet</p>
-          <p className="text-xs text-muted-foreground mt-1">Create a link and share it with your board for a vote on adopting Steward.</p>
+          <p className="text-xs text-muted-foreground mt-1">Create a link and share it with your board for a vote on adopting Pillar.</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -285,7 +285,7 @@ export default function BoardLinks() {
         <ol className="space-y-1.5 text-xs text-muted-foreground list-decimal pl-4">
           <li>Create a link with an optional personal message</li>
           <li>Share it with your board — email, Slack, text message, however you communicate</li>
-          <li>Board members open the link (no account required) and see a full Steward pitch tailored to your org</li>
+          <li>Board members open the link (no account required) and see a full Pillar pitch tailored to your org</li>
           <li>They cast their vote: Approve, Have questions, or Not the right fit — with optional comments</li>
           <li>You see all responses here in real time</li>
         </ol>

@@ -232,7 +232,7 @@ export default function Onboard() {
                     Tell us about your organization
                   </CardTitle>
                   <CardDescription>
-                    This helps Steward tailor your digital presence from day one.
+                    This helps Pillar tailor your digital presence from day one.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -302,7 +302,7 @@ export default function Onboard() {
                         className="mt-0.5 w-4 h-4 rounded accent-primary shrink-0"
                       />
                       <span className="text-xs text-muted-foreground group-hover:text-slate-300 transition-colors leading-relaxed">
-                        I agree to Steward's{" "}
+                        I agree to Pillar's{" "}
                         <Link href="/terms" className="text-primary hover:underline" target="_blank">Terms of Service</Link>
                         {" "}and{" "}
                         <Link href="/privacy" className="text-primary hover:underline" target="_blank">Privacy Policy</Link>.

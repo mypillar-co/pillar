@@ -297,16 +297,16 @@ router.get("/public/calendar/:orgSlug", async (req: Request, res: Response) => {
   const now = new Date().toISOString().replace(/[-:.]/g, "").substring(0, 15) + "Z";
   const baseUrl = process.env.REPLIT_DEV_DOMAIN
     ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-    : "https://steward.app";
+    : "https://mypillar.co";
 
   const lines: string[] = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Steward//Steward Events//EN",
+    "PRODID:-//Pillar//Pillar Events//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     foldLine(`X-WR-CALNAME:${escapeIcal(org.name)} Events`),
-    foldLine(`X-WR-CALDESC:Events from ${escapeIcal(org.name)}, powered by Steward`),
+    foldLine(`X-WR-CALDESC:Events from ${escapeIcal(org.name)}, powered by Pillar`),
     "X-PUBLISHED-TTL:PT1H",
     "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
   ];
@@ -332,7 +332,7 @@ router.get("/public/calendar/:orgSlug", async (req: Request, res: Response) => {
       : now;
 
     lines.push("BEGIN:VEVENT");
-    lines.push(`UID:${e.id}@steward.app`);
+    lines.push(`UID:${e.id}@mypillar.co`);
     lines.push(`DTSTAMP:${now}`);
     lines.push(`LAST-MODIFIED:${lastMod}`);
     if (start.allDay) {

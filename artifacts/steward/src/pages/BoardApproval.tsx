@@ -25,7 +25,7 @@ const VOTE_OPTIONS: { value: VoteOption; label: string; sublabel: string; icon: 
   {
     value: "approve",
     label: "Our board approves",
-    sublabel: "We're ready to move forward with Steward",
+    sublabel: "We're ready to move forward with Pillar",
     icon: <ThumbsUp className="w-6 h-6" />,
     color: "text-emerald-400",
     bg: "bg-emerald-500/10",
@@ -55,7 +55,7 @@ const FEATURES = [
   { icon: <Globe className="w-5 h-5 text-primary" />, title: "AI-built website", body: "Professional organization website built in minutes from a short interview. No designer needed." },
   { icon: <Calendar className="w-5 h-5 text-primary" />, title: "Events & ticketing", body: "Create events, sell tickets, track RSVPs, and send automated attendee communications." },
   { icon: <Share2 className="w-5 h-5 text-primary" />, title: "Social media on autopilot", body: "Posts go out to Facebook, Instagram, and X automatically — no social media manager needed." },
-  { icon: <Bot className="w-5 h-5 text-primary" />, title: "Always up to date", body: "Your website updates itself when things change. Just tell Steward in plain language — done." },
+  { icon: <Bot className="w-5 h-5 text-primary" />, title: "Always up to date", body: "Your website updates itself when things change. Just tell Pillar in plain language — done." },
 ];
 
 const fadeUp = {
@@ -124,7 +124,7 @@ export default function BoardApproval() {
         <h1 className="text-2xl font-bold text-white mb-2">Link unavailable</h1>
         <p className="text-muted-foreground mb-6">{error}</p>
         <Link href="/">
-          <Button variant="outline" className="border-white/20 text-white hover:bg-white/5">Go to Steward.app</Button>
+          <Button variant="outline" className="border-white/20 text-white hover:bg-white/5">Go to Pillar.app</Button>
         </Link>
       </div>
     );
@@ -144,7 +144,7 @@ export default function BoardApproval() {
             <strong className="text-white">{link?.orgName ?? "your organization"}</strong>'s administrator.
           </p>
           {selectedVote === "approve" && (
-            <p className="text-emerald-400 text-sm mt-4 font-medium">Excited to see {link?.orgName ?? "your organization"} on Steward!</p>
+            <p className="text-emerald-400 text-sm mt-4 font-medium">Excited to see {link?.orgName ?? "your organization"} on Pillar!</p>
           )}
           {comment && (
             <div className="mt-6 p-4 rounded-xl bg-white/5 border border-white/10 text-left">
@@ -155,7 +155,7 @@ export default function BoardApproval() {
           <div className="mt-8">
             <Link href="/">
               <Button variant="outline" className="border-white/20 text-white hover:bg-white/5">
-                Learn more about Steward
+                Learn more about Pillar
               </Button>
             </Link>
           </div>
@@ -175,7 +175,7 @@ export default function BoardApproval() {
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-amber-600 flex items-center justify-center">
               <Shield className="w-4 h-4 text-primary-foreground" />
             </div>
-            <span className="font-bold text-lg text-white">Steward</span>
+            <span className="font-bold text-lg text-white">Pillar</span>
           </Link>
           <span className="text-xs text-muted-foreground">Board Approval Request</span>
         </div>
@@ -188,9 +188,9 @@ export default function BoardApproval() {
           <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-semibold mb-5">
             Review request from {orgName}
           </span>
-          <h1 className="text-4xl font-bold mb-4">Should {orgName} use Steward?</h1>
+          <h1 className="text-4xl font-bold mb-4">Should {orgName} use Pillar?</h1>
           <p className="text-slate-400 text-lg max-w-xl mx-auto leading-relaxed">
-            Your organization's leadership is evaluating Steward — an AI platform that builds and maintains your
+            Your organization's leadership is evaluating Pillar — an AI platform that builds and maintains your
             digital presence automatically. Review the information below and cast your vote.
           </p>
           {link?.message && (
@@ -201,9 +201,9 @@ export default function BoardApproval() {
           )}
         </motion.section>
 
-        {/* What is Steward */}
+        {/* What is Pillar */}
         <motion.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeUp}>
-          <h2 className="text-2xl font-bold mb-6">What does Steward do?</h2>
+          <h2 className="text-2xl font-bold mb-6">What does Pillar do?</h2>
           <div className="grid sm:grid-cols-2 gap-4">
             {FEATURES.map((f, i) => (
               <div key={i} className="flex gap-4 p-5 rounded-2xl border border-white/10 bg-white/[0.03]">
@@ -226,7 +226,7 @@ export default function BoardApproval() {
             <div className="grid grid-cols-3 bg-white/5 px-5 py-3 text-xs font-semibold text-muted-foreground">
               <span>What you need</span>
               <span className="text-center">Typical cost</span>
-              <span className="text-center text-primary">With Steward</span>
+              <span className="text-center text-primary">With Pillar</span>
             </div>
             {[
               ["Professional website", "$2,000 – $5,000 setup", "Included"],
@@ -234,11 +234,11 @@ export default function BoardApproval() {
               ["Social media management", "$500 – $2,000/mo", "Included"],
               ["Event ticketing platform", "$50 – $300/mo", "Included"],
               ["Custom domain + hosting", "$100 – $200/yr", "Included"],
-            ].map(([task, without, withSteward], i) => (
+            ].map(([task, without, withPillar], i) => (
               <div key={i} className={`grid grid-cols-3 px-5 py-3 text-sm border-t border-white/5 ${i % 2 === 0 ? "" : "bg-white/[0.02]"}`}>
                 <span className="text-slate-300">{task}</span>
                 <span className="text-center text-red-400/80 text-xs">{without}</span>
-                <span className="text-center text-emerald-400 font-medium text-xs">{withSteward}</span>
+                <span className="text-center text-emerald-400 font-medium text-xs">{withPillar}</span>
               </div>
             ))}
           </div>
@@ -327,7 +327,7 @@ export default function BoardApproval() {
 
         {/* Footer */}
         <div className="text-center text-xs text-muted-foreground pb-8">
-          Powered by <Link href="/" className="text-primary hover:underline">Steward</Link> — AI for civic organizations.
+          Powered by <Link href="/" className="text-primary hover:underline">Pillar</Link> — AI for civic organizations.
           Your response is shared only with {orgName}'s administrator.
         </div>
       </main>

@@ -147,7 +147,7 @@ export default function Payments() {
                   <h3 className="text-lg font-semibold text-white mb-1">Set Up Payment Collection</h3>
                   <p className="text-sm text-muted-foreground mb-4">
                     Connect your bank account through Stripe to accept ticket sales, vendor booth fees, and sponsorship payments.
-                    Money goes directly to your account — Steward takes a small 2.9% + $0.30 platform fee per transaction.
+                    Money goes directly to your account — Pillar takes a small 2.9% + $0.30 platform fee per transaction.
                   </p>
                   <div className="flex flex-wrap gap-3 mb-4">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -313,7 +313,7 @@ function TaxNoticeCard() {
           <div>
             <h4 className="text-sm font-medium text-white mb-1">Tax & Nonprofit Information</h4>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              <strong className="text-white/80">Tax liability:</strong> Your organization is responsible for reporting and paying applicable taxes on revenue collected through this platform. Steward does not withhold taxes or file tax returns on your behalf.
+              <strong className="text-white/80">Tax liability:</strong> Your organization is responsible for reporting and paying applicable taxes on revenue collected through this platform. Pillar does not withhold taxes or file tax returns on your behalf.
             </p>
             <p className="text-xs text-muted-foreground leading-relaxed mt-2">
               <strong className="text-white/80">Nonprofits:</strong> If your organization has 501(c)(3) or equivalent tax-exempt status, you can indicate this during Stripe onboarding. Stripe will verify your nonprofit status and may apply reduced processing fees. Consult your tax advisor for guidance on donation receipts and reporting requirements.

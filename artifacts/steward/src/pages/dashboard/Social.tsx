@@ -114,7 +114,7 @@ function ConnectAccountDialog({ open, onClose, onConnected }: { open: boolean; o
             <div className="flex items-start gap-2 rounded-lg bg-amber-500/5 border border-amber-500/20 px-3 py-2.5">
               <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
               <p className="text-xs text-amber-400/90 leading-relaxed">
-                By connecting, Steward will securely store your access token to post on your behalf. Your token is encrypted and never shared. You can revoke access anytime from this page or from the social platform's app settings.
+                By connecting, Pillar will securely store your access token to post on your behalf. Your token is encrypted and never shared. You can revoke access anytime from this page or from the social platform's app settings.
               </p>
             </div>
             {Object.entries(PLATFORM_META).map(([key, meta]) => {

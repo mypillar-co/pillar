@@ -12,7 +12,7 @@ const features = [
   {
     icon: <MessageSquare className="w-6 h-6 text-primary" />,
     title: "Website Live in 10 Minutes",
-    description: "Answer a few questions in a chat. Steward builds a complete, professional website for your organization — no design skills needed.",
+    description: "Answer a few questions in a chat. Pillar builds a complete, professional website for your organization — no design skills needed.",
   },
   {
     icon: <Calendar className="w-6 h-6 text-primary" />,
@@ -22,12 +22,12 @@ const features = [
   {
     icon: <Share2 className="w-6 h-6 text-primary" />,
     title: "Social Media on Autopilot",
-    description: "Connect your Facebook, Instagram, and X accounts. Steward writes and posts updates automatically based on your schedule.",
+    description: "Connect your Facebook, Instagram, and X accounts. Pillar writes and posts updates automatically based on your schedule.",
   },
   {
     icon: <Bot className="w-6 h-6 text-primary" />,
     title: "A Digital Agency for $59/mo",
-    description: "Most organizations pay $2,000+ per month for web management and social media. Steward delivers the same results at a fraction of the cost.",
+    description: "Most organizations pay $2,000+ per month for web management and social media. Pillar delivers the same results at a fraction of the cost.",
   },
 ];
 
@@ -47,7 +47,7 @@ const steps = [
   {
     number: "3",
     title: "You Focus on Leading",
-    description: "Steward keeps your digital presence current automatically. Check in whenever you want — or don't.",
+    description: "Pillar keeps your digital presence current automatically. Check in whenever you want — or don't.",
     icon: <Clock className="w-5 h-5" />,
   },
 ];
@@ -78,7 +78,7 @@ const painPoints = [
   },
   {
     before: "Posting on social media manually every week",
-    after: "Steward writes and schedules posts automatically",
+    after: "Pillar writes and schedules posts automatically",
   },
   {
     before: "Using 4 different tools for events, payments, and contacts",
@@ -102,21 +102,21 @@ const scenarios = [
     icon: <Globe className="w-5 h-5 text-primary" />,
     org: "New Chapter Launch",
     headline: "Professional website live before your kickoff meeting",
-    description: "Answer 8 questions in a chat. Steward generates a complete, branded website in minutes. No designer needed.",
+    description: "Answer 8 questions in a chat. Pillar generates a complete, branded website in minutes. No designer needed.",
     tags: ["AI Website", "Domain", "Publishing"],
   },
   {
     icon: <Share2 className="w-5 h-5 text-primary" />,
     org: "Weekly Communications",
     headline: "Consistent presence without the Monday scramble",
-    description: "Connect your accounts once. Steward drafts your posts, you approve or adjust, and they go out on schedule — automatically.",
+    description: "Connect your accounts once. Pillar drafts your posts, you approve or adjust, and they go out on schedule — automatically.",
     tags: ["Social Media", "Scheduling", "AI Content"],
   },
   {
     icon: <DollarSign className="w-5 h-5 text-emerald-400" />,
     org: "Dues & Donations",
     headline: "Collect payments without a separate platform",
-    description: "Accept membership dues, event fees, and one-time donations directly through your Steward dashboard. All in one place.",
+    description: "Accept membership dues, event fees, and one-time donations directly through your Pillar dashboard. All in one place.",
     tags: ["Payments", "Stripe", "Reporting"],
   },
 ];
@@ -336,9 +336,9 @@ export default function Landing() {
       <section className="py-24 bg-secondary/30 relative">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
-            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">What this would cost without Steward</h2>
+            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">What this would cost without Pillar</h2>
             <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-              Organizations typically spend thousands on agencies and freelancers. Steward replaces all of it.
+              Organizations typically spend thousands on agencies and freelancers. Pillar replaces all of it.
             </p>
           </div>
 
@@ -351,7 +351,7 @@ export default function Landing() {
             <div className="grid grid-cols-3 text-sm font-semibold text-muted-foreground border-b border-white/10 px-6 py-4">
               <span>Service</span>
               <span className="text-center">Typical Cost</span>
-              <span className="text-center text-primary">With Steward</span>
+              <span className="text-center text-primary">With Pillar</span>
             </div>
             {comparisons.map((row, i) => (
               <div key={i} className={`grid grid-cols-3 text-sm px-6 py-4 ${i < comparisons.length - 1 ? "border-b border-white/5" : ""}`}>
@@ -375,7 +375,7 @@ export default function Landing() {
           <div className="text-center mb-14">
             <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">Stop doing it the hard way</h2>
             <p className="text-muted-foreground text-lg max-w-xl mx-auto">
-              Most civic organizations are managing their digital presence with outdated, expensive, or time-consuming tools. Here's what changes with Steward.
+              Most civic organizations are managing their digital presence with outdated, expensive, or time-consuming tools. Here's what changes with Pillar.
             </p>
           </div>
           <div className="space-y-4">
@@ -411,10 +411,10 @@ export default function Landing() {
               Real-world workflows
             </Badge>
             <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-              See exactly what Steward does for your org
+              See exactly what Pillar does for your org
             </h2>
             <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-              Every civic organization has the same recurring pain points. Here's how Steward handles them automatically.
+              Every civic organization has the same recurring pain points. Here's how Pillar handles them automatically.
             </p>
           </div>
 
@@ -478,7 +478,7 @@ export default function Landing() {
               Organizations like yours
             </Badge>
             <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
-              Civic leaders love Steward
+              Civic leaders love Pillar
             </h2>
             <p className="text-muted-foreground text-lg max-w-xl mx-auto">
               From Masonic lodges to HOAs to nonprofits — here's what administrators say after their first month.
@@ -497,21 +497,21 @@ export default function Landing() {
           >
             {[
               {
-                quote: "We spent $400/month on a web designer who took two weeks to update our events page. Steward updates it automatically the moment we add an event. We haven't touched it in three months.",
+                quote: "We spent $400/month on a web designer who took two weeks to update our events page. Pillar updates it automatically the moment we add an event. We haven't touched it in three months.",
                 name: "Robert H.",
                 title: "Secretary, Riverside Lodge #412",
                 org: "Masonic Lodge",
                 initial: "R",
               },
               {
-                quote: "Our HOA newsletter used to take me half a Saturday. Now I tell Steward what happened at the board meeting and it writes the update, posts it to Facebook, and sends the email. I get my weekends back.",
+                quote: "Our HOA newsletter used to take me half a Saturday. Now I tell Pillar what happened at the board meeting and it writes the update, posts it to Facebook, and sends the email. I get my weekends back.",
                 name: "Sandra K.",
                 title: "Board President, Maplewood HOA",
                 org: "Homeowners Association",
                 initial: "S",
               },
               {
-                quote: "We were paying a social media agency $800/month and still had to remind them about every event. With Steward I set up one automation rule and it posts about our events automatically. The AI actually writes better captions than they did.",
+                quote: "We were paying a social media agency $800/month and still had to remind them about every event. With Pillar I set up one automation rule and it posts about our events automatically. The AI actually writes better captions than they did.",
                 name: "Marcus T.",
                 title: "Executive Director, Friends of Elm Park",
                 org: "Nonprofit",
@@ -525,7 +525,7 @@ export default function Landing() {
                 initial: "P",
               },
               {
-                quote: "We were paying $120/yr for Squarespace and still had to update everything manually. Steward actually runs our site — it adds events, keeps things current, and even posts to X when we have announcements.",
+                quote: "We were paying $120/yr for Squarespace and still had to update everything manually. Pillar actually runs our site — it adds events, keeps things current, and even posts to X when we have announcements.",
                 name: "David L.",
                 title: "Commander, VFW Post 3847",
                 org: "Veterans Organization",
@@ -748,7 +748,7 @@ export default function Landing() {
                 <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
                   <Shield className="w-4.5 h-4.5 text-primary-foreground" />
                 </div>
-                <span className="font-bold text-white text-lg tracking-tight">Steward</span>
+                <span className="font-bold text-white text-lg tracking-tight">Pillar</span>
               </div>
               <p className="text-sm text-muted-foreground max-w-sm">
                 AI-powered digital operations for civic organizations, nonprofits, and community groups. Website, events, and social media — managed for you.
@@ -775,7 +775,7 @@ export default function Landing() {
           </div>
           <div className="border-t border-white/5 pt-6 flex flex-col md:flex-row items-center justify-between gap-4">
             <p className="text-sm text-muted-foreground">
-              &copy; {new Date().getFullYear()} Steward. Your organization, on autopilot.
+              &copy; {new Date().getFullYear()} Pillar. Your organization, on autopilot.
             </p>
             <div className="flex items-center gap-1 text-xs text-muted-foreground/60">
               <Shield className="w-3 h-3" />

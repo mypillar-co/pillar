@@ -147,7 +147,7 @@ router.post("/builder", async (req: Request, res: Response) => {
   const type = orgType ?? org.type ?? "organization";
   const trimmedHistory = history.slice(-(CONTEXT_TURNS * 2));
 
-  const systemPrompt = `You are a friendly, professional website consultant for Steward — an AI platform that builds websites for civic organizations, nonprofits, clubs, and community groups.
+  const systemPrompt = `You are a friendly, professional website consultant for Pillar — an AI platform that builds websites for civic organizations, nonprofits, clubs, and community groups.
 
 You're helping ${name} (a ${type}) build their public website. Your job is to conduct a focused interview, asking ONE question at a time. Be warm but efficient.
 
@@ -601,7 +601,7 @@ Rules: use REAL content from the spec — no lorem ipsum. If stat values not giv
     navLogo: navLogoHtml,
     footerLogo: footerLogoHtml,
     metaDescription: esc((s.mission || contentData.missionExpanded).substring(0, 155)),
-    canonicalUrl: `https://${slug}.steward.app`,
+    canonicalUrl: `https://${slug}.mypillar.co`,
     schemaJson,
     currentYear: String(new Date().getFullYear()),
   };
@@ -1050,7 +1050,7 @@ router.put("/embed-code", async (req: Request, res: Response) => {
 
   // Basic safety: strip javascript: and data: URIs from src/href attributes.
   // We allow <script> tags from trusted CDNs (Shopify, Gumroad, Square etc.)
-  // because the embed runs inside the published site, not in the Steward dashboard.
+  // because the embed runs inside the published site, not in the Pillar dashboard.
   const sanitized = raw
     .replace(/\bon\w+\s*=/gi, "data-blocked=") // strip inline event handlers
     .replace(/(src|href)\s*=\s*["']javascript:[^"']*["']/gi, "") // strip js: URIs

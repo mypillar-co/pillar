@@ -2,9 +2,9 @@ import { Navbar } from "@/components/layout/Navbar";
 import { Link } from "wouter";
 
 const EFFECTIVE_DATE = "March 29, 2025";
-const COMPANY = "Steward";
-const CONTACT_EMAIL = "legal@steward.app";
-const DMCA_AGENT = "DMCA Agent, Steward, [Company Address — register at copyright.gov]";
+const COMPANY = "Pillar";
+const CONTACT_EMAIL = "legal@mypillar.co";
+const DMCA_AGENT = "DMCA Agent, Pillar, [Company Address — register at copyright.gov]";
 
 export default function Terms() {
   return (

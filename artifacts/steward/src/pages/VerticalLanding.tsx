@@ -86,7 +86,7 @@ export function VerticalLanding({ config }: { config: VerticalConfig }) {
                 ))}
               </div>
               <div className="mt-8 p-5 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 text-center">
-                <p className="text-emerald-400 font-semibold text-lg">Steward handles all of this — automatically.</p>
+                <p className="text-emerald-400 font-semibold text-lg">Pillar handles all of this — automatically.</p>
                 <p className="text-sm text-slate-400 mt-1">You stay focused on your mission. We handle the digital work.</p>
               </div>
             </motion.div>
@@ -135,7 +135,7 @@ export function VerticalLanding({ config }: { config: VerticalConfig }) {
               <div className="space-y-6">
                 {[
                   { n: "1", icon: <MessageSquare className="w-5 h-5" />, title: "Tell us about your organization", body: "Answer a short chat interview — your mission, meeting schedule, key contacts, and goals." },
-                  { n: "2", icon: <Zap className="w-5 h-5" />, title: "AI builds everything", body: "Steward generates your website, sets up your event system, and prepares your social media — no coding needed." },
+                  { n: "2", icon: <Zap className="w-5 h-5" />, title: "AI builds everything", body: "Pillar generates your website, sets up your event system, and prepares your social media — no coding needed." },
                   { n: "3", icon: <Clock className="w-5 h-5" />, title: "It runs itself", body: "Content updates, event promotions, and social posts happen automatically. You're in control whenever you want to be." },
                 ].map(s => (
                   <div key={s.n} className="flex items-start gap-5">
@@ -209,7 +209,7 @@ export function VerticalLanding({ config }: { config: VerticalConfig }) {
           <div className="max-w-2xl mx-auto text-center">
             <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeUp}>
               <h2 className="text-4xl font-bold mb-4">Ready to put your {config.orgType} on autopilot?</h2>
-              <p className="text-slate-400 mb-8 text-lg">Join the {config.orgTypePlural} already running smarter with Steward.</p>
+              <p className="text-slate-400 mb-8 text-lg">Join the {config.orgTypePlural} already running smarter with Pillar.</p>
               <LoginButton className="inline-flex items-center gap-2 px-10 py-4 rounded-xl bg-primary text-primary-foreground font-semibold text-lg shadow-xl shadow-primary/20 hover:bg-primary/90 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer">
                 Start free today <ArrowRight className="w-5 h-5" />
               </LoginButton>

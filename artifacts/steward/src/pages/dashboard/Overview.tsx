@@ -322,7 +322,7 @@ export default function Overview() {
             <h2 className="text-lg font-semibold text-white">Your Digital Operations</h2>
             <p className="text-xs text-muted-foreground mt-0.5">
               {hasPlan
-                ? `Everything Steward is managing for ${org?.name ?? "your organization"}.`
+                ? `Everything Pillar is managing for ${org?.name ?? "your organization"}.`
                 : "Choose a plan to activate these features."}
             </p>
           </div>
@@ -336,7 +336,7 @@ export default function Overview() {
           <FeatureCard
             icon={Globe}
             title="Website"
-            description="Your AI-generated website is live. Chat with Steward to request updates, add pages, or change content."
+            description="Your AI-generated website is live. Chat with Pillar to request updates, add pages, or change content."
             href="/dashboard/site"
             available={hasPlan}
             requiredTier="Starter"
@@ -365,7 +365,7 @@ export default function Overview() {
             <div className="flex items-center gap-3">
               <Sparkles className="w-5 h-5 text-primary flex-shrink-0" />
               <p className="text-sm text-slate-300">
-                Activate Steward to put <span className="text-white font-medium">{org?.name ?? "your organization"}</span> on autopilot.
+                Activate Pillar to put <span className="text-white font-medium">{org?.name ?? "your organization"}</span> on autopilot.
               </p>
             </div>
             <Link href="/billing">

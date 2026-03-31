@@ -18,9 +18,9 @@ import { promises as dns } from "dns";
 
 const router = Router();
 
-const STEWARD_CNAME_TARGET = "proxy.steward.app";
-// Steward's ingress IP address — used for A-record verification and BYOD instructions
-const STEWARD_PROXY_IP = process.env.STEWARD_PROXY_IP ?? "76.76.21.21";
+const PILLAR_CNAME_TARGET = "proxy.mypillar.co";
+// Pillar's ingress IP address — used for A-record verification and BYOD instructions
+const PILLAR_PROXY_IP = process.env.PILLAR_PROXY_IP ?? "76.76.21.21";
 
 async function resolveOrg(req: Request, res: Response) {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return null; }
@@ -34,12 +34,12 @@ function normalizeDomain(raw: string): string {
 }
 
 /**
- * Check if a domain's DNS points to Steward's infrastructure.
+ * Check if a domain's DNS points to Pillar's infrastructure.
  * Verifies CNAME (for www/sub) and A-record (for apex) lookups.
  * Checks both the bare domain and www.<domain>.
  */
 async function checkDnsLive(domain: string): Promise<boolean> {
-  const stewardTarget = STEWARD_CNAME_TARGET.toLowerCase();
+  const stewardTarget = PILLAR_CNAME_TARGET.toLowerCase();
   const hostnamesToCheck = [domain, `www.${domain}`];
   for (const h of hostnamesToCheck) {
     // Try CNAME first
@@ -56,7 +56,7 @@ async function checkDnsLive(domain: string): Promise<boolean> {
     // Try A record (apex / ALIAS resolved)
     try {
       const addresses = await dns.resolve4(h);
-      if (addresses.includes(STEWARD_PROXY_IP)) return true;
+      if (addresses.includes(PILLAR_PROXY_IP)) return true;
     } catch {
       // not resolved yet
     }
@@ -117,8 +117,8 @@ router.get("/", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);
   if (!org) return;
   const domains = await db.select().from(domainsTable).where(eq(domainsTable.orgId, org.id));
-  const subdomain = org.slug ? `${org.slug}.steward.app` : null;
-  res.json({ domains, subdomain, cnameTarget: STEWARD_CNAME_TARGET, proxyIp: STEWARD_PROXY_IP });
+  const subdomain = org.slug ? `${org.slug}.mypillar.co` : null;
+  res.json({ domains, subdomain, cnameTarget: PILLAR_CNAME_TARGET, proxyIp: PILLAR_PROXY_IP });
 });
 
 // ─── POST /domains/check ───────────────────────────────────────
@@ -137,7 +137,7 @@ router.post("/check", async (req: Request, res: Response) => {
 
   const [existing] = await db.select().from(domainsTable).where(eq(domainsTable.domain, domain));
   if (existing) {
-    res.json({ domain, available: false, reason: "already registered through Steward" });
+    res.json({ domain, available: false, reason: "already registered through Pillar" });
     return;
   }
 
@@ -172,7 +172,7 @@ router.post("/checkout", async (req: Request, res: Response) => {
   }
 
   const [existingDomain] = await db.select().from(domainsTable).where(eq(domainsTable.domain, domain));
-  if (existingDomain) { res.status(409).json({ error: "That domain is already registered in Steward." }); return; }
+  if (existingDomain) { res.status(409).json({ error: "That domain is already registered in Pillar." }); return; }
 
   const isFreeForTier = org.tier ? FREE_DOMAIN_TIERS.has(org.tier) : false;
   if (isFreeForTier) {
@@ -265,10 +265,10 @@ router.post("/confirm", async (req: Request, res: Response) => {
 
   logger.info({ domain: domainRecord.domain, regResult }, "Domain registration after payment");
 
-  // Automatically create CNAME record pointing to Steward proxy
+  // Automatically create CNAME record pointing to Pillar proxy
   let dnsProvisioned = false;
   if (regResult.success) {
-    const dnsResult = await createCnameRecord(domainRecord.domain, STEWARD_CNAME_TARGET);
+    const dnsResult = await createCnameRecord(domainRecord.domain, PILLAR_CNAME_TARGET);
     dnsProvisioned = dnsResult.success;
     logger.info({ domain: domainRecord.domain, dnsResult }, "Auto DNS record provisioning");
   }
@@ -347,8 +347,8 @@ router.post("/claim", async (req: Request, res: Response) => {
   });
 
   if (regResult.success) {
-    // Automatically create CNAME record pointing to Steward proxy
-    const dnsResult = await createCnameRecord(domain, STEWARD_CNAME_TARGET);
+    // Automatically create CNAME record pointing to Pillar proxy
+    const dnsResult = await createCnameRecord(domain, PILLAR_CNAME_TARGET);
     const dnsProvisioned = dnsResult.success;
     logger.info({ domain, dnsResult }, "Auto DNS record provisioning after claim");
 
@@ -416,8 +416,8 @@ router.post("/external", async (req: Request, res: Response) => {
 
   res.status(201).json({
     domain: inserted,
-    cnameTarget: STEWARD_CNAME_TARGET,
-    message: "Domain added. Configure your DNS records to connect it to your Steward site.",
+    cnameTarget: PILLAR_CNAME_TARGET,
+    message: "Domain added. Configure your DNS records to connect it to your Pillar site.",
   });
 });
 
@@ -460,7 +460,7 @@ router.post("/:id/verify", async (req: Request, res: Response) => {
     domain: updated,
     dnsLive,
     message: dnsLive
-      ? "DNS is live! Your domain is now connected to Steward. SSL provisioning may take up to 24 hours."
+      ? "DNS is live! Your domain is now connected to Pillar. SSL provisioning may take up to 24 hours."
       : "DNS is still propagating. This can take up to 48 hours. If your domain uses ALIAS/ANAME records for apex domains, contact support to verify.",
   });
 });
@@ -512,7 +512,7 @@ router.delete("/:id", async (req: Request, res: Response) => {
 // ─── GET /domains/registrar-status ───────────────────────────
 router.get("/registrar-status", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-  res.json({ configured: registrarConfigured(), cnameTarget: STEWARD_CNAME_TARGET });
+  res.json({ configured: registrarConfigured(), cnameTarget: PILLAR_CNAME_TARGET });
 });
 
 // ─── Automatic DNS Propagation Poller (called from scheduler) ──────
@@ -553,7 +553,7 @@ export async function pollDnsPropagation(): Promise<void> {
           org.id,
           "domain_live",
           `Domain is live: ${d.domain}`,
-          `Your domain ${d.domain} is now pointing to Steward. SSL certificate provisioning has started and will complete within 24 hours.`,
+          `Your domain ${d.domain} is now pointing to Pillar. SSL certificate provisioning has started and will complete within 24 hours.`,
           { domain: d.domain }
         );
         logger.info({ domain: d.domain, orgId: org.id }, "DNS auto-poller: domain went live");

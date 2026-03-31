@@ -355,14 +355,14 @@ export default function Dashboard() {
                 Your Digital Operations
               </h2>
               <p className="text-muted-foreground mt-1">
-                Everything Steward is managing on your behalf.
+                Everything Pillar is managing on your behalf.
               </p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <FeatureCard
                 icon={Globe}
                 title="Website"
-                description="Your AI-generated website is live. Chat with Steward to request updates, add pages, or change content."
+                description="Your AI-generated website is live. Chat with Pillar to request updates, add pages, or change content."
                 available={true}
               />
               <FeatureCard
@@ -392,7 +392,7 @@ export default function Dashboard() {
           >
             <div className="mb-6">
               <h2 className="text-2xl font-bold text-white">
-                Activate Steward
+                Activate Pillar
               </h2>
               <p className="text-muted-foreground mt-1">
                 Choose a plan to put{" "}

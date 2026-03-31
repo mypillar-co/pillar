@@ -1,13 +1,13 @@
-# Steward — Your Organization, on Autopilot
+# Pillar — Your Organization, on Autopilot
 
 ## Owner Action Items
 
 These are tasks that require manual action by you (not code changes):
 
-- [ ] **Register a DMCA agent with copyright.gov** — Required for DMCA safe harbor protection under 17 U.S.C. § 512. Go to https://www.copyright.gov/dmca-directory/, register "Steward" as the service provider, and pay the $6/year fee. Once done, update the placeholder in `artifacts/steward/src/pages/Terms.tsx` (search for `[Company Address — register at copyright.gov]`) with your registered agent name and address.
+- [ ] **Register a DMCA agent with copyright.gov** — Required for DMCA safe harbor protection under 17 U.S.C. § 512. Go to https://www.copyright.gov/dmca-directory/, register "Pillar" as the service provider, and pay the $6/year fee. Once done, update the placeholder in `artifacts/steward/src/pages/Terms.tsx` (search for `[Company Address — register at copyright.gov]`) with your registered agent name and address.
 
 ## Overview
-Steward is an AI-powered SaaS platform designed to autonomously manage websites, event dashboards, and social media for civic organizations, nonprofits, clubs, and community groups. It provides a "Wix meets Eventbrite" experience, putting organizational management on autopilot. The platform offers tiered subscriptions ranging from basic AI website generation to fully autonomous management across websites, events, and social media.
+Pillar is an AI-powered SaaS platform designed to autonomously manage websites, event dashboards, and social media for civic organizations, nonprofits, clubs, and community groups. It provides a "Wix meets Eventbrite" experience, putting organizational management on autopilot. The platform offers tiered subscriptions ranging from basic AI website generation to fully autonomous management across websites, events, and social media.
 
 ## User Preferences
 I want to prioritize concise and clear communication. For development, I prefer an iterative approach. Before making any significant architectural changes or adding new external dependencies, please ask for my approval. Ensure that all API routes are well-documented and consistent.
@@ -52,7 +52,7 @@ The project is organized as a monorepo containing several distinct packages:
 - **AI Site Builder**: Chat-based interview (8 questions) using AI models to generate and update organizational websites. Includes event data injection, logo upload, Google Fonts typography, Unsplash photography, scroll animations, parallax effects, and responsive hamburger navigation. Sites are Squarespace-quality with CSS custom properties architecture.
 - **Guided Tour**: First-time dashboard visitors see a 5-step guided tour highlighting key features (Overview, Site Builder, Events, Social, Payments). Uses localStorage to track completion.
 - **Event Dashboard**: Management of events, vendors, sponsors, contacts, and payments.
-- **Payment Collection (Stripe Connect)**: Organizations connect their bank accounts via Stripe Express to collect ticket sales, vendor fees, and sponsorship payments. Steward takes 2.9% + $0.30 per transaction. Public ticket purchase pages at `/events/:slug/tickets` with Stripe Checkout. Atomic inventory reservation prevents overselling. Webhook handles `checkout.session.completed`, `checkout.session.expired` (releases inventory), and `charge.refunded` (marks refunds). Tax liability notice and nonprofit support built into Payments page.
+- **Payment Collection (Stripe Connect)**: Organizations connect their bank accounts via Stripe Express to collect ticket sales, vendor fees, and sponsorship payments. Pillar takes 2.9% + $0.30 per transaction. Public ticket purchase pages at `/events/:slug/tickets` with Stripe Checkout. Atomic inventory reservation prevents overselling. Webhook handles `checkout.session.completed`, `checkout.session.expired` (releases inventory), and `charge.refunded` (marks refunds). Tax liability notice and nonprofit support built into Payments page.
 - **Social Media Automation**: Scheduling and publishing posts to platforms like Facebook, Instagram, and X.
 - **Custom Domain Management**: Support for purchasing domains via Porkbun, external domains, DNS/SSL checks, and auto-renewal.
 - **Dashboard Getting Started Checklist**: New user onboarding shows progress through plan selection, website building, event creation, and social media connection.
@@ -63,7 +63,7 @@ The project is organized as a monorepo containing several distinct packages:
 - **HTML Generation**: `gpt-4o-mini` for direct HTML output due to its efficiency with token usage for large outputs. Enhanced prompt includes detailed design standards (typography hierarchy, whitespace, shadows, gradients, mobile responsiveness).
 
 ### Security & Reliability
-- **CORS**: Restricted to specific Replit and Steward domains.
+- **CORS**: Restricted to specific Replit and Pillar domains.
 - **Session Cookies**: `httpOnly`, `secure`, `sameSite: "lax"` for CSRF protection.
 - **Error Handling**: Express 5 async error handling and global error middleware.
 - **Slug Uniqueness**: Database constraint ensures unique organization slugs.

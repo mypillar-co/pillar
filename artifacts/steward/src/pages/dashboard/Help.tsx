@@ -31,7 +31,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "How do I connect my Facebook, Instagram, or X account?",
-    a: "Go to Social Media → Accounts tab. Click Connect next to each platform. You'll be redirected to authorize Steward. Once authorized, your account will appear as connected.",
+    a: "Go to Social Media → Accounts tab. Click Connect next to each platform. You'll be redirected to authorize Pillar. Once authorized, your account will appear as connected.",
   },
   {
     q: "My site isn't showing up publicly. What do I do?",
@@ -47,7 +47,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "What is Board Approval and how does it work?",
-    a: "Board Approval lets you generate a unique voting link that you share with board members. They can vote yes/no on items without needing a Steward account. Votes are tallied automatically.",
+    a: "Board Approval lets you generate a unique voting link that you share with board members. They can vote yes/no on items without needing a Pillar account. Votes are tallied automatically.",
   },
   {
     q: "How does the 14-day free trial work?",
@@ -87,7 +87,7 @@ function FaqItem({ q, a }: { q: string; a: string }) {
 
 function AiChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: "assistant", content: "Hi! I'm the Steward support assistant. Ask me anything about using the platform — connecting accounts, billing, publishing your site, or anything else." },
+    { role: "assistant", content: "Hi! I'm the Pillar support assistant. Ask me anything about using the platform — connecting accounts, billing, publishing your site, or anything else." },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -126,7 +126,7 @@ function AiChat() {
           <Sparkles className="w-4 h-4 text-primary" />
           AI Support Chat
         </CardTitle>
-        <p className="text-xs text-slate-400">Instant answers about Steward — no waiting</p>
+        <p className="text-xs text-slate-400">Instant answers about Pillar — no waiting</p>
       </CardHeader>
       <CardContent className="flex flex-col flex-1 min-h-0 p-4 gap-3">
         <div className="flex-1 overflow-y-auto space-y-3 pr-1">
@@ -168,7 +168,7 @@ function AiChat() {
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === "Enter" && !e.shiftKey && send()}
-            placeholder="Ask anything about Steward..."
+            placeholder="Ask anything about Pillar..."
             className="bg-white/5 border-white/10 text-white placeholder:text-slate-500 text-sm"
             disabled={loading}
           />
@@ -344,7 +344,7 @@ export default function Help() {
           <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 flex items-start gap-3">
             <AlertCircle className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
             <p className="text-xs text-slate-400 leading-relaxed">
-              The AI assistant knows Steward inside and out. If it can't resolve your issue, use the form to the right to send us a report — we read every one.
+              The AI assistant knows Pillar inside and out. If it can't resolve your issue, use the form to the right to send us a report — we read every one.
             </p>
           </div>
         </div>
