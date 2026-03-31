@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import rateLimit from "express-rate-limit";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import {
@@ -291,6 +292,125 @@ router.get("/google/callback", async (req: Request, res: Response) => {
 
 router.get("/google/status", (_req: Request, res: Response) => {
   res.json({ enabled: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) });
+});
+
+// ─── Apple Sign In ────────────────────────────────────────────────────────────
+
+const APPLE_AUTH_URL = "https://appleid.apple.com/auth/authorize";
+const APPLE_JWKS = createRemoteJWKSet(new URL("https://appleid.apple.com/auth/keys"));
+
+function getAppleCallbackUrl(req: Request): string {
+  const proto = req.headers["x-forwarded-proto"] || "https";
+  const host = req.headers["x-forwarded-host"] || req.headers["host"] || "localhost";
+  return `${proto}://${host}/api/auth/apple/callback`;
+}
+
+
+router.get("/apple", (req: Request, res: Response) => {
+  const clientId = process.env.APPLE_CLIENT_ID;
+  if (!clientId) {
+    res.status(503).json({ error: "Apple sign-in is not configured" });
+    return;
+  }
+
+  const state = crypto.randomBytes(16).toString("hex");
+  const returnTo = getSafeReturnTo(req.query.returnTo);
+
+  res.cookie("apple_state", state, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 10 * 60 * 1000 });
+  res.cookie("apple_return_to", returnTo, { httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: 10 * 60 * 1000 });
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: getAppleCallbackUrl(req),
+    response_type: "code id_token",
+    scope: "name email",
+    response_mode: "form_post",
+    state,
+  });
+
+  res.redirect(`${APPLE_AUTH_URL}?${params}`);
+});
+
+router.post("/apple/callback", async (req: Request, res: Response) => {
+  const { code, id_token, state, error, user: userJson } = req.body ?? {};
+  const expectedState = req.cookies?.apple_state;
+  const returnTo = getSafeReturnTo(req.cookies?.apple_return_to);
+
+  res.clearCookie("apple_state", { path: "/" });
+  res.clearCookie("apple_return_to", { path: "/" });
+
+  if (error || !id_token || state !== expectedState) {
+    res.redirect("/login?error=apple_failed");
+    return;
+  }
+
+  try {
+    const { payload } = await jwtVerify(id_token, APPLE_JWKS, {
+      issuer: "https://appleid.apple.com",
+      audience: process.env.APPLE_CLIENT_ID!,
+    });
+
+    const email = payload.email as string | undefined;
+    if (!email) {
+      res.redirect("/login?error=apple_no_email");
+      return;
+    }
+
+    // Apple only sends name on first sign-in, in the form body as JSON
+    let firstName: string | null = null;
+    let lastName: string | null = null;
+    if (userJson) {
+      try {
+        const parsed = typeof userJson === "string" ? JSON.parse(userJson) : userJson;
+        firstName = parsed?.name?.firstName ?? null;
+        lastName = parsed?.name?.lastName ?? null;
+      } catch { /* ignore */ }
+    }
+
+    const adminEmails = getAdminEmails();
+    const isAdmin = adminEmails.has(email.toLowerCase());
+
+    const existing = await db.select().from(usersTable).where(eq(usersTable.email, email.toLowerCase())).limit(1);
+    let dbUser = existing[0];
+
+    if (!dbUser) {
+      const [created] = await db.insert(usersTable).values({
+        email: email.toLowerCase(),
+        firstName,
+        lastName,
+        authProvider: "apple",
+        isAdmin,
+      }).returning();
+      dbUser = created;
+    } else if (isAdmin && !dbUser.isAdmin) {
+      await db.update(usersTable).set({ isAdmin: true }).where(eq(usersTable.id, dbUser.id));
+    }
+
+    const sessionData: SessionData = {
+      user: {
+        id: dbUser.id,
+        email: dbUser.email,
+        firstName: dbUser.firstName,
+        lastName: dbUser.lastName,
+        profileImageUrl: dbUser.profileImageUrl,
+      },
+    };
+
+    const sid = await createSession(sessionData);
+    setSessionCookie(res, sid);
+    res.redirect(returnTo);
+  } catch (err) {
+    console.error("Apple OAuth error:", err);
+    res.redirect("/login?error=apple_failed");
+  }
+});
+
+// Combined provider status endpoint
+router.get("/providers", (_req: Request, res: Response) => {
+  res.json({
+    google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+    apple: !!(process.env.APPLE_CLIENT_ID && process.env.APPLE_TEAM_ID && process.env.APPLE_KEY_ID && process.env.APPLE_PRIVATE_KEY),
+  });
 });
 
 export { router as customAuthRouter };

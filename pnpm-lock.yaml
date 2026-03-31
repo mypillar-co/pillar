@@ -206,6 +206,9 @@ importers:
       google-auth-library:
         specifier: ^10.6.2
         version: 10.6.2
+      jose:
+        specifier: ^6.2.2
+        version: 6.2.2
       openai:
         specifier: ^4.97.0
         version: 4.104.0(ws@8.20.0)(zod@3.25.76)

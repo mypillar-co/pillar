@@ -18,6 +18,14 @@ function GoogleIcon() {
   );
 }
 
+function AppleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="w-4 h-4 fill-white" aria-hidden>
+      <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.7 9.05 7.4c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.39-1.32 2.76-2.54 3.99zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
+    </svg>
+  );
+}
+
 export default function Register() {
   const [, navigate] = useLocation();
   const [form, setForm] = useState({ firstName: "", lastName: "", email: "", password: "" });
@@ -26,13 +34,13 @@ export default function Register() {
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [googleEnabled, setGoogleEnabled] = useState(false);
+  const [providers, setProviders] = useState({ google: false, apple: false });
 
   useEffect(() => {
-    fetch(`${BASE}/api/auth/google/status`, { credentials: "include" })
+    fetch(`${BASE}/api/auth/providers`, { credentials: "include" })
       .then(r => r.json())
-      .then(d => setGoogleEnabled(!!d.enabled))
-      .catch(() => setGoogleEnabled(false));
+      .then(d => setProviders({ google: !!d.google, apple: !!d.apple }))
+      .catch(() => setProviders({ google: false, apple: false }));
   }, []);
 
   const submit = async (e: React.FormEvent) => {
@@ -71,6 +79,12 @@ export default function Register() {
     window.location.href = `${BASE}/api/auth/google?returnTo=/onboard`;
   };
 
+  const signUpWithApple = () => {
+    window.location.href = `${BASE}/api/auth/apple?returnTo=/onboard`;
+  };
+
+  const hasSocialProviders = providers.google || providers.apple;
+
   return (
     <div className="min-h-screen bg-[hsl(224,40%,8%)] flex flex-col">
       <div className="flex items-center gap-2 p-6">
@@ -88,17 +102,32 @@ export default function Register() {
           </div>
 
           <div className="bg-[hsl(224,40%,12%)] border border-white/8 rounded-2xl p-6 space-y-5">
-            {googleEnabled && (
+            {hasSocialProviders && (
               <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full border-white/15 bg-white/5 hover:bg-white/10 text-white gap-2"
-                  onClick={signUpWithGoogle}
-                >
-                  <GoogleIcon />
-                  Continue with Google
-                </Button>
+                <div className="space-y-2">
+                  {providers.google && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full border-white/15 bg-white/5 hover:bg-white/10 text-white gap-2"
+                      onClick={signUpWithGoogle}
+                    >
+                      <GoogleIcon />
+                      Continue with Google
+                    </Button>
+                  )}
+                  {providers.apple && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full border-white/15 bg-black hover:bg-black/80 text-white gap-2"
+                      onClick={signUpWithApple}
+                    >
+                      <AppleIcon />
+                      Continue with Apple
+                    </Button>
+                  )}
+                </div>
 
                 <div className="flex items-center gap-3">
                   <div className="flex-1 h-px bg-white/10" />
