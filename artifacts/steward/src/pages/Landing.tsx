@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { motion, type Variants } from "framer-motion";
 import { Link, useLocation } from "wouter";
-import { CheckCircle2, Bot, Calendar, Globe, Share2, Shield, Zap, Users, ArrowRight, MessageSquare, Clock, Building2, Heart, Trophy, Megaphone, TreePine, Coffee, GraduationCap, DollarSign, Lock, RefreshCw, Star } from "lucide-react";
+import { CheckCircle2, Calendar, Globe, Share2, Shield, Zap, Users, ArrowRight, MessageSquare, Clock, Building2, Heart, Trophy, Megaphone, TreePine, Coffee, GraduationCap, DollarSign, Lock, RefreshCw, Star, Vote } from "lucide-react";
 import { useAuth, LoginButton } from "@workspace/replit-auth-web";
 import { useListTiers, useGetOrganization } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -10,44 +10,49 @@ import { Badge } from "@/components/ui/badge";
 
 const features = [
   {
-    icon: <MessageSquare className="w-6 h-6 text-primary" />,
-    title: "Website Live in 10 Minutes",
-    description: "Answer a few questions in a chat. Pillar builds a complete, professional website for your organization — no design skills needed.",
+    icon: <Globe className="w-6 h-6 text-primary" />,
+    title: "Your Website, Always Current",
+    description: "Get a professional, mobile-ready website built for your organization in minutes. Update it anytime through a simple chat — no design skills needed.",
   },
   {
     icon: <Calendar className="w-6 h-6 text-primary" />,
-    title: "Events That Run Themselves",
-    description: "Create events, sell tickets online, manage RSVPs, and send attendee updates — all from one dashboard.",
+    title: "Event Management & Ticketing",
+    description: "Create events, sell tickets online, manage RSVPs, and send attendee updates — all from one dashboard without juggling separate tools.",
   },
   {
     icon: <Share2 className="w-6 h-6 text-primary" />,
-    title: "Social Media on Autopilot",
-    description: "Connect your Facebook, Instagram, and X accounts. Pillar writes and posts updates automatically based on your schedule.",
+    title: "Social Media & Communications",
+    description: "Connect your Facebook, Instagram, and X accounts. Write and schedule posts, or let Pillar keep your accounts active automatically.",
   },
   {
-    icon: <Bot className="w-6 h-6 text-primary" />,
-    title: "A Digital Agency for $59/mo",
-    description: "Most organizations pay $2,000+ per month for web management and social media. Pillar delivers the same results at a fraction of the cost.",
+    icon: <Vote className="w-6 h-6 text-primary" />,
+    title: "Board Approvals Made Simple",
+    description: "Send a link to board members and collect approvals digitally — no scheduling a Zoom, no chasing email replies. Everything tracked in one place.",
+  },
+  {
+    icon: <Users className="w-6 h-6 text-primary" />,
+    title: "Contacts, Sponsors & Vendors",
+    description: "Keep your member list, sponsors, and vendor contacts organized and accessible. Send updates to your contact list directly from the dashboard.",
   },
 ];
 
 const steps = [
   {
     number: "1",
-    title: "Tell Us About Your Org",
-    description: "Answer 8 simple questions in a chat conversation. Tell us your mission, schedule, and contact info.",
+    title: "Tell Us About Your Organization",
+    description: "Answer a few simple questions — your mission, contact info, and what you do. Takes about 5 minutes.",
     icon: <MessageSquare className="w-5 h-5" />,
   },
   {
     number: "2",
-    title: "We Build Everything",
-    description: "AI generates your website, sets up your event system, and connects your social media accounts.",
+    title: "Your Website Goes Live",
+    description: "Pillar builds a complete, professional website for your organization and publishes it — no designer or developer needed.",
     icon: <Zap className="w-5 h-5" />,
   },
   {
     number: "3",
-    title: "You Focus on Leading",
-    description: "Pillar keeps your digital presence current automatically. Check in whenever you want — or don't.",
+    title: "Everything Stays Organized",
+    description: "Run events, send communications, manage approvals, and update your site — all from one place, whenever you need it.",
     icon: <Clock className="w-5 h-5" />,
   },
 ];
@@ -74,15 +79,15 @@ const orgTypes = [
 const painPoints = [
   {
     before: "Paying $200–$500/mo to update a website",
-    after: "AI updates your site in seconds, for free",
+    after: "Update your site anytime through a simple chat — included in your plan",
   },
   {
     before: "Posting on social media manually every week",
-    after: "Pillar writes and schedules posts automatically",
+    after: "Pillar keeps your social accounts active on a schedule you set",
   },
   {
     before: "Using 4 different tools for events, payments, and contacts",
-    after: "One dashboard. Everything connected.",
+    after: "One dashboard. Everything connected and in one place.",
   },
   {
     before: "Events don't appear on your website until someone updates it",
@@ -199,7 +204,7 @@ export default function Landing() {
               <span className="gold-gradient-text">on autopilot.</span>
             </h1>
             <p className="text-xl md:text-2xl text-muted-foreground leading-relaxed max-w-2xl mx-auto">
-              Website, events, and social media — managed by AI so you can focus on your mission. Like hiring a digital agency for a fraction of the cost.
+              Pillar gives civic and community organizations one place to manage their website, events, communications, approvals, and operations — without the chaos.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
               {ctaButton}
@@ -289,7 +294,7 @@ export default function Landing() {
             initial="hidden"
             whileInView="visible"
             viewport={{ once: true, margin: "-100px" }}
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8"
+            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"
           >
             {features.map((feature, i) => (
               <motion.div key={i} variants={itemVariants}>
@@ -522,7 +527,7 @@ export default function Landing() {
                 initial: "S",
               },
               {
-                quote: "We were paying a social media agency $800/month and still had to remind them about every event. With Pillar I set up one automation rule and it posts about our events automatically. The AI actually writes better captions than they did.",
+                quote: "We were paying a social media agency $800/month and still had to remind them about every event. With Pillar I set up a schedule once and it posts about our events automatically. We haven't thought about social media since.",
                 name: "Marcus T.",
                 title: "Executive Director, Friends of Elm Park",
                 org: "Nonprofit",
@@ -762,16 +767,17 @@ export default function Landing() {
                 <span className="font-bold text-white text-lg tracking-tight">Pillar</span>
               </div>
               <p className="text-sm text-muted-foreground max-w-sm">
-                AI-powered digital operations for civic organizations, nonprofits, and community groups. Website, events, and social media — managed for you.
+                The platform that keeps your organization running. Website, events, communications, board approvals, and contacts — in one place.
               </p>
             </div>
             <div>
               <h4 className="text-sm font-semibold text-white mb-3">Product</h4>
               <ul className="space-y-2 text-sm text-muted-foreground">
                 <li><button onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })} className="hover:text-white transition-colors">Pricing</button></li>
-                <li><span>AI Website Builder</span></li>
+                <li><span>Website Builder</span></li>
                 <li><span>Event Management</span></li>
-                <li><span>Social Automation</span></li>
+                <li><span>Board Approvals</span></li>
+                <li><span>Social Media</span></li>
               </ul>
             </div>
             <div>

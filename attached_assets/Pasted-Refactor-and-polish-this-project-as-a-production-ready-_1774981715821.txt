@@ -1,0 +1,186 @@
+Refactor and polish this project as a production-ready SaaS called Pillar.
+
+Brand / positioning
+- Rename the product from Steward to Pillar everywhere in the app
+- Domain references should use mypillar.co
+- Primary tagline: “Your organization, on autopilot.”
+- Category/positioning: software for civic organizations, nonprofits, lodges, HOAs, PTAs, unions, religious groups, and community organizations
+- Do not overemphasize AI in the UI copy. Position AI as a behind-the-scenes capability, not the main selling point
+- Overall tone: trustworthy, modern, professional, calm, not hypey
+
+Homepage messaging
+- Rewrite homepage copy to focus on clear outcomes:
+  - Run your website, events, communications, and approvals from one place
+  - Reduce volunteer burnout
+  - Keep the organization running smoothly even when leadership changes
+- Suggested homepage structure:
+  1. Hero:
+     - Headline: “Your organization, on autopilot.”
+     - Subheadline: “Pillar gives civic and community organizations one place to manage their website, events, communications, approvals, and operations.”
+     - CTAs: “Start Free Trial” and “View Pricing”
+  2. Trust/value section:
+     - “Built for organizations run by volunteers”
+     - Short bullets around ease, continuity, and simplicity
+  3. Core features:
+     - Website builder
+     - Event management
+     - Social + content
+     - Board approvals
+     - Contacts and communications
+  4. Pricing
+  5. FAQ
+- Replace vague AI startup copy with practical buyer language for boards, treasurers, and volunteer leaders
+
+Product positioning
+- Pillar is not a generic AI company
+- Pillar is an operations platform for volunteer-run organizations
+- The strongest value proposition is:
+  - Website
+  - Events
+  - Communications
+  - Board approvals
+  - Contacts
+  - Sponsors/vendors
+  in one place
+- Make continuity and reduced chaos a major theme throughout the product and landing page
+
+Pricing
+- Keep these four tiers and present them clearly:
+  - Starter: $29/mo or $24/mo annually
+  - Autopilot: $59/mo or $49/mo annually
+  - Events: $99/mo or $84/mo annually
+  - Total Operations: $149/mo or $124/mo annually
+- 14-day free trial on all tiers
+- 2.5% platform fee on ticket sales for Events and Total Operations
+- Custom domain add-on: $24/year for Starter, included on higher tiers
+- Highlight Autopilot as most popular
+- Pricing copy should emphasize flat, predictable monthly pricing with no surprises
+
+Pricing card copy
+- Starter:
+  - AI website
+  - Subdomain hosting
+  - Basic content updates
+  - Best for small organizations getting online
+- Autopilot:
+  - Everything in Starter
+  - Autonomous content refreshes
+  - Social media support
+  - Custom domain included
+  - Best for organizations wanting a hands-off web presence
+- Events:
+  - Everything in Autopilot
+  - Event pages
+  - Ticketing
+  - Approval workflows
+  - Revenue tracking
+- Total Operations:
+  - Everything in Events
+  - Full autonomous operations support
+  - Social automation
+  - Priority support
+  - Best for organizations that want one system to run everything
+
+Navigation / IA
+- Public nav should be simple:
+  - Home
+  - Features
+  - Pricing
+  - FAQ
+  - Sign In
+- Dashboard nav should be organized around user outcomes, not technical modules:
+  - Overview
+  - Website
+  - Events
+  - Communications
+  - Approvals
+  - Contacts
+  - Sponsors/Vendors
+  - Domains
+  - Billing
+  - Support
+
+Dashboard polish
+- Make the dashboard feel calm, premium, and trustworthy
+- Make Overview show the most useful things first:
+  - Active website status
+  - Upcoming events
+  - Pending approvals
+  - Recent communications
+  - Subscription tier/status
+- Reduce clutter and avoid exposing too much technical detail to customers
+- Keep admin metrics in admin only
+
+Copy rules across the platform
+- Replace hype phrases like:
+  - “AI-powered revolution”
+  - “magical”
+  - “autonomous enterprise”
+  with practical language
+- Use language like:
+  - “organized”
+  - “reliable”
+  - “in one place”
+  - “save time”
+  - “stay on track”
+  - “keep everything running smoothly”
+- Avoid sounding like a generic startup or sales agency
+
+Target customer psychology
+- Build and write for buyers like:
+  - lodge secretary
+  - chamber president
+  - nonprofit board member
+  - PTA organizer
+  - HOA volunteer
+- These buyers care about:
+  - simplicity
+  - reliability
+  - continuity
+  - affordability
+  - reducing manual work
+- They do not care about flashy AI branding
+
+Onboarding
+- Simplify onboarding to get a new org to first value as quickly as possible
+- Focus onboarding on:
+  - organization name
+  - type
+  - mission
+  - colors/logo
+  - contact info
+  - first event optional
+- Goal: get them to a live site and usable dashboard fast
+- Show progress clearly and reduce intimidation
+
+Design
+- Keep the dark navy and gold palette if it looks premium, but refine contrast/readability
+- Make the app look polished and trustworthy, not experimental
+- Improve typography hierarchy and spacing
+- Keep the design system consistent across public site and dashboard
+
+Technical cleanup
+- Rename any leftover Steward references in:
+  - UI
+  - routes
+  - metadata
+  - page titles
+  - emails
+  - footer
+  - environment variable names if appropriate
+- Check for broken references after rename
+- Make sure custom domain flows still reference mypillar.co correctly
+- Ensure Stripe product/tier labels display Pillar branding in UI copy
+
+Deliverables
+- Update the landing page copy and design
+- Update product naming throughout the app
+- Improve dashboard IA and customer-facing copy
+- Keep functionality intact
+- Do not add major new features yet
+- Prioritize polish, clarity, trust, and launch readiness
+
+Important product principle
+- This is not being sold as “AI software”
+- It is being sold as “the platform that keeps your organization running”
+- AI should support that story quietly in the background

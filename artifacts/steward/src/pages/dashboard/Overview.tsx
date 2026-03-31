@@ -129,7 +129,7 @@ export default function Overview() {
     {
       key: "site",
       label: "Build your website",
-      description: "Chat with our AI to create your organization's website",
+      description: "Answer a few questions and Pillar builds your organization's website",
       href: "/dashboard/site",
       icon: Globe,
       done: hasSite,
@@ -336,7 +336,7 @@ export default function Overview() {
           <FeatureCard
             icon={Globe}
             title="Website"
-            description="Your AI-generated website is live. Chat with Pillar to request updates, add pages, or change content."
+            description="Your website is live. Chat with Pillar to request updates, add new pages, or change any content."
             href="/dashboard/site"
             available={hasPlan}
             requiredTier="Starter"
@@ -354,7 +354,7 @@ export default function Overview() {
           <FeatureCard
             icon={Share2}
             title="Automation"
-            description="Automatically post updates to social media and keep your site current based on your organization's schedule."
+            description="Keep your social accounts active and your site current on a schedule you set. Connect once, stay consistent."
             available={hasSocial}
             requiredTier="Autopilot"
             onUpgrade={() => handleUpgrade("tier1a")}

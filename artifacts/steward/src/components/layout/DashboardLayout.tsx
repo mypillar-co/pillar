@@ -39,16 +39,16 @@ type NavItemExt = NavItem & { tourId?: string };
 
 const NAV_ITEMS: NavItemExt[] = [
   { label: "Overview", href: "/dashboard", icon: LayoutDashboard, tourId: "overview" },
+  { label: "Website", href: "/dashboard/site", icon: Globe, tourId: "site-builder" },
   { label: "Events", href: "/dashboard/events", icon: Calendar, tourId: "events" },
-  { label: "Social Media", href: "/dashboard/social", icon: Share2, tourId: "social" },
+  { label: "Communications", href: "/dashboard/social", icon: Share2, tourId: "social" },
   { label: "Content Studio", href: "/dashboard/studio", icon: Sparkles },
-  { label: "Vendors", href: "/dashboard/vendors", icon: Users },
-  { label: "Sponsors", href: "/dashboard/sponsors", icon: Star },
-  { label: "Payments", href: "/dashboard/payments", icon: DollarSign, tourId: "payments" },
+  { label: "Approvals", href: "/dashboard/board-links", icon: Vote },
   { label: "Contacts", href: "/dashboard/contacts", icon: Contact2 },
-  { label: "Site Builder", href: "/dashboard/site", icon: Globe, tourId: "site-builder" },
+  { label: "Sponsors", href: "/dashboard/sponsors", icon: Star },
+  { label: "Vendors", href: "/dashboard/vendors", icon: Users },
+  { label: "Payments", href: "/dashboard/payments", icon: DollarSign, tourId: "payments" },
   { label: "Domain", href: "/dashboard/domains", icon: LinkIcon },
-  { label: "Board Approval", href: "/dashboard/board-links", icon: Vote },
   { label: "Settings", href: "/dashboard/settings", icon: Settings },
   { label: "Help & Support", href: "/dashboard/help", icon: HelpCircle },
 ];

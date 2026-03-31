@@ -24,8 +24,8 @@ const TOUR_STEPS: TourStep[] = [
   },
   {
     target: '[data-tour="site-builder"]',
-    title: "AI Website Builder",
-    description: "Build a professional website in minutes. Chat with AI, answer a few questions, and get a polished mobile-ready site — no design skills needed.",
+    title: "Your Website",
+    description: "Build a professional website for your organization in minutes. Answer a few questions and Pillar creates a polished, mobile-ready site — no design skills needed.",
     position: "right",
   },
   {
@@ -36,8 +36,8 @@ const TOUR_STEPS: TourStep[] = [
   },
   {
     target: '[data-tour="social"]',
-    title: "Social Media on Autopilot",
-    description: "Connect Facebook, Instagram, and X. Compose posts, schedule them, or let AI generate and publish content on a recurring schedule.",
+    title: "Communications & Social Media",
+    description: "Connect Facebook, Instagram, and X. Compose posts, schedule them, or set a recurring schedule to keep your accounts active automatically.",
     position: "right",
   },
   {
@@ -74,8 +74,8 @@ const FEATURE_TOURS: Record<FeatureTourKey, TourStep[]> = {
   social: [
     {
       target: null,
-      title: "Social Media Manager",
-      description: "You're on the Social page. Connect your accounts, compose posts, schedule them, or let AI auto-post on a recurring schedule.",
+      title: "Communications & Social Media",
+      description: "You're on the Communications page. Connect your accounts, compose posts, schedule them, or set a recurring schedule to keep your accounts active.",
       position: "center",
     },
     {
@@ -94,14 +94,14 @@ const FEATURE_TOURS: Record<FeatureTourKey, TourStep[]> = {
   site: [
     {
       target: null,
-      title: "AI Website Builder",
-      description: "You're in the Site Builder. Answer a few questions and AI generates a complete, polished website for your organization — no design skills needed.",
+      title: "Website Builder",
+      description: "You're in the Website section. Answer a few questions and Pillar builds a complete, professional website for your organization — no design skills needed.",
       position: "center",
     },
     {
       target: '[data-tour="site-builder"]',
-      title: "Open the Builder",
-      description: "Click \"Site Builder\" in the sidebar to start the AI conversation. Tell it about your organization and it'll create a full site in minutes.",
+      title: "Build Your Site",
+      description: "Click \"Website\" in the sidebar to get started. Tell Pillar about your organization and it'll create your full site in minutes.",
       position: "right",
     },
     {
