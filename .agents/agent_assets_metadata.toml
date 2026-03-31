@@ -1,5 +1,4 @@
 uploads = []
-outputs = []
 
 [[generated]]
 id = "UdE8SLOGBQQWuCuto8Aoy"
@@ -18,3 +17,27 @@ id = "cQBDCYTgX_NxjVIgd96Ij"
 uri = "file://attached_assets/logo-v3-bars.png"
 type = "image"
 title = "generated_image"
+
+[[outputs]]
+id = "TtSxAP8VXAd_lycjqyG-e"
+uri = "file://planning/business-plan.md"
+type = "text"
+title = "Pillar — Business Plan"
+
+[[outputs]]
+id = "SpUEHSSk3zZMaBaHDoQfF"
+uri = "file://planning/financial-plan.md"
+type = "text"
+title = "Pillar — Financial Plan"
+
+[[outputs]]
+id = "jVNV4QPw5TzRUuL8sB0d0"
+uri = "file://planning/sops.md"
+type = "text"
+title = "Pillar — Standard Operating Procedures (8 SOPs)"
+
+[[outputs]]
+id = "d9pOQlTSmW2SB6whcRT_Z"
+uri = "file://planning/team-roles.md"
+type = "text"
+title = "Pillar — Team Roles, Job Descriptions & Daily Tasks"
