@@ -656,9 +656,7 @@ export default function Landing() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
             <div className="md:col-span-2">
               <div className="flex items-center gap-2.5 mb-3">
-                <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                  <Shield className="w-4.5 h-4.5 text-primary-foreground" />
-                </div>
+                <img src="/pillar-logo.svg" alt="Pillar" className="w-8 h-8" />
                 <span className="font-bold text-white text-lg tracking-tight">Pillar</span>
               </div>
               <p className="text-sm text-muted-foreground max-w-sm">
