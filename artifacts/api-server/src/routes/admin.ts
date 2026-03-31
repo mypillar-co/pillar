@@ -268,7 +268,7 @@ router.get("/admin/churn", async (_req: Request, res: Response) => {
 router.get("/admin/health", async (_req: Request, res: Response) => {
   const start = Date.now();
   try {
-    const [dbCheck] = await db.execute(sql`SELECT 1 AS ok`);
+    await db.select({ one: sql<number>`1` }).from(usersTable).limit(1);
     const dbLatency = Date.now() - start;
 
     const [subCount] = await db.select({ count: count() }).from(subscriptionsTable);

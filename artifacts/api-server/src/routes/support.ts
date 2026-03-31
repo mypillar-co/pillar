@@ -6,6 +6,7 @@ import { eq, desc, and, isNotNull, asc } from "drizzle-orm";
 const router = Router();
 
 const ADMIN_USER_IDS = new Set((process.env.ADMIN_USER_IDS ?? "").split(",").map(s => s.trim()).filter(Boolean));
+const ADMIN_EMAILS = new Set((process.env.ADMIN_EMAILS ?? "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean));
 
 async function resolveOrgForUser(userId: string) {
   const [org] = await db
@@ -139,7 +140,8 @@ router.get("/tickets", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  if (!ADMIN_USER_IDS.has(req.user.id)) {
+  const userEmailGet = req.user.email?.toLowerCase() ?? "";
+  if (!ADMIN_USER_IDS.has(req.user.id) && !ADMIN_EMAILS.has(userEmailGet)) {
     res.status(403).json({ error: "Forbidden" });
     return;
   }
@@ -157,7 +159,8 @@ router.put("/tickets/:id", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  if (!ADMIN_USER_IDS.has(req.user.id)) {
+  const userEmailPut = req.user.email?.toLowerCase() ?? "";
+  if (!ADMIN_USER_IDS.has(req.user.id) && !ADMIN_EMAILS.has(userEmailPut)) {
     res.status(403).json({ error: "Forbidden" });
     return;
   }
