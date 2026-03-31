@@ -34,3 +34,4 @@ channel = "stable-25_05"
 [userenv.shared]
 ADMIN_USER_IDS = "53650667,56678663"
 ADMIN_EMAILS = "steward.ai.app@gmail.com,ampaluch@hotmail.com"
+RESEND_API_KEY = "re_GGHxmyZG_N9BuvZ4QbRF2B9kG585GJnDv"
