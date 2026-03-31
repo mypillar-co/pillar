@@ -1,8 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none">
-  <!-- Capital (top) -->
-  <rect x="6" y="7" width="28" height="4" rx="1.5" fill="#f59e0b"/>
-  <!-- Shaft -->
-  <rect x="14" y="11" width="12" height="18" rx="1" fill="#f59e0b"/>
-  <!-- Base -->
-  <rect x="8" y="29" width="24" height="4" rx="1.5" fill="#f59e0b"/>
+  <!-- Circle background -->
+  <circle cx="20" cy="20" r="20" fill="#f59e0b"/>
+  <!-- Top abacus bar -->
+  <rect x="8" y="9" width="24" height="3.5" rx="1.2" fill="#0a0e1a"/>
+  <!-- Scroll/echinus bar -->
+  <rect x="10" y="13" width="20" height="2.5" rx="1" fill="#0a0e1a"/>
+  <!-- Left scroll -->
+  <path d="M10 13.5 Q10 16 13 16 Q11 16 11 18.5" stroke="#0a0e1a" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+  <!-- Right scroll -->
+  <path d="M30 13.5 Q30 16 27 16 Q29 16 29 18.5" stroke="#0a0e1a" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+  <!-- Column shaft (3 flutes) -->
+  <rect x="13.5" y="16" width="3.2" height="13" rx="0.8" fill="#0a0e1a"/>
+  <rect x="18.4" y="16" width="3.2" height="13" rx="0.8" fill="#0a0e1a"/>
+  <rect x="23.3" y="16" width="3.2" height="13" rx="0.8" fill="#0a0e1a"/>
+  <!-- Base stylobate -->
+  <rect x="10" y="29" width="20" height="2.5" rx="1" fill="#0a0e1a"/>
+  <rect x="8" y="31.5" width="24" height="2" rx="1" fill="#0a0e1a"/>
 </svg>
