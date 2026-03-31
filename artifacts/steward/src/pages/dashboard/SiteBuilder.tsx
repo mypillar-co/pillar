@@ -683,7 +683,7 @@ export default function SiteBuilder() {
                 </a>
               )}
             </div>
-            <Button size="sm" onClick={handlePublishClick} disabled={publishing} className={`h-7 text-xs ${site.status === "published" ? "bg-slate-600 hover:bg-slate-500" : "bg-emerald-600 hover:bg-emerald-500"}`}>
+            <Button data-tour="publish-site-btn" size="sm" onClick={handlePublishClick} disabled={publishing} className={`h-7 text-xs ${site.status === "published" ? "bg-slate-600 hover:bg-slate-500" : "bg-emerald-600 hover:bg-emerald-500"}`}>
               {publishing ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : site.status === "published" ? <EyeOff className="w-3 h-3 mr-1.5" /> : <CheckCircle2 className="w-3 h-3 mr-1.5" />}
               {site.status === "published" ? "Unpublish" : "Publish"}
             </Button>

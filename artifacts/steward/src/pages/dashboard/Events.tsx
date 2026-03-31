@@ -245,7 +245,7 @@ export default function Events() {
             </Button>
           )}
           {hasEventAccess && (
-            <Button onClick={() => setCreating(true)}>
+            <Button data-tour="new-event-btn" onClick={() => setCreating(true)}>
               <Plus className="w-4 h-4 mr-2" /> New Event
             </Button>
           )}

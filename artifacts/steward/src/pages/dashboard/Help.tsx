@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from "react";
-import { Send, Loader2, HelpCircle, Bug, ChevronDown, ChevronRight, MessageSquare, CheckCircle2, AlertCircle, Sparkles } from "lucide-react";
+import React, { useState, useRef, useEffect } from "react";
+import { Send, Loader2, HelpCircle, Bug, ChevronDown, ChevronRight, MessageSquare, CheckCircle2, AlertCircle, Sparkles, Calendar, Share2, Globe, CreditCard, Users, Play } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useLocation } from "wouter";
+import { launchFeatureTour, type FeatureTourKey } from "@/components/GuidedTour";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -278,7 +280,17 @@ function BugReportForm() {
   );
 }
 
+const WALKTHROUGHS: { key: FeatureTourKey; label: string; description: string; icon: React.ElementType; color: string }[] = [
+  { key: "events", label: "Create an event", description: "Add a new event with tickets, date, and location", icon: Calendar, color: "text-blue-400" },
+  { key: "social", label: "Connect social media", description: "Link Facebook, Instagram, or X and post your first update", icon: Share2, color: "text-purple-400" },
+  { key: "site", label: "Publish your website", description: "Generate a site with AI and make it live", icon: Globe, color: "text-emerald-400" },
+  { key: "payments", label: "Accept payments", description: "Connect Stripe to collect ticket sales and donations", icon: CreditCard, color: "text-yellow-400" },
+  { key: "contacts", label: "Manage contacts", description: "Add members, volunteers, and donors to your list", icon: Users, color: "text-pink-400" },
+];
+
 export default function Help() {
+  const [, navigate] = useLocation();
+
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-8">
       <div className="flex items-center gap-3">
@@ -287,7 +299,41 @@ export default function Help() {
         </div>
         <div>
           <h1 className="text-xl font-bold text-white">Help & Support</h1>
-          <p className="text-sm text-slate-400">AI-powered answers, FAQs, and a direct line to report issues</p>
+          <p className="text-sm text-slate-400">AI-powered answers, walkthroughs, FAQs, and a direct line to report issues</p>
+        </div>
+      </div>
+
+      <div>
+        <div className="flex items-center gap-2 mb-4">
+          <Play className="w-4 h-4 text-primary" />
+          <h2 className="text-sm font-semibold text-white">How do I…</h2>
+          <span className="text-xs text-slate-500">Click any card to start an interactive walkthrough</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {WALKTHROUGHS.map(w => {
+            const Icon = w.icon;
+            return (
+              <button
+                key={w.key}
+                onClick={() => launchFeatureTour(w.key, navigate)}
+                className="group text-left rounded-xl border border-white/8 bg-white/3 hover:bg-white/7 hover:border-primary/30 p-4 transition-all duration-150 cursor-pointer"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/10 transition-colors">
+                    <Icon className={cn("w-4 h-4", w.color)} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white group-hover:text-primary transition-colors truncate">{w.label}</p>
+                    <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{w.description}</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex items-center gap-1 text-xs text-slate-600 group-hover:text-primary/70 transition-colors">
+                  <Play className="w-3 h-3" />
+                  <span>Start walkthrough</span>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
 

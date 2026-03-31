@@ -1457,7 +1457,7 @@ export default function Social() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="bg-white/5 border border-white/10 mb-6 h-9">
-          <TabsTrigger value="accounts" className="text-sm data-[state=active]:bg-white/10 data-[state=active]:text-white text-slate-400 h-8">
+          <TabsTrigger data-tour="accounts-tab" value="accounts" className="text-sm data-[state=active]:bg-white/10 data-[state=active]:text-white text-slate-400 h-8">
             Accounts
           </TabsTrigger>
           <TabsTrigger value="posts" className="text-sm data-[state=active]:bg-white/10 data-[state=active]:text-white text-slate-400 h-8">

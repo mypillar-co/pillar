@@ -168,6 +168,7 @@ export default function Payments() {
                     </div>
                   </div>
                   <Button
+                    data-tour="connect-stripe-btn"
                     onClick={() => onboardMutation.mutate()}
                     disabled={onboardMutation.isPending}
                     className="bg-primary text-primary-foreground hover:bg-primary/90"

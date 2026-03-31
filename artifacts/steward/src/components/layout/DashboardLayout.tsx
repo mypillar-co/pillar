@@ -27,7 +27,7 @@ import { useAuth } from "@workspace/replit-auth-web";
 import { useGetOrganization } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { GuidedTour } from "@/components/GuidedTour";
+import { GuidedTour, FeatureTourRunner } from "@/components/GuidedTour";
 
 type NavItem = {
   label: string;
@@ -189,6 +189,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen bg-background overflow-hidden">
       <GuidedTour />
+      <FeatureTourRunner />
       {/* Desktop sidebar */}
       <aside
         className={cn(
