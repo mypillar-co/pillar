@@ -11,6 +11,8 @@ import { eq, or } from "drizzle-orm";
 
 const app: Express = express();
 
+app.set("trust proxy", 1);
+
 app.use(
   pinoHttp({
     logger,
@@ -52,7 +54,7 @@ app.post(
   },
 );
 
-const ALLOWED_ORIGIN_RE = /^https?:\/\/(localhost|\d{1,3}(?:\.\d{1,3}){3})(:\d+)?$|\.replit\.dev$|\.replit\.app$|\.steward\.app$/;
+const ALLOWED_ORIGIN_RE = /^https?:\/\/(localhost|\d{1,3}(?:\.\d{1,3}){3})(:\d+)?$|\.replit\.dev$|\.replit\.app$|\.mypillar\.co$|^https:\/\/mypillar\.co$/;
 
 app.use(
   cors({
