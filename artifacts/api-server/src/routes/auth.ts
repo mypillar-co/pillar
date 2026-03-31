@@ -52,7 +52,7 @@ function setOidcCookie(res: Response, name: string, value: string) {
 
 function getSafeReturnTo(value: unknown): string {
   if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) {
-    return "/";
+    return "/dashboard";
   }
   return value;
 }
