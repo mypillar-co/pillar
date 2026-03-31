@@ -64,11 +64,11 @@ export default function Login() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, _gotcha: honeypot, _ft: formLoadTime }),
       });
-      const data = await res.json();
+      const data = await res.json() as { ok?: boolean; error?: string; isAdmin?: boolean };
       if (!res.ok) {
         setError(data.error ?? "Login failed. Please try again.");
       } else {
-        navigate("/dashboard");
+        navigate(data.isAdmin ? "/admin" : "/dashboard");
       }
     } catch {
       setError("Something went wrong. Please try again.");

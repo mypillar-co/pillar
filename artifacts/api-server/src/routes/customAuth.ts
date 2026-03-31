@@ -111,12 +111,13 @@ router.post("/register", registerLimiter, async (req: Request, res: Response) =>
       firstName: user.firstName,
       lastName: user.lastName,
       profileImageUrl: user.profileImageUrl,
+      isAdmin,
     },
   };
 
   const sid = await createSession(sessionData);
   setSessionCookie(res, sid);
-  res.json({ ok: true });
+  res.json({ ok: true, isAdmin });
 });
 
 router.post("/login", loginLimiter, async (req: Request, res: Response) => {
@@ -150,6 +151,7 @@ router.post("/login", loginLimiter, async (req: Request, res: Response) => {
     await db.update(usersTable).set({ isAdmin: true }).where(eq(usersTable.id, user.id));
   }
 
+  const isAdminUser = adminEmails.has(email.toLowerCase());
   const sessionData: SessionData = {
     user: {
       id: user.id,
@@ -157,12 +159,13 @@ router.post("/login", loginLimiter, async (req: Request, res: Response) => {
       firstName: user.firstName,
       lastName: user.lastName,
       profileImageUrl: user.profileImageUrl,
+      isAdmin: isAdminUser,
     },
   };
 
   const sid = await createSession(sessionData);
   setSessionCookie(res, sid);
-  res.json({ ok: true });
+  res.json({ ok: true, isAdmin: isAdminUser });
 });
 
 router.post("/logout", async (req: Request, res: Response) => {
@@ -271,6 +274,7 @@ router.get("/google/callback", async (req: Request, res: Response) => {
       await db.update(usersTable).set({ isAdmin: true }).where(eq(usersTable.id, user.id));
     }
 
+    const isAdminGoogle = adminEmails.has((user.email ?? "").toLowerCase());
     const sessionData: SessionData = {
       user: {
         id: user.id,
@@ -278,12 +282,13 @@ router.get("/google/callback", async (req: Request, res: Response) => {
         firstName: user.firstName,
         lastName: user.lastName,
         profileImageUrl: user.profileImageUrl,
+        isAdmin: isAdminGoogle,
       },
     };
 
     const sid = await createSession(sessionData);
     setSessionCookie(res, sid);
-    res.redirect(returnTo);
+    res.redirect(isAdminGoogle ? "/admin" : returnTo);
   } catch (err) {
     console.error("Google OAuth error:", err);
     res.redirect("/login?error=google_failed");
@@ -386,6 +391,7 @@ router.post("/apple/callback", async (req: Request, res: Response) => {
       await db.update(usersTable).set({ isAdmin: true }).where(eq(usersTable.id, dbUser.id));
     }
 
+    const isAdminApple = adminEmails.has((dbUser.email ?? "").toLowerCase());
     const sessionData: SessionData = {
       user: {
         id: dbUser.id,
@@ -393,12 +399,13 @@ router.post("/apple/callback", async (req: Request, res: Response) => {
         firstName: dbUser.firstName,
         lastName: dbUser.lastName,
         profileImageUrl: dbUser.profileImageUrl,
+        isAdmin: isAdminApple,
       },
     };
 
     const sid = await createSession(sessionData);
     setSessionCookie(res, sid);
-    res.redirect(returnTo);
+    res.redirect(isAdminApple ? "/admin" : returnTo);
   } catch (err) {
     console.error("Apple OAuth error:", err);
     res.redirect("/login?error=apple_failed");

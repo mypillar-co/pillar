@@ -19,9 +19,10 @@ router.get("/auth/user", (req: Request, res: Response) => {
       firstName: u.firstName ?? null,
       lastName: u.lastName ?? null,
       profileImageUrl: u.profileImageUrl ?? null,
+      isAdmin: u.isAdmin === true,
     };
   }
-  res.json(GetCurrentAuthUserResponse.parse({ user }));
+  res.json({ user });
 });
 
 router.get("/login", (_req: Request, res: Response) => {

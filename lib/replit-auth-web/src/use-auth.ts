@@ -4,15 +4,16 @@ import type { AuthUser } from "@workspace/api-client-react";
 export type { AuthUser };
 
 interface AuthState {
-  user: AuthUser | null;
+  user: (AuthUser & { isAdmin?: boolean }) | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  isAdmin: boolean;
   login: () => void;
   logout: () => void;
 }
 
 export function useAuth(): AuthState {
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [user, setUser] = useState<(AuthUser & { isAdmin?: boolean }) | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -25,7 +26,7 @@ export function useAuth(): AuthState {
       })
       .then((data) => {
         if (!cancelled) {
-          setUser(data.user ?? null);
+          setUser((data.user as (AuthUser & { isAdmin?: boolean }) | null) ?? null);
           setIsLoading(false);
         }
       })
@@ -54,6 +55,7 @@ export function useAuth(): AuthState {
     user,
     isLoading,
     isAuthenticated: !!user,
+    isAdmin: user?.isAdmin === true,
     login,
     logout,
   };

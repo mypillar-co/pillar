@@ -129,7 +129,7 @@ const highlights = [
 ];
 
 export default function Landing() {
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, isAdmin } = useAuth();
   const [, setLocation] = useLocation();
   const { data: tiersData, isLoading: isTiersLoading } = useListTiers();
   const { data: orgData } = useGetOrganization({ query: { enabled: isAuthenticated } });
@@ -138,9 +138,13 @@ export default function Landing() {
 
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
-      setLocation(hasOrg ? "/dashboard" : "/onboard");
+      if (isAdmin) {
+        setLocation("/admin");
+      } else {
+        setLocation(hasOrg ? "/dashboard" : "/onboard");
+      }
     }
-  }, [isAuthenticated, authLoading, hasOrg, setLocation]);
+  }, [isAuthenticated, authLoading, isAdmin, hasOrg, setLocation]);
 
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
