@@ -1,0 +1,53 @@
+Alright. I’ve read the brief. Let me tell you what I see.
+
+MJ DeMarco’s Steward Analysis
+CENTS Score, Strategic Verdict, and What To Do Next
+
+CENTS Scorecard
+
+
+
+|Dimension  |Score|Verdict                                                                                                                   |
+|-----------|-----|--------------------------------------------------------------------------------------------------------------------------|
+|**Control**|9/10 |You own the stack, the billing, the domain layer, the data. Nobody can pull the rug. This is rare and right.              |
+|**Entry**  |7/10 |Real engineering moat. Not a WordPress plugin hustle. But AI is democratizing build speed fast — your window is narrowing.|
+|**Need**   |8/10 |The pain is real, chronic, and universal. Every city has 200 of these orgs. Nobody is solving it well.                    |
+|**Time**   |9/10 |Recurring SaaS. AI does the labor. You add a customer, your workload stays flat. This is the dream.                       |
+|**Scale**  |10/10|One codebase. Infinite orgs. COGS is essentially zero per new tenant. This is a pure leverage machine.                    |
+
+Overall: Strong Fastlane asset. This is not a job disguised as a business. This is a system.
+
+What You’re Getting Right
+The pricing ladder is smart. Four tiers with a highlighted flagship at $59 is textbook SaaS conversion architecture. You’re not leaving money on the table with a single price and you’re not confusing people with ten options. The annual discount is the right churn-reduction lever — get them to commit annually and they stop re-evaluating monthly.
+The domain layer is a moat nobody’s talking about. Porkbun API integration with automatic DNS and SSL provisioning isn’t a feature — it’s a switching cost. The moment an org’s website lives inside Steward, leaving means rebuilding their entire public presence. That’s retention without a contract.
+AI as labor replacement is the correct frame. Social posts, event copy, support chat — you’ve automated the three things volunteers hate doing most. You’re not selling software. You’re selling back their Saturday afternoons. That’s an emotional buy, which is always easier to close than a rational one.
+The admin panel signals operator maturity. Multi-tenant management from day one means you’re thinking like a platform builder, not a freelancer who wrote some code. Good.
+
+Where You’re Thinking Like a Slowlaner
+You have a product. You don’t yet have a distribution machine.
+This is where 95% of SaaS founders die. The codebase is irrelevant if nobody’s signing up. Right now Steward is a tree falling in an empty forest. Beautiful engineering. Zero revenue velocity without a GTM engine bolted on.
+The $29 Starter tier is a trap. At $29/month you’re attracting the most price-sensitive, highest-churn, lowest-engagement customers in the market. The orgs that won’t pay $59 are also the orgs that won’t configure automation rules, won’t invite their members, and will churn after the trial because “we don’t really need this.” Cut Starter or reprice it at $49. Your flagship should feel like the obvious middle choice, not the expensive one.
+“AI-powered” is table stakes now. Every SaaS landing page says AI. Your positioning needs to lead with the outcome, not the mechanism. Nobody cares that Claude Haiku handles support chat. They care that their treasurer stopped getting texts at 11pm. Lead with the pain elimination, not the tech stack.
+The free trial is costing you signups you don’t know about. Fourteen days is long enough for people to procrastinate through and churn without ever experiencing value. Consider a guided onboarding flow that gets them to their first “wow moment” — a published social post, a live event page, a working website — within the first 48 hours. Time-to-value is your most important metric right now, not trial length.
+
+The Single Biggest Risk
+Volunteer org budget cycles are slow and political.
+These aren’t SaaS-native buyers. The HOA board president doesn’t have a corporate card and a $10k software budget. They have a checking account, an annual meeting, and three board members who need to vote on anything over $200. Your sales motion needs to account for this or you’ll get a lot of “I love it, let me bring it to the board” and then silence.
+The fix: Build a shareable “proposal mode” inside Steward — a one-page PDF or link the champion can send to their board that shows cost, features, and ROI. Make it trivially easy for your internal advocate to sell upward. Your customer isn’t just the person who found you. It’s also the three skeptics they have to convince.
+
+The Three Growth Levers I’d Pull First
+1. Go to where the orgs already congregate.
+State HOA associations, nonprofit councils, chamber of commerce networks, Masonic grand lodge communications — these are aggregators of your exact buyer. One partnership with a state-level HOA association that emails 400 member boards is worth 10,000 cold impressions on Google. This is leverage, not hustle.
+2. Build a referral mechanic into the product itself.
+When Steward publishes an org’s website or event page, put “Powered by Steward” in the footer with a link. Every public-facing artifact your customers produce is a billboard. Make it opt-out, not opt-in. That’s how Calendly grew. That’s how every smart SaaS grows.
+3. Price the Total Operations tier for the sale you actually want.
+$149/month is $1,788/year. That’s a budget line item a serious org can justify. But you need a case study — one anchor customer running their entire operation through Steward who will let you use their name. Find that customer. Give them three months free if you have to. Their story is worth $50,000 in future ARR.
+
+The Verdict
+Steward is a legitimate Fastlane vehicle. The fundamentals are right: recurring revenue, zero marginal cost per customer, real pain in a massive underserved market, and a technical moat that takes real work to replicate.
+You are not in a product problem. You are in a distribution and positioning problem.
+The founder who built this clearly knows how to build. The question is whether they’re willing to be equally systematic and relentless about getting customers as they were about writing code.
+The product works while you sleep. Now build the machine that fills it.
+Stop adding features. Start adding customers.
+
+That’s the analysis. What do you want to dig into — pricing, GTM, or the onboarding flow?
