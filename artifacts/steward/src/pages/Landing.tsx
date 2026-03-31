@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, type Variants } from "framer-motion";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { CheckCircle2, Bot, Calendar, Globe, Share2, Shield, Zap, Users, ArrowRight, MessageSquare, Clock, Building2, Heart, Trophy, Megaphone, TreePine, Coffee, GraduationCap, DollarSign, Lock, RefreshCw, Star } from "lucide-react";
 import { useAuth, LoginButton } from "@workspace/replit-auth-web";
 import { useListTiers, useGetOrganization } from "@workspace/api-client-react";
@@ -129,11 +129,18 @@ const highlights = [
 ];
 
 export default function Landing() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const [, setLocation] = useLocation();
   const { data: tiersData, isLoading: isTiersLoading } = useListTiers();
   const { data: orgData } = useGetOrganization({ query: { enabled: isAuthenticated } });
   const hasOrg = isAuthenticated && Boolean(orgData?.organization);
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">("monthly");
+
+  useEffect(() => {
+    if (!authLoading && isAuthenticated) {
+      setLocation(hasOrg ? "/dashboard" : "/onboard");
+    }
+  }, [isAuthenticated, authLoading, hasOrg, setLocation]);
 
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
