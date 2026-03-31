@@ -19,6 +19,7 @@ import adminRouter from "./admin";
 import contentRouter from "./content";
 import boardLinksRouter from "./boardLinks";
 import supportRouter from "./support";
+import emailSettingsRouter from "./emailSettings";
 
 const router: IRouter = Router();
 
@@ -42,5 +43,6 @@ router.use("/notifications", notificationsRouter);
 router.use("/board-links", boardLinksRouter);
 router.use(connectRouter);
 router.use("/support", supportRouter);
+router.use("/email-settings", emailSettingsRouter);
 
 export default router;

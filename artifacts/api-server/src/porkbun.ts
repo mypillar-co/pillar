@@ -234,3 +234,76 @@ export const DOMAIN_ADDON_PRICE_CENTS = 2400; // $24/year
 export const DOMAIN_ADDON_LABEL = "Custom Domain — 1 Year";
 // Tiers that get a domain included at no extra charge
 export const FREE_DOMAIN_TIERS = new Set(["tier1a", "tier2", "tier3"]);
+
+// ─── Email Forwarding ─────────────────────────────────────────────────────────
+
+export interface EmailForwardResult {
+  success: boolean;
+  error?: string;
+}
+
+interface PorkbunEmailForwardResponse {
+  status: string;
+  message?: string;
+}
+
+/**
+ * Add an email forward on a Porkbun-managed domain.
+ * e.g. contactus@myorg.com → myorg@gmail.com
+ */
+export async function addEmailForward(
+  domain: string,
+  alias: string,
+  destination: string,
+): Promise<EmailForwardResult> {
+  if (!isConfigured()) {
+    return { success: false, error: "Registrar not configured" };
+  }
+  try {
+    const data = await post<PorkbunEmailForwardResponse>(
+      `/email/addForward/${domain}`,
+      { alias, destination },
+    );
+    if (data.status === "SUCCESS") return { success: true };
+    return { success: false, error: data.message ?? "Failed to add email forward" };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+/**
+ * List all email forwards for a Porkbun-managed domain.
+ */
+export async function listEmailForwards(domain: string): Promise<{ alias: string; destination: string }[]> {
+  if (!isConfigured()) return [];
+  try {
+    const data = await post<{ status: string; forwards?: Array<{ alias: string; destination: string }> }>(
+      `/email/listForward/${domain}`,
+      {},
+    );
+    return data.forwards ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Delete an email forward on a Porkbun-managed domain.
+ */
+export async function deleteEmailForward(
+  domain: string,
+  alias: string,
+  destination: string,
+): Promise<EmailForwardResult> {
+  if (!isConfigured()) return { success: false, error: "Registrar not configured" };
+  try {
+    const data = await post<PorkbunEmailForwardResponse>(
+      `/email/deleteForward/${domain}`,
+      { alias, destination },
+    );
+    if (data.status === "SUCCESS") return { success: true };
+    return { success: false, error: data.message ?? "Failed to delete forward" };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}

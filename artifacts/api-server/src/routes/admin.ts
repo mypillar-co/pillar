@@ -463,4 +463,23 @@ router.delete("/admin/prospects/:id", async (req: Request, res: Response) => {
   }
 });
 
+// ─── Admin: Test email send ───────────────────────────────────────────────────
+router.post("/admin/test-email", async (req: Request, res: Response) => {
+  const { to, type } = req.body as { to?: string; type?: string };
+  if (!to) { res.status(400).json({ error: "to is required" }); return; }
+
+  const { sendWelcomeEmail, sendTrialEndingEmail, sendWebsiteNudge } = await import("../mailer");
+
+  let result;
+  if (type === "trial") {
+    result = await sendTrialEndingEmail(to, "Test", "Demo Organization", 3);
+  } else if (type === "nudge") {
+    result = await sendWebsiteNudge(to, "Test", "Demo Organization");
+  } else {
+    result = await sendWelcomeEmail(to, "Test", "Demo Organization");
+  }
+
+  res.json(result);
+});
+
 export default router;

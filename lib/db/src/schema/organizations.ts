@@ -22,6 +22,13 @@ export const organizationsTable = pgTable("organizations", {
   aiMessagesResetAt: timestamp("ai_messages_reset_at", { withTimezone: true }).notNull().defaultNow(),
   storageUsedBytes: real("storage_used_bytes").notNull().default(0),
   shopEmbedCode: text("shop_embed_code"),
+  senderEmail: varchar("sender_email"),
+  senderName: varchar("sender_name"),
+  resendDomainId: varchar("resend_domain_id"),
+  senderDomainVerified: boolean("sender_domain_verified").default(false),
+  emailForwardAlias: varchar("email_forward_alias"),
+  emailForwardDestination: varchar("email_forward_destination"),
+  emailForwardActive: boolean("email_forward_active").default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
