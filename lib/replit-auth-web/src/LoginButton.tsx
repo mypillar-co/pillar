@@ -6,8 +6,7 @@ interface LoginButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement>
 
 export function LoginButton({ children = "Sign In", ...props }: LoginButtonProps) {
   const handleLogin = () => {
-    const base = (import.meta as unknown as { env?: { BASE_URL?: string } })?.env?.BASE_URL?.replace(/\/+$/, "") ?? "/";
-    window.location.href = `/api/login?returnTo=${encodeURIComponent(base)}`;
+    window.location.href = "/login";
   };
 
   return (
@@ -22,8 +21,9 @@ interface LogoutButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement
 }
 
 export function LogoutButton({ children = "Sign Out", ...props }: LogoutButtonProps) {
-  const handleLogout = () => {
-    window.location.href = "/api/logout";
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    window.location.href = "/";
   };
 
   return (

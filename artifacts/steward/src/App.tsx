@@ -34,6 +34,8 @@ import ContentStudio from "./pages/dashboard/ContentStudio";
 import BoardLinksPage from "./pages/dashboard/BoardLinks";
 import Help from "./pages/dashboard/Help";
 import Admin from "./pages/Admin";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -77,6 +79,8 @@ function AppRouter() {
       <Route path="/for/pta" component={PTAPage} />
       <Route path="/for/nonprofits" component={NonprofitsPage} />
       <Route path="/admin" component={Admin} />
+      <Route path="/login" component={Login} />
+      <Route path="/register" component={Register} />
 
       {/* Dashboard routes — listed explicitly to avoid wouter v3 nested-context issues */}
       <Route path="/dashboard/events/approvals"><DB><ApprovalQueue /></DB></Route>

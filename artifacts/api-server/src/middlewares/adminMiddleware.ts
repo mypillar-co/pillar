@@ -1,5 +1,12 @@
 import { type Request, type Response, type NextFunction } from "express";
 
+function getAdminEmails(): Set<string> {
+  const raw = process.env.ADMIN_EMAILS ?? "";
+  return new Set(
+    raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
+  );
+}
+
 function getAdminUserIds(): Set<string> {
   const raw = process.env.ADMIN_USER_IDS ?? "";
   return new Set(
@@ -17,11 +24,15 @@ export function adminMiddleware(
     return;
   }
 
+  const adminEmails = getAdminEmails();
   const adminIds = getAdminUserIds();
-  if (!adminIds.has(req.user.id)) {
-    res.status(403).json({ error: "Forbidden" });
+  const userEmail = req.user.email?.toLowerCase() ?? "";
+  const userId = req.user.id;
+
+  if (adminEmails.has(userEmail) || adminIds.has(userId)) {
+    next();
     return;
   }
 
-  next();
+  res.status(403).json({ error: "Forbidden" });
 }
