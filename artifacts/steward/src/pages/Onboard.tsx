@@ -443,17 +443,12 @@ export default function Onboard() {
               exit="exit"
               transition={{ duration: 0.3, ease: "easeInOut" }}
             >
-              <Card className="border-white/10 shadow-2xl bg-card/80 backdrop-blur-xl text-center">
-                <CardHeader className="pb-4 pt-10">
+              <Card className="border-white/10 shadow-2xl bg-card/80 backdrop-blur-xl">
+                <CardHeader className="pb-4 pt-10 text-center">
                   <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
-                    transition={{
-                      type: "spring",
-                      stiffness: 260,
-                      damping: 20,
-                      delay: 0.1,
-                    }}
+                    transition={{ type: "spring", stiffness: 260, damping: 20, delay: 0.1 }}
                     className="mx-auto w-20 h-20 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center mb-6"
                   >
                     <CheckCircle2 className="w-10 h-10 text-emerald-400" />
@@ -462,20 +457,60 @@ export default function Onboard() {
                     You're all set!
                   </CardTitle>
                   <CardDescription className="text-base mt-2">
-                    {createdOrgName
-                      ? `${createdOrgName} is now in the Steward system.`
-                      : "Your organization is now in the Steward system."}{" "}
-                    Head to your dashboard to see everything.
+                    {createdOrgName ? `${createdOrgName} is in the system.` : "Your organization is in the system."}{" "}
+                    Pick your first action — you can have something live in minutes.
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="pb-10">
-                  <Button
-                    className="h-12 px-8 text-base"
+                <CardContent className="pb-8 space-y-3">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-4">Start here →</p>
+                  {[
+                    {
+                      icon: Globe,
+                      label: "Generate your website",
+                      sub: "AI builds your full organization site in under a minute.",
+                      href: "/dashboard/site",
+                      color: "text-blue-400",
+                      bg: "bg-blue-500/10",
+                    },
+                    {
+                      icon: Calendar,
+                      label: "Create your first event",
+                      sub: "Publish a public event page with ticketing in 2 minutes.",
+                      href: "/dashboard/events",
+                      color: "text-amber-400",
+                      bg: "bg-amber-500/10",
+                    },
+                    {
+                      icon: Share2,
+                      label: "Write your first social post",
+                      sub: "AI drafts a post for your connected channels — just approve it.",
+                      href: "/dashboard/social",
+                      color: "text-purple-400",
+                      bg: "bg-purple-500/10",
+                    },
+                  ].map(({ icon: Icon, label, sub, href, color, bg }) => (
+                    <button
+                      key={href}
+                      onClick={() => setLocation(href)}
+                      className="w-full flex items-center gap-4 p-4 rounded-xl border border-white/10 hover:border-white/20 hover:bg-white/5 transition-all text-left group"
+                    >
+                      <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center shrink-0`}>
+                        <Icon className={`w-5 h-5 ${color}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-white text-sm">{label}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-white transition-colors shrink-0" />
+                    </button>
+                  ))}
+
+                  <button
                     onClick={() => setLocation("/dashboard")}
+                    className="w-full text-center text-sm text-muted-foreground hover:text-white transition-colors pt-2"
                   >
-                    Go to Dashboard
-                    <ChevronRight className="w-4 h-4 ml-2" />
-                  </Button>
+                    Skip — take me to the dashboard
+                  </button>
                 </CardContent>
               </Card>
             </motion.div>

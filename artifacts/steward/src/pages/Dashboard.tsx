@@ -1,5 +1,5 @@
-import React, { useEffect } from "react";
-import { useLocation } from "wouter";
+import React, { useEffect, useState, useCallback } from "react";
+import { useLocation, Link } from "wouter";
 import { motion } from "framer-motion";
 import {
   Building2,
@@ -13,6 +13,10 @@ import {
   Lock,
   ArrowRight,
   Zap,
+  Users,
+  Copy,
+  ExternalLink,
+  Loader2,
 } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import {
@@ -175,6 +179,45 @@ export default function Dashboard() {
       },
     });
   };
+
+  const [boardLink, setBoardLink] = useState<{ token: string } | null>(null);
+  const [boardLinkLoading, setBoardLinkLoading] = useState(false);
+  const [boardLinkCopied, setBoardLinkCopied] = useState(false);
+
+  const fetchBoardLink = useCallback(async () => {
+    try {
+      const res = await fetch("/api/board-links", { credentials: "include" });
+      const data = await res.json() as { links?: Array<{ token: string }> };
+      if (data.links && data.links.length > 0) setBoardLink(data.links[0]);
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => { void fetchBoardLink(); }, [fetchBoardLink]);
+
+  const createBoardLink = useCallback(async () => {
+    setBoardLinkLoading(true);
+    try {
+      const res = await fetch("/api/board-links", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "" }),
+      });
+      const data = await res.json() as { link?: { token: string } };
+      if (data.link) setBoardLink(data.link);
+    } catch { /* silent */ } finally {
+      setBoardLinkLoading(false);
+    }
+  }, []);
+
+  const copyBoardLink = useCallback(() => {
+    if (!boardLink) return;
+    const url = `${window.location.origin}/board/${boardLink.token}`;
+    void navigator.clipboard.writeText(url).then(() => {
+      setBoardLinkCopied(true);
+      setTimeout(() => setBoardLinkCopied(false), 2000);
+    });
+  }, [boardLink]);
 
   if (authLoading || orgLoading || subLoading) {
     return (
@@ -433,6 +476,65 @@ export default function Dashboard() {
             </div>
           </motion.div>
         )}
+
+        {/* Board Approval Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.3 }}
+        >
+          <Card className="border-white/10 bg-white/[0.02]">
+            <CardContent className="pt-5 pb-5">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                <div className="flex items-center gap-3 flex-1">
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                    <Users className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-white text-sm">Need board approval?</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Share a one-page proposal your board can vote on — no login required.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {boardLink ? (
+                    <>
+                      <button
+                        onClick={copyBoardLink}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-muted-foreground hover:text-white hover:border-white/20 transition-all"
+                      >
+                        {boardLinkCopied
+                          ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          : <Copy className="w-3.5 h-3.5" />}
+                        {boardLinkCopied ? "Copied!" : "Copy link"}
+                      </button>
+                      <Link href="/dashboard/board-links">
+                        <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-muted-foreground hover:text-white hover:border-white/20 transition-all">
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          Manage
+                        </button>
+                      </Link>
+                    </>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-white/15 bg-white/5 hover:bg-white/10"
+                      onClick={() => void createBoardLink()}
+                      disabled={boardLinkLoading}
+                    >
+                      {boardLinkLoading
+                        ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                        : <Share2 className="w-3.5 h-3.5 mr-1.5" />}
+                      Generate link
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
       </div>
     </div>
   );

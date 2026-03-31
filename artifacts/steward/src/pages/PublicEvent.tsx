@@ -351,6 +351,18 @@ export default function PublicEvent() {
           </div>
         )}
       </div>
+
+      {/* Powered by Steward */}
+      <div className="border-t border-white/5 py-3 text-center">
+        <a
+          href="https://steward.app"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-muted-foreground hover:text-slate-300 transition-colors"
+        >
+          Powered by <span className="text-primary font-semibold">Steward</span> — AI for civic organizations
+        </a>
+      </div>
     </div>
   );
 }
