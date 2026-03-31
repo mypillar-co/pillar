@@ -115,7 +115,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       <div className={cn("flex items-center px-4 py-4 border-b border-white/8", collapsed && !mobile ? "justify-center" : "justify-between")}>
         {(!collapsed || mobile) && (
           <div className="flex items-center gap-2.5">
-            <img src="/pillar-logo-transparent.png" alt="Pillar" className="w-7 h-7" />
+            <img src="/pillar-logo.svg" alt="Pillar" className="w-7 h-7" />
             <span className="font-bold text-white tracking-tight">Pillar</span>
           </div>
         )}
@@ -222,7 +222,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               <Menu className="w-5 h-5" />
             </Button>
             <div className="flex items-center gap-2">
-              <img src="/pillar-logo-transparent.png" alt="Pillar" className="w-6 h-6" />
+              <img src="/pillar-logo.svg" alt="Pillar" className="w-6 h-6" />
               <span className="font-bold text-white text-sm">Pillar</span>
             </div>
           </div>

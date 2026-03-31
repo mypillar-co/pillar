@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none">
+  <!-- Capital (top) -->
+  <rect x="6" y="7" width="28" height="4" rx="1.5" fill="#f59e0b"/>
+  <!-- Shaft -->
+  <rect x="14" y="11" width="12" height="18" rx="1" fill="#f59e0b"/>
+  <!-- Base -->
+  <rect x="8" y="29" width="24" height="4" rx="1.5" fill="#f59e0b"/>
+</svg>

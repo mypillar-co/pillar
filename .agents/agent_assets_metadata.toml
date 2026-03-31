@@ -6,3 +6,15 @@ id = "UdE8SLOGBQQWuCuto8Aoy"
 uri = "file://artifacts/steward/src/assets/pillar-logo.png"
 type = "image"
 title = "generated_image"
+
+[[generated]]
+id = "IV5QNSle6Nl8jlVWrl9T4"
+uri = "file://attached_assets/logo-v2-minimal.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "cQBDCYTgX_NxjVIgd96Ij"
+uri = "file://attached_assets/logo-v3-bars.png"
+type = "image"
+title = "generated_image"
