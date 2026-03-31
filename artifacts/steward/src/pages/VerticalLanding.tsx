@@ -210,9 +210,18 @@ export function VerticalLanding({ config }: { config: VerticalConfig }) {
             <motion.div initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fadeUp}>
               <h2 className="text-4xl font-bold mb-4">Ready to put your {config.orgType} on autopilot?</h2>
               <p className="text-slate-400 mb-8 text-lg">Join the {config.orgTypePlural} already running smarter with Pillar.</p>
-              <LoginButton className="inline-flex items-center gap-2 px-10 py-4 rounded-xl bg-primary text-primary-foreground font-semibold text-lg shadow-xl shadow-primary/20 hover:bg-primary/90 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer">
-                Start free today <ArrowRight className="w-5 h-5" />
-              </LoginButton>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+                <LoginButton className="inline-flex items-center gap-2 px-10 py-4 rounded-xl bg-primary text-primary-foreground font-semibold text-lg shadow-xl shadow-primary/20 hover:bg-primary/90 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer">
+                  Start free today <ArrowRight className="w-5 h-5" />
+                </LoginButton>
+                <a
+                  href="mailto:hello@mypillar.co?subject=Demo request&body=Hi, I'd love to see a demo of Pillar for my organization."
+                  className="inline-flex items-center gap-2 px-10 py-4 rounded-xl border border-white/20 text-white font-semibold text-lg hover:bg-white/5 hover:border-white/40 transition-all duration-200"
+                >
+                  Request a demo
+                </a>
+              </div>
+              <p className="text-xs text-muted-foreground mt-5">14-day free trial · No credit card required · Live in 10 minutes</p>
             </motion.div>
           </div>
         </section>

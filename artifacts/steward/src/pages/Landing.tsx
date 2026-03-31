@@ -133,10 +133,33 @@ const highlights = [
   { value: "$0", label: "Setup or hidden fees" },
 ];
 
+const STATIC_TIERS = [
+  {
+    id: "tier1", name: "Starter", description: "Your AI-built website, live in minutes. Chat to update anytime.",
+    price: 29, annualPrice: 24, highlight: false,
+    features: ["AI-generated website in under 10 minutes", "Chat-based updates anytime", "Subdomain hosting (yourorg.mypillar.co)", "Mobile-responsive design", "SEO fundamentals included", "500 MB media storage", "Custom domain add-on (+$24/yr)"],
+  },
+  {
+    id: "tier1a", name: "Autopilot", description: "Set it and forget it. Your website and social media stay current without you lifting a finger.",
+    price: 59, annualPrice: 49, highlight: true,
+    features: ["Everything in Starter", "Autonomous content updates", "Social media posting (Facebook, Instagram, X)", "Recurring schedule management", "Zero maintenance required", "2 GB media storage", "1 free custom domain included"],
+  },
+  {
+    id: "tier2", name: "Events", description: "Run events, sell tickets, and manage attendees alongside your autonomous website.",
+    price: 99, annualPrice: 84, highlight: false,
+    features: ["Everything in Autopilot", "Event creation & management", "Online ticket sales & collection", "Attendee communications", "Approval workflows", "Event metrics & revenue dashboard", "5 GB media storage", "1 free custom domain included", "2.5% platform fee on ticket revenue"],
+  },
+  {
+    id: "tier3", name: "Total Operations", description: "The full digital agency experience. AI runs your website, events, and social media end to end.",
+    price: 149, annualPrice: 124, highlight: false,
+    features: ["Everything in Events", "Fully autonomous event scheduling", "AI-generated social content calendar", "Autonomous website refreshes", "Priority support", "10 GB media storage", "1 free custom domain included", "2.5% platform fee on ticket revenue"],
+  },
+];
+
 export default function Landing() {
   const { isAuthenticated, isLoading: authLoading, isAdmin } = useAuth();
   const [, setLocation] = useLocation();
-  const { data: tiersData, isLoading: isTiersLoading } = useListTiers();
+  const { data: tiersData } = useListTiers();
   const { data: orgData } = useGetOrganization({ query: { enabled: isAuthenticated } });
   const hasOrg = isAuthenticated && Boolean(orgData?.organization);
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">("monthly");
@@ -517,13 +540,8 @@ export default function Landing() {
             </div>
           </div>
 
-          {isTiersLoading ? (
-            <div className="flex justify-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-              {tiersData?.tiers.map((tier: any) => {
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+              {(tiersData?.tiers ?? STATIC_TIERS).map((tier: any) => {
                 const displayPrice = billingPeriod === "annual" ? (tier.annualPrice ?? tier.price) : tier.price;
                 return (
                   <Card
@@ -587,7 +605,6 @@ export default function Landing() {
                 );
               })}
             </div>
-          )}
         </div>
       </section>
 
@@ -676,10 +693,12 @@ export default function Landing() {
             <div>
               <h4 className="text-sm font-semibold text-white mb-3">Built For</h4>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li>Civic Organizations</li>
-                <li>Nonprofits</li>
-                <li>Community Clubs</li>
-                <li>Local Chapters</li>
+                <li><Link href="/for/rotary" className="hover:text-white transition-colors">Rotary Clubs</Link></li>
+                <li><Link href="/for/lodges" className="hover:text-white transition-colors">Fraternal Orders</Link></li>
+                <li><Link href="/for/vfw" className="hover:text-white transition-colors">Veterans Posts</Link></li>
+                <li><Link href="/for/hoa" className="hover:text-white transition-colors">HOAs</Link></li>
+                <li><Link href="/for/pta" className="hover:text-white transition-colors">PTAs & Schools</Link></li>
+                <li><Link href="/for/nonprofits" className="hover:text-white transition-colors">Nonprofits</Link></li>
               </ul>
             </div>
           </div>
@@ -687,9 +706,14 @@ export default function Landing() {
             <p className="text-sm text-muted-foreground">
               &copy; {new Date().getFullYear()} Pillar. Your organization, on autopilot.
             </p>
-            <div className="flex items-center gap-1 text-xs text-muted-foreground/60">
-              <Shield className="w-3 h-3" />
-              <span>Payments secured by Stripe</span>
+            <div className="flex items-center gap-4 text-xs text-muted-foreground/60">
+              <Link href="/terms" className="hover:text-white transition-colors">Terms</Link>
+              <Link href="/privacy" className="hover:text-white transition-colors">Privacy</Link>
+              <a href="mailto:hello@mypillar.co" className="hover:text-white transition-colors">Contact</a>
+              <div className="flex items-center gap-1">
+                <Shield className="w-3 h-3" />
+                <span>Payments secured by Stripe</span>
+              </div>
             </div>
           </div>
         </div>

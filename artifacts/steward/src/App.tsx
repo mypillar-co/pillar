@@ -1,4 +1,5 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import React from "react";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { AuthProvider } from "@workspace/replit-auth-web";
@@ -50,6 +51,15 @@ function DB({ children }: { children: React.ReactNode }) {
   return <DashboardLayout>{children}</DashboardLayout>;
 }
 
+function PricingRedirect() {
+  const [, navigate] = useLocation();
+  React.useEffect(() => {
+    navigate("/");
+    setTimeout(() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" }), 300);
+  }, []);
+  return null;
+}
+
 function AppRouter() {
   return (
     <Switch>
@@ -81,6 +91,9 @@ function AppRouter() {
       <Route path="/admin" component={Admin} />
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
+      <Route path="/pricing">
+        <PricingRedirect />
+      </Route>
 
       {/* Dashboard routes — listed explicitly to avoid wouter v3 nested-context issues */}
       <Route path="/dashboard/events/approvals"><DB><ApprovalQueue /></DB></Route>
