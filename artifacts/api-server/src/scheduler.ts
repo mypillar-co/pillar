@@ -10,6 +10,12 @@ import {
   contentStrategyTable,
   organizationsTable,
 } from "@workspace/db";
+import {
+  runCustomerSuccessAgent,
+  runOperationsAgent,
+  runContentAgent,
+  runOutreachAgent,
+} from "./agents";
 import { checkAndRenewDomains, checkSslProvisioning, pollDnsPropagation } from "./routes/domains";
 import { eq, lte, and, gte } from "drizzle-orm";
 import { logger } from "./lib/logger";
@@ -735,14 +741,16 @@ async function runTier3AutonomousCampaigns(): Promise<void> {
 
 const SCHEDULE_INTERVAL_MS = 30 * 60 * 1000;
 const SOCIAL_PUBLISH_INTERVAL_MS = 5 * 60 * 1000;
-
-const DOMAIN_RENEWAL_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
-
-const SSL_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
-const DNS_POLL_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+const DOMAIN_RENEWAL_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const SSL_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+const DNS_POLL_INTERVAL_MS = 15 * 60 * 1000;
+const AGENT_CS_INTERVAL_MS = 30 * 60 * 1000;
+const AGENT_OPS_INTERVAL_MS = 60 * 60 * 1000;
+const AGENT_CONTENT_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const AGENT_OUTREACH_INTERVAL_MS = 60 * 60 * 1000;
 
 export function startScheduler(): void {
-  logger.info("Starting schedulers (site/events: 30min, social publishing: 5min, domain renewal: 6h, ssl check: 1h, dns poll: 15min)");
+  logger.info("Starting schedulers (site/events: 30min, social: 5min, domains: 6h, ssl: 1h, dns: 15min, AI agents: cs/30min ops/1h content/24h outreach/1h)");
 
   // Initial runs
   runDueSchedules().catch((err: unknown) => {
@@ -813,4 +821,44 @@ export function startScheduler(): void {
       logger.warn({ err }, "DNS propagation poll failed");
     });
   }, DNS_POLL_INTERVAL_MS);
+
+  // ── AI Agents ──────────────────────────────────────────────────────────────
+  // Run agents on first boot then on their respective intervals
+
+  runCustomerSuccessAgent().catch((err: unknown) => {
+    logger.warn({ err }, "[agent:customerSuccess] Initial run failed");
+  });
+  runOperationsAgent().catch((err: unknown) => {
+    logger.warn({ err }, "[agent:operations] Initial run failed");
+  });
+  runContentAgent().catch((err: unknown) => {
+    logger.warn({ err }, "[agent:content] Initial run failed");
+  });
+  runOutreachAgent().catch((err: unknown) => {
+    logger.warn({ err }, "[agent:outreach] Initial run failed");
+  });
+
+  setInterval(() => {
+    runCustomerSuccessAgent().catch((err: unknown) => {
+      logger.warn({ err }, "[agent:customerSuccess] Run failed");
+    });
+  }, AGENT_CS_INTERVAL_MS);
+
+  setInterval(() => {
+    runOperationsAgent().catch((err: unknown) => {
+      logger.warn({ err }, "[agent:operations] Run failed");
+    });
+  }, AGENT_OPS_INTERVAL_MS);
+
+  setInterval(() => {
+    runContentAgent().catch((err: unknown) => {
+      logger.warn({ err }, "[agent:content] Run failed");
+    });
+  }, AGENT_CONTENT_INTERVAL_MS);
+
+  setInterval(() => {
+    runOutreachAgent().catch((err: unknown) => {
+      logger.warn({ err }, "[agent:outreach] Run failed");
+    });
+  }, AGENT_OUTREACH_INTERVAL_MS);
 }

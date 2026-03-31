@@ -8,8 +8,8 @@ import {
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-async function apiFetch(path: string) {
-  const res = await fetch(`${API}${path}`, { credentials: "include" });
+async function apiFetch(path: string, opts?: RequestInit) {
+  const res = await fetch(`${API}${path}`, { credentials: "include", ...opts });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
 }
@@ -70,7 +70,7 @@ export default function Admin() {
   const { isAuthenticated, isLoading } = useAuth();
   const [, navigate] = useLocation();
 
-  const [tab, setTab] = useState<"overview" | "financials" | "subscribers" | "churn" | "health" | "support">("overview");
+  const [tab, setTab] = useState<"overview" | "financials" | "subscribers" | "churn" | "health" | "support" | "agents">("overview");
   const [overview, setOverview] = useState<any>(null);
   const [financials, setFinancials] = useState<any>(null);
   const [subscribers, setSubscribers] = useState<any[]>([]);
@@ -78,6 +78,13 @@ export default function Admin() {
   const [health, setHealth] = useState<any>(null);
   const [tickets, setTickets] = useState<any[]>([]);
   const [ticketUpdating, setTicketUpdating] = useState<string | null>(null);
+  const [agents, setAgents] = useState<any[]>([]);
+  const [contentQueue, setContentQueue] = useState<any[]>([]);
+  const [prospects, setProspects] = useState<any[]>([]);
+  const [agentLogs, setAgentLogs] = useState<any[]>([]);
+  const [prospectForm, setProspectForm] = useState<Record<string, string>>({});
+  const [prospectAdding, setProspectAdding] = useState(false);
+  const [agentFilter, setAgentFilter] = useState("all");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [subFilter, setSubFilter] = useState("");
@@ -97,14 +104,22 @@ export default function Admin() {
       apiFetch("/api/admin/churn"),
       apiFetch("/api/admin/health"),
       apiFetch("/api/support/tickets"),
+      apiFetch("/api/admin/agents"),
+      apiFetch("/api/admin/content-queue"),
+      apiFetch("/api/admin/prospects"),
+      apiFetch("/api/admin/agents/logs?limit=100"),
     ])
-      .then(([ov, fin, subs, ch, he, tix]) => {
+      .then(([ov, fin, subs, ch, he, tix, ag, cq, pros, logs]) => {
         setOverview(ov);
         setFinancials(fin);
         setSubscribers(subs);
         setChurn(ch);
         setHealth(he);
         setTickets(tix);
+        setAgents(ag.agents ?? []);
+        setContentQueue(cq ?? []);
+        setProspects(pros ?? []);
+        setAgentLogs(logs ?? []);
         setLoading(false);
       })
       .catch((err) => {
@@ -122,8 +137,9 @@ export default function Admin() {
     { key: "financials", label: "Financials" },
     { key: "subscribers", label: "Subscribers" },
     { key: "churn", label: "Churn" },
+    { key: "agents", label: "AI Agents" },
     { key: "health", label: "Server Health" },
-    { key: "support", label: `Support ${tickets.filter(t => t.status === "open").length > 0 ? `(${tickets.filter(t => t.status === "open").length})` : ""}`.trim() },
+    { key: "support", label: `Support${tickets.filter(t => t.status === "open").length > 0 ? ` (${tickets.filter(t => t.status === "open").length})` : ""}` },
   ] as const;
 
   const styles = {
@@ -649,6 +665,256 @@ export default function Admin() {
               </div>
             </div>
           </>
+        )}
+
+        {tab === "agents" && (
+          <div>
+            {/* Email config warning */}
+            {agents.length > 0 && !agents[0]?.emailConfigured && (
+              <div style={{ background: "#78350f22", border: "1px solid #d9770644", borderRadius: 10, padding: "12px 18px", marginBottom: 24, display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ fontSize: 18 }}>⚠️</span>
+                <div>
+                  <div style={{ fontWeight: 600, color: "#fb923c", fontSize: 13 }}>Email not configured — agents are running in simulation mode</div>
+                  <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 2 }}>Add a <code style={{ color: "#e8b84b" }}>RESEND_API_KEY</code> secret to enable real email delivery. All other agent logic is active.</div>
+                </div>
+              </div>
+            )}
+
+            {/* Agent cards */}
+            <div style={{ ...styles.section }}>
+              <div style={styles.sectionTitle}>Autonomous Agents</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+                {agents.map((agent: any) => (
+                  <div key={agent.name} style={{ ...styles.card, padding: "20px 22px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: "#e2e8f0" }}>{agent.label}</div>
+                      <span style={{ background: "#16a34a22", color: "#4ade80", border: "1px solid #16a34a44", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 600 }}>ACTIVE</span>
+                    </div>
+                    <div style={{ color: "#94a3b8", fontSize: 12, lineHeight: 1.6, marginBottom: 14 }}>{agent.description}</div>
+                    <div style={{ display: "flex", gap: 20, fontSize: 12 }}>
+                      <div><span style={{ color: "#64748b" }}>Schedule</span><br /><span style={{ color: "#e8b84b", fontWeight: 600 }}>{agent.schedule}</span></div>
+                      <div><span style={{ color: "#64748b" }}>Actions today</span><br /><span style={{ color: "#e8b84b", fontWeight: 600 }}>{agent.actionsToday}</span></div>
+                      <div><span style={{ color: "#64748b" }}>Errors</span><br /><span style={{ color: agent.totalErrors > 0 ? "#f87171" : "#4ade80", fontWeight: 600 }}>{agent.totalErrors}</span></div>
+                    </div>
+                    {agent.lastRun && (
+                      <div style={{ marginTop: 12, fontSize: 11, color: "#475569" }}>Last run: {new Date(agent.lastRun).toLocaleString()}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Activity log */}
+            <div style={{ ...styles.section }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+                <div style={styles.sectionTitle}>Activity Log</div>
+                <select
+                  value={agentFilter}
+                  onChange={e => setAgentFilter(e.target.value)}
+                  style={{ background: "#0f1e35", border: "1px solid rgba(255,255,255,0.12)", color: "#e2e8f0", borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer", marginTop: -4 }}
+                >
+                  <option value="all">All agents</option>
+                  <option value="customerSuccess">Customer Success</option>
+                  <option value="operations">Operations</option>
+                  <option value="content">Content</option>
+                  <option value="outreach">Outreach</option>
+                </select>
+              </div>
+              <div style={{ ...styles.card, padding: 0, overflow: "hidden" }}>
+                {agentLogs.filter((l: any) => agentFilter === "all" || l.agentName === agentFilter).slice(0, 30).length === 0 ? (
+                  <div style={{ padding: "32px", textAlign: "center", color: "#64748b", fontSize: 13 }}>No activity yet — agents will log their work here as they run.</div>
+                ) : (
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                        {["Time", "Agent", "Action", "Target", "Status"].map(h => (
+                          <th key={h} style={{ padding: "10px 14px", textAlign: "left", color: "#64748b", fontWeight: 600, textTransform: "uppercase", fontSize: 10, letterSpacing: "0.06em" }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {agentLogs.filter((l: any) => agentFilter === "all" || l.agentName === agentFilter).slice(0, 30).map((log: any) => (
+                        <tr key={log.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                          <td style={{ padding: "9px 14px", color: "#64748b" }}>{new Date(log.createdAt).toLocaleTimeString()}</td>
+                          <td style={{ padding: "9px 14px" }}>
+                            <span style={{ background: "#e8b84b22", color: "#e8b84b", borderRadius: 4, padding: "2px 7px", fontSize: 10, fontWeight: 600 }}>{log.agentName}</span>
+                          </td>
+                          <td style={{ padding: "9px 14px", color: "#cbd5e1" }}>{log.action.replace(/_/g, " ")}</td>
+                          <td style={{ padding: "9px 14px", color: "#64748b", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{log.targetEmail ?? log.targetId ?? "—"}</td>
+                          <td style={{ padding: "9px 14px" }}>
+                            <span style={{
+                              background: log.status === "success" ? "#16a34a22" : log.status === "error" ? "#dc262622" : "#64748b22",
+                              color: log.status === "success" ? "#4ade80" : log.status === "error" ? "#f87171" : "#94a3b8",
+                              borderRadius: 4, padding: "2px 7px", fontSize: 10, fontWeight: 600,
+                            }}>{log.status}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+
+            {/* Content queue */}
+            <div style={{ ...styles.section }}>
+              <div style={styles.sectionTitle}>Content Queue — Marketing Posts ({contentQueue.filter((c: any) => c.status === "draft").length} drafts pending)</div>
+              {contentQueue.length === 0 ? (
+                <div style={{ ...styles.card, padding: "28px", textAlign: "center", color: "#64748b", fontSize: 13 }}>No content yet. The Content agent generates 5 posts daily. First batch runs within 24 hours.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {contentQueue.map((item: any) => (
+                    <div key={item.id} style={{ ...styles.card, padding: "16px 20px", borderLeft: `3px solid ${item.platform === "linkedin" ? "#0077b5" : item.platform === "facebook" ? "#1877f2" : "#e8b84b"}` }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                            <span style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "#64748b" }}>{item.platform}</span>
+                            {item.angle && <span style={{ fontSize: 11, color: "#475569" }}>· {item.angle}</span>}
+                          </div>
+                          <div style={{ color: "#cbd5e1", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{item.content}</div>
+                          {item.hashtags && <div style={{ marginTop: 8, color: "#60a5fa", fontSize: 12 }}>{item.hashtags}</div>}
+                        </div>
+                        {item.status === "draft" && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
+                            <button
+                              onClick={async () => {
+                                const updated = await apiFetch(`/api/admin/content-queue/${item.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "approved" }) });
+                                setContentQueue(prev => prev.map(c => c.id === item.id ? updated : c));
+                              }}
+                              style={{ background: "#16a34a22", color: "#4ade80", border: "1px solid #16a34a44", borderRadius: 6, padding: "5px 12px", fontSize: 11, cursor: "pointer" }}
+                            >Approve</button>
+                            <button
+                              onClick={async () => {
+                                const updated = await apiFetch(`/api/admin/content-queue/${item.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "rejected" }) });
+                                setContentQueue(prev => prev.map(c => c.id === item.id ? updated : c));
+                              }}
+                              style={{ background: "#dc262622", color: "#f87171", border: "1px solid #dc262644", borderRadius: 6, padding: "5px 12px", fontSize: 11, cursor: "pointer" }}
+                            >Reject</button>
+                          </div>
+                        )}
+                        {item.status !== "draft" && (
+                          <span style={{
+                            background: item.status === "approved" ? "#16a34a22" : item.status === "posted" ? "#7c3aed22" : "#dc262622",
+                            color: item.status === "approved" ? "#4ade80" : item.status === "posted" ? "#a78bfa" : "#f87171",
+                            border: `1px solid ${item.status === "approved" ? "#16a34a44" : item.status === "posted" ? "#7c3aed44" : "#dc262644"}`,
+                            borderRadius: 6, padding: "4px 10px", fontSize: 11, fontWeight: 600, textTransform: "uppercase" as const,
+                          }}>{item.status}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Outreach prospects */}
+            <div style={{ ...styles.section }}>
+              <div style={styles.sectionTitle}>Outreach Prospects ({prospects.filter((p: any) => p.status === "pending").length} pending · {prospects.filter((p: any) => p.status === "contacted").length} contacted · {prospects.filter((p: any) => p.status === "converted").length} converted)</div>
+              {/* Add prospect form */}
+              <div style={{ ...styles.card, padding: "18px 20px", marginBottom: 16 }}>
+                <div style={{ fontWeight: 600, fontSize: 13, color: "#e2e8f0", marginBottom: 12 }}>Add prospect</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+                  {[
+                    { key: "orgName", label: "Organization name *" },
+                    { key: "orgType", label: "Type (lodge / hoa / nonprofit…)" },
+                    { key: "contactName", label: "Contact name" },
+                    { key: "contactRole", label: "Role (Secretary, President…)" },
+                    { key: "contactEmail", label: "Email *" },
+                    { key: "currentWebsite", label: "Current website (optional)" },
+                  ].map(f => (
+                    <input
+                      key={f.key}
+                      placeholder={f.label}
+                      value={prospectForm[f.key] ?? ""}
+                      onChange={e => setProspectForm(prev => ({ ...prev, [f.key]: e.target.value }))}
+                      style={{ background: "#0c1526", border: "1px solid rgba(255,255,255,0.12)", color: "#e2e8f0", borderRadius: 6, padding: "7px 12px", fontSize: 12, outline: "none" }}
+                    />
+                  ))}
+                </div>
+                <textarea
+                  placeholder="Notes (optional)"
+                  value={prospectForm.notes ?? ""}
+                  onChange={e => setProspectForm(prev => ({ ...prev, notes: e.target.value }))}
+                  rows={2}
+                  style={{ width: "100%", background: "#0c1526", border: "1px solid rgba(255,255,255,0.12)", color: "#e2e8f0", borderRadius: 6, padding: "7px 12px", fontSize: 12, resize: "vertical", outline: "none", boxSizing: "border-box", marginBottom: 10 }}
+                />
+                <button
+                  disabled={prospectAdding || !prospectForm.orgName || !prospectForm.contactEmail}
+                  onClick={async () => {
+                    setProspectAdding(true);
+                    try {
+                      const row = await apiFetch("/api/admin/prospects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(prospectForm) });
+                      setProspects(prev => [row, ...prev]);
+                      setProspectForm({});
+                    } catch {}
+                    setProspectAdding(false);
+                  }}
+                  style={{ background: "#e8b84b", color: "#0c1526", border: "none", borderRadius: 7, padding: "8px 20px", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: prospectAdding ? 0.6 : 1 }}
+                >
+                  {prospectAdding ? "Adding…" : "Add to outreach queue"}
+                </button>
+              </div>
+              {/* Prospects table */}
+              {prospects.length === 0 ? (
+                <div style={{ ...styles.card, padding: "28px", textAlign: "center", color: "#64748b", fontSize: 13 }}>No prospects yet. Add organizations above and the Outreach agent will contact them automatically.</div>
+              ) : (
+                <div style={{ ...styles.card, padding: 0, overflow: "hidden" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                        {["Organization", "Contact", "Email", "Type", "Emails sent", "Status", ""].map(h => (
+                          <th key={h} style={{ padding: "10px 14px", textAlign: "left", color: "#64748b", fontWeight: 600, textTransform: "uppercase", fontSize: 10, letterSpacing: "0.05em" }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {prospects.map((p: any) => {
+                        const statusColors: Record<string, [string, string]> = {
+                          pending: ["#64748b", "#1e293b"],
+                          contacted: ["#3b82f6", "#1e3a5f"],
+                          replied: ["#a78bfa", "#2d1b69"],
+                          converted: ["#4ade80", "#14532d"],
+                          noresponse: ["#6b7280", "#111827"],
+                          unsubscribed: ["#f87171", "#450a0a"],
+                        };
+                        const [sc, sb] = statusColors[p.status] ?? ["#64748b", "#1e293b"];
+                        return (
+                          <tr key={p.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                            <td style={{ padding: "9px 14px", fontWeight: 600, color: "#e2e8f0" }}>{p.orgName}</td>
+                            <td style={{ padding: "9px 14px", color: "#94a3b8" }}>{p.contactName ?? "—"}{p.contactRole ? `, ${p.contactRole}` : ""}</td>
+                            <td style={{ padding: "9px 14px", color: "#60a5fa" }}>{p.contactEmail}</td>
+                            <td style={{ padding: "9px 14px", color: "#64748b" }}>{p.orgType ?? "—"}</td>
+                            <td style={{ padding: "9px 14px", color: "#e8b84b", textAlign: "center" }}>{p.emailsSent ?? 0}</td>
+                            <td style={{ padding: "9px 14px" }}>
+                              <select
+                                value={p.status}
+                                onChange={async (e) => {
+                                  const updated = await apiFetch(`/api/admin/prospects/${p.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: e.target.value }) });
+                                  setProspects(prev => prev.map(x => x.id === p.id ? updated : x));
+                                }}
+                                style={{ background: sb, color: sc, border: `1px solid ${sc}44`, borderRadius: 5, padding: "3px 7px", fontSize: 11, cursor: "pointer" }}
+                              >
+                                {["pending", "contacted", "replied", "converted", "noresponse", "unsubscribed"].map(s => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                            </td>
+                            <td style={{ padding: "9px 14px" }}>
+                              <button
+                                onClick={async () => {
+                                  await apiFetch(`/api/admin/prospects/${p.id}`, { method: "DELETE" });
+                                  setProspects(prev => prev.filter(x => x.id !== p.id));
+                                }}
+                                style={{ background: "transparent", border: "none", color: "#475569", cursor: "pointer", fontSize: 14, padding: "2px 6px" }}
+                              >✕</button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
         {tab === "support" && (

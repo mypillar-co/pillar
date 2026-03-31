@@ -4,8 +4,11 @@ import {
   subscriptionsTable,
   usersTable,
   organizationsTable,
+  agentLogsTable,
+  contentQueueTable,
+  outreachProspectsTable,
 } from "@workspace/db";
-import { eq, count, and, gte, lt, isNotNull, sql } from "drizzle-orm";
+import { eq, count, and, gte, lt, isNotNull, sql, desc } from "drizzle-orm";
 import { adminMiddleware } from "../middlewares/adminMiddleware";
 import { TIERS } from "../tiers";
 
@@ -307,6 +310,157 @@ router.get("/admin/health", async (_req: Request, res: Response) => {
 
 router.get("/admin/me", async (req: Request, res: Response) => {
   res.json({ id: req.user!.id, isAdmin: true });
+});
+
+// ── AI Agents ──────────────────────────────────────────────────────────────
+
+const AGENT_DEFS = [
+  {
+    name: "customerSuccess",
+    label: "Customer Success",
+    description: "Sends welcome emails, website nudges, trial ending reminders, and auto-responds to support tickets.",
+    schedule: "Every 30 min",
+  },
+  {
+    name: "operations",
+    label: "Operations",
+    description: "Sends weekly founder digest every Monday and payment failure recovery emails.",
+    schedule: "Every 1 hr",
+  },
+  {
+    name: "content",
+    label: "Content",
+    description: "Generates 5 marketing post drafts daily for LinkedIn, Facebook, and X.",
+    schedule: "Every 24 hr",
+  },
+  {
+    name: "outreach",
+    label: "Outreach",
+    description: "Sends personalized cold outreach emails and follow-ups to prospects. Respects a 40 email/day limit.",
+    schedule: "Every 1 hr",
+  },
+];
+
+router.get("/admin/agents", async (_req: Request, res: Response) => {
+  try {
+    const now = new Date();
+    const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0);
+    const allLogs = await db
+      .select()
+      .from(agentLogsTable)
+      .orderBy(desc(agentLogsTable.createdAt))
+      .limit(200);
+
+    const agents = AGENT_DEFS.map((def) => {
+      const agentLogs = allLogs.filter(l => l.agentName === def.name);
+      const lastLog = agentLogs[0];
+      const todayCount = agentLogs.filter(l => l.createdAt >= startOfDay && l.status === "success").length;
+      const errorCount = agentLogs.filter(l => l.status === "error").length;
+      return {
+        ...def,
+        lastRun: lastLog?.createdAt ?? null,
+        actionsToday: todayCount,
+        totalErrors: errorCount,
+        recentLogs: agentLogs.slice(0, 10),
+        emailConfigured: !!process.env.RESEND_API_KEY,
+      };
+    });
+
+    res.json({ agents });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+router.get("/admin/agents/logs", async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(Number(req.query.limit ?? 50), 200);
+    const agentName = req.query.agent as string | undefined;
+    const logs = await db
+      .select()
+      .from(agentLogsTable)
+      .where(agentName ? eq(agentLogsTable.agentName, agentName) : undefined)
+      .orderBy(desc(agentLogsTable.createdAt))
+      .limit(limit);
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Content queue
+router.get("/admin/content-queue", async (_req: Request, res: Response) => {
+  try {
+    const items = await db
+      .select()
+      .from(contentQueueTable)
+      .orderBy(desc(contentQueueTable.generatedAt))
+      .limit(50);
+    res.json(items);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+router.put("/admin/content-queue/:id", async (req: Request, res: Response) => {
+  try {
+    const { status } = req.body as { status: string };
+    const [updated] = await db.update(contentQueueTable)
+      .set({ status, ...(status === "posted" ? { postedAt: new Date() } : {}) })
+      .where(eq(contentQueueTable.id, req.params.id))
+      .returning();
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Outreach prospects
+router.get("/admin/prospects", async (_req: Request, res: Response) => {
+  try {
+    const rows = await db
+      .select()
+      .from(outreachProspectsTable)
+      .orderBy(desc(outreachProspectsTable.createdAt))
+      .limit(200);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+router.post("/admin/prospects", async (req: Request, res: Response) => {
+  try {
+    const { orgName, orgType, contactName, contactRole, contactEmail, currentWebsite, notes } = req.body as Record<string, string>;
+    if (!orgName || !contactEmail) return res.status(400).json({ error: "orgName and contactEmail required" });
+    const [row] = await db.insert(outreachProspectsTable)
+      .values({ orgName, orgType, contactName, contactRole, contactEmail, currentWebsite, notes })
+      .returning();
+    res.json(row);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+router.put("/admin/prospects/:id", async (req: Request, res: Response) => {
+  try {
+    const [updated] = await db.update(outreachProspectsTable)
+      .set(req.body as Partial<typeof outreachProspectsTable.$inferInsert>)
+      .where(eq(outreachProspectsTable.id, req.params.id))
+      .returning();
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+router.delete("/admin/prospects/:id", async (req: Request, res: Response) => {
+  try {
+    await db.delete(outreachProspectsTable).where(eq(outreachProspectsTable.id, req.params.id));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 export default router;

@@ -15,3 +15,6 @@ export * from "./social";
 export * from "./notifications";
 export * from "./studioOutputs";
 export * from "./supportTickets";
+export * from "./agentLogs";
+export * from "./contentQueue";
+export * from "./outreachProspects";
