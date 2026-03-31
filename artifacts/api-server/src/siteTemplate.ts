@@ -181,13 +181,22 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
     .hero-img.loaded { transform: scale(1); }
     .hero-overlay {
       position: absolute; inset: 0;
-      background: linear-gradient(
-        125deg,
-        rgba(0,0,0,0.80) 0%,
-        rgba(0,0,0,0.46) 45%,
-        rgba(0,0,0,0.66) 100%
-      );
+      background:
+        radial-gradient(ellipse at 20% 60%, rgba(var(--primary-rgb), 0.22) 0%, transparent 58%),
+        linear-gradient(130deg, rgba(0,0,0,0.86) 0%, rgba(0,0,0,0.38) 50%, rgba(0,0,0,0.76) 100%);
     }
+    .hero-orbs {
+      position: absolute; inset: 0;
+      pointer-events: none; overflow: hidden;
+    }
+    .hero-orb {
+      position: absolute; border-radius: 50%;
+      background: radial-gradient(circle, rgba(var(--primary-rgb), 0.16) 0%, transparent 68%);
+      animation: orbFloat 14s ease-in-out infinite;
+    }
+    .hero-orb:nth-child(1) { width: 44vw; height: 44vw; top: -8%; left: -6%; animation-delay: 0s; }
+    .hero-orb:nth-child(2) { width: 30vw; height: 30vw; bottom: -4%; right: 8%; animation-delay: -6s; }
+    .hero-orb:nth-child(3) { width: 18vw; height: 18vw; top: 28%; right: -3%; animation-delay: -10s; }
     .hero-content {
       position: relative;
       z-index: 1;
@@ -215,8 +224,11 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
       font-family: var(--font-display);
       font-size: clamp(2.8rem, 6.5vw, 5.2rem);
       font-weight: 400;
-      color: white;
-      line-height: 1.05;
+      background: linear-gradient(138deg, #ffffff 0%, #ffffff 52%, rgba(var(--primary-rgb), 0.92) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      line-height: 1.08;
       letter-spacing: -0.025em;
       max-width: 15ch;
       margin-bottom: 22px;
@@ -394,6 +406,8 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
     .programs {
       padding: var(--section-pad) 0;
       background: var(--bg-subtle);
+      background-image: radial-gradient(circle, rgba(var(--primary-rgb), 0.04) 1px, transparent 1px);
+      background-size: 26px 26px;
     }
     .section-header {
       text-align: center;
@@ -432,7 +446,10 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
       opacity: 0;
       transition: opacity 0.3s;
     }
-    .card:hover { transform: translateY(-8px); box-shadow: var(--shadow-lg); }
+    .card:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 20px 60px rgba(var(--primary-rgb), 0.13), 0 6px 20px rgba(0,0,0,0.06), 0 0 0 1px rgba(var(--primary-rgb), 0.18);
+    }
     .card:hover::before { opacity: 1; }
     .card-icon { font-size: 2rem; margin-bottom: 18px; display: block; line-height: 1; }
     .card h3 {
@@ -684,11 +701,23 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
     .reveal-child:nth-child(1) { transition-delay: 0s; }
     .reveal-child:nth-child(2) { transition-delay: 0.1s; }
     .reveal-child:nth-child(3) { transition-delay: 0.2s; }
+    .reveal-child:nth-child(4) { transition-delay: 0.3s; }
+    .reveal-child:nth-child(5) { transition-delay: 0.4s; }
+    .reveal-child:nth-child(6) { transition-delay: 0.5s; }
 
     /* ─── ANIMATIONS ─── */
     @keyframes scrollPulse {
       0%, 100% { transform: scaleX(1); opacity: 0.3; }
       50% { transform: scaleX(1.3); opacity: 0.7; }
+    }
+    @keyframes orbFloat {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      33% { transform: translate(2.5%, 3.5%) scale(1.06); }
+      66% { transform: translate(-1.5%, 1.8%) scale(0.96); }
+    }
+    @keyframes shimmer {
+      0% { background-position: -200% center; }
+      100% { background-position: 200% center; }
     }
 
     /* ─── RESPONSIVE ─── */
@@ -743,6 +772,11 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
     <div class="hero-bg">
       <img id="heroImg" class="hero-img" src="%%HERO_IMAGE_URL%%" alt="%%ORG_NAME%%" loading="eager">
       <div class="hero-overlay"></div>
+      <div class="hero-orbs">
+        <div class="hero-orb"></div>
+        <div class="hero-orb"></div>
+        <div class="hero-orb"></div>
+      </div>
     </div>
     <div class="hero-content">
       <div class="reveal-hero">

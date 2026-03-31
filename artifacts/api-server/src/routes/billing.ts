@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, organizationsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, desc, asc, isNotNull } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
 import { TIERS, getTierById } from "../tiers";
 
@@ -72,7 +72,9 @@ router.post("/billing/checkout", async (req: Request, res: Response) => {
   const [org] = await db
     .select()
     .from(organizationsTable)
-    .where(eq(organizationsTable.userId, userId));
+    .where(eq(organizationsTable.userId, userId))
+    .orderBy(desc(isNotNull(organizationsTable.tier)), asc(organizationsTable.createdAt))
+    .limit(1);
 
   let customerId: string | null = org?.stripeCustomerId ?? null;
   if (!customerId) {
@@ -128,7 +130,9 @@ router.post("/billing/portal", async (req: Request, res: Response) => {
   const [org] = await db
     .select()
     .from(organizationsTable)
-    .where(eq(organizationsTable.userId, userId));
+    .where(eq(organizationsTable.userId, userId))
+    .orderBy(desc(isNotNull(organizationsTable.tier)), asc(organizationsTable.createdAt))
+    .limit(1);
 
   if (!org?.stripeCustomerId) {
     res.status(400).json({ error: "No billing account found. Please subscribe first." });
@@ -157,7 +161,9 @@ router.get("/billing/subscription", async (req: Request, res: Response) => {
   const [org] = await db
     .select()
     .from(organizationsTable)
-    .where(eq(organizationsTable.userId, userId));
+    .where(eq(organizationsTable.userId, userId))
+    .orderBy(desc(isNotNull(organizationsTable.tier)), asc(organizationsTable.createdAt))
+    .limit(1);
 
   if (!org?.stripeCustomerId) {
     const tier = org?.tier ? getTierById(org.tier) : undefined;

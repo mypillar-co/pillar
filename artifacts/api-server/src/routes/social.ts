@@ -3,7 +3,7 @@ import {
   db, socialAccountsTable, socialPostsTable, automationRulesTable,
   contentStrategyTable, organizationsTable, eventsTable, oauthStatesTable,
 } from "@workspace/db";
-import { eq, and, desc, gte, lt } from "drizzle-orm";
+import { eq, and, desc, gte, lt, isNotNull, asc } from "drizzle-orm";
 import { randomBytes, createHash } from "crypto";
 import { logger } from "../lib/logger";
 import { encryptToken, decryptToken } from "../lib/tokenCrypto";
@@ -142,7 +142,9 @@ async function resolveOrg(req: Request, res: Response) {
   const [org] = await db
     .select({ id: organizationsTable.id, name: organizationsTable.name, tier: organizationsTable.tier })
     .from(organizationsTable)
-    .where(eq(organizationsTable.userId, req.user.id));
+    .where(eq(organizationsTable.userId, req.user.id))
+    .orderBy(desc(isNotNull(organizationsTable.tier)), asc(organizationsTable.createdAt))
+    .limit(1);
   if (!org) { res.status(404).json({ error: "Organization not found" }); return null; }
   return org;
 }

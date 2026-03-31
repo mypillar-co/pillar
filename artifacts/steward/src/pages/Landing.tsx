@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { motion, type Variants } from "framer-motion";
 import { Link } from "wouter";
-import { CheckCircle2, Bot, Calendar, Globe, Share2, Shield, Zap, Users, ArrowRight, MessageSquare, Clock, Building2, Heart, Trophy, Megaphone, TreePine, Coffee, GraduationCap, DollarSign } from "lucide-react";
+import { CheckCircle2, Bot, Calendar, Globe, Share2, Shield, Zap, Users, ArrowRight, MessageSquare, Clock, Building2, Heart, Trophy, Megaphone, TreePine, Coffee, GraduationCap, DollarSign, Lock, RefreshCw, Star } from "lucide-react";
 import { useAuth, LoginButton } from "@workspace/replit-auth-web";
 import { useListTiers, useGetOrganization } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -215,6 +215,25 @@ export default function Landing() {
               </div>
             </div>
           </motion.div>
+        </div>
+      </section>
+
+      {/* Trust signals strip */}
+      <section className="border-b border-white/6 bg-[hsl(224,40%,8%)]">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
+          <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-3">
+            {[
+              { icon: <Shield className="w-4 h-4 text-primary" />, text: "14-day free trial — no credit card required" },
+              { icon: <RefreshCw className="w-4 h-4 text-primary" />, text: "Cancel anytime, no questions asked" },
+              { icon: <Lock className="w-4 h-4 text-primary" />, text: "Payments secured by Stripe" },
+              { icon: <Star className="w-4 h-4 text-primary" />, text: "Satisfaction guaranteed" },
+            ].map((item, i) => (
+              <div key={i} className="flex items-center gap-2 text-sm text-slate-400">
+                {item.icon}
+                <span>{item.text}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -660,6 +679,46 @@ export default function Landing() {
           )}
         </div>
       </section>
+
+      {/* Guarantee strip */}
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 -mt-4 pb-16">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-8 px-6 py-4 rounded-2xl border border-primary/20 bg-primary/5"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-primary/15 border border-primary/25 flex items-center justify-center flex-shrink-0">
+              <Shield className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-white">14-day free trial</p>
+              <p className="text-xs text-slate-400">Full access, no credit card required</p>
+            </div>
+          </div>
+          <div className="hidden sm:block w-px h-8 bg-white/10" />
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-primary/15 border border-primary/25 flex items-center justify-center flex-shrink-0">
+              <RefreshCw className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-white">Cancel anytime</p>
+              <p className="text-xs text-slate-400">No long-term contracts or lock-in</p>
+            </div>
+          </div>
+          <div className="hidden sm:block w-px h-8 bg-white/10" />
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-primary/15 border border-primary/25 flex items-center justify-center flex-shrink-0">
+              <Star className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-white">Satisfaction guaranteed</p>
+              <p className="text-xs text-slate-400">We'll make it right or refund you</p>
+            </div>
+          </div>
+        </motion.div>
+      </div>
 
       <section className="py-20 relative">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">

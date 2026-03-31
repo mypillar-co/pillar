@@ -209,7 +209,7 @@ function ComposePostDialog({
   open: boolean; onClose: () => void; onCreated: () => void; accounts: SocialAccount[];
 }) {
   const connectedPlatforms = accounts.filter(a => a.isConnected).map(a => a.platform);
-  const defaultPlatforms = connectedPlatforms.length > 0 ? [connectedPlatforms[0]] : [];
+  const defaultPlatforms = connectedPlatforms.length > 0 ? [connectedPlatforms[0]] : [Object.keys(PLATFORM_META)[0]];
 
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(defaultPlatforms);
   const [content, setContent] = useState("");
@@ -226,7 +226,7 @@ function ComposePostDialog({
   useEffect(() => {
     if (open) {
       const connected = accounts.filter(a => a.isConnected).map(a => a.platform);
-      setSelectedPlatforms(connected.length > 0 ? [connected[0]] : []);
+      setSelectedPlatforms(connected.length > 0 ? [connected[0]] : [Object.keys(PLATFORM_META)[0]]);
       setActivePlatformForGen(connected[0] ?? "facebook");
       setContent(""); setMediaUrl(""); setScheduledAt(""); setImagePromptSuggestion(""); setTopic("");
       setImageUploading(false);
@@ -319,19 +319,16 @@ function ComposePostDialog({
                 return (
                   <button
                     key={key}
-                    onClick={() => isConnected && togglePlatform(key)}
-                    disabled={!isConnected}
+                    onClick={() => togglePlatform(key)}
                     className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-all ${
-                      !isConnected
-                        ? "border-white/10 text-slate-600 cursor-not-allowed"
-                        : isSelected
+                      isSelected
                         ? `${meta.bgColor} ${meta.color} border-current/30`
                         : "border-white/10 text-slate-400 hover:border-white/20"
                     }`}
                   >
                     <Icon className="w-3.5 h-3.5" />
                     {meta.label}
-                    {!isConnected && <span className="text-slate-600 ml-1">(not connected)</span>}
+                    {!isConnected && <span className="opacity-50 ml-1">•</span>}
                   </button>
                 );
               })}
@@ -687,18 +684,16 @@ function AutomationRuleDialog({
                 return (
                   <button
                     key={key}
-                    onClick={() => isConnected && togglePlatform(key)}
-                    disabled={!isConnected}
+                    onClick={() => togglePlatform(key)}
                     className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-all ${
-                      !isConnected
-                        ? "border-white/10 text-slate-600 cursor-not-allowed"
-                        : isSelected
+                      isSelected
                         ? `${meta.bgColor} ${meta.color} border-current/30`
                         : "border-white/10 text-slate-400 hover:border-white/20"
                     }`}
                   >
                     <Icon className="w-3.5 h-3.5" />
                     {meta.label}
+                    {!isConnected && <span className="opacity-50 ml-1">•</span>}
                   </button>
                 );
               })}
@@ -1359,7 +1354,7 @@ function ContentStrategySection() {
 }
 
 export default function Social() {
-  const { data: subscriptionData } = useGetSubscription();
+  const { data: subscriptionData, isLoading: subscriptionLoading } = useGetSubscription();
   const tier = subscriptionData?.tierId ?? null;
   const hasSocial = TIER_ALLOWS_SOCIAL.has(tier ?? "");
   const hasStrategy = TIER_ALLOWS_STRATEGY.has(tier ?? "");
@@ -1396,6 +1391,14 @@ export default function Social() {
       window.history.replaceState({}, "", url.toString());
     }
   }, [queryClient]);
+
+  if (subscriptionLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   if (!hasSocial) {
     return (

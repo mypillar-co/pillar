@@ -32,7 +32,7 @@ import {
   websiteSpecsTable,
   subscriptionsTable,
 } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, desc, asc, isNotNull } from "drizzle-orm";
 
 const router: IRouter = Router();
 
@@ -55,7 +55,9 @@ router.get("/organizations", async (req: Request, res: Response) => {
   const [org] = await db
     .select()
     .from(organizationsTable)
-    .where(eq(organizationsTable.userId, req.user.id));
+    .where(eq(organizationsTable.userId, req.user.id))
+    .orderBy(desc(isNotNull(organizationsTable.tier)), asc(organizationsTable.createdAt))
+    .limit(1);
 
   res.json({
     organization: org
@@ -83,11 +85,13 @@ router.post("/organizations", async (req: Request, res: Response) => {
 
   const userId = req.user.id;
 
-  // Check for existing org
+  // Check for existing org (prefer one with a tier set)
   const [existing] = await db
     .select()
     .from(organizationsTable)
-    .where(eq(organizationsTable.userId, userId));
+    .where(eq(organizationsTable.userId, userId))
+    .orderBy(desc(isNotNull(organizationsTable.tier)), asc(organizationsTable.createdAt))
+    .limit(1);
 
   let org;
 
