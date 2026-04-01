@@ -6,6 +6,7 @@ import { buildSiteFromTemplate, type SiteContent } from "../siteTemplate";
 import { load as cheerioLoad } from "cheerio";
 import { promises as dnsPromises } from "dns";
 import { isIP } from "net";
+import * as ipaddr from "ipaddr.js";
 
 const router = Router();
 
@@ -204,28 +205,30 @@ function extractVisibleText(html: string): string {
   return text;
 }
 
+const NON_PUBLIC_RANGES = new Set([
+  "loopback", "private", "linkLocal", "carrierGradeNat",
+  "broadcast", "multicast", "unspecified", "reserved",
+  // IPv6-specific
+  "uniqueLocal", "ipv4Mapped", "rfc6145", "rfc6052", "6to4", "teredo",
+]);
+
 function isPrivateIp(ip: string): boolean {
-  // IPv6 loopback / link-local / ULA
-  const low = ip.toLowerCase();
-  if (low === "::1") return true;
-  if (low.startsWith("fe80:")) return true;
-  if (low.startsWith("fc") || low.startsWith("fd")) return true;
-  // IPv4-mapped IPv6
-  const v4mapped = low.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (v4mapped) return isPrivateIp(v4mapped[1]);
-  // IPv4
-  const parts = ip.split(".");
-  if (parts.length !== 4) return false;
-  const [a, b] = parts.map(Number);
-  if (isNaN(a) || isNaN(b)) return false;
-  if (a === 10) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 0) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  return false;
+  try {
+    const addr = ipaddr.parse(ip);
+    const range = addr.range();
+    if (NON_PUBLIC_RANGES.has(range)) return true;
+    // IPv4-mapped IPv6 — unwrap and re-check the embedded IPv4 address
+    if (addr.kind() === "ipv6") {
+      const v6 = addr as ipaddr.IPv6;
+      if (v6.isIPv4MappedAddress()) {
+        const v4 = v6.toIPv4Address();
+        return NON_PUBLIC_RANGES.has(v4.range());
+      }
+    }
+    return false;
+  } catch {
+    return true; // unparseable → treat as unsafe
+  }
 }
 
 async function isSafeUrl(url: URL): Promise<boolean> {
