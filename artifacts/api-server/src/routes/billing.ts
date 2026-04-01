@@ -187,14 +187,21 @@ router.get("/billing/subscription", async (req: Request, res: Response) => {
       return;
     }
 
+    // DB is the authoritative source for tierId — Stripe metadata may be empty
+    // on manually-provisioned accounts or early test subscriptions.
     const tierId = (sub.metadata?.tierId || org.tier) || null;
     const tier = tierId ? getTierById(tierId) : undefined;
 
+    // Consider active if Stripe says active OR trialing, OR the DB marks the
+    // org as active (covers manually-provisioned / admin-granted accounts).
+    const stripeActive = ["active", "trialing"].includes(sub.status);
+    const dbActive = org.subscriptionStatus === "active" && !!org.tier;
+
     res.json({
-      hasSubscription: sub.status === "active",
+      hasSubscription: stripeActive || dbActive,
       tierId,
       tierName: tier?.name ?? null,
-      status: sub.status,
+      status: stripeActive ? sub.status : (org.subscriptionStatus ?? sub.status),
       currentPeriodEnd: sub.items.data[0]?.current_period_end
         ? new Date(sub.items.data[0].current_period_end * 1000).toISOString()
         : null,
