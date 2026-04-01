@@ -1,4 +1,4 @@
-import { db, organizationsTable, subscriptionsTable, ticketSalesTable, ticketTypesTable } from "@workspace/db";
+import { db, organizationsTable, subscriptionsTable, ticketSalesTable, ticketTypesTable, registrationsTable } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
 import { getStripeSync } from "./stripeClient";
 import { logger } from "./lib/logger";
@@ -254,6 +254,20 @@ export class WebhookHandlers {
         if (session.metadata?.saleId || (session.metadata?.eventId && session.metadata?.ticketTypeId)) {
           await handleTicketPaymentCompleted(session);
         }
+
+        // Registration payment completed
+        if (session.metadata?.type === "registration" && session.metadata?.registrationId) {
+          await db
+            .update(registrationsTable)
+            .set({
+              status: "pending_approval",
+              stripePaymentStatus: "paid",
+              paidAt: new Date(),
+            })
+            .where(eq(registrationsTable.id, session.metadata.registrationId));
+          logger.info({ registrationId: session.metadata.registrationId }, "Registration payment completed");
+        }
+
         break;
       }
 

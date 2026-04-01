@@ -22,6 +22,7 @@ import {
   Sparkles,
   Vote,
   HelpCircle,
+  ClipboardList,
 } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetOrganization } from "@workspace/api-client-react";
@@ -47,6 +48,7 @@ const NAV_ITEMS: NavItemExt[] = [
   { label: "Contacts", href: "/dashboard/contacts", icon: Contact2 },
   { label: "Sponsors", href: "/dashboard/sponsors", icon: Star },
   { label: "Vendors", href: "/dashboard/vendors", icon: Users },
+  { label: "Registrations", href: "/dashboard/registrations", icon: ClipboardList },
   { label: "Payments", href: "/dashboard/payments", icon: DollarSign, tourId: "payments" },
   { label: "Domain", href: "/dashboard/domains", icon: LinkIcon },
   { label: "Settings", href: "/dashboard/settings", icon: Settings },

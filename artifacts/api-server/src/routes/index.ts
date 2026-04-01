@@ -20,6 +20,7 @@ import contentRouter from "./content";
 import boardLinksRouter from "./boardLinks";
 import supportRouter from "./support";
 import emailSettingsRouter from "./emailSettings";
+import registrationsRouter from "./registrations";
 
 const router: IRouter = Router();
 
@@ -44,5 +45,6 @@ router.use("/board-links", boardLinksRouter);
 router.use(connectRouter);
 router.use("/support", supportRouter);
 router.use("/email-settings", emailSettingsRouter);
+router.use(registrationsRouter);
 
 export default router;

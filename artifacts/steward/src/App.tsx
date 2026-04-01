@@ -13,6 +13,7 @@ import Terms from "./pages/Terms";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import DPA from "./pages/DPA";
 import BoardApproval from "./pages/BoardApproval";
+import PublicRegistration, { RegistrationSuccess } from "./pages/PublicRegistration";
 import NotFound from "./pages/not-found";
 import PublicEvent from "./pages/PublicEvent";
 import TicketSuccess from "./pages/TicketSuccess";
@@ -34,6 +35,7 @@ import Social from "./pages/dashboard/Social";
 import ContentStudio from "./pages/dashboard/ContentStudio";
 import BoardLinksPage from "./pages/dashboard/BoardLinks";
 import Help from "./pages/dashboard/Help";
+import Registrations from "./pages/dashboard/Registrations";
 import Admin from "./pages/Admin";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -82,6 +84,8 @@ function AppRouter() {
       <Route path="/privacy" component={PrivacyPolicy} />
       <Route path="/dpa" component={DPA} />
       <Route path="/board/:token" component={BoardApproval} />
+      <Route path="/apply/:orgSlug/success" component={RegistrationSuccess} />
+      <Route path="/apply/:orgSlug" component={PublicRegistration} />
       <Route path="/for/lodges" component={LodgesPage} />
       <Route path="/for/rotary" component={RotaryPage} />
       <Route path="/for/vfw" component={VFWPage} />
@@ -111,6 +115,7 @@ function AppRouter() {
       <Route path="/dashboard/studio"><DB><ContentStudio /></DB></Route>
       <Route path="/dashboard/board-links"><DB><BoardLinksPage /></DB></Route>
       <Route path="/dashboard/help"><DB><Help /></DB></Route>
+      <Route path="/dashboard/registrations"><DB><Registrations /></DB></Route>
       <Route path="/dashboard"><DB><Overview /></DB></Route>
 
       <Route>

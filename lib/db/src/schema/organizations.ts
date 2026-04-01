@@ -29,6 +29,8 @@ export const organizationsTable = pgTable("organizations", {
   emailForwardAlias: varchar("email_forward_alias"),
   emailForwardDestination: varchar("email_forward_destination"),
   emailForwardActive: boolean("email_forward_active").default(false),
+  vendorFeeCents: integer("vendor_fee_cents").notNull().default(0),
+  sponsorFeeCents: integer("sponsor_fee_cents").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

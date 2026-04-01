@@ -18,3 +18,4 @@ export * from "./supportTickets";
 export * from "./agentLogs";
 export * from "./contentQueue";
 export * from "./outreachProspects";
+export * from "./registrations";
