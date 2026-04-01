@@ -502,42 +502,101 @@ export default function Domains() {
 
       {/* Bring your own domain (BYOD) */}
       {hasAnyTier && !hasDomain && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-white">Already own a domain?</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Connect a domain you registered elsewhere.</p>
+        <div className="rounded-xl border border-white/10 bg-card/30 overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between p-4 border-b border-white/8">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <Link2 className="w-4 h-4 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white">Connect your own domain</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Already registered a domain somewhere else? Point it here in 3 steps.</p>
+              </div>
             </div>
             <Button
               size="sm"
               variant="outline"
-              className="gap-2 border-white/10 hover:bg-white/5"
+              className="gap-2 border-white/10 hover:bg-white/5 flex-shrink-0"
               onClick={() => setShowByodForm(v => !v)}
             >
               <Link2 className="w-3.5 h-3.5" />
-              {showByodForm ? "Cancel" : "Connect Domain"}
+              {showByodForm ? "Cancel" : "Get started"}
             </Button>
           </div>
 
-          {showByodForm && (
-            <div className="flex gap-2">
-              <Input
-                value={byodInput}
-                onChange={e => setByodInput(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter") handleAddExternal(); }}
-                placeholder="e.g. myexistingdomain.com"
-                className="bg-white/5 border-white/10 text-white placeholder:text-slate-500"
-              />
-              <Button
-                onClick={handleAddExternal}
-                disabled={!byodInput.trim() || addingExternal}
-                className="flex-shrink-0 gap-2"
-              >
-                {addingExternal ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                Add
-              </Button>
+          {/* Steps — always visible */}
+          <div className="p-4 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {[
+                {
+                  n: "1",
+                  title: "Enter your domain",
+                  body: "Type your domain name below (e.g. norwinrotary.org). You don't need to change anything at your registrar yet.",
+                },
+                {
+                  n: "2",
+                  title: "Copy the DNS record",
+                  body: "Pillar gives you an exact record to add — a CNAME or A record. It looks like a short text value you'll paste into your registrar.",
+                },
+                {
+                  n: "3",
+                  title: "Add it at your registrar",
+                  body: "Log in to wherever you bought your domain (GoDaddy, Namecheap, Cloudflare, Google Domains, etc.), go to DNS settings, and paste the record.",
+                },
+              ].map(s => (
+                <div key={s.n} className="flex gap-3">
+                  <div className="w-6 h-6 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center flex-shrink-0 text-primary text-xs font-bold mt-0.5">
+                    {s.n}
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-white mb-0.5">{s.title}</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{s.body}</p>
+                  </div>
+                </div>
+              ))}
             </div>
-          )}
+
+            <div className="rounded-lg bg-white/5 border border-white/8 p-3">
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                <span className="text-white font-medium">Where to find DNS settings:</span>{" "}
+                Look for "DNS," "Name Servers," or "Advanced DNS" in your domain registrar's control panel.
+                Common registrars:{" "}
+                <a href="https://dcc.godaddy.com/manage" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">GoDaddy</a>
+                {" · "}
+                <a href="https://ap.www.namecheap.com/domains/list" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Namecheap</a>
+                {" · "}
+                <a href="https://dash.cloudflare.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Cloudflare</a>
+                {" · "}
+                <a href="https://domains.google.com/registrar" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Google Domains</a>
+                {" · "}
+                <a href="https://porkbun.com/account/domainsSpeedy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Porkbun</a>
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-1.5">
+                DNS changes typically take <span className="text-white">5–30 minutes</span> but can take up to 48 hours. Once you've added the record, come back here and click "Verify DNS."
+              </p>
+            </div>
+
+            {showByodForm && (
+              <div className="flex gap-2 pt-1">
+                <Input
+                  value={byodInput}
+                  onChange={e => setByodInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") handleAddExternal(); }}
+                  placeholder="e.g. norwinrotary.org"
+                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-500"
+                />
+                <Button
+                  onClick={handleAddExternal}
+                  disabled={!byodInput.trim() || addingExternal}
+                  className="flex-shrink-0 gap-2"
+                >
+                  {addingExternal ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  Add
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -680,14 +739,37 @@ export default function Domains() {
       {(activeDomain || pendingDomain) && (() => {
         const d = activeDomain ?? pendingDomain!;
         return (
-          <div className="p-4 rounded-xl border border-white/10 bg-card/30 space-y-4">
-            <h3 className="text-sm font-semibold text-white">DNS Configuration</h3>
+          <div className="rounded-xl border border-white/10 bg-card/30 overflow-hidden">
+            <div className="flex items-center gap-3 p-4 border-b border-white/8">
+              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <Globe className="w-4 h-4 text-primary" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-white">DNS Configuration</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {d.status === "active" ? `${d.domain} is connected and live.` : `Point ${d.domain} to Pillar by adding a DNS record at your registrar.`}
+                </p>
+              </div>
+            </div>
+            <div className="p-4 space-y-4">
             {d.isExternal ? (
               <>
-                <p className="text-xs text-muted-foreground">
-                  To connect <span className="text-white font-mono">{d.domain}</span> to your Pillar site, add the
-                  DNS record below at your registrar. Changes can take up to 48 hours to propagate.
-                </p>
+                <div className="rounded-lg bg-primary/5 border border-primary/15 p-3 space-y-1.5">
+                  <p className="text-xs font-semibold text-white">What to do:</p>
+                  <ol className="space-y-1">
+                    {[
+                      `Log in to where you registered ${d.domain} (GoDaddy, Namecheap, Cloudflare, etc.)`,
+                      'Go to "DNS," "Name Servers," or "Advanced DNS" settings',
+                      "Add the record(s) shown below — copy the value with the copy button",
+                      'Save the changes, then return here and click "Verify DNS"',
+                    ].map((step, i) => (
+                      <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                        <span className="text-primary font-bold flex-shrink-0">{i + 1}.</span>
+                        {step}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
                 {/* CNAME instruction (for subdomains like www.yourdomain.com) */}
                 <div className="space-y-1">
                   <p className="text-[11px] font-semibold text-white/70 uppercase tracking-wide">For subdomains (e.g. www)</p>
@@ -791,6 +873,7 @@ export default function Domains() {
                 Verify DNS
               </Button>
             )}
+            </div>
           </div>
         );
       })()}
