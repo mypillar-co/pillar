@@ -1,9 +1,10 @@
 import React, { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Save, Building2, Loader2, Sparkles, RotateCcw, TriangleAlert, Trash2, Mail, ArrowRight, CheckCircle2, Copy, RefreshCw, X, Forward } from "lucide-react";
+import { Save, Building2, Loader2, Sparkles, RotateCcw, TriangleAlert, Trash2, Mail, ArrowRight, CheckCircle2, Copy, RefreshCw, X, Forward, Users, UserPlus, UserX } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { useGetOrganization } from "@workspace/api-client-react";
+import { csrfHeaders } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -80,6 +81,168 @@ function DnsRecordRow({ record }: { record: DnsRecord }) {
         <CopyButton value={record.value} />
       </div>
     </div>
+  );
+}
+
+type OrgMember = {
+  id: string;
+  email: string | null;
+  name?: string | null;
+  role: string;
+  status: "active" | "pending";
+  userId: string | null;
+  invitedAt?: string;
+  acceptedAt?: string | null;
+};
+
+function OrgMembersCard() {
+  const queryClient = useQueryClient();
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [showInviteInput, setShowInviteInput] = useState(false);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["org-members"],
+    queryFn: () => fetch(`${BASE}/api/org-members`, { credentials: "include" }).then(r => r.json()) as Promise<{ owner: OrgMember | null; members: OrgMember[] }>,
+  });
+
+  const inviteMutation = useMutation({
+    mutationFn: async (email: string) => {
+      const res = await fetch(`${BASE}/api/org-members/invite`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...csrfHeaders("POST") },
+        body: JSON.stringify({ email }),
+      });
+      const json = await res.json() as { ok?: boolean; error?: string; inviteUrl?: string; email?: string };
+      if (!res.ok) throw new Error(json.error ?? "Failed to send invite");
+      return json;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["org-members"] });
+      setInviteEmail("");
+      setShowInviteInput(false);
+      if (data.inviteUrl) {
+        navigator.clipboard.writeText(data.inviteUrl ?? "").catch(() => {});
+        toast.success(`Invite sent to ${data.email}. Link copied to clipboard.`);
+      } else {
+        toast.success(`Invite sent to ${data.email}!`);
+      }
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`${BASE}/api/org-members/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+        headers: { ...csrfHeaders("DELETE") },
+      });
+      const json = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Failed to remove member");
+      return json;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-members"] });
+      toast.success("Member removed.");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const allMembers = [
+    ...(data?.owner ? [data.owner] : []),
+    ...(data?.members ?? []),
+  ];
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Users className="w-4 h-4 text-[#c9a227]" />
+            <CardTitle className="text-base">Team Members</CardTitle>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-white/10 text-slate-300 hover:text-white hover:bg-white/5 gap-1.5"
+            onClick={() => setShowInviteInput(v => !v)}
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            Invite
+          </Button>
+        </div>
+        <CardDescription className="text-slate-400 text-sm">
+          Invite admins to help manage your organization.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {showInviteInput && (
+          <div className="flex gap-2 p-3 bg-white/5 rounded-lg border border-white/10">
+            <Input
+              type="email"
+              placeholder="admin@example.com"
+              value={inviteEmail}
+              onChange={e => setInviteEmail(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && inviteEmail) inviteMutation.mutate(inviteEmail); }}
+              className="bg-transparent border-white/10 text-white placeholder:text-slate-600 h-8 text-sm"
+              autoFocus
+            />
+            <Button
+              size="sm"
+              onClick={() => inviteEmail && inviteMutation.mutate(inviteEmail)}
+              disabled={!inviteEmail || inviteMutation.isPending}
+              className="bg-[#c9a227] hover:bg-[#b8911f] text-black shrink-0 h-8"
+            >
+              {inviteMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Send"}
+            </Button>
+          </div>
+        )}
+        {isLoading ? (
+          <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-slate-500" /></div>
+        ) : allMembers.length === 0 ? (
+          <p className="text-sm text-slate-500 text-center py-2">No team members yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {allMembers.map(member => (
+              <div key={member.id} className="flex items-center justify-between p-2.5 rounded-lg bg-white/3 border border-white/5">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center shrink-0">
+                    <span className="text-xs font-semibold text-slate-300">
+                      {(member.email ?? member.name ?? "?")[0].toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm text-white truncate">{member.email ?? member.name ?? "Unknown"}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <Badge variant="outline" className="text-xs px-1.5 py-0 capitalize border-white/10 text-slate-400">
+                        {member.role}
+                      </Badge>
+                      {member.status === "pending" && (
+                        <Badge variant="outline" className="text-xs px-1.5 py-0 border-yellow-500/30 text-yellow-400">
+                          Pending
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                {member.role !== "owner" && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0 text-slate-500 hover:text-red-400 hover:bg-red-500/10 shrink-0"
+                    onClick={() => removeMutation.mutate(member.id)}
+                    disabled={removeMutation.isPending}
+                  >
+                    <UserX className="w-3.5 h-3.5" />
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -501,6 +664,9 @@ export default function DashboardSettings() {
           <p className="text-xs text-muted-foreground">To change your account details, update your profile in your account settings.</p>
         </CardContent>
       </Card>
+
+      {/* Team Members */}
+      <OrgMembersCard />
 
       {/* Danger Zone */}
       <Card className="border-red-500/20 bg-red-950/10">

@@ -67,6 +67,8 @@ export const ticketSalesTable = pgTable("ticket_sales", {
 }, (table) => ({
   eventIdx: index("ts_event_idx").on(table.eventId),
   orgIdx: index("ts_org_idx").on(table.orgId),
+  checkoutIdx: index("ts_checkout_idx").on(table.stripeCheckoutSessionId),
+  paymentIntentIdx: index("ts_payment_intent_idx").on(table.stripePaymentIntentId),
 }));
 
 export const eventApprovalsTable = pgTable("event_approvals", {
@@ -116,6 +118,7 @@ export const recurringEventTemplatesTable = pgTable("recurring_event_templates",
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => ({
   orgIdx: index("ret_org_idx").on(table.orgId),
+  nextGenerateIdx: index("ret_next_generate_idx").on(table.nextGenerateAt),
 }));
 
 export type Event = typeof eventsTable.$inferSelect;

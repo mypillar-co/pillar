@@ -1,0 +1,174 @@
+Stop presenting Pillar as a feature dashboard and start presenting it as an Organization Command Center
+Right now the UI likely feels like:
+"Here are the tools you can use."
+It should feel like:
+"Here is what your organization needs attention on today."
+This is the difference between:
+Software UI → Feature navigation
+Operating system UI → Situation awareness
+And you are building an operating system.
+The biggest UX mistake most SaaS makes (and you are close to it)
+Most dashboards look like:
+Events
+Contacts
+Website
+Payments
+AI
+Settings
+That is product-centric navigation.
+Your users don't think like that.
+Rotary leaders think like:
+What needs done?
+What is broken?
+What is coming up?
+Who hasn't paid?
+What is overdue?
+That is operations-centric thinking.
+What your dashboard should look like instead
+The homepage after login should be:
+Organization Health Dashboard
+Top section:
+Today at a glance
+Upcoming events
+Pending approvals
+Unpaid invoices
+Upcoming deadlines
+AI recommendations
+Example:
+Organization Status
+Next event: 8 days
+2 vendor approvals pending
+3 unpaid registrations
+Website live
+Stripe connected
+Then:
+Needs attention
+Vendor approval pending
+Social post awaiting review
+Board vote required
+Then:
+Upcoming
+Event: May fundraiser
+Renew insurance
+Send newsletter
+Then:
+AI Suggestions
+Suggested sponsor outreach email
+Suggested social post
+Suggested volunteer request
+Why this matters more than design polish
+Because this changes Pillar from:
+"Software you log into"
+Into:
+"The place you run your organization."
+That is a massive psychological shift.
+And that is what makes SaaS sticky.
+The UX principle you should adopt
+Everything should answer:
+"What should I do next?"
+Not:
+"What can this system do?"
+Features belong in side nav.
+Decisions belong on the dashboard.
+The mental model shift
+Right now:
+Navigation → Features
+Should become:
+Navigation → Roles
+Example nav:
+Overview
+Operations
+Events
+Members
+Finance
+Communications
+Website
+Settings
+Not:
+Events
+Contacts
+Sites
+AI
+Payments
+Group by how organizations think.
+The one specific UI change I would implement tomorrow
+Replace your dashboard hero with:
+Organization Health Score
+Simple status indicator:
+Green = running well
+Yellow = needs attention
+Red = action needed
+With reasons:
+Health: Good
+1 event upcoming
+No unpaid tickets
+Website live
+No pending approvals
+or
+Health: Needs Attention
+3 unpaid registrations
+Stripe not connected
+2 vendor approvals pending
+This gives leadership instant clarity.
+Executives love this kind of framing.
+Why this is especially powerful for your audience
+Your customers are:
+Volunteers
+Busy
+Not tech people
+Often older
+Often overwhelmed
+They don't want tools.
+They want:
+clarity
+If Pillar gives clarity, they stay forever.
+What great vertical SaaS does
+They don't show tools.
+They show:
+State
+Risk
+Next actions
+Example inspiration patterns:
+Toast (restaurants)
+Mindbody (gyms)
+ServiceTitan (contractors)
+They show:
+"Here's what's happening."
+The hidden advantage you already have
+You already track:
+events
+payments
+registrations
+approvals
+sites
+social
+You already have the data.
+You just need to change presentation layer priorities.
+This is mostly UI + aggregation logic.
+If I were redesigning Pillar UX direction:
+The hierarchy becomes:
+1 Organization status
+2 Action required
+3 Upcoming timeline
+4 AI recommendations
+5 Feature navigation
+Not:
+1 Feature navigation
+2 Feature navigation
+3 Feature navigation
+The real product transformation this creates
+This moves Pillar from:
+Event software + website builder
+Into:
+Operations intelligence platform
+That's a category jump.
+And category positioning is where valuations come from.
+My honest product verdict
+You are extremely close.
+Your product has:
+Real depth
+Real workflows
+Real customers
+Real differentiation
+You just need to present it like infrastructure instead of tooling.
+That is mostly a UX philosophy shift, not a rebuild.

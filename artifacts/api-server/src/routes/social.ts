@@ -4,6 +4,7 @@ import {
   contentStrategyTable, organizationsTable, eventsTable, oauthStatesTable,
 } from "@workspace/db";
 import { eq, and, desc, gte, lt, isNotNull, asc } from "drizzle-orm";
+import { resolveFullOrg } from "../lib/resolveOrg";
 import { randomBytes, createHash } from "crypto";
 import { logger } from "../lib/logger";
 import { encryptToken, decryptToken } from "../lib/tokenCrypto";
@@ -137,18 +138,6 @@ function tierAllowsStrategy(tier: string | null | undefined): boolean {
   return tier === "tier3";
 }
 
-async function resolveOrg(req: Request, res: Response) {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return null; }
-  const [org] = await db
-    .select({ id: organizationsTable.id, name: organizationsTable.name, tier: organizationsTable.tier })
-    .from(organizationsTable)
-    .where(eq(organizationsTable.userId, req.user.id))
-    .orderBy(desc(isNotNull(organizationsTable.tier)), asc(organizationsTable.createdAt))
-    .limit(1);
-  if (!org) { res.status(404).json({ error: "Organization not found" }); return null; }
-  return org;
-}
-
 function computeNextRun(frequency: string, dayOfWeek?: string | null, timeOfDay?: string | null): Date {
   const now = new Date();
   const next = new Date(now);
@@ -175,7 +164,7 @@ function computeNextRun(frequency: string, dayOfWeek?: string | null, timeOfDay?
 // ─── OAuth Flows ─────────────────────────────────────────────────
 
 router.get("/oauth/:platform/start", async (req, res) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
@@ -486,7 +475,7 @@ router.get("/oauth/twitter/callback", async (req, res) => {
 // ─── Accounts ───────────────────────────────────────────────────
 
 router.get("/accounts", async (req, res) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
@@ -500,7 +489,7 @@ router.get("/accounts", async (req, res) => {
 });
 
 router.post("/accounts", async (req, res) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
@@ -544,7 +533,7 @@ router.post("/accounts", async (req, res) => {
 });
 
 router.delete("/accounts/:id", async (req, res) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
@@ -590,7 +579,7 @@ router.delete("/accounts/:id", async (req, res) => {
 // ─── AI Post Generation (static route before /:id) ──────────────
 
 router.post("/posts/generate", async (req, res) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
@@ -671,7 +660,7 @@ router.post("/posts/generate", async (req, res) => {
 // ─── Posts ──────────────────────────────────────────────────────
 
 router.get("/posts", async (req, res) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
@@ -688,7 +677,7 @@ router.get("/posts", async (req, res) => {
 });
 
 router.post("/posts", async (req, res) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
@@ -728,7 +717,7 @@ router.post("/posts", async (req, res) => {
 });
 
 router.put("/posts/:id", async (req, res) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
@@ -800,7 +789,7 @@ router.put("/posts/:id", async (req, res) => {
 });
 
 router.delete("/posts/:id", async (req, res) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
@@ -830,7 +819,7 @@ router.delete("/posts/:id", async (req, res) => {
 // ─── Automation Rules ───────────────────────────────────────────
 
 router.get("/rules", async (req, res) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
@@ -844,7 +833,7 @@ router.get("/rules", async (req, res) => {
 });
 
 router.post("/rules", async (req, res) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
@@ -885,7 +874,7 @@ router.post("/rules", async (req, res) => {
 });
 
 router.put("/rules/:id", async (req, res) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
@@ -948,7 +937,7 @@ router.put("/rules/:id", async (req, res) => {
 });
 
 router.delete("/rules/:id", async (req, res) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
@@ -966,7 +955,7 @@ router.delete("/rules/:id", async (req, res) => {
 // ─── Content Strategy (Tier 3) ──────────────────────────────────
 
 router.get("/strategy", async (req, res) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsStrategy(org.tier)) { res.status(403).json({ error: "Content strategy requires the Total Operations plan" }); return; }
 
@@ -979,7 +968,7 @@ router.get("/strategy", async (req, res) => {
 });
 
 router.put("/strategy", async (req, res) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsStrategy(org.tier)) { res.status(403).json({ error: "Content strategy requires the Total Operations plan" }); return; }
 

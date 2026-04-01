@@ -19,3 +19,6 @@ export * from "./agentLogs";
 export * from "./contentQueue";
 export * from "./outreachProspects";
 export * from "./registrations";
+export * from "./schedulerLocks";
+export * from "./orgMembers";
+export * from "./passwordResets";

@@ -1,15 +1,9 @@
 import { Router, type Request, type Response } from "express";
-import { db, sponsorsTable, organizationsTable } from "@workspace/db";
+import { db, sponsorsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { resolveOrgId as resolveOrg } from "../lib/resolveOrg";
 
 const router = Router();
-
-async function resolveOrg(req: Request, res: Response): Promise<string | null> {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return null; }
-  const [org] = await db.select({ id: organizationsTable.id }).from(organizationsTable).where(eq(organizationsTable.userId, req.user.id));
-  if (!org) { res.status(404).json({ error: "Organization not found" }); return null; }
-  return org.id;
-}
 
 // GET /api/sponsors
 router.get("/", async (req: Request, res: Response) => {

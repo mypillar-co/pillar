@@ -2,8 +2,9 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { Readable } from "stream";
 import { z } from "zod";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
-import { db, organizationsTable } from "@workspace/db";
+import { db, organizationsTable, orgMembersTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
+import { getOrgIdForUser } from "../lib/resolveOrg";
 
 const RequestUploadUrlBody = z.object({
   name: z.string(),
@@ -19,6 +20,11 @@ const RequestUploadUrlResponse = z.object({
     size: z.number(),
     contentType: z.string(),
   }),
+});
+
+const ConfirmUploadBody = z.object({
+  objectPath: z.string(),
+  size: z.number(),
 });
 
 const router: IRouter = Router();
@@ -42,6 +48,8 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
 }
 
+// ─── Request presigned upload URL ─────────────────────────────────────────────
+// Does NOT increment quota. Call /storage/uploads/confirm after successful upload.
 router.post("/storage/uploads/request-url", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
@@ -56,10 +64,16 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
 
   const { name, size, contentType } = parsed.data;
 
+  const orgId = await getOrgIdForUser(req.user!.id);
+  if (!orgId) {
+    res.status(404).json({ error: "Organization not found" });
+    return;
+  }
+
   const [org] = await db
     .select({ id: organizationsTable.id, tier: organizationsTable.tier, storageUsedBytes: organizationsTable.storageUsedBytes })
     .from(organizationsTable)
-    .where(eq(organizationsTable.userId, req.user!.id));
+    .where(eq(organizationsTable.id, orgId));
 
   if (!org) {
     res.status(404).json({ error: "Organization not found" });
@@ -82,11 +96,6 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
     const uploadURL = await objectStorageService.getObjectEntityUploadURL();
     const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
 
-    await db
-      .update(organizationsTable)
-      .set({ storageUsedBytes: sql`${organizationsTable.storageUsedBytes} + ${size}` })
-      .where(eq(organizationsTable.id, org.id));
-
     res.json(
       RequestUploadUrlResponse.parse({
         uploadURL,
@@ -100,6 +109,36 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
   }
 });
 
+// ─── Confirm successful upload and increment quota ─────────────────────────────
+router.post("/storage/uploads/confirm", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const parsed = ConfirmUploadBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Missing or invalid required fields" });
+    return;
+  }
+
+  const { size } = parsed.data;
+
+  const orgId = await getOrgIdForUser(req.user!.id);
+  if (!orgId) {
+    res.status(404).json({ error: "Organization not found" });
+    return;
+  }
+
+  await db
+    .update(organizationsTable)
+    .set({ storageUsedBytes: sql`${organizationsTable.storageUsedBytes} + ${size}` })
+    .where(eq(organizationsTable.id, orgId));
+
+  res.json({ ok: true });
+});
+
+// ─── Serve public objects (no auth required) ────────────────────────────────
 router.get("/storage/public-objects/*filePath", async (req: Request, res: Response) => {
   try {
     const raw = req.params.filePath;
@@ -124,7 +163,20 @@ router.get("/storage/public-objects/*filePath", async (req: Request, res: Respon
   }
 });
 
+// ─── Serve private objects — requires authentication ────────────────────────
+// Only the authenticated org owner or org members can download private files.
 router.get("/storage/objects/*path", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const orgId = await getOrgIdForUser(req.user!.id);
+  if (!orgId) {
+    res.status(403).json({ error: "Forbidden: no organization found for this account" });
+    return;
+  }
+
   try {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;

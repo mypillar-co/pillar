@@ -23,6 +23,7 @@ import {
   Vote,
   HelpCircle,
   ClipboardList,
+  ShoppingBag,
 } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetOrganization } from "@workspace/api-client-react";
@@ -34,48 +35,81 @@ type NavItem = {
   label: string;
   href: string;
   icon: React.ElementType;
+  tourId?: string;
 };
 
-type NavItemExt = NavItem & { tourId?: string };
+type NavSection = {
+  title?: string;
+  items: NavItem[];
+};
 
-const NAV_ITEMS: NavItemExt[] = [
-  { label: "Overview", href: "/dashboard", icon: LayoutDashboard, tourId: "overview" },
-  { label: "Website", href: "/dashboard/site", icon: Globe, tourId: "site-builder" },
-  { label: "Events", href: "/dashboard/events", icon: Calendar, tourId: "events" },
-  { label: "Communications", href: "/dashboard/social", icon: Share2, tourId: "social" },
-  { label: "Content Studio", href: "/dashboard/studio", icon: Sparkles },
-  { label: "Approvals", href: "/dashboard/board-links", icon: Vote },
-  { label: "Contacts", href: "/dashboard/contacts", icon: Contact2 },
-  { label: "Sponsors", href: "/dashboard/sponsors", icon: Star },
-  { label: "Vendors", href: "/dashboard/vendors", icon: Users },
-  { label: "Registrations", href: "/dashboard/registrations", icon: ClipboardList },
-  { label: "Payments", href: "/dashboard/payments", icon: DollarSign, tourId: "payments" },
-  { label: "Domain", href: "/dashboard/domains", icon: LinkIcon },
-  { label: "Settings", href: "/dashboard/settings", icon: Settings },
-  { label: "Help & Support", href: "/dashboard/help", icon: HelpCircle },
+const NAV_SECTIONS: NavSection[] = [
+  {
+    items: [
+      { label: "Overview", href: "/dashboard", icon: LayoutDashboard, tourId: "overview" },
+    ],
+  },
+  {
+    title: "Operations",
+    items: [
+      { label: "Registrations", href: "/dashboard/registrations", icon: ClipboardList },
+      { label: "Approvals", href: "/dashboard/board-links", icon: Vote },
+      { label: "Payments", href: "/dashboard/payments", icon: DollarSign, tourId: "payments" },
+    ],
+  },
+  {
+    title: "Events & Content",
+    items: [
+      { label: "Events", href: "/dashboard/events", icon: Calendar, tourId: "events" },
+      { label: "Communications", href: "/dashboard/social", icon: Share2, tourId: "social" },
+      { label: "Content Studio", href: "/dashboard/studio", icon: Sparkles },
+    ],
+  },
+  {
+    title: "People",
+    items: [
+      { label: "Contacts", href: "/dashboard/contacts", icon: Contact2 },
+      { label: "Sponsors", href: "/dashboard/sponsors", icon: Star },
+      { label: "Vendors", href: "/dashboard/vendors", icon: ShoppingBag },
+    ],
+  },
+  {
+    title: "Presence",
+    items: [
+      { label: "Website", href: "/dashboard/site", icon: Globe, tourId: "site-builder" },
+      { label: "Domain", href: "/dashboard/domains", icon: LinkIcon },
+    ],
+  },
+  {
+    title: "Account",
+    items: [
+      { label: "Settings", href: "/dashboard/settings", icon: Settings },
+      { label: "Help & Support", href: "/dashboard/help", icon: HelpCircle },
+    ],
+  },
 ];
 
 const BOTTOM_NAV: NavItem[] = [
   { label: "Billing", href: "/billing", icon: CreditCard },
 ];
 
-function NavLink({ item, collapsed, onClick }: { item: NavItemExt; collapsed: boolean; onClick?: () => void }) {
+function NavLink({ item, collapsed, onClick }: { item: NavItem; collapsed: boolean; onClick?: () => void }) {
   const [location] = useLocation();
-  const isActive = item.href === "/dashboard" 
-    ? location === "/dashboard" 
+  const isActive = item.href === "/dashboard"
+    ? location === "/dashboard"
     : location.startsWith(item.href);
   return (
     <Link href={item.href} onClick={onClick}>
       <div
         data-tour={item.tourId}
         className={cn(
-          "flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-all duration-150",
+          "flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all duration-150",
           isActive
             ? "bg-primary/15 text-primary font-medium"
             : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
         )}
       >
-        <item.icon className={cn("flex-shrink-0", collapsed ? "w-5 h-5" : "w-4.5 h-4.5")} />
+        <item.icon className={cn("flex-shrink-0 w-4 h-4")} />
         {!collapsed && <span className="text-sm truncate">{item.label}</span>}
       </div>
     </Link>
@@ -92,13 +126,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (authLoading || orgLoading) return;
-    if (!user) {
-      setLocation("/");
-      return;
-    }
-    if (!org) {
-      setLocation("/onboard");
-    }
+    if (!user) { setLocation("/"); return; }
+    if (!org) setLocation("/onboard");
   }, [user, authLoading, org, orgLoading, setLocation]);
 
   if (authLoading || orgLoading) {
@@ -132,12 +161,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           </Button>
         )}
         {mobile && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-slate-400"
-            onClick={() => setMobileOpen(false)}
-          >
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400" onClick={() => setMobileOpen(false)}>
             <X className="w-4 h-4" />
           </Button>
         )}
@@ -158,16 +182,35 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      {/* Nav */}
-      <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
-        {NAV_ITEMS.map((item) => (
-          <NavLink key={item.href} item={item} collapsed={collapsed && !mobile} onClick={mobile ? () => setMobileOpen(false) : undefined} />
+      {/* Nav Sections */}
+      <nav className="flex-1 px-2 py-3 overflow-y-auto space-y-4">
+        {NAV_SECTIONS.map((section, si) => (
+          <div key={si}>
+            {section.title && !collapsed && (
+              <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+                {section.title}
+              </p>
+            )}
+            {section.title && collapsed && !mobile && (
+              <div className="h-px bg-white/6 mx-2 mb-1" />
+            )}
+            <div className="space-y-0.5">
+              {section.items.map(item => (
+                <NavLink
+                  key={item.href}
+                  item={item}
+                  collapsed={collapsed && !mobile}
+                  onClick={mobile ? () => setMobileOpen(false) : undefined}
+                />
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
 
       {/* Bottom Nav */}
       <div className="px-2 py-3 border-t border-white/8 space-y-0.5">
-        {BOTTOM_NAV.map((item) => (
+        {BOTTOM_NAV.map(item => (
           <NavLink key={item.href} item={item} collapsed={collapsed && !mobile} onClick={mobile ? () => setMobileOpen(false) : undefined} />
         ))}
         {(!collapsed || mobile) && user && (
@@ -190,13 +233,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen bg-background overflow-hidden">
       <GuidedTour />
       <FeatureTourRunner />
+
       {/* Desktop sidebar */}
-      <aside
-        className={cn(
-          "hidden lg:flex flex-col border-r border-white/8 bg-[hsl(224,40%,10%)] transition-all duration-200 flex-shrink-0",
-          collapsed ? "w-16" : "w-56"
-        )}
-      >
+      <aside className={cn(
+        "hidden lg:flex flex-col border-r border-white/8 bg-[hsl(224,40%,10%)] transition-all duration-200 flex-shrink-0",
+        collapsed ? "w-14" : "w-56"
+      )}>
         <SidebarContent />
       </aside>
 
@@ -215,12 +257,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         {/* Mobile header */}
         <div className="lg:hidden flex items-center justify-between px-4 py-3 border-b border-white/8 bg-[hsl(224,40%,10%)]">
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-slate-400"
-              onClick={() => setMobileOpen(true)}
-            >
+            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400" onClick={() => setMobileOpen(true)}>
               <Menu className="w-5 h-5" />
             </Button>
             <div className="flex items-center gap-2">

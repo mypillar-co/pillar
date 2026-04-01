@@ -1,0 +1,407 @@
+I reviewed the archive as a product architect, security reviewer, and UX/UI critic. At a high level, Pillar is **much better than a prototype**: the product direction is coherent, the monorepo is sensible, and the feature set maps tightly to a real customer pain pattern for civic organizations. The overview file also matches what the codebase is trying to do: a TypeScript monorepo, Express API, React/Vite frontend, PostgreSQL via Drizzle, GCS uploads, Stripe, and AI-assisted site/content workflows. 
+
+My blunt verdict: **strong product, credible v1 architecture, not yet hardened enough for “trust us with payments + business documents” at scale**.
+
+## Executive summary
+
+**What works**
+
+* The product is solving real operational pain, not vanity features.
+* The monorepo split is rational: API, frontend, shared DB schema, shared API spec/client.
+* The dashboard UX is directionally right for non-technical admins.
+* The billing/event/registration model is commercially coherent.
+* There are several good instincts already in place: rate limiting on auth, encrypted social tokens, SSRF protections on site import, some idempotent webhook behavior, and CSP on rendered sites. 
+
+**What worries me most**
+
+* There is an **obvious document access problem** in the storage flow.
+* The app is still fundamentally **single-owner, not multi-user SaaS**.
+* Background jobs are **single-process polling loops**, which will become fragile fast.
+* Several core query paths are **under-indexed** for scheduler/webhook/public-site scale.
+* Observability and production controls are **too thin** for paying customers.
+* Legal pages are a solid start, but not enough yet for the type of data you want to hold.
+
+## Good, bad, ugly
+
+### The good
+
+The best thing here is **product architecture alignment**. A lot of codebases are random piles of features. This one is not. Your feature set clusters around a real operating model: website, events, vendors/sponsors, approvals, content, payments, domains. That is exactly how a category product should feel.
+
+The monorepo choice is also good. Shared schema plus shared API spec plus generated React client is the right move for a growing codebase. That reduces “frontend says one thing, backend says another” drift.
+
+On UX, the landing page and dashboard are much better than average early SaaS. The language is plain enough for Rotary/VFW/HOA users, and the onboarding framing is intuitive: choose a plan, build a website, create an event, connect social. That’s a good mental model for nontechnical customers. The dashboard overview also does the right thing by surfacing setup progress instead of dumping users into a blank admin panel.
+
+### The bad
+
+You are currently trying to be both:
+
+* a clean, safe SaaS product
+* and a flexible HTML/embed/code host
+
+Those two goals are in tension.
+
+The biggest product inconsistency I saw is this: the code sanitizes and stores custom embed code and says scripts from trusted providers are allowed, but the site renderer sets a CSP with `script-src 'none'`. That means your public site security model and your “shop embed code” feature are fighting each other. One of them is wrong. Today that likely means either embeds are broken or the security posture will get loosened later in an ad hoc way.
+
+The second issue is architectural identity. Right now Pillar is marketed like a multi-tenant SaaS, but the data model and route guards still behave like **one user owns one organization**. That is fine for founder-led pilots. It is not fine for a serious org product.
+
+### The ugly
+
+The ugliest issue is storage/document protection. Your overview says vendors upload ServSafe and insurance docs to GCS with object-level ACLs.  But in the code, the route that serves `/api/storage/objects/*path` downloads the object and streams it back **without an auth check and without evaluating the ACL policy**. That is the first thing I would fix before onboarding anyone with sensitive uploads.
+
+The second ugly issue is operational reliability: polling schedulers plus multiple `setInterval`s in a single app process is fine for founder mode, but it becomes dangerous once you have more than one app instance or more than a few hundred active orgs. You will eventually get duplicate runs, missed runs, race conditions, and “why did this social post publish twice?” incidents.
+
+## Security & data protection
+
+### 1. Authentication, session management, API access
+
+Mostly okay for an early product, but not hardened.
+
+What looks good:
+
+* Session cookie is `httpOnly`, `secure`, `sameSite=lax`.
+* Login/register are rate limited.
+* Sessions are server-side in Postgres, not JWTs sprayed everywhere.
+* OAuth state cookies are used for Google/Apple sign-in.
+
+What needs attention:
+
+* Session IDs are also accepted via `Authorization: Bearer <sid>`. That is convenient for mobile, but it means your opaque session ID is effectively a bearer token. Treat it like an API token.
+* I did not see session rotation on login, privilege elevation, or sensitive state changes.
+* No MFA for admin/org owners.
+* No explicit origin checking or CSRF token protection on state-changing endpoints. `SameSite=Lax` lowers the risk, but for an admin SaaS I would still add CSRF protection or strict Origin/Referer validation on write routes.
+
+My rating: **acceptable for beta, not mature for paid trust-heavy customers**.
+
+### 2. File upload flow / document access
+
+This is your biggest security gap.
+
+What’s good:
+
+* Presigned direct uploads are the right pattern.
+* Keeping files off your app server is good architecture.
+* Using object paths rather than public GCS URLs is the right idea.
+
+What’s not safe enough:
+
+* The upload URL request does not appear to bind the presigned PUT to expected content type, file size, or ownership metadata in a strong way.
+* Storage quota is incremented **before** upload success, so failed/abandoned uploads can permanently inflate storage usage.
+* Most importantly, the object download route appears to stream private objects **without auth/ACL enforcement**.
+
+That means your current “private docs” model is not trustworthy enough for ServSafe certificates and insurance certificates.
+
+### 3. SQL injection, XSS, CSRF
+
+**SQL injection:** I did not see an obvious SQL injection issue. Most DB access is through Drizzle with typed conditions, which is a good baseline.
+
+**XSS:** medium risk, not catastrophic but real.
+
+* Generated site HTML is stored and served directly.
+* Change requests and AI updates mutate HTML.
+* Embed code sanitization is very light. It strips inline handlers and `javascript:` URLs, but that is not the same thing as a full HTML sanitizer.
+* The public site CSP is currently strong, which helps, but it also conflicts with your embed ambitions.
+
+**CSRF:** moderate risk.
+
+* Cookie auth plus browser-accessible admin routes means CSRF deserves explicit treatment.
+* `SameSite=Lax` helps, but I would not call it sufficient hardening by itself.
+
+### 4. Stripe webhook verification
+
+This is **partly correct and probably workable**, but I would not call it complete yet.
+
+What looks right:
+
+* Webhook route is registered before `express.json()`.
+* It uses `express.raw({ type: "application/json" })`.
+* The raw signature is passed into your Stripe sync layer before app-level processing.
+
+That’s the core thing most people get wrong, and you got it right.
+
+What’s missing:
+
+* I would want explicit automated tests proving signature verification fails on tampered payloads.
+* I would want an event-id idempotency ledger for app-level side effects, not just conditional updates.
+* Your webhook URL auto-registration looks dev-domain-centric. I would not rely on that behavior alone in production.
+
+So: **good skeleton, not fully battle-tested**.
+
+## Architecture & scalability
+
+### What breaks first at 500 orgs?
+
+Probably these, in order:
+
+1. **Scheduler model**
+
+   * Too many polling jobs in one process.
+   * No distributed locking.
+   * No queue semantics.
+   * AI jobs running inline in scheduler loops.
+
+2. **Public site routing**
+
+   * Every request for host-based sites can hit the DB for domain/site lookup.
+   * That will become noisy fast without caching.
+
+3. **N+1 patterns**
+
+   * Board links listing fetches votes per link.
+   * Similar patterns likely exist in other dashboards.
+
+4. **Quota/accounting drift**
+
+   * Storage counters become inaccurate over time.
+
+### What breaks first at 5,000 orgs?
+
+At 5,000, the current background architecture becomes the real problem.
+
+* Multiple app instances will duplicate timers.
+* You will have race conditions on recurring events, social publishing, AI campaigns, domain polling.
+* Long-running AI calls inside worker loops will hurt throughput and predictability.
+* Operational debugging will become miserable because there is no serious job system or end-to-end traceability.
+
+At that point, I would expect “event generated twice,” “campaign skipped,” “domain never flipped to live,” and “why did three workers all process this?” type incidents.
+
+### Is the DB schema well-indexed?
+
+Not yet.
+
+Good:
+
+* Some obvious indexes exist on org-scoped tables.
+* Domain uniqueness is there.
+* Events have org and org+slug index.
+
+Missing or likely needed:
+
+* `organizations.userId` should be indexed.
+* `ticket_sales.stripe_checkout_session_id` and `ticket_sales.stripe_payment_intent_id` should be indexed because webhooks query them.
+* `site_update_schedules.next_run_at` should be indexed.
+* `recurring_event_templates.next_generate_at` should be indexed.
+* `automation_rules.next_run_at` should be indexed.
+* `social_posts(status, scheduled_at)` likely needs a stronger composite index.
+* `subscriptions.userId` and maybe `organizationId` should be indexed.
+* Depending on lookup frequency, `registrations.email`, `registrations.stripeSessionId`, and doc-related retrieval paths may need more support.
+
+Right now the schema feels like “indexed enough to work” rather than “indexed for production query patterns.”
+
+### API bottlenecks
+
+The main API bottlenecks are architectural, not micro-optimizations:
+
+* repeated org resolution queries
+* public host-based lookup on live requests
+* N+1 joins in admin views
+* AI calls inside request paths and timer loops
+* no cache layer for domain/site resolution or static published content
+
+### Polling every 30 minutes vs job queue
+
+You should move to a real job system.
+
+For beta, polling is okay.
+For paid production, I would move to:
+
+* DB-backed jobs with leases, retries, and dedupe, or
+* a queue like BullMQ / Redis, or
+* Postgres-native job tooling
+
+Your current scheduler is good enough to prove the workflows. It is not the right long-term execution model.
+
+## Code quality & maintainability
+
+### Technical debt risks
+
+The biggest debt isn’t syntax. It’s **domain model debt**.
+
+The app is still organized around the assumption that the authenticated user is the org owner. That assumption is everywhere. Once you add multiple seats, roles, staff, committees, finance-only admins, event managers, etc., a lot of route logic will need to be rewritten.
+
+Other debt risks:
+
+* business logic inside route handlers
+* AI prompt logic embedded directly in app services
+* polling jobs mixed into the web process
+* HTML mutation by regex/string replacement for site updates
+* feature flags/tier checks scattered instead of policy-centralized
+
+### Is the TypeScript monorepo structure sound?
+
+Yes. The repo shape is one of your stronger choices.
+
+What I’d change:
+
+* introduce clearer service boundaries in the API
+* move policy/authorization into reusable guards
+* centralize org resolution and permission checks
+* separate “web app” from “worker” process
+* treat shared packages as real contracts, not just convenience folders
+
+### Risky or unconventional patterns
+
+The ones I’d flag:
+
+* storing and mutating full HTML as a primary content primitive
+* regex/string patching HTML for updates
+* lightweight embed sanitization
+* single-process timers as core automation engine
+* object ACL framework existing, but not consistently enforced where it matters
+
+## Compliance & legal risk
+
+This is the area where you should be cautious and specific.
+
+### Payment flows / PCI / money transmission
+
+Using Stripe Checkout and Stripe Connect can **reduce** your PCI scope significantly, but it does **not** eliminate PCI responsibility entirely. Stripe states PCI compliance is a shared responsibility, and businesses still need to validate their compliance annually. Low-risk hosted integrations reduce scope, but you still need to document and maintain compliance. ([Stripe Docs][1])
+
+On money transmission/payfac risk: Stripe Connect is built for platforms and marketplaces and can handle a lot of the operational complexity, but platforms still need to understand their exact business model and liability settings. Stripe’s own documentation distinguishes between platform/marketplace models and notes that responsibility for losses can sit with Stripe or the platform depending on configuration. ([Stripe Docs][2])
+
+My practical reading:
+
+* If money truly goes directly to the org’s connected Stripe account and you are charging platform fees in standard Connect patterns, you are likely in a reasonable SaaS/platform lane.
+* But once you start “orchestrating funds” in more complex ways, marketplace/payfac/tax/1099/KYC questions get real fast.
+
+This is worth a payments lawyer review before scale.
+
+### Vendor docs: ServSafe and insurance certs
+
+Yes, this creates liability.
+
+Not “you can’t do it,” but:
+
+* those docs can contain personal/business-sensitive information
+* you need tight access control, retention rules, deletion rules, and a clear privacy disclosure
+* you should define whether you are merely storing on the org’s behalf or operationally reviewing/using the documents
+
+Given the current storage access gap, I would not onboard real document-heavy customers until that is fixed.
+
+### Terms / Privacy / DPA adequacy
+
+Better than most early startups, but not yet fully adequate.
+
+What’s good:
+
+* You already have Terms, Privacy, and a DPA page.
+* AI disclaimer is smart.
+* Subprocessor thinking is there.
+* Domain/billing language exists.
+
+What’s missing or weak:
+
+* document retention/deletion specifics
+* explicit treatment of uploaded compliance docs
+* stronger language around org-admin responsibility vs Pillar processor role
+* clearer incident response and security commitments
+* clearer data export / account termination / post-cancellation retention
+* U.S. state privacy law coverage may need work depending on customer base and scale
+* the DPA reads aspirational in places; it needs to match operational reality
+
+## Production readiness
+
+### What’s missing before this is truly production-ready?
+
+The short list:
+
+1. Fix private object access control.
+2. Add role-based auth / org membership model.
+3. Move jobs to a queue or at least DB-leased workers.
+4. Add missing indexes.
+5. Add real observability: error tracking, alerts, background job auditability.
+6. Add backup/recovery and operational runbooks.
+7. Add stronger HTML/embed sanitization strategy.
+8. Harden payment/document retention and privacy policy coverage.
+
+### Error handling and observability
+
+Right now: **not enough**.
+
+You have basic pino logging and health checks, which is fine for development. But for a production SaaS you need:
+
+* centralized error tracking
+* alerting on failed jobs/webhooks/payment flows
+* structured job logs with correlation IDs
+* audit trail for sensitive admin actions
+* dashboard-level operational visibility
+* retries/dead-letter handling for async work
+
+Without that, the first 10 customers may be okay. The first angry paying customer will be painful.
+
+### What I would prioritize before first 10 paying orgs
+
+In order:
+
+1. Lock down storage/object access.
+2. Add org membership + role model, even if basic.
+3. Add queue/worker semantics for automations.
+4. Add missing DB indexes.
+5. Add Sentry or equivalent plus alerting.
+6. Add test coverage for auth, uploads, webhooks, and permissions.
+7. Reconcile embed strategy with CSP.
+8. Tighten privacy/retention language.
+
+## Business-specific
+
+### Red flags an investor or acquirer would notice
+
+Immediately:
+
+* single-owner org model
+* background automation tied to app process timers
+* document access gap
+* HTML-as-content engine with light sanitization
+* weak observability for a payments/documents product
+
+They would also notice the upside:
+
+* strong vertical clarity
+* real workflow depth
+* credible wedge into an underserved customer segment
+* architecture that is fixable, not doomed
+
+### Estimated effort to add multi-user admin seats
+
+This is not a small patch.
+
+You likely need:
+
+* `organization_members` table
+* role/permission model
+* invite flow
+* org-switching logic if users belong to multiple orgs
+* route guard rewrite from `organizations.userId = req.user.id` to membership-based auth
+* UI for member management
+* audit trail for permission changes
+
+Estimate:
+
+* **MVP multi-seat**: 2–4 weeks
+* **proper roles + invites + auditing**: 4–8 weeks
+
+The reason it’s not trivial is that the current data model bakes in single ownership.
+
+### Is the Stripe Connect structure right for a marketplace-style platform?
+
+Directionally yes, but I would call it **early-stage correct, not yet fully assured**.
+
+It appears you’re using Connect in the right conceptual way for orgs receiving their own funds, and that is the right path for Pillar. The bigger question is not “are you using Connect at all?” It’s “have you fully nailed platform fee logic, liability model, account type choice, refund/dispute ownership, tax reporting, and edge-case state transitions?” That’s where marketplace platforms get hurt. Stripe’s Connect docs make clear that platform responsibilities vary by setup and risk configuration. ([Stripe Docs][2])
+
+## Final verdict
+
+**Architecturally:** promising
+**UX/UI:** strong for the target market
+**Security:** beta-grade, with one critical storage/access issue
+**Scalability:** fine for pilots, not ready for 5,000 orgs
+**Investor impression:** “real product, but needs hardening and multi-tenant maturity”
+
+If I were you, I would not rewrite the whole thing. I would do a **hardening sprint**, not a rebuild.
+
+The product is good enough to pitch.
+The codebase is good enough to improve.
+But it is **not** good enough yet to be casual about security and production ops.
+
+I can turn this into a sharper **red/yellow/green remediation checklist with estimated effort by item** if you want.
+
+[1]: https://docs.stripe.com/security/guide?utm_source=chatgpt.com "Integration security guide"
+[2]: https://docs.stripe.com/connect?utm_source=chatgpt.com "Platforms and marketplaces with Stripe Connect"

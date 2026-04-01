@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, type Variants } from "framer-motion";
 import { Link } from "wouter";
 import {
   CheckCircle2, Globe, Calendar, Share2, Bot, ArrowRight,
@@ -28,7 +28,7 @@ const PRICING = [
   { name: "Total Operations", price: 149, annual: 124, highlight: false, features: ["Everything in Events", "Fully autonomous scheduling", "AI social calendar", "Priority support", "10GB storage"] },
 ];
 
-const fadeUp = {
+const fadeUp: Variants = {
   hidden: { opacity: 0, y: 24 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.55, ease: "easeOut" } },
 };

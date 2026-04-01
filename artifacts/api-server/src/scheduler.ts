@@ -20,7 +20,28 @@ import { checkAndRenewDomains, checkSslProvisioning, pollDnsPropagation } from "
 import { eq, lte, and, gte } from "drizzle-orm";
 import { logger } from "./lib/logger";
 import { decryptToken } from "./lib/tokenCrypto";
+import { withSchedulerLock } from "./lib/schedulerLock";
+import sanitizeHtml from "sanitize-html";
 import OpenAI from "openai";
+
+const SITE_HTML_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  allowedTags: sanitizeHtml.defaults.allowedTags.concat([
+    "html", "head", "body", "title", "meta", "link", "style",
+    "header", "footer", "main", "section", "article", "aside", "nav",
+    "figure", "figcaption", "picture", "source", "video", "audio",
+    "canvas", "details", "summary", "dialog", "template",
+    "h1", "h2", "h3", "h4", "h5", "h6",
+    "svg", "path", "circle", "rect", "line", "polygon", "g",
+  ]),
+  allowedAttributes: {
+    "*": ["class", "id", "style", "href", "src", "alt", "title", "aria-*", "data-*",
+          "width", "height", "target", "rel", "type", "name", "content", "charset",
+          "viewBox", "xmlns", "fill", "stroke", "d", "cx", "cy", "r", "x", "y",
+          "x1", "y1", "x2", "y2", "points", "transform"],
+  },
+  allowedSchemes: ["http", "https", "mailto", "tel"],
+  disallowedTagsMode: "discard",
+};
 
 const MAX_CHANGE_TOKENS = 6000;
 
@@ -130,6 +151,7 @@ Output ONLY the complete updated HTML document starting with <!DOCTYPE html>. No
         let cleanedHtml = updatedHtml.trim();
         const htmlStart = cleanedHtml.indexOf("<!DOCTYPE");
         if (htmlStart > 0) cleanedHtml = cleanedHtml.substring(htmlStart);
+        cleanedHtml = sanitizeHtml(cleanedHtml, SITE_HTML_SANITIZE_OPTIONS);
 
         const nextRunAt = computeNextRun(schedule.frequency, schedule.dayOfWeek);
         await db.update(sitesTable).set({ generatedHtml: cleanedHtml, proposedHtml: null, updatedAt: new Date() }).where(eq(sitesTable.orgId, schedule.orgId));
@@ -749,116 +771,51 @@ const AGENT_OPS_INTERVAL_MS = 60 * 60 * 1000;
 const AGENT_CONTENT_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const AGENT_OUTREACH_INTERVAL_MS = 60 * 60 * 1000;
 
-export function startScheduler(): void {
-  logger.info("Starting schedulers (site/events: 30min, social: 5min, domains: 6h, ssl: 1h, dns: 15min, AI agents: cs/30min ops/1h content/24h outreach/1h)");
-
-  // Initial runs
-  runDueSchedules().catch((err: unknown) => {
-    logger.warn({ err }, "Initial schedule check failed");
-  });
-  runDueRecurringTemplates().catch((err: unknown) => {
-    logger.warn({ err }, "Initial recurring template check failed");
-  });
-  runDueSocialPosts().catch((err: unknown) => {
-    logger.warn({ err }, "Initial social posts check failed");
-  });
-  runDueAutomationRules().catch((err: unknown) => {
-    logger.warn({ err }, "Initial automation rules check failed");
-  });
-  runTier3AutonomousCampaigns().catch((err: unknown) => {
-    logger.warn({ err }, "Initial Tier 3 autonomous campaign check failed");
-  });
-  checkAndRenewDomains().catch((err: unknown) => {
-    logger.warn({ err }, "Initial domain renewal check failed");
-  });
-  checkSslProvisioning().catch((err: unknown) => {
-    logger.warn({ err }, "Initial SSL provisioning check failed");
-  });
-  pollDnsPropagation().catch((err: unknown) => {
-    logger.warn({ err }, "Initial DNS propagation poll failed");
-  });
-
-  // Social post publishing every 5 minutes for accurate scheduled-time delivery
-  setInterval(() => {
-    runDueSocialPosts().catch((err: unknown) => {
-      logger.warn({ err }, "Social posts run failed");
+function locked(jobName: string, ttlMs: number, fn: () => Promise<void>): () => void {
+  return () => {
+    withSchedulerLock(jobName, ttlMs, fn).catch((err: unknown) => {
+      logger.warn({ err, jobName }, "[scheduler-lock] Unexpected error");
     });
-  }, SOCIAL_PUBLISH_INTERVAL_MS);
+  };
+}
+
+export function startScheduler(): void {
+  logger.info("Starting schedulers (site/events: 30min, social: 5min, domains: 6h, ssl: 1h, dns: 15min, AI agents: cs/30min ops/1h content/24h outreach/1h) — distributed locking enabled");
+
+  // Initial runs — each job competes for the lock; only one instance wins
+  locked("site-schedules", SCHEDULE_INTERVAL_MS, runDueSchedules)();
+  locked("recurring-templates", SCHEDULE_INTERVAL_MS, runDueRecurringTemplates)();
+  locked("social-posts", SOCIAL_PUBLISH_INTERVAL_MS, runDueSocialPosts)();
+  locked("automation-rules", SCHEDULE_INTERVAL_MS, runDueAutomationRules)();
+  locked("tier3-campaigns", SCHEDULE_INTERVAL_MS, runTier3AutonomousCampaigns)();
+  locked("domain-renewal", DOMAIN_RENEWAL_INTERVAL_MS, checkAndRenewDomains)();
+  locked("ssl-provisioning", SSL_CHECK_INTERVAL_MS, checkSslProvisioning)();
+  locked("dns-propagation", DNS_POLL_INTERVAL_MS, pollDnsPropagation)();
+
+  // Social post publishing every 5 minutes — locked to prevent duplicate publishes
+  setInterval(locked("social-posts", SOCIAL_PUBLISH_INTERVAL_MS, runDueSocialPosts), SOCIAL_PUBLISH_INTERVAL_MS);
 
   // Site updates, recurring events, and automation rules every 30 minutes
   setInterval(() => {
-    runDueSchedules().catch((err: unknown) => {
-      logger.warn({ err }, "Scheduled run failed");
-    });
-    runDueRecurringTemplates().catch((err: unknown) => {
-      logger.warn({ err }, "Recurring template run failed");
-    });
-    runDueAutomationRules().catch((err: unknown) => {
-      logger.warn({ err }, "Automation rules run failed");
-    });
-    runTier3AutonomousCampaigns().catch((err: unknown) => {
-      logger.warn({ err }, "Tier 3 autonomous campaigns run failed");
-    });
+    locked("site-schedules", SCHEDULE_INTERVAL_MS, runDueSchedules)();
+    locked("recurring-templates", SCHEDULE_INTERVAL_MS, runDueRecurringTemplates)();
+    locked("automation-rules", SCHEDULE_INTERVAL_MS, runDueAutomationRules)();
+    locked("tier3-campaigns", SCHEDULE_INTERVAL_MS, runTier3AutonomousCampaigns)();
   }, SCHEDULE_INTERVAL_MS);
 
-  // Domain renewal check every 6 hours
-  setInterval(() => {
-    checkAndRenewDomains().catch((err: unknown) => {
-      logger.warn({ err }, "Domain renewal check failed");
-    });
-  }, DOMAIN_RENEWAL_INTERVAL_MS);
+  // Domain jobs
+  setInterval(locked("domain-renewal", DOMAIN_RENEWAL_INTERVAL_MS, checkAndRenewDomains), DOMAIN_RENEWAL_INTERVAL_MS);
+  setInterval(locked("ssl-provisioning", SSL_CHECK_INTERVAL_MS, checkSslProvisioning), SSL_CHECK_INTERVAL_MS);
+  setInterval(locked("dns-propagation", DNS_POLL_INTERVAL_MS, pollDnsPropagation), DNS_POLL_INTERVAL_MS);
 
-  // SSL provisioning check every 1 hour
-  setInterval(() => {
-    checkSslProvisioning().catch((err: unknown) => {
-      logger.warn({ err }, "SSL provisioning check failed");
-    });
-  }, SSL_CHECK_INTERVAL_MS);
+  // ── AI Agents — locked so only one instance runs agents at a time ──────────
+  locked("agent-customer-success", AGENT_CS_INTERVAL_MS, runCustomerSuccessAgent)();
+  locked("agent-operations", AGENT_OPS_INTERVAL_MS, runOperationsAgent)();
+  locked("agent-content", AGENT_CONTENT_INTERVAL_MS, runContentAgent)();
+  locked("agent-outreach", AGENT_OUTREACH_INTERVAL_MS, runOutreachAgent)();
 
-  // DNS propagation poller every 15 minutes — automatically transitions domains to live
-  setInterval(() => {
-    pollDnsPropagation().catch((err: unknown) => {
-      logger.warn({ err }, "DNS propagation poll failed");
-    });
-  }, DNS_POLL_INTERVAL_MS);
-
-  // ── AI Agents ──────────────────────────────────────────────────────────────
-  // Run agents on first boot then on their respective intervals
-
-  runCustomerSuccessAgent().catch((err: unknown) => {
-    logger.warn({ err }, "[agent:customerSuccess] Initial run failed");
-  });
-  runOperationsAgent().catch((err: unknown) => {
-    logger.warn({ err }, "[agent:operations] Initial run failed");
-  });
-  runContentAgent().catch((err: unknown) => {
-    logger.warn({ err }, "[agent:content] Initial run failed");
-  });
-  runOutreachAgent().catch((err: unknown) => {
-    logger.warn({ err }, "[agent:outreach] Initial run failed");
-  });
-
-  setInterval(() => {
-    runCustomerSuccessAgent().catch((err: unknown) => {
-      logger.warn({ err }, "[agent:customerSuccess] Run failed");
-    });
-  }, AGENT_CS_INTERVAL_MS);
-
-  setInterval(() => {
-    runOperationsAgent().catch((err: unknown) => {
-      logger.warn({ err }, "[agent:operations] Run failed");
-    });
-  }, AGENT_OPS_INTERVAL_MS);
-
-  setInterval(() => {
-    runContentAgent().catch((err: unknown) => {
-      logger.warn({ err }, "[agent:content] Run failed");
-    });
-  }, AGENT_CONTENT_INTERVAL_MS);
-
-  setInterval(() => {
-    runOutreachAgent().catch((err: unknown) => {
-      logger.warn({ err }, "[agent:outreach] Run failed");
-    });
-  }, AGENT_OUTREACH_INTERVAL_MS);
+  setInterval(locked("agent-customer-success", AGENT_CS_INTERVAL_MS, runCustomerSuccessAgent), AGENT_CS_INTERVAL_MS);
+  setInterval(locked("agent-operations", AGENT_OPS_INTERVAL_MS, runOperationsAgent), AGENT_OPS_INTERVAL_MS);
+  setInterval(locked("agent-content", AGENT_CONTENT_INTERVAL_MS, runContentAgent), AGENT_CONTENT_INTERVAL_MS);
+  setInterval(locked("agent-outreach", AGENT_OUTREACH_INTERVAL_MS, runOutreachAgent), AGENT_OUTREACH_INTERVAL_MS);
 }

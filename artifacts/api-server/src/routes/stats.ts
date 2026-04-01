@@ -1,24 +1,14 @@
 import { Router, type Request, type Response } from "express";
-import { db, eventsTable, vendorsTable, sponsorsTable, contactsTable, paymentsTable, organizationsTable } from "@workspace/db";
+import { db, eventsTable, vendorsTable, sponsorsTable, contactsTable, paymentsTable } from "@workspace/db";
 import { eq, and, count, sum, gte } from "drizzle-orm";
+import { resolveOrgId } from "../lib/resolveOrg";
 
 const router = Router();
 
 // GET /api/stats
 router.get("/", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  const [org] = await db
-    .select({ id: organizationsTable.id })
-    .from(organizationsTable)
-    .where(eq(organizationsTable.userId, req.user.id));
-  if (!org) {
-    res.json({ activeEvents: 0, totalVendors: 0, totalSponsors: 0, totalRevenue: 0, totalContacts: 0 });
-    return;
-  }
-  const orgId = org.id;
+  const orgId = await resolveOrgId(req, res);
+  if (!orgId) return;
   const today = new Date().toISOString().split("T")[0];
   const [
     eventsRes,

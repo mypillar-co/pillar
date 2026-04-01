@@ -3,8 +3,9 @@ import rateLimit from "express-rate-limit";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { db, usersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, usersTable, passwordResetTokensTable } from "@workspace/db";
+import { eq, and, gt, isNull } from "drizzle-orm";
+import { logger } from "../lib/logger";
 import {
   createSession,
   clearSession,
@@ -410,6 +411,95 @@ router.post("/apple/callback", async (req: Request, res: Response) => {
     console.error("Apple OAuth error:", err);
     res.redirect("/login?error=apple_failed");
   }
+});
+
+// ─── Forgot Password ─────────────────────────────────────────────────────────
+
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many reset requests. Please wait 15 minutes and try again." },
+});
+
+async function sendPasswordResetEmail(email: string, token: string, req: Request): Promise<void> {
+  const proto = req.headers["x-forwarded-proto"] || "https";
+  const host = req.headers["x-forwarded-host"] || req.headers["host"] || "localhost";
+  const resetUrl = `${proto}://${host}/reset-password?token=${token}`;
+  const resendKey = process.env.RESEND_API_KEY;
+  if (!resendKey) {
+    logger.warn({ email, resetUrl }, "[forgot-password] RESEND_API_KEY not set — reset link logged only");
+    return;
+  }
+  await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${resendKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      from: "Pillar <noreply@mypillar.co>",
+      to: email,
+      subject: "Reset your Pillar password",
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
+          <h2 style="color:#1e293b;margin-bottom:8px">Reset your password</h2>
+          <p style="color:#64748b;margin-bottom:24px">Click the button below to reset your Pillar password. This link expires in 1 hour.</p>
+          <a href="${resetUrl}" style="display:inline-block;background:#d4af37;color:#0f1729;font-weight:600;padding:12px 24px;border-radius:8px;text-decoration:none;margin-bottom:24px">Reset Password</a>
+          <p style="color:#94a3b8;font-size:13px">If you didn't request this, you can safely ignore this email. Your password won't change.</p>
+          <p style="color:#94a3b8;font-size:12px;margin-top:32px">Pillar — Your organization, on autopilot.</p>
+        </div>
+      `,
+    }),
+  });
+}
+
+router.post("/forgot-password", forgotPasswordLimiter, async (req: Request, res: Response) => {
+  const { email } = req.body ?? {};
+  if (!email || typeof email !== "string" || !email.includes("@")) {
+    res.status(400).json({ error: "Valid email required" });
+    return;
+  }
+  // Always respond 200 to prevent email enumeration
+  const [user] = await db.select({ id: usersTable.id, email: usersTable.email, authProvider: usersTable.authProvider })
+    .from(usersTable).where(eq(usersTable.email, email.toLowerCase())).limit(1);
+  if (user && user.authProvider === "email") {
+    const token = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    await db.insert(passwordResetTokensTable).values({ userId: user.id, token, expiresAt });
+    try {
+      await sendPasswordResetEmail(user.email!, token, req);
+    } catch (err) {
+      logger.error({ err }, "[forgot-password] Failed to send reset email");
+    }
+  }
+  res.json({ ok: true, message: "If an account with that email exists, a reset link has been sent." });
+});
+
+router.post("/reset-password", async (req: Request, res: Response) => {
+  const { token, password } = req.body ?? {};
+  if (!token || typeof token !== "string") {
+    res.status(400).json({ error: "Reset token required" });
+    return;
+  }
+  if (!password || typeof password !== "string" || password.length < 8) {
+    res.status(400).json({ error: "Password must be at least 8 characters" });
+    return;
+  }
+  const now = new Date();
+  const [resetToken] = await db.select()
+    .from(passwordResetTokensTable)
+    .where(and(
+      eq(passwordResetTokensTable.token, token),
+      gt(passwordResetTokensTable.expiresAt, now),
+      isNull(passwordResetTokensTable.usedAt),
+    )).limit(1);
+  if (!resetToken) {
+    res.status(400).json({ error: "Invalid or expired reset link. Please request a new one." });
+    return;
+  }
+  const passwordHash = await bcrypt.hash(password, 12);
+  await db.update(usersTable).set({ passwordHash }).where(eq(usersTable.id, resetToken.userId));
+  await db.update(passwordResetTokensTable).set({ usedAt: now }).where(eq(passwordResetTokensTable.id, resetToken.id));
+  res.json({ ok: true, message: "Password updated successfully. You can now sign in." });
 });
 
 // Combined provider status endpoint

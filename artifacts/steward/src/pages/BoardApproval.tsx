@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useParams } from "wouter";
-import { motion } from "framer-motion";
+import { motion, type Variants } from "framer-motion";
 import {
   CheckCircle2, HelpCircle, XCircle, Shield, Globe, Calendar,
   Share2, Bot, ArrowRight, Loader2, AlertCircle, ThumbsUp,
@@ -58,7 +58,7 @@ const FEATURES = [
   { icon: <Bot className="w-5 h-5 text-primary" />, title: "Always up to date", body: "Your website updates itself when things change. Just tell Pillar in plain language — done." },
 ];
 
-const fadeUp = {
+const fadeUp: Variants = {
   hidden: { opacity: 0, y: 20 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" } },
 };

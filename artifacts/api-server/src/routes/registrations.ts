@@ -3,6 +3,7 @@ import {
   db, organizationsTable, registrationsTable, sponsorsTable, vendorsTable,
 } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
+import { resolveFullOrg } from "../lib/resolveOrg";
 import { getUncachableStripeClient } from "../stripeClient";
 import { ObjectStorageService } from "../lib/objectStorage";
 
@@ -195,9 +196,8 @@ router.post("/public/orgs/:slug/register", async (req: Request, res: Response) =
 
 // ─── Admin: list registrations ────────────────────────────────────────────────
 router.get("/registrations", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const [org] = await db.select().from(organizationsTable).where(eq(organizationsTable.userId, req.user.id));
-  if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
 
   const { status } = req.query as { status?: string };
   const conditions = [eq(registrationsTable.orgId, org.id)];
@@ -214,9 +214,8 @@ router.get("/registrations", async (req: Request, res: Response) => {
 
 // ─── Admin: approve ───────────────────────────────────────────────────────────
 router.post("/registrations/:id/approve", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const [org] = await db.select().from(organizationsTable).where(eq(organizationsTable.userId, req.user.id));
-  if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
 
   const [reg] = await db
     .select()
@@ -278,9 +277,8 @@ router.post("/registrations/:id/approve", async (req: Request, res: Response) =>
 
 // ─── Admin: reject ────────────────────────────────────────────────────────────
 router.post("/registrations/:id/reject", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const [org] = await db.select().from(organizationsTable).where(eq(organizationsTable.userId, req.user.id));
-  if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
 
   const [reg] = await db
     .select()
@@ -305,9 +303,8 @@ router.post("/registrations/:id/reject", async (req: Request, res: Response) => 
 
 // ─── Admin: update fee config ─────────────────────────────────────────────────
 router.patch("/registrations/fee-config", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const [org] = await db.select().from(organizationsTable).where(eq(organizationsTable.userId, req.user.id));
-  if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
 
   const { vendorFeeCents, sponsorFeeCents } = req.body as {
     vendorFeeCents?: number; sponsorFeeCents?: number;

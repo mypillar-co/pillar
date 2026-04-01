@@ -1,19 +1,10 @@
 import { Router, type Request, type Response } from "express";
-import { db, boardApprovalLinksTable, boardApprovalVotesTable, organizationsTable } from "@workspace/db";
+import { db, boardApprovalLinksTable, boardApprovalVotesTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { randomBytes } from "crypto";
+import { resolveFullOrg } from "../lib/resolveOrg";
 
 const router = Router();
-
-async function resolveOrg(req: Request, res: Response): Promise<{ id: string; name: string | null; type: string | null } | null> {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return null; }
-  const [org] = await db
-    .select({ id: organizationsTable.id, name: organizationsTable.name, type: organizationsTable.type })
-    .from(organizationsTable)
-    .where(eq(organizationsTable.userId, req.user.id));
-  if (!org) { res.status(404).json({ error: "Organization not found" }); return null; }
-  return org;
-}
 
 function generateToken(): string {
   return randomBytes(16).toString("hex");
@@ -21,7 +12,7 @@ function generateToken(): string {
 
 // POST /api/board-links — create a new board approval link
 router.post("/", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   try {
@@ -48,7 +39,7 @@ router.post("/", async (req: Request, res: Response) => {
 
 // GET /api/board-links — list links for current org (with vote counts)
 router.get("/", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   try {
@@ -83,7 +74,7 @@ router.get("/", async (req: Request, res: Response) => {
 
 // DELETE /api/board-links/:id — delete a link
 router.delete("/:id", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   try {

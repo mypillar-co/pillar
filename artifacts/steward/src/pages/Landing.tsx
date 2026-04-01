@@ -160,7 +160,7 @@ export default function Landing() {
   const { isAuthenticated, isLoading: authLoading, isAdmin } = useAuth();
   const [, setLocation] = useLocation();
   const { data: tiersData } = useListTiers();
-  const { data: orgData } = useGetOrganization({ query: { enabled: isAuthenticated } });
+  const { data: orgData } = useGetOrganization();
   const hasOrg = isAuthenticated && Boolean(orgData?.organization);
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">("monthly");
 

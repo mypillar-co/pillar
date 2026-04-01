@@ -16,6 +16,7 @@ export const siteUpdateSchedulesTable = pgTable("site_update_schedules", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => ({
   orgIdx: index("schedule_org_idx").on(table.orgId),
+  nextRunIdx: index("schedule_next_run_idx").on(table.nextRunAt),
 }));
 
 export type SiteUpdateSchedule = typeof siteUpdateSchedulesTable.$inferSelect;

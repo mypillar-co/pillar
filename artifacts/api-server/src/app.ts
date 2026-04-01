@@ -2,7 +2,10 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
+import rateLimit from "express-rate-limit";
 import { authMiddleware } from "./middlewares/authMiddleware";
+import { csrfMiddleware } from "./lib/csrf";
+import { sendErrorAlert } from "./lib/errorAlert";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { WebhookHandlers } from "./webhookHandlers";
@@ -72,6 +75,46 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(authMiddleware);
+app.use(csrfMiddleware);
+
+// ─── Rate limiting ────────────────────────────────────────────────────────────
+
+const publicApiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests — please try again later" },
+});
+
+const registrationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many registration attempts — please try again in an hour" },
+});
+
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many upload requests — please try again in an hour" },
+});
+
+const authLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many authentication attempts — please try again in an hour" },
+});
+
+app.use("/api/public/registrations", registrationLimiter);
+app.use("/api/public/registration-docs/upload-url", uploadLimiter);
+app.use("/api/public/", publicApiLimiter);
+app.use("/api/auth/", authLimiter);
 
 app.get("/api/healthz", (_req, res) => {
   res.json({ status: "ok" });
@@ -177,6 +220,9 @@ app.use(async (req, res, next) => {
 app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
   const status = (err as NodeJS.ErrnoException & { status?: number }).status ?? 500;
   req.log?.error({ err }, err.message ?? "Internal server error");
+  if (status >= 500) {
+    sendErrorAlert(`HTTP ${status}: ${req.method} ${req.path}`, err).catch(() => {});
+  }
   if (res.headersSent) return;
   res.status(status).json({ error: err.message ?? "Internal server error" });
 });

@@ -1,7 +1,22 @@
+export function getCsrfToken(): string | null {
+  const match = document.cookie.match(/(?:^|;\s*)__csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+export function csrfHeaders(method = "POST"): Record<string, string> {
+  if (!MUTATING_METHODS.has(method.toUpperCase())) return {};
+  const token = getCsrfToken();
+  return token ? { "x-csrf-token": token } : {};
+}
+
 async function req<T>(path: string, options?: RequestInit): Promise<T> {
+  const method = (options?.method ?? "GET").toUpperCase();
+  const xCsrf = csrfHeaders(method);
   const res = await fetch(path, {
     ...options,
-    headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
+    headers: { "Content-Type": "application/json", ...xCsrf, ...(options?.headers ?? {}) },
     credentials: "include",
   });
   if (!res.ok) {

@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { db, organizationsTable, domainsTable, notificationsTable } from "@workspace/db";
 import { eq, and, lte, isNull, or } from "drizzle-orm";
+import { resolveFullOrg } from "../lib/resolveOrg";
 import https from "https";
 import { getUncachableStripeClient } from "../stripeClient";
 import { logger } from "../lib/logger";
@@ -21,13 +22,6 @@ const router = Router();
 const PILLAR_CNAME_TARGET = "proxy.mypillar.co";
 // Pillar's ingress IP address — used for A-record verification and BYOD instructions
 const PILLAR_PROXY_IP = process.env.PILLAR_PROXY_IP ?? "76.76.21.21";
-
-async function resolveOrg(req: Request, res: Response) {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return null; }
-  const [org] = await db.select().from(organizationsTable).where(eq(organizationsTable.userId, req.user.id));
-  if (!org) { res.status(404).json({ error: "Organization not found" }); return null; }
-  return org;
-}
 
 function normalizeDomain(raw: string): string {
   return raw.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
@@ -114,7 +108,7 @@ function validateDomain(domain: string, allowedTlds: string[] = ALL_ALLOWED_TLDS
 
 // ─── GET /domains ──────────────────────────────────────────────
 router.get("/", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   const domains = await db.select().from(domainsTable).where(eq(domainsTable.orgId, org.id));
   const subdomain = org.slug ? `${org.slug}.mypillar.co` : null;
@@ -123,7 +117,7 @@ router.get("/", async (req: Request, res: Response) => {
 
 // ─── POST /domains/check ───────────────────────────────────────
 router.post("/check", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const { domain: rawDomain } = req.body as { domain?: string };
@@ -154,7 +148,7 @@ router.post("/check", async (req: Request, res: Response) => {
 
 // ─── POST /domains/checkout ─────────────────────────────────── (Tier 1 — $24/yr add-on)
 router.post("/checkout", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const { domain: rawDomain } = req.body as { domain?: string };
@@ -221,7 +215,7 @@ router.post("/checkout", async (req: Request, res: Response) => {
 
 // ─── POST /domains/confirm ──────────────────────────────────── (verify Stripe payment & register)
 router.post("/confirm", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const { sessionId } = req.body as { sessionId?: string };
@@ -292,7 +286,7 @@ router.post("/confirm", async (req: Request, res: Response) => {
 
 // ─── POST /domains/claim ────────────────────────────────────── (Tier 1a+ — free domain)
 router.post("/claim", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const isFreeForTier = org.tier ? FREE_DOMAIN_TIERS.has(org.tier) : false;
@@ -379,7 +373,7 @@ router.post("/claim", async (req: Request, res: Response) => {
 
 // ─── POST /domains/external ─────────────────────────────────── (bring your own domain)
 router.post("/external", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!org.tier) { res.status(403).json({ error: "Active subscription required to add a custom domain." }); return; }
 
@@ -423,7 +417,7 @@ router.post("/external", async (req: Request, res: Response) => {
 
 // ─── POST /domains/:id/verify ───────────────────────────────── (check DNS propagation)
 router.post("/:id/verify", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const domainId = String(req.params.id);
@@ -467,7 +461,7 @@ router.post("/:id/verify", async (req: Request, res: Response) => {
 
 // ─── PUT /domains/:id ───────────────────────────────────────── (update auto-renew)
 router.put("/:id", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const putId = String(req.params.id);
@@ -491,7 +485,7 @@ router.put("/:id", async (req: Request, res: Response) => {
 
 // ─── DELETE /domains/:id ─────────────────────────────────────
 router.delete("/:id", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const id = String(req.params.id);

@@ -3,6 +3,7 @@ import { db, organizationsTable, studioOutputsTable } from "@workspace/db";
 import { eq, sql, desc, and } from "drizzle-orm";
 import OpenAI from "openai";
 import { getSessionId } from "../lib/auth";
+import { resolveFullOrg } from "../lib/resolveOrg";
 
 const router = Router();
 
@@ -14,16 +15,6 @@ function getOpenAIClient() {
     apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
     baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
   });
-}
-
-async function resolveOrg(req: Request, res: Response) {
-  const sessionId = getSessionId(req);
-  if (!sessionId) { res.status(401).json({ error: "Not authenticated" }); return null; }
-  const userId = req.user?.id;
-  if (!userId) { res.status(401).json({ error: "Not authenticated" }); return null; }
-  const [org] = await db.select().from(organizationsTable).where(eq(organizationsTable.userId, userId));
-  if (!org) { res.status(404).json({ error: "Organization not found" }); return null; }
-  return org;
 }
 
 function isNewMonth(lastReset: Date): boolean {
@@ -584,7 +575,7 @@ router.get("/packs", (_req: Request, res: Response) => {
 
 // POST /api/content/generate
 router.post("/generate", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   if (!TIER_ALLOWS_CONTENT.has(org.tier ?? "")) {
@@ -637,7 +628,7 @@ router.post("/generate", async (req: Request, res: Response) => {
 
 // POST /api/content/pack
 router.post("/pack", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   if (!TIER_ALLOWS_CONTENT.has(org.tier ?? "")) {
@@ -696,7 +687,7 @@ router.post("/pack", async (req: Request, res: Response) => {
 
 // GET /api/content/history
 router.get("/history", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const outputs = await db
@@ -711,7 +702,7 @@ router.get("/history", async (req: Request, res: Response) => {
 
 // DELETE /api/content/history/:id
 router.delete("/history/:id", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const { id } = req.params;

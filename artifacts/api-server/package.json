@@ -12,6 +12,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
     "@google-cloud/storage": "^7.19.0",
+    "@types/sanitize-html": "^2.16.1",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "bcryptjs": "^3.0.3",
@@ -29,6 +30,7 @@
     "pino": "^9",
     "pino-http": "^10",
     "resend": "^6.10.0",
+    "sanitize-html": "^2.17.2",
     "zod": "catalog:"
   },
   "devDependencies": {

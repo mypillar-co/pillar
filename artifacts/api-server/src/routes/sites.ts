@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { db, organizationsTable, sitesTable, siteUpdateSchedulesTable, websiteSpecsTable, eventsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
+import { resolveFullOrg } from "../lib/resolveOrg";
 import OpenAI from "openai";
 import { buildSiteFromTemplate, type SiteContent } from "../siteTemplate";
 import { load as cheerioLoad } from "cheerio";
@@ -54,13 +55,6 @@ function getOpenAIClient() {
     apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
     baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
   });
-}
-
-async function resolveOrg(req: Request, res: Response) {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return null; }
-  const [org] = await db.select().from(organizationsTable).where(eq(organizationsTable.userId, req.user.id));
-  if (!org) { res.status(404).json({ error: "Organization not found" }); return null; }
-  return org;
 }
 
 function isNewMonth(resetAt: Date): boolean {
@@ -131,7 +125,7 @@ async function callOpenAIStreaming(
 
 // ─── Interview chat (SSE streaming via Replit AI / OpenAI-compatible) ─────────
 router.post("/builder", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const usageInfo = await checkAndResetUsage(org as Parameters<typeof checkAndResetUsage>[0], res);
@@ -415,7 +409,7 @@ ${plainText}`;
 
 // ─── Usage ───────────────────────────────────────────────────────────────────
 router.get("/builder/usage", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   const monthlyLimit = getMonthlyLimit(org.tier);
   let used = org.aiMessagesUsed;
@@ -428,7 +422,7 @@ router.get("/builder/usage", async (req: Request, res: Response) => {
 
 // ─── Get current site ─────────────────────────────────────────────────────────
 router.get("/my", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   const [site] = await db.select().from(sitesTable).where(eq(sitesTable.orgId, org.id));
   const [schedule] = await db.select().from(siteUpdateSchedulesTable).where(eq(siteUpdateSchedulesTable.orgId, org.id));
@@ -446,7 +440,7 @@ router.get("/my", async (req: Request, res: Response) => {
 
 // ─── Get proposal preview (authenticated owner only) ──────────────────────────
 router.get("/my/proposal-preview", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   if (!TIERS_ALLOWING_CHANGES.has(org.tier ?? "")) {
@@ -465,7 +459,7 @@ router.get("/my/proposal-preview", async (req: Request, res: Response) => {
 
 // ─── Discard proposal ─────────────────────────────────────────────────────────
 router.delete("/my/proposal", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   await db.update(sitesTable).set({ proposedHtml: null }).where(eq(sitesTable.orgId, org.id));
@@ -474,7 +468,7 @@ router.delete("/my/proposal", async (req: Request, res: Response) => {
 
 // ─── Generate site from interview history ─────────────────────────────────────
 router.post("/generate", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   // Enforce monthly AI usage limit (generation is the most expensive call)
@@ -864,7 +858,7 @@ Rules: use REAL content from the spec — no lorem ipsum. If stat values not giv
 
 // ─── Change request — PROPOSE (Tier 1+) — stored server-side ─────────────────
 router.post("/change-request/propose", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   if (!TIERS_ALLOWING_CHANGES.has(org.tier ?? "")) {
@@ -923,7 +917,7 @@ Output ONLY the complete, updated HTML document starting with <!DOCTYPE html>. N
 
 // ─── Change request — APPLY (server-stored proposal only, no client HTML) ─────
 router.post("/change-request/apply", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   if (!TIERS_ALLOWING_CHANGES.has(org.tier ?? "")) {
@@ -946,7 +940,7 @@ router.post("/change-request/apply", async (req: Request, res: Response) => {
 
 // ─── Sync events from DB into site ───────────────────────────────────────────
 router.post("/sync-events", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   if (!TIERS_ALLOWING_CHANGES.has(org.tier ?? "")) {
@@ -1040,7 +1034,7 @@ Return the complete updated HTML document.`;
 
 // ─── Schedule CRUD (Tier 1a+) ─────────────────────────────────────────────────
 router.get("/schedule", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsSchedule(org.tier)) { res.status(403).json({ error: "Schedule requires the Autopilot plan or higher" }); return; }
   const [schedule] = await db.select().from(siteUpdateSchedulesTable).where(eq(siteUpdateSchedulesTable.orgId, org.id));
@@ -1048,7 +1042,7 @@ router.get("/schedule", async (req: Request, res: Response) => {
 });
 
 router.post("/schedule", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsSchedule(org.tier)) { res.status(403).json({ error: "Schedule requires the Autopilot plan or higher" }); return; }
 
@@ -1081,7 +1075,7 @@ router.post("/schedule", async (req: Request, res: Response) => {
 });
 
 router.delete("/schedule", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsSchedule(org.tier)) { res.status(403).json({ error: "Schedule requires the Autopilot plan or higher" }); return; }
   await db.delete(siteUpdateSchedulesTable).where(eq(siteUpdateSchedulesTable.orgId, org.id));
@@ -1090,7 +1084,7 @@ router.delete("/schedule", async (req: Request, res: Response) => {
 
 // ─── Schedule manual run ──────────────────────────────────────────────────────
 router.post("/schedule/run", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsSchedule(org.tier)) { res.status(403).json({ error: "Schedule requires the Autopilot plan or higher" }); return; }
 
@@ -1138,7 +1132,7 @@ Output ONLY the complete updated HTML starting with <!DOCTYPE html>.`,
 
 // ─── Publish / unpublish ──────────────────────────────────────────────────────
 router.put("/my/publish", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const { publish } = req.body as { publish: boolean };
@@ -1258,13 +1252,13 @@ export async function refreshSiteEventsSection(orgId: string): Promise<void> {
 // ─── Embed Code (shop integration) ───────────────────────────────────────────
 
 router.get("/embed-code", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   res.json({ embedCode: org.shopEmbedCode ?? "" });
 });
 
 router.put("/embed-code", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const raw = (req.body as { embedCode?: unknown }).embedCode;

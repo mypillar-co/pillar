@@ -46,6 +46,8 @@ export const registrationsTable = pgTable("registrations", {
 }, (table) => ({
   orgIdx: index("registration_org_idx").on(table.orgId),
   statusIdx: index("registration_status_idx").on(table.status),
+  emailIdx: index("registration_email_idx").on(table.email),
+  sessionIdx: index("registration_session_idx").on(table.stripeSessionId),
 }));
 
 export type Registration = typeof registrationsTable.$inferSelect;

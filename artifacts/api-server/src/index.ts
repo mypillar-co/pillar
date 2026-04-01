@@ -2,6 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { getStripeSync } from "./stripeClient";
 import { startScheduler } from "./scheduler";
+import { attachProcessErrorHandlers } from "./lib/errorAlert";
 
 const rawPort = process.env["PORT"];
 
@@ -25,6 +26,8 @@ function getWebhookUrl(): string | null {
   }
   return null;
 }
+
+attachProcessErrorHandlers();
 
 async function main() {
   // Initialize Stripe sync (webhooks → postgres stripe schema)

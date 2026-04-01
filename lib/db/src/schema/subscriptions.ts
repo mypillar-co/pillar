@@ -1,4 +1,4 @@
-import { pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
+import { pgTable, timestamp, varchar, index } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -21,7 +21,10 @@ export const subscriptionsTable = pgTable("subscriptions", {
   cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (t) => [
+  index("sub_user_idx").on(t.userId),
+  index("sub_org_idx").on(t.organizationId),
+]);
 
 export const insertSubscriptionSchema = createInsertSchema(subscriptionsTable).omit({
   id: true,

@@ -1,19 +1,13 @@
 import { Router, type Request, type Response } from "express";
-import { db, notificationsTable, organizationsTable } from "@workspace/db";
+import { db, notificationsTable } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
+import { resolveFullOrg } from "../lib/resolveOrg";
 
 const router = Router();
 
-async function resolveOrg(req: Request, res: Response) {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return null; }
-  const [org] = await db.select().from(organizationsTable).where(eq(organizationsTable.userId, req.user!.id));
-  if (!org) { res.status(404).json({ error: "Organization not found" }); return null; }
-  return org;
-}
-
 // GET /notifications — list notifications (unread first, max 50)
 router.get("/", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const notifications = await db
@@ -29,7 +23,7 @@ router.get("/", async (req: Request, res: Response) => {
 
 // PUT /notifications/:id/read — mark a notification as read
 router.put("/:id/read", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const id = String(req.params.id);
@@ -45,7 +39,7 @@ router.put("/:id/read", async (req: Request, res: Response) => {
 
 // PUT /notifications/read-all — mark all notifications as read
 router.put("/read-all", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   await db

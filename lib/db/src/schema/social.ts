@@ -35,6 +35,7 @@ export const socialPostsTable = pgTable("social_posts", {
 }, (table) => ({
   orgStatusIdx: index("social_posts_org_status_idx").on(table.orgId, table.status),
   scheduledIdx: index("social_posts_scheduled_idx").on(table.scheduledAt),
+  statusScheduledIdx: index("social_posts_status_scheduled_idx").on(table.status, table.scheduledAt),
 }));
 
 export const automationRulesTable = pgTable("automation_rules", {
@@ -52,7 +53,10 @@ export const automationRulesTable = pgTable("automation_rules", {
   nextRunAt: timestamp("next_run_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (table) => ({
+  nextRunIdx: index("automation_rules_next_run_idx").on(table.nextRunAt),
+  orgIdx: index("automation_rules_org_idx").on(table.orgId),
+}));
 
 export const contentStrategyTable = pgTable("content_strategy", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

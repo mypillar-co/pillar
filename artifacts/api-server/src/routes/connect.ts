@@ -2,27 +2,12 @@ import { Router, type Request, type Response } from "express";
 import { db, organizationsTable, eventsTable, ticketTypesTable, ticketSalesTable } from "@workspace/db";
 import { eq, and, sum, sql } from "drizzle-orm";
 import { getUncachableStripeClient, getStripePublishableKey } from "../stripeClient";
+import { resolveFullOrg } from "../lib/resolveOrg";
 
 const router = Router();
 
-async function resolveOrg(req: Request, res: Response) {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return null;
-  }
-  const [org] = await db
-    .select()
-    .from(organizationsTable)
-    .where(eq(organizationsTable.userId, req.user.id));
-  if (!org) {
-    res.status(404).json({ error: "Organization not found" });
-    return null;
-  }
-  return org;
-}
-
 router.get("/connect/status", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   let accountStatus = null;
@@ -71,7 +56,7 @@ router.get("/connect/status", async (req: Request, res: Response) => {
 });
 
 router.post("/connect/onboard", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const stripe = await getUncachableStripeClient();
@@ -112,7 +97,7 @@ router.post("/connect/onboard", async (req: Request, res: Response) => {
 });
 
 router.post("/connect/dashboard", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   if (!org.stripeConnectAccountId) {
@@ -126,7 +111,7 @@ router.post("/connect/dashboard", async (req: Request, res: Response) => {
 });
 
 router.post("/connect/update-nonprofit", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const { isNonprofit, taxIdNumber } = req.body as { isNonprofit?: boolean; taxIdNumber?: string };
@@ -384,7 +369,7 @@ router.get("/public/events/:slug", async (req: Request, res: Response) => {
 });
 
 router.get("/connect/transactions", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const sales = await db

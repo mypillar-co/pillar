@@ -12,6 +12,7 @@ import {
 import { eq, and, asc, desc, gte, sum, sql } from "drizzle-orm";
 import OpenAI from "openai";
 import { refreshSiteEventsSection } from "./sites";
+import { resolveFullOrg, getFullOrgForUser } from "../lib/resolveOrg";
 
 const router = Router();
 
@@ -23,22 +24,6 @@ function getOpenAIClient() {
     apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
     baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
   });
-}
-
-async function resolveOrg(req: Request, res: Response) {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return null;
-  }
-  const [org] = await db
-    .select()
-    .from(organizationsTable)
-    .where(eq(organizationsTable.userId, req.user.id));
-  if (!org) {
-    res.status(404).json({ error: "Organization not found" });
-    return null;
-  }
-  return org;
 }
 
 function tierAllowsEvents(tier: string | null | undefined): boolean {
@@ -55,7 +40,7 @@ function tierAllowsRecurring(tier: string | null | undefined): boolean {
 router.use(async (req: Request, res: Response, next: NextFunction) => {
   if (req.path.startsWith("/public/")) return next();
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-  const [org] = await db.select({ tier: organizationsTable.tier }).from(organizationsTable).where(eq(organizationsTable.userId, req.user.id));
+  const org = await getFullOrgForUser(req.user.id);
   if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
   if (!tierAllowsEvents(org.tier)) { res.status(403).json({ error: "Event features require the Events plan or higher" }); return; }
   next();
@@ -67,7 +52,7 @@ router.use(async (req: Request, res: Response, next: NextFunction) => {
 
 // GET /api/events/metrics
 router.get("/metrics", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   const today = new Date().toISOString().split("T")[0];
   const now = new Date();
@@ -103,7 +88,7 @@ router.get("/metrics", async (req: Request, res: Response) => {
 
 // GET /api/events/approvals/queue
 router.get("/approvals/queue", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   const pending = await db
     .select({
@@ -119,7 +104,7 @@ router.get("/approvals/queue", async (req: Request, res: Response) => {
 
 // GET /api/events/recurring/templates
 router.get("/recurring/templates", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsRecurring(org.tier)) {
     res.status(403).json({ error: "Recurring events require the Total Operations plan" });
@@ -131,7 +116,7 @@ router.get("/recurring/templates", async (req: Request, res: Response) => {
 
 // POST /api/events/recurring/templates
 router.post("/recurring/templates", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsRecurring(org.tier)) {
     res.status(403).json({ error: "Recurring events require the Total Operations plan" });
@@ -161,7 +146,7 @@ router.post("/recurring/templates", async (req: Request, res: Response) => {
 
 // PUT /api/events/recurring/templates/:id
 router.put("/recurring/templates/:id", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsRecurring(org.tier)) {
     res.status(403).json({ error: "Recurring events require the Total Operations plan" });
@@ -180,7 +165,7 @@ router.put("/recurring/templates/:id", async (req: Request, res: Response) => {
 
 // DELETE /api/events/recurring/templates/:id
 router.delete("/recurring/templates/:id", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   await db.delete(recurringEventTemplatesTable).where(and(eq(recurringEventTemplatesTable.id, String(req.params.id)), eq(recurringEventTemplatesTable.orgId, org.id)));
   res.status(204).send();
@@ -188,7 +173,7 @@ router.delete("/recurring/templates/:id", async (req: Request, res: Response) =>
 
 // POST /api/events/recurring/templates/:id/generate
 router.post("/recurring/templates/:id/generate", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsRecurring(org.tier)) {
     res.status(403).json({ error: "Recurring events require the Total Operations plan" });
@@ -394,7 +379,7 @@ router.get("/public/:orgSlug", async (req: Request, res: Response) => {
 
 // GET /api/events (with per-event quick stats)
 router.get("/", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   const includeInactive = req.query.includeInactive === "1";
   const conditions = [eq(eventsTable.orgId, org.id)];
@@ -417,7 +402,7 @@ router.get("/", async (req: Request, res: Response) => {
 
 // GET /api/events/:id (with related data)
 router.get("/:id", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   const eventId = String(req.params.id);
   const [event] = await db
@@ -442,7 +427,7 @@ router.get("/:id", async (req: Request, res: Response) => {
 
 // POST /api/events
 router.post("/", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   const body = req.body as Record<string, unknown>;
   const { name, description, eventType, startDate, endDate, startTime, endTime, location, maxCapacity, isTicketed, ticketPrice, ticketCapacity, requiresApproval } = body;
@@ -483,7 +468,7 @@ router.post("/", async (req: Request, res: Response) => {
 
 // PUT /api/events/:id
 router.put("/:id", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   const body = req.body as Record<string, unknown>;
   const allowed = ["name", "description", "eventType", "status", "startDate", "endDate", "startTime", "endTime", "location", "maxCapacity", "isTicketed", "ticketPrice", "ticketCapacity", "requiresApproval", "featured", "imageUrl", "isActive"];
@@ -519,7 +504,7 @@ router.put("/:id", async (req: Request, res: Response) => {
 
 // DELETE /api/events/:id
 router.delete("/:id", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   await db
     .delete(eventsTable)
@@ -529,7 +514,7 @@ router.delete("/:id", async (req: Request, res: Response) => {
 
 // POST /api/events/:id/submit
 router.post("/:id/submit", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   const eventId = String(req.params.id);
   const [event] = await db.select().from(eventsTable).where(and(eq(eventsTable.id, eventId), eq(eventsTable.orgId, org.id)));
@@ -553,7 +538,7 @@ router.post("/:id/submit", async (req: Request, res: Response) => {
 
 // POST /api/events/:id/approve
 router.post("/:id/approve", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (req.user?.id !== org.userId) {
     res.status(403).json({ error: "Only the organization owner can approve events" });
@@ -579,7 +564,7 @@ router.post("/:id/approve", async (req: Request, res: Response) => {
 
 // POST /api/events/:id/reject
 router.post("/:id/reject", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (req.user?.id !== org.userId) {
     res.status(403).json({ error: "Only the organization owner can reject events" });
@@ -606,7 +591,7 @@ router.post("/:id/reject", async (req: Request, res: Response) => {
 // ─────────────────────────────────────────────────────────────────
 
 router.get("/:id/ticket-types", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   const eventId = String(req.params.id);
   const types = await db.select().from(ticketTypesTable).where(and(eq(ticketTypesTable.eventId, eventId), eq(ticketTypesTable.orgId, org.id))).orderBy(asc(ticketTypesTable.createdAt));
@@ -614,7 +599,7 @@ router.get("/:id/ticket-types", async (req: Request, res: Response) => {
 });
 
 router.post("/:id/ticket-types", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   const eventId = String(req.params.id);
   const [ownerCheck] = await db.select({ id: eventsTable.id }).from(eventsTable).where(and(eq(eventsTable.id, eventId), eq(eventsTable.orgId, org.id)));
@@ -633,7 +618,7 @@ router.post("/:id/ticket-types", async (req: Request, res: Response) => {
 });
 
 router.put("/:eventId/ticket-types/:typeId", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   const body = req.body as Record<string, unknown>;
   const allowed = ["name", "description", "price", "quantity", "isActive"];
@@ -647,7 +632,7 @@ router.put("/:eventId/ticket-types/:typeId", async (req: Request, res: Response)
 });
 
 router.delete("/:eventId/ticket-types/:typeId", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   await db.delete(ticketTypesTable).where(and(eq(ticketTypesTable.id, String(req.params.typeId)), eq(ticketTypesTable.orgId, org.id)));
   res.status(204).send();
@@ -658,7 +643,7 @@ router.delete("/:eventId/ticket-types/:typeId", async (req: Request, res: Respon
 // ─────────────────────────────────────────────────────────────────
 
 router.get("/:id/sales", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   const eventId = String(req.params.id);
   const sales = await db.select().from(ticketSalesTable).where(and(eq(ticketSalesTable.eventId, eventId), eq(ticketSalesTable.orgId, org.id))).orderBy(desc(ticketSalesTable.createdAt));
@@ -668,7 +653,7 @@ router.get("/:id/sales", async (req: Request, res: Response) => {
 const PLATFORM_FEE_RATE = 0.025;
 
 router.post("/:id/sales", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   const eventId = String(req.params.id);
   const [event] = await db.select().from(eventsTable).where(and(eq(eventsTable.id, eventId), eq(eventsTable.orgId, org.id)));
@@ -709,7 +694,7 @@ router.post("/:id/sales", async (req: Request, res: Response) => {
 });
 
 router.delete("/:eventId/sales/:saleId", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   await db.delete(ticketSalesTable).where(and(eq(ticketSalesTable.id, String(req.params.saleId)), eq(ticketSalesTable.orgId, org.id)));
   res.status(204).send();
@@ -720,7 +705,7 @@ router.delete("/:eventId/sales/:saleId", async (req: Request, res: Response) => 
 // ─────────────────────────────────────────────────────────────────
 
 router.get("/:id/communications", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   const eventId = String(req.params.id);
   const comms = await db.select().from(eventCommunicationsTable).where(and(eq(eventCommunicationsTable.eventId, eventId), eq(eventCommunicationsTable.orgId, org.id))).orderBy(desc(eventCommunicationsTable.sentAt));
@@ -728,7 +713,7 @@ router.get("/:id/communications", async (req: Request, res: Response) => {
 });
 
 router.post("/:id/communications", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
   const eventId = String(req.params.id);
   const [event] = await db.select().from(eventsTable).where(and(eq(eventsTable.id, eventId), eq(eventsTable.orgId, org.id)));

@@ -382,3 +382,15 @@ export async function sendOrgEmail(
   const fromAddress = `${opts.fromName} <${opts.fromEmail}>`;
   return send(opts.to, opts.subject, opts.bodyHtml, opts.bodyText, fromAddress);
 }
+
+
+// ─── Generic transactional email ─────────────────────────────────────────────
+
+export async function sendEmail(opts: {
+  to: string;
+  subject: string;
+  html: string;
+  text?: string;
+}): Promise<MailResult> {
+  return send(opts.to, opts.subject, opts.html, opts.text ?? opts.subject);
+}

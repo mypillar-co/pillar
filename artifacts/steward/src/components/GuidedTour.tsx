@@ -308,7 +308,7 @@ function TourOverlay({
   tooltipStyle: React.CSSProperties;
   arrowStyle: React.CSSProperties;
   arrowDirection: "top" | "bottom" | "left" | "right" | "none";
-  tooltipRef: React.RefObject<HTMLDivElement>;
+  tooltipRef: React.RefObject<HTMLDivElement | null>;
   dismiss: () => void;
   next: () => void;
   prev: () => void;
@@ -418,6 +418,7 @@ export function GuidedTour() {
       const timer = setTimeout(() => engine.setActive(true), 900);
       return () => clearTimeout(timer);
     }
+    return undefined;
   }, []);
 
   const handleDismiss = useCallback(() => {
@@ -461,6 +462,7 @@ export function FeatureTourRunner() {
       const timer = setTimeout(() => setTourKey(key), 500);
       return () => clearTimeout(timer);
     }
+    return undefined;
   }, []);
 
   if (!tourKey) return null;

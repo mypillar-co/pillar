@@ -2,21 +2,12 @@ import { Router, type Request, type Response } from "express";
 import Anthropic from "@anthropic-ai/sdk";
 import { db, supportTicketsTable, organizationsTable, usersTable } from "@workspace/db";
 import { eq, desc, and, isNotNull, asc } from "drizzle-orm";
+import { getFullOrgForUser } from "../lib/resolveOrg";
 
 const router = Router();
 
 const ADMIN_USER_IDS = new Set((process.env.ADMIN_USER_IDS ?? "").split(",").map(s => s.trim()).filter(Boolean));
 const ADMIN_EMAILS = new Set((process.env.ADMIN_EMAILS ?? "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean));
-
-async function resolveOrgForUser(userId: string) {
-  const [org] = await db
-    .select()
-    .from(organizationsTable)
-    .where(eq(organizationsTable.userId, userId))
-    .orderBy(desc(isNotNull(organizationsTable.tier)), asc(organizationsTable.createdAt))
-    .limit(1);
-  return org ?? null;
-}
 
 const PILLAR_SYSTEM_PROMPT = `You are the Pillar support assistant — a friendly, knowledgeable helper for Pillar, an AI-powered management platform for civic organizations (nonprofits, community groups, HOAs, unions, clubs, etc.).
 
@@ -117,7 +108,7 @@ router.post("/tickets", async (req: Request, res: Response) => {
   const sev = validSeverities.includes(severity ?? "") ? severity! : "normal";
 
   const userId = req.user.id;
-  const org = await resolveOrgForUser(userId);
+  const org = await getFullOrgForUser(userId);
 
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
 

@@ -39,6 +39,9 @@ import Registrations from "./pages/dashboard/Registrations";
 import Admin from "./pages/Admin";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
+import AcceptInvite from "./pages/AcceptInvite";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -95,6 +98,9 @@ function AppRouter() {
       <Route path="/admin" component={Admin} />
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
+      <Route path="/forgot-password" component={ForgotPassword} />
+      <Route path="/reset-password" component={ResetPassword} />
+      <Route path="/accept-invite/:token" component={AcceptInvite} />
       <Route path="/pricing">
         <PricingRedirect />
       </Route>

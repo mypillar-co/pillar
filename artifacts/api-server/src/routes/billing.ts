@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, organizationsTable } from "@workspace/db";
 import { eq, desc, asc, isNotNull } from "drizzle-orm";
+import { getFullOrgForUser } from "../lib/resolveOrg";
 import { getUncachableStripeClient } from "../stripeClient";
 import { TIERS, getTierById } from "../tiers";
 
@@ -69,12 +70,7 @@ router.post("/billing/checkout", async (req: Request, res: Response) => {
   const userEmail = req.user.email ?? undefined;
 
   // Get or create Stripe customer for this user
-  const [org] = await db
-    .select()
-    .from(organizationsTable)
-    .where(eq(organizationsTable.userId, userId))
-    .orderBy(desc(isNotNull(organizationsTable.tier)), asc(organizationsTable.createdAt))
-    .limit(1);
+  const org = await getFullOrgForUser(userId);
 
   let customerId: string | null = org?.stripeCustomerId ?? null;
   if (!customerId) {
@@ -127,12 +123,7 @@ router.post("/billing/portal", async (req: Request, res: Response) => {
   }
 
   const userId = req.user.id;
-  const [org] = await db
-    .select()
-    .from(organizationsTable)
-    .where(eq(organizationsTable.userId, userId))
-    .orderBy(desc(isNotNull(organizationsTable.tier)), asc(organizationsTable.createdAt))
-    .limit(1);
+  const org = await getFullOrgForUser(userId);
 
   if (!org?.stripeCustomerId) {
     res.status(400).json({ error: "No billing account found. Please subscribe first." });
@@ -158,12 +149,7 @@ router.get("/billing/subscription", async (req: Request, res: Response) => {
   }
 
   const userId = req.user.id;
-  const [org] = await db
-    .select()
-    .from(organizationsTable)
-    .where(eq(organizationsTable.userId, userId))
-    .orderBy(desc(isNotNull(organizationsTable.tier)), asc(organizationsTable.createdAt))
-    .limit(1);
+  const org = await getFullOrgForUser(userId);
 
   if (!org?.stripeCustomerId) {
     const tier = org?.tier ? getTierById(org.tier) : undefined;

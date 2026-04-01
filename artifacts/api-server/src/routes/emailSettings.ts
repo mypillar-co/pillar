@@ -3,15 +3,9 @@ import { db, organizationsTable, domainsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { addEmailForward, listEmailForwards, deleteEmailForward } from "../porkbun";
 import { logger } from "../lib/logger";
+import { resolveFullOrg } from "../lib/resolveOrg";
 
 const router = Router();
-
-async function resolveOrg(req: Request, res: Response) {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return null; }
-  const [org] = await db.select().from(organizationsTable).where(eq(organizationsTable.userId, req.user.id));
-  if (!org) { res.status(404).json({ error: "Organization not found" }); return null; }
-  return org;
-}
 
 function getResendKey(): string | null {
   return process.env.RESEND_API_KEY ?? null;
@@ -20,7 +14,7 @@ function getResendKey(): string | null {
 // ─── GET /email-settings ──────────────────────────────────────────────────────
 
 router.get("/", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const [domain] = await db
@@ -57,7 +51,7 @@ router.get("/", async (req: Request, res: Response) => {
 // Set up email forwarding for a Pillar-managed domain
 
 router.post("/forward", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const { alias, destination } = req.body as { alias?: string; destination?: string };
@@ -120,7 +114,7 @@ router.post("/forward", async (req: Request, res: Response) => {
 // ─── DELETE /email-settings/forward ───────────────────────────────────────────
 
 router.delete("/forward", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   if (!org.emailForwardAlias || !org.emailForwardDestination) {
@@ -150,7 +144,7 @@ router.delete("/forward", async (req: Request, res: Response) => {
 // Register org domain with Resend for branded outgoing email
 
 router.post("/sender", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   const { senderEmail, senderName } = req.body as { senderEmail?: string; senderName?: string };
@@ -220,7 +214,7 @@ router.post("/sender", async (req: Request, res: Response) => {
 // ─── POST /email-settings/sender/verify ───────────────────────────────────────
 
 router.post("/sender/verify", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   if (!org.resendDomainId) {
@@ -260,7 +254,7 @@ router.post("/sender/verify", async (req: Request, res: Response) => {
 // ─── GET /email-settings/sender/records ───────────────────────────────────────
 
 router.get("/sender/records", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   if (!org.resendDomainId) {
@@ -294,7 +288,7 @@ router.get("/sender/records", async (req: Request, res: Response) => {
 // ─── DELETE /email-settings/sender ────────────────────────────────────────────
 
 router.delete("/sender", async (req: Request, res: Response) => {
-  const org = await resolveOrg(req, res);
+  const org = await resolveFullOrg(req, res);
   if (!org) return;
 
   await db.update(organizationsTable).set({
