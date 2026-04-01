@@ -390,6 +390,33 @@ router.get("/admin/agents/logs", async (req: Request, res: Response) => {
   }
 });
 
+// Manually trigger an agent run
+router.post("/admin/agents/run/:agentName", async (req: Request, res: Response) => {
+  const { agentName } = req.params;
+  const validAgents = ["customerSuccess", "operations", "content", "outreach"];
+  if (!validAgents.includes(agentName)) {
+    res.status(400).json({ error: `Unknown agent: ${agentName}` });
+    return;
+  }
+  try {
+    const { runCustomerSuccessAgent, runOperationsAgent, runContentAgent, runOutreachAgent } =
+      await import("../agents");
+    const runners: Record<string, () => Promise<void>> = {
+      customerSuccess: runCustomerSuccessAgent,
+      operations: runOperationsAgent,
+      content: runContentAgent,
+      outreach: runOutreachAgent,
+    };
+    // Run async so the response is immediate
+    runners[agentName]().catch((err: unknown) => {
+      console.error(`[admin] Manual agent run failed for ${agentName}:`, err);
+    });
+    res.json({ ok: true, message: `${agentName} agent started` });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // Content queue
 router.get("/admin/content-queue", async (_req: Request, res: Response) => {
   try {

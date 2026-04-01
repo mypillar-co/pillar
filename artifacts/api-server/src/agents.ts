@@ -112,13 +112,19 @@ export async function runCustomerSuccessAgent() {
   const d2future = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
   const d3future = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
-  // 1. Welcome emails — new users in last 24h
-  const newUsers = await db
+  // 1. Welcome emails — any user who never got a successful welcome email.
+  //    We check ALL users (not just last 24h) so that emails which previously
+  //    failed (e.g. domain not verified in Resend) are retried automatically
+  //    on the next agent run. Cap at 50 per run to avoid burst sending.
+  const allUsersWithEmail = await db
     .select({ id: usersTable.id, email: usersTable.email, firstName: usersTable.firstName })
     .from(usersTable)
-    .where(and(gte(usersTable.createdAt, h24ago), isNotNull(usersTable.email)));
+    .where(isNotNull(usersTable.email))
+    .limit(500);
 
-  for (const user of newUsers) {
+  let welcomeSent = 0;
+  for (const user of allUsersWithEmail) {
+    if (welcomeSent >= 50) break;
     if (!user.email) continue;
     if (await alreadyDid("customerSuccess", "welcome_email", user.id)) continue;
 
@@ -135,6 +141,7 @@ export async function runCustomerSuccessAgent() {
       targetEmail: user.email,
       details: result.simulated ? "simulated (no RESEND_API_KEY)" : result.error,
     });
+    if (result.sent || result.simulated) welcomeSent++;
   }
 
   // 2. Website nudge — in trial 48–96h ago, still no site
