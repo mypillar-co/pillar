@@ -175,10 +175,11 @@ router.get("/billing/subscription", async (req: Request, res: Response) => {
 
     const sub = subscriptions.data[0];
     if (!sub) {
+      const tier = org.tier ? getTierById(org.tier) : undefined;
       res.json({
-        hasSubscription: false,
+        hasSubscription: org.subscriptionStatus === "active" && !!org.tier,
         tierId: org.tier ?? null,
-        tierName: null,
+        tierName: tier?.name ?? null,
         status: org.subscriptionStatus ?? null,
         currentPeriodEnd: null,
         stripeCustomerId: org.stripeCustomerId,
