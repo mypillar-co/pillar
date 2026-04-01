@@ -160,19 +160,23 @@ export default function Landing() {
   const { isAuthenticated, isLoading: authLoading, isAdmin } = useAuth();
   const [, setLocation] = useLocation();
   const { data: tiersData } = useListTiers();
-  const { data: orgData } = useGetOrganization();
+  const { data: orgData, isLoading: orgLoading } = useGetOrganization();
   const hasOrg = isAuthenticated && Boolean(orgData?.organization);
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "annual">("monthly");
 
   useEffect(() => {
-    if (!authLoading && isAuthenticated) {
+    // Wait for BOTH auth and org data to finish loading before redirecting.
+    // Without the orgLoading guard, the effect fires while orgData is still
+    // undefined, sees hasOrg=false, and incorrectly sends the user to /onboard.
+    if (authLoading || (isAuthenticated && orgLoading)) return;
+    if (isAuthenticated) {
       if (isAdmin) {
         setLocation("/admin");
       } else {
         setLocation(hasOrg ? "/dashboard" : "/onboard");
       }
     }
-  }, [isAuthenticated, authLoading, isAdmin, hasOrg, setLocation]);
+  }, [isAuthenticated, authLoading, orgLoading, isAdmin, hasOrg, setLocation]);
 
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
