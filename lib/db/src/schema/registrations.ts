@@ -45,6 +45,7 @@ export const registrationsTable = pgTable("registrations", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => ({
   orgIdx: index("registration_org_idx").on(table.orgId),
+  orgStatusIdx: index("registration_org_status_idx").on(table.orgId, table.status),
   statusIdx: index("registration_status_idx").on(table.status),
   emailIdx: index("registration_email_idx").on(table.email),
   sessionIdx: index("registration_session_idx").on(table.stripeSessionId),
