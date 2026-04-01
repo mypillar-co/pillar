@@ -49,6 +49,38 @@ type ImportedSiteData = {
 };
 
 const DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+const SITE_STYLES = [
+  { id: "classic", label: "Classic & Professional", desc: "Timeless look with strong typography — great for service clubs and associations", swatches: ["#1e3a5f", "#f59e0b", "#ffffff"] },
+  { id: "modern", label: "Modern & Bold", desc: "Contemporary with impactful visuals and clean lines", swatches: ["#0f172a", "#6366f1", "#f8fafc"] },
+  { id: "warm", label: "Warm & Community", desc: "Friendly, inviting tones that welcome all members", swatches: ["#7c2d12", "#f97316", "#fef3c7"] },
+  { id: "minimal", label: "Clean & Minimal", desc: "Uncluttered and focused — lets your content shine", swatches: ["#1e293b", "#e2e8f0", "#ffffff"] },
+] as const;
+
+const SITE_SECTIONS = [
+  { id: "hero", label: "Hero / Banner", emoji: "🏠", required: true },
+  { id: "about", label: "About Us", emoji: "ℹ️", required: true },
+  { id: "mission", label: "Mission & Values", emoji: "🎯" },
+  { id: "events", label: "Events & Calendar", emoji: "📅" },
+  { id: "leadership", label: "Officers & Leadership", emoji: "👥" },
+  { id: "gallery", label: "Photo Gallery", emoji: "🖼️" },
+  { id: "contact", label: "Contact & Location", emoji: "📬" },
+  { id: "news", label: "News & Updates", emoji: "📰" },
+  { id: "donate", label: "Donate / Support", emoji: "💛" },
+  { id: "sponsors", label: "Sponsors & Partners", emoji: "🤝" },
+] as const;
+
+const COLOR_THEMES = [
+  { id: "navy-gold", label: "Navy & Gold", bg: "#1e3a5f", accent: "#f59e0b" },
+  { id: "forest-amber", label: "Forest & Amber", bg: "#14532d", accent: "#d97706" },
+  { id: "burgundy-silver", label: "Burgundy & Silver", bg: "#4c0519", accent: "#94a3b8" },
+  { id: "royal-white", label: "Royal Blue & White", bg: "#1d4ed8", accent: "#f8fafc" },
+  { id: "charcoal-teal", label: "Charcoal & Teal", bg: "#1e293b", accent: "#0d9488" },
+  { id: "plum-gold", label: "Plum & Gold", bg: "#3b0764", accent: "#eab308" },
+] as const;
+
+const DEFAULT_SECTIONS = ["hero", "about", "events", "contact"];
+
 const UPDATE_ITEMS = [
   { id: "events", label: "Upcoming events", description: "Keep the events section current" },
   { id: "hours", label: "Hours & schedule", description: "Refresh meeting times and hours" },
@@ -128,6 +160,11 @@ export default function SiteBuilder() {
   const [importError, setImportError] = useState<string | null>(null);
   const [importedFromUrl, setImportedFromUrl] = useState<string | null>(null);
   const [showImportForm, setShowImportForm] = useState(false);
+
+  const [showSetup, setShowSetup] = useState(false);
+  const [selectedStyle, setSelectedStyle] = useState<string>("classic");
+  const [selectedSections, setSelectedSections] = useState<string[]>(DEFAULT_SECTIONS);
+  const [selectedColorTheme, setSelectedColorTheme] = useState<string>("navy-gold");
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -260,6 +297,28 @@ export default function SiteBuilder() {
     }
   };
 
+  const toggleSection = (id: string) => {
+    const section = SITE_SECTIONS.find(s => s.id === id);
+    if (section && "required" in section && section.required) return;
+    setSelectedSections(prev =>
+      prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]
+    );
+  };
+
+  const startWithSetup = () => {
+    const style = SITE_STYLES.find(s => s.id === selectedStyle);
+    const theme = COLOR_THEMES.find(t => t.id === selectedColorTheme);
+    const sectionLabels = SITE_SECTIONS.filter(s => selectedSections.includes(s.id)).map(s => s.label).join(", ");
+    const contextMsg: Message = {
+      id: "setup-user-0",
+      role: "user",
+      content: `Setup preferences: Style — ${style?.label ?? selectedStyle}. Color theme — ${theme?.label ?? selectedColorTheme}. Sections to include — ${sectionLabels}.`,
+    };
+    setMessages([contextMsg]);
+    setShowSetup(false);
+    void send("Let's build my website.", [contextMsg]);
+  };
+
   const handleImportUrl = async () => {
     const trimmed = importUrl.trim();
     if (!trimmed || importing) return;
@@ -353,10 +412,11 @@ export default function SiteBuilder() {
     }
   };
 
-  const send = async (text: string) => {
+  const send = async (text: string, prependMessages?: Message[]) => {
     if (!text.trim() || chatLoading || isLimitReached) return;
     const userMsg: Message = { id: Date.now().toString(), role: "user", content: text };
-    const trimmedHistory = messages.slice(-(CONTEXT_TURNS * 2)).map(m => ({ role: m.role, content: m.content }));
+    const base = prependMessages ?? messages;
+    const trimmedHistory = base.slice(-(CONTEXT_TURNS * 2)).map(m => ({ role: m.role, content: m.content }));
     const assistantMsgId = (Date.now() + 1).toString();
 
     setMessages(prev => [...prev, userMsg, { id: assistantMsgId, role: "assistant", content: "", streaming: true }]);
@@ -1157,10 +1217,99 @@ export default function SiteBuilder() {
                       )}
                     </div>
                   </div>
+                ) : showSetup ? (
+                  /* ── Setup wizard ── */
+                  <div className="w-full rounded-xl border border-white/10 bg-white/3 text-left overflow-hidden">
+                    <div className="flex items-center gap-3 px-4 py-3 border-b border-white/8">
+                      <Sparkles className="w-4 h-4 text-primary flex-shrink-0" />
+                      <p className="text-sm font-semibold text-white flex-1">Customize your site</p>
+                      <button onClick={() => setShowSetup(false)} className="text-slate-400 hover:text-white transition-colors">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="p-4 space-y-5 max-h-[420px] overflow-y-auto">
+
+                      {/* Style preset */}
+                      <div>
+                        <p className="text-xs font-semibold text-slate-300 mb-2.5 uppercase tracking-wide">Choose a style</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {SITE_STYLES.map(style => (
+                            <button
+                              key={style.id}
+                              onClick={() => setSelectedStyle(style.id)}
+                              className={`relative p-3 rounded-lg border text-left transition-all ${selectedStyle === style.id ? "border-primary bg-primary/10" : "border-white/8 hover:border-white/20 hover:bg-white/3"}`}
+                            >
+                              {selectedStyle === style.id && (
+                                <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-primary flex items-center justify-center">
+                                  <Check className="w-2.5 h-2.5 text-black" />
+                                </div>
+                              )}
+                              <div className="flex gap-1 mb-2">
+                                {style.swatches.map((c, i) => (
+                                  <div key={i} className="w-4 h-4 rounded-sm flex-shrink-0 border border-white/10" style={{ backgroundColor: c }} />
+                                ))}
+                              </div>
+                              <p className="text-xs font-semibold text-white leading-tight">{style.label}</p>
+                              <p className="text-[11px] text-slate-400 mt-0.5 leading-tight">{style.desc}</p>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Color theme */}
+                      <div>
+                        <p className="text-xs font-semibold text-slate-300 mb-2.5 uppercase tracking-wide">Color theme</p>
+                        <div className="flex flex-wrap gap-2">
+                          {COLOR_THEMES.map(theme => (
+                            <button
+                              key={theme.id}
+                              onClick={() => setSelectedColorTheme(theme.id)}
+                              title={theme.label}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs transition-all ${selectedColorTheme === theme.id ? "border-primary text-white" : "border-white/10 text-slate-400 hover:border-white/25"}`}
+                            >
+                              <span className="w-3 h-3 rounded-full flex-shrink-0 border border-white/15" style={{ backgroundColor: theme.bg }} />
+                              <span className="w-3 h-3 rounded-full flex-shrink-0 border border-white/15" style={{ backgroundColor: theme.accent }} />
+                              {theme.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Section picker */}
+                      <div>
+                        <p className="text-xs font-semibold text-slate-300 mb-2.5 uppercase tracking-wide">Sections to include</p>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {SITE_SECTIONS.map(section => {
+                            const required = "required" in section && section.required;
+                            const selected = selectedSections.includes(section.id);
+                            return (
+                              <button
+                                key={section.id}
+                                onClick={() => toggleSection(section.id)}
+                                disabled={required}
+                                className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-all text-xs ${selected ? "border-primary/40 bg-primary/8 text-white" : "border-white/8 text-slate-400 hover:border-white/20 hover:text-slate-300"} ${required ? "opacity-60 cursor-default" : ""}`}
+                              >
+                                <div className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border ${selected ? "border-primary bg-primary" : "border-white/20"}`}>
+                                  {selected && <Check className="w-2.5 h-2.5 text-black" />}
+                                </div>
+                                <span>{section.emoji} {section.label}</span>
+                                {required && <span className="ml-auto text-[10px] text-slate-500">required</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="px-4 py-3 border-t border-white/8">
+                      <Button onClick={startWithSetup} disabled={chatLoading} className="w-full bg-primary hover:bg-primary/90">
+                        <Sparkles className="w-4 h-4 mr-1.5" /> Start Interview
+                      </Button>
+                    </div>
+                  </div>
                 ) : (
                   /* ── Start options ── */
                   <div className="w-full space-y-3">
-                    <Button onClick={() => send("Let's build my website.")} disabled={chatLoading} className="w-full bg-primary hover:bg-primary/90">
+                    <Button onClick={() => setShowSetup(true)} disabled={chatLoading} className="w-full bg-primary hover:bg-primary/90">
                       <Sparkles className="w-4 h-4 mr-2" /> Start from Scratch
                     </Button>
                     <Button variant="outline" onClick={() => setShowImportForm(true)} className="w-full border-white/10 hover:bg-white/5 text-slate-300">
