@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
   Users, Star, ShoppingBag, Clock, CheckCircle2, XCircle, AlertCircle,
-  ExternalLink, RefreshCw, DollarSign, Filter, ChevronDown
+  ExternalLink, RefreshCw, DollarSign, FileText, Download, ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +37,8 @@ type Registration = {
   approvedAt?: string | null;
   rejectedAt?: string | null;
   rejectionReason?: string | null;
+  servSafeUrl?: string | null;
+  insuranceCertUrl?: string | null;
   createdAt: string;
 };
 
@@ -44,6 +46,51 @@ type FeeConfig = {
   vendorFeeCents: number;
   sponsorFeeCents: number;
 };
+
+// ─── Document download row ────────────────────────────────────────────────────
+function DocDownloadRow({ label, objectPath }: { label: string; objectPath: string }) {
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      // objectPath is like /objects/uploads/<uuid>
+      // Serve via the authenticated admin endpoint (falls through to the standard storage endpoint)
+      const path = objectPath.startsWith("/") ? objectPath : `/${objectPath}`;
+      const res = await fetch(`/api/storage${path}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Download failed");
+      const blob = await res.blob();
+      const ext = blob.type === "application/pdf" ? ".pdf" : blob.type.split("/")[1] ? `.${blob.type.split("/")[1]}` : "";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${label.replace(/\s+/g, "_")}${ext}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // silently fail — user can try again
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-lg bg-white/5 border border-white/10">
+      <FileText className="w-4 h-4 text-blue-400 flex-shrink-0" />
+      <p className="text-sm text-slate-300 flex-1">{label}</p>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleDownload}
+        disabled={downloading}
+        className="h-7 px-2 border-white/10 text-slate-300 hover:text-white hover:bg-white/10"
+      >
+        <Download className="w-3.5 h-3.5 mr-1" />
+        {downloading ? "…" : "Download"}
+      </Button>
+    </div>
+  );
+}
 
 const STATUS_LABELS: Record<string, string> = {
   pending_payment: "Awaiting Payment",
@@ -399,6 +446,35 @@ export default function Registrations() {
                     </div>
                   )}
                 </div>
+
+                {/* Compliance documents */}
+                {(detailReg.servSafeUrl || detailReg.insuranceCertUrl) && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 pb-1 border-b border-white/8">
+                      <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />
+                      <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Compliance Documents</p>
+                    </div>
+                    {detailReg.servSafeUrl && (
+                      <DocDownloadRow
+                        label="ServSafe Certificate"
+                        objectPath={detailReg.servSafeUrl}
+                      />
+                    )}
+                    {detailReg.insuranceCertUrl && (
+                      <DocDownloadRow
+                        label="Certificate of Insurance"
+                        objectPath={detailReg.insuranceCertUrl}
+                      />
+                    )}
+                  </div>
+                )}
+
+                {detailReg.type === "vendor" && !detailReg.servSafeUrl && !detailReg.insuranceCertUrl && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-yellow-500/8 border border-yellow-500/15">
+                    <AlertCircle className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0" />
+                    <p className="text-xs text-yellow-300">No compliance documents uploaded. You may want to request these before approving.</p>
+                  </div>
+                )}
               </div>
 
               {detailReg.status === "pending_approval" && (

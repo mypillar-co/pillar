@@ -4,8 +4,72 @@ import {
 } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
+import { ObjectStorageService } from "../lib/objectStorage";
+
+const objectStorage = new ObjectStorageService();
+
+const ALLOWED_DOC_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+];
+const MAX_DOC_SIZE = 10 * 1024 * 1024; // 10 MB
 
 const router = Router();
+
+// ─── Public: request presigned URL for a registration document ────────────────
+// Unauthenticated — used during vendor/sponsor registration before any account exists.
+// Strict limits: PDF/images only, 10 MB max.
+router.post("/public/registration-docs/upload-url", async (req: Request, res: Response) => {
+  const { name, size, contentType } = req.body as {
+    name?: string; size?: number; contentType?: string;
+  };
+
+  if (!name || !size || !contentType) {
+    res.status(400).json({ error: "name, size, and contentType are required" });
+    return;
+  }
+  if (!ALLOWED_DOC_TYPES.includes(contentType.toLowerCase())) {
+    res.status(400).json({ error: "Only PDF and image files are accepted" });
+    return;
+  }
+  if (size > MAX_DOC_SIZE) {
+    res.status(400).json({ error: "File must be 10 MB or smaller" });
+    return;
+  }
+
+  const uploadURL = await objectStorage.getObjectEntityUploadURL();
+  const objectPath = objectStorage.normalizeObjectEntityPath(uploadURL);
+
+  res.json({ uploadURL, objectPath });
+});
+
+// ─── Public: serve a registration document (admin-gated in practice via the dashboard) ──
+router.get("/public/registration-docs/objects/*path", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  try {
+    const raw = (req.params as Record<string, string>)["path"];
+    const objectPath = `/objects/${raw}`;
+    const file = await objectStorage.getObjectEntityFile(objectPath);
+    const response = await objectStorage.downloadObject(file, 60);
+    const headers: Record<string, string> = {};
+    response.headers.forEach((v, k) => { headers[k] = v; });
+    res.set(headers);
+    if (response.body) {
+      const { Readable } = await import("stream");
+      Readable.fromWeb(response.body as import("stream/web").ReadableStream).pipe(res);
+    } else {
+      res.status(204).end();
+    }
+  } catch {
+    res.status(404).json({ error: "Document not found" });
+  }
+});
 
 // ─── Public: get org registration info ────────────────────────────────────────
 router.get("/public/orgs/:slug/register-info", async (req: Request, res: Response) => {
@@ -46,10 +110,12 @@ router.post("/public/orgs/:slug/register", async (req: Request, res: Response) =
 
   const {
     type, name, email, phone, website, logoUrl, description, tier, vendorType,
+    servSafeUrl, insuranceCertUrl,
   } = req.body as {
     type?: string; name?: string; email?: string; phone?: string;
     website?: string; logoUrl?: string; description?: string;
     tier?: string; vendorType?: string;
+    servSafeUrl?: string; insuranceCertUrl?: string;
   };
 
   if (!type || !["vendor", "sponsor"].includes(type)) {
@@ -77,6 +143,8 @@ router.post("/public/orgs/:slug/register", async (req: Request, res: Response) =
       vendorType: type === "vendor" ? (vendorType?.trim() ?? null) : null,
       feeAmount,
       stripePaymentStatus: requiresPayment ? "unpaid" : "waived",
+      ...(servSafeUrl?.trim() ? { servSafeUrl: servSafeUrl.trim() } : {}),
+      ...(insuranceCertUrl?.trim() ? { insuranceCertUrl: insuranceCertUrl.trim() } : {}),
     })
     .returning();
 

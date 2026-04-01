@@ -1,6 +1,9 @@
-import { useState, useEffect } from "react";
-import { useParams, useLocation } from "wouter";
-import { Building2, Star, ShoppingBag, CheckCircle2, AlertCircle, ChevronRight, Loader2 } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useParams } from "wouter";
+import {
+  Building2, Star, ShoppingBag, CheckCircle2, AlertCircle, ChevronRight,
+  Loader2, UploadCloud, FileText, X, Image as ImageIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,15 +32,178 @@ function formatDollars(cents: number) {
   return cents === 0 ? "Free" : `$${(cents / 100).toFixed(0)}`;
 }
 
+// ─── Simple document uploader ────────────────────────────────────────────────
+
+type DocUploadState = "idle" | "uploading" | "done" | "error";
+
+function DocUploadField({
+  label,
+  hint,
+  accept,
+  onUploaded,
+  required,
+}: {
+  label: string;
+  hint?: string;
+  accept?: string;
+  onUploaded: (objectPath: string, fileName: string) => void;
+  required?: boolean;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [state, setState] = useState<DocUploadState>("idle");
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [err, setErr] = useState<string | null>(null);
+
+  const handleFile = useCallback(async (file: File) => {
+    if (file.size > 10 * 1024 * 1024) {
+      setErr("File must be 10 MB or smaller.");
+      return;
+    }
+    const type = file.type || "application/octet-stream";
+    const allowed = ["application/pdf", "image/jpeg", "image/jpg", "image/png", "image/webp"];
+    if (!allowed.includes(type.toLowerCase())) {
+      setErr("Only PDF and image files are accepted.");
+      return;
+    }
+
+    setErr(null);
+    setState("uploading");
+    setProgress(10);
+    setFileName(file.name);
+
+    try {
+      // Step 1: Get presigned URL
+      const urlRes = await fetch("/api/public/registration-docs/upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: file.name, size: file.size, contentType: type }),
+      });
+      if (!urlRes.ok) {
+        const d = await urlRes.json();
+        throw new Error(d.error ?? "Could not get upload URL");
+      }
+      const { uploadURL, objectPath } = await urlRes.json() as { uploadURL: string; objectPath: string };
+
+      setProgress(30);
+
+      // Step 2: Upload directly to GCS
+      const uploadRes = await fetch(uploadURL, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": type },
+      });
+      if (!uploadRes.ok) throw new Error("Upload to storage failed");
+
+      setProgress(100);
+      setState("done");
+      onUploaded(objectPath, file.name);
+    } catch (e: unknown) {
+      setState("error");
+      setErr(e instanceof Error ? e.message : "Upload failed. Please try again.");
+    }
+  }, [onUploaded]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleFile(file);
+  };
+
+  const clear = () => {
+    setState("idle");
+    setFileName(null);
+    setProgress(0);
+    setErr(null);
+    if (inputRef.current) inputRef.current.value = "";
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-slate-300">
+        {label}
+        {required && <span className="text-red-400 ml-1">*</span>}
+      </Label>
+
+      {state === "done" && fileName ? (
+        <div className="flex items-center gap-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/25">
+          <FileText className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+          <p className="text-sm text-emerald-300 flex-1 truncate">{fileName}</p>
+          <button type="button" onClick={clear} className="text-slate-400 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      ) : (
+        <div
+          onDrop={handleDrop}
+          onDragOver={e => e.preventDefault()}
+          onClick={() => inputRef.current?.click()}
+          className={`relative cursor-pointer rounded-lg border-2 border-dashed p-5 text-center transition-colors ${
+            state === "uploading"
+              ? "border-amber-500/40 bg-amber-500/5"
+              : state === "error"
+              ? "border-red-500/40 bg-red-500/5 hover:bg-red-500/8"
+              : "border-white/15 bg-white/3 hover:border-white/30 hover:bg-white/6"
+          }`}
+        >
+          <input
+            ref={inputRef}
+            type="file"
+            accept={accept ?? ".pdf,.jpg,.jpeg,.png,.webp"}
+            onChange={handleChange}
+            className="sr-only"
+          />
+          {state === "uploading" ? (
+            <div className="space-y-2">
+              <Loader2 className="w-6 h-6 text-amber-400 animate-spin mx-auto" />
+              <p className="text-xs text-slate-400">Uploading {fileName}…</p>
+              <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-amber-500 rounded-full transition-all"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <UploadCloud className={`w-6 h-6 mx-auto ${state === "error" ? "text-red-400" : "text-slate-500"}`} />
+              <p className="text-xs text-slate-400">
+                Drop file here or <span className="text-amber-400">click to browse</span>
+              </p>
+              <p className="text-[11px] text-slate-600">PDF, JPG, or PNG · max 10 MB</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {err && (
+        <div className="flex items-center gap-2">
+          <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+          <p className="text-xs text-red-400">{err}</p>
+        </div>
+      )}
+      {hint && !err && (
+        <p className="text-[11px] text-slate-500">{hint}</p>
+      )}
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
 export default function PublicRegistration() {
   const { orgSlug } = useParams<{ orgSlug: string }>();
-  const [, navigate] = useLocation();
 
   const [orgInfo, setOrgInfo] = useState<OrgInfo | null>(null);
   const [loadingOrg, setLoadingOrg] = useState(true);
   const [orgError, setOrgError] = useState<string | null>(null);
 
-  const [step, setStep] = useState<"type" | "form" | "submitting" | "success" | "free_success">("type");
+  const [step, setStep] = useState<"type" | "form" | "submitting" | "free_success">("type");
   const [regType, setRegType] = useState<"vendor" | "sponsor" | null>(null);
 
   // Form fields
@@ -49,14 +215,17 @@ export default function PublicRegistration() {
   const [description, setDescription] = useState("");
   const [tier, setTier] = useState("");
   const [vendorType, setVendorType] = useState("");
+  const [servSafeUrl, setServSafeUrl] = useState<string | null>(null);
+  const [servSafeName, setServSafeName] = useState<string | null>(null);
+  const [insuranceCertUrl, setInsuranceCertUrl] = useState<string | null>(null);
+  const [insuranceName, setInsuranceName] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const cancelled = new URLSearchParams(window.location.search).get("cancelled");
 
   useEffect(() => {
     if (!orgSlug) return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("cancelled")) {
-      setStep("type");
-    }
+    if (cancelled) setStep("type");
     fetch(`/api/public/orgs/${orgSlug}/register-info`)
       .then(r => r.json())
       .then((data: OrgInfo & { error?: string }) => {
@@ -67,17 +236,11 @@ export default function PublicRegistration() {
       .finally(() => setLoadingOrg(false));
   }, [orgSlug]);
 
-  const handleTypeSelect = (t: "vendor" | "sponsor") => {
-    setRegType(t);
-    setStep("form");
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
     if (!name.trim()) { setFormError("Name is required."); return; }
-    if (!email.trim()) { setFormError("Email is required."); return; }
-    if (!/\S+@\S+\.\S+/.test(email)) { setFormError("Please enter a valid email."); return; }
+    if (!email.trim() || !/\S+@\S+\.\S+/.test(email)) { setFormError("A valid email is required."); return; }
     if (regType === "sponsor" && !tier) { setFormError("Please select a sponsorship tier."); return; }
     if (regType === "vendor" && !vendorType) { setFormError("Please select a vendor type."); return; }
 
@@ -96,6 +259,8 @@ export default function PublicRegistration() {
           description: description.trim() || undefined,
           tier: regType === "sponsor" ? tier : undefined,
           vendorType: regType === "vendor" ? vendorType : undefined,
+          servSafeUrl: servSafeUrl ?? undefined,
+          insuranceCertUrl: insuranceCertUrl ?? undefined,
         }),
       });
       const data = await res.json() as { checkoutUrl?: string; free?: boolean; error?: string };
@@ -110,9 +275,6 @@ export default function PublicRegistration() {
       setFormError("Network error. Please try again.");
     }
   };
-
-  const params = new URLSearchParams(window.location.search);
-  const cancelled = params.get("cancelled");
 
   if (loadingOrg) {
     return (
@@ -133,6 +295,8 @@ export default function PublicRegistration() {
       </div>
     );
   }
+
+  const fee = orgInfo! && (regType === "sponsor" ? orgInfo.sponsorFeeCents : orgInfo.vendorFeeCents);
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -156,11 +320,10 @@ export default function PublicRegistration() {
         {/* Step: Choose Type */}
         {step === "type" && (
           <div className="space-y-4">
-            <p className="text-center text-slate-300 text-sm mb-6">
-              Choose your registration type to get started.
-            </p>
+            <p className="text-center text-slate-300 text-sm mb-6">Choose your registration type to get started.</p>
+
             <button
-              onClick={() => handleTypeSelect("sponsor")}
+              onClick={() => { setRegType("sponsor"); setStep("form"); }}
               className="w-full p-5 rounded-xl border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 transition-colors text-left flex items-start gap-4 group"
             >
               <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0">
@@ -169,19 +332,15 @@ export default function PublicRegistration() {
               <div className="flex-1">
                 <div className="flex items-center justify-between">
                   <p className="font-semibold text-white">Become a Sponsor</p>
-                  <span className="text-sm font-semibold text-amber-400">
-                    {formatDollars(orgInfo!.sponsorFeeCents)}
-                  </span>
+                  <span className="text-sm font-semibold text-amber-400">{formatDollars(orgInfo!.sponsorFeeCents)}</span>
                 </div>
-                <p className="text-slate-400 text-sm mt-1">
-                  Get your logo and website featured prominently. Boost your brand visibility in the community.
-                </p>
+                <p className="text-slate-400 text-sm mt-1">Featured logo, website visibility, and community recognition.</p>
               </div>
               <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-white transition-colors self-center flex-shrink-0" />
             </button>
 
             <button
-              onClick={() => handleTypeSelect("vendor")}
+              onClick={() => { setRegType("vendor"); setStep("form"); }}
               className="w-full p-5 rounded-xl border border-blue-500/30 bg-blue-500/5 hover:bg-blue-500/10 transition-colors text-left flex items-start gap-4 group"
             >
               <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0">
@@ -190,13 +349,9 @@ export default function PublicRegistration() {
               <div className="flex-1">
                 <div className="flex items-center justify-between">
                   <p className="font-semibold text-white">Register as a Vendor</p>
-                  <span className="text-sm font-semibold text-blue-400">
-                    {formatDollars(orgInfo!.vendorFeeCents)}
-                  </span>
+                  <span className="text-sm font-semibold text-blue-400">{formatDollars(orgInfo!.vendorFeeCents)}</span>
                 </div>
-                <p className="text-slate-400 text-sm mt-1">
-                  Participate at our events and reach our community directly with your products or services.
-                </p>
+                <p className="text-slate-400 text-sm mt-1">Sell at our events and connect directly with the community.</p>
               </div>
               <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-white transition-colors self-center flex-shrink-0" />
             </button>
@@ -206,23 +361,13 @@ export default function PublicRegistration() {
         {/* Step: Form */}
         {step === "form" && (
           <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="flex items-center gap-2 mb-6">
-              <button
-                type="button"
-                onClick={() => setStep("type")}
-                className="text-slate-400 hover:text-white text-sm transition-colors"
-              >
-                ← Back
-              </button>
+            <div className="flex items-center gap-2 mb-4">
+              <button type="button" onClick={() => setStep("type")} className="text-slate-400 hover:text-white text-sm">← Back</button>
               <span className="text-slate-600">|</span>
               <div className="flex items-center gap-1.5">
-                {regType === "sponsor"
-                  ? <Star className="w-4 h-4 text-amber-400" />
-                  : <ShoppingBag className="w-4 h-4 text-blue-400" />}
+                {regType === "sponsor" ? <Star className="w-4 h-4 text-amber-400" /> : <ShoppingBag className="w-4 h-4 text-blue-400" />}
                 <span className="text-sm font-medium text-white capitalize">{regType} Registration</span>
-                <span className="text-sm text-slate-500">
-                  — {formatDollars(regType === "sponsor" ? orgInfo!.sponsorFeeCents : orgInfo!.vendorFeeCents)}
-                </span>
+                {fee != null && <span className="text-sm text-slate-500">— {formatDollars(fee)}</span>}
               </div>
             </div>
 
@@ -236,59 +381,33 @@ export default function PublicRegistration() {
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2 space-y-1.5">
                 <Label className="text-slate-300">Organization / Business Name <span className="text-red-400">*</span></Label>
-                <Input
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  placeholder="Acme Corp"
-                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-600"
-                  required
-                />
+                <Input value={name} onChange={e => setName(e.target.value)} placeholder="Acme Corp"
+                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-600" required />
               </div>
 
               <div className="space-y-1.5">
                 <Label className="text-slate-300">Contact Email <span className="text-red-400">*</span></Label>
-                <Input
-                  type="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  placeholder="you@company.com"
-                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-600"
-                  required
-                />
+                <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com"
+                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-600" required />
               </div>
 
               <div className="space-y-1.5">
                 <Label className="text-slate-300">Phone</Label>
-                <Input
-                  type="tel"
-                  value={phone}
-                  onChange={e => setPhone(e.target.value)}
-                  placeholder="(555) 000-0000"
-                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-600"
-                />
+                <Input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="(555) 000-0000"
+                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-600" />
               </div>
 
               <div className="col-span-2 space-y-1.5">
                 <Label className="text-slate-300">Website</Label>
-                <Input
-                  type="url"
-                  value={website}
-                  onChange={e => setWebsite(e.target.value)}
-                  placeholder="https://yourcompany.com"
-                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-600"
-                />
+                <Input type="url" value={website} onChange={e => setWebsite(e.target.value)} placeholder="https://yourcompany.com"
+                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-600" />
               </div>
 
               <div className="col-span-2 space-y-1.5">
                 <Label className="text-slate-300">Logo URL</Label>
-                <Input
-                  type="url"
-                  value={logoUrl}
-                  onChange={e => setLogoUrl(e.target.value)}
-                  placeholder="https://yourcompany.com/logo.png"
-                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-600"
-                />
-                <p className="text-[11px] text-slate-500">Paste a link to your logo image (PNG, JPG, or SVG)</p>
+                <Input type="url" value={logoUrl} onChange={e => setLogoUrl(e.target.value)} placeholder="https://yourcompany.com/logo.png"
+                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-600" />
+                <p className="text-[11px] text-slate-500">Link to your logo (PNG, JPG, or SVG)</p>
               </div>
 
               {regType === "sponsor" && (
@@ -299,9 +418,7 @@ export default function PublicRegistration() {
                       <SelectValue placeholder="Select tier" />
                     </SelectTrigger>
                     <SelectContent>
-                      {SPONSOR_TIERS.map(t => (
-                        <SelectItem key={t} value={t}>{t}</SelectItem>
-                      ))}
+                      {SPONSOR_TIERS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -315,9 +432,7 @@ export default function PublicRegistration() {
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
                     <SelectContent>
-                      {VENDOR_TYPES.map(t => (
-                        <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                      ))}
+                      {VENDOR_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -325,42 +440,59 @@ export default function PublicRegistration() {
 
               <div className="col-span-2 space-y-1.5">
                 <Label className="text-slate-300">Tell us about yourself</Label>
-                <Textarea
-                  value={description}
-                  onChange={e => setDescription(e.target.value)}
-                  placeholder={regType === "sponsor"
-                    ? "What does your company do? Why do you want to sponsor us?"
-                    : "What products or services do you offer?"}
-                  rows={3}
-                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-600 resize-none"
-                />
+                <Textarea value={description} onChange={e => setDescription(e.target.value)}
+                  placeholder={regType === "sponsor" ? "What does your company do? Why sponsor us?" : "What products or services do you offer?"}
+                  rows={3} className="bg-white/5 border-white/10 text-white placeholder:text-slate-600 resize-none" />
               </div>
+
+              {/* Compliance documents — vendors only */}
+              {regType === "vendor" && (
+                <>
+                  <div className="col-span-2">
+                    <div className="flex items-center gap-2 mb-4 pb-3 border-b border-white/8">
+                      <FileText className="w-4 h-4 text-slate-400" />
+                      <h3 className="text-sm font-medium text-slate-300">Compliance Documents</h3>
+                      <span className="text-xs text-slate-500 ml-1">(optional — you may be asked to provide these before approval)</span>
+                    </div>
+                  </div>
+
+                  <div className="col-span-2">
+                    <DocUploadField
+                      label="ServSafe Certificate"
+                      hint="Upload your ServSafe food handler certification (PDF or image)"
+                      onUploaded={(path, fileName) => { setServSafeUrl(path); setServSafeName(fileName); }}
+                    />
+                  </div>
+
+                  <div className="col-span-2">
+                    <DocUploadField
+                      label="Certificate of Insurance"
+                      hint="Upload your current Certificate of Insurance (COI) showing general liability coverage"
+                      onUploaded={(path, fileName) => { setInsuranceCertUrl(path); setInsuranceName(fileName); }}
+                    />
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="pt-2 space-y-3">
-              {(regType === "sponsor" ? orgInfo!.sponsorFeeCents : orgInfo!.vendorFeeCents) > 0 && (
+              {fee != null && fee > 0 && (
                 <div className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/10">
                   <span className="text-sm text-slate-300">Registration fee</span>
-                  <span className="text-sm font-semibold text-white">
-                    {formatDollars(regType === "sponsor" ? orgInfo!.sponsorFeeCents : orgInfo!.vendorFeeCents)}
-                  </span>
+                  <span className="text-sm font-semibold text-white">{formatDollars(fee)}</span>
                 </div>
               )}
               <p className="text-xs text-slate-500 text-center">
                 Your application will be reviewed by {orgInfo!.orgName} before approval.
-                {(regType === "sponsor" ? orgInfo!.sponsorFeeCents : orgInfo!.vendorFeeCents) > 0 &&
-                  " Payment is required to submit your application."}
+                {fee != null && fee > 0 && " Payment is required to submit."}
               </p>
               <Button type="submit" className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold h-11">
-                {(regType === "sponsor" ? orgInfo!.sponsorFeeCents : orgInfo!.vendorFeeCents) > 0
-                  ? "Pay & Submit Application →"
-                  : "Submit Application →"}
+                {fee != null && fee > 0 ? "Pay & Submit Application →" : "Submit Application →"}
               </Button>
             </div>
           </form>
         )}
 
-        {/* Step: Submitting */}
         {step === "submitting" && (
           <div className="text-center space-y-4 py-12">
             <Loader2 className="w-10 h-10 text-amber-400 animate-spin mx-auto" />
@@ -369,7 +501,6 @@ export default function PublicRegistration() {
           </div>
         )}
 
-        {/* Step: Free success */}
         {step === "free_success" && (
           <div className="text-center space-y-5 py-8">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-500/30 mx-auto">
@@ -378,8 +509,8 @@ export default function PublicRegistration() {
             <div>
               <h2 className="text-xl font-bold text-white">Application Submitted!</h2>
               <p className="text-slate-400 mt-2 text-sm">
-                Your application has been submitted to <span className="text-white">{orgInfo!.orgName}</span>. 
-                They'll review it and be in touch.
+                Your application has been received by <span className="text-white">{orgInfo!.orgName}</span>.
+                They'll review it and be in touch soon.
               </p>
             </div>
           </div>

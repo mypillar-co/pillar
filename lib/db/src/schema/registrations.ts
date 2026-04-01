@@ -22,6 +22,10 @@ export const registrationsTable = pgTable("registrations", {
   // Vendor-specific
   vendorType: varchar("vendor_type"), // "food" | "merchandise" | "service" | "entertainment" | "other"
 
+  // Compliance documents (vendors)
+  servSafeUrl: text("serv_safe_url"),         // objectPath stored, served via /api/storage/objects/...
+  insuranceCertUrl: text("insurance_cert_url"), // objectPath stored, served via /api/storage/objects/...
+
   // Payment
   feeAmount: integer("fee_amount").notNull().default(0), // in cents
   stripeSessionId: varchar("stripe_session_id"),
