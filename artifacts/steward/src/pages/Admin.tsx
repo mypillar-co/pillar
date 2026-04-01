@@ -5,11 +5,21 @@ import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid, Cell,
 } from "recharts";
+import { csrfHeaders } from "../lib/api";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 async function apiFetch(path: string, opts?: RequestInit) {
-  const res = await fetch(`${API}${path}`, { credentials: "include", ...opts });
+  const method = (opts?.method ?? "GET").toUpperCase();
+  const mutating = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
+  const res = await fetch(`${API}${path}`, {
+    credentials: "include",
+    ...opts,
+    headers: {
+      ...(mutating ? csrfHeaders(method) : {}),
+      ...opts?.headers,
+    },
+  });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
 }

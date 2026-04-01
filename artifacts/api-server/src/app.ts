@@ -103,6 +103,9 @@ const uploadLimiter = rateLimit({
   message: { error: "Too many upload requests — please try again in an hour" },
 });
 
+// Strict limiter for sensitive auth mutations (login, logout, OAuth, password reset)
+// GET endpoints like /api/auth/user and /api/auth/providers are intentionally excluded
+// because they are polled frequently by the frontend.
 const authLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 20,
@@ -114,7 +117,14 @@ const authLimiter = rateLimit({
 app.use("/api/public/registrations", registrationLimiter);
 app.use("/api/public/registration-docs/upload-url", uploadLimiter);
 app.use("/api/public/", publicApiLimiter);
-app.use("/api/auth/", authLimiter);
+// Only rate-limit auth mutations, not the polling /user and /providers GETs
+app.post("/api/auth/logout", authLimiter);
+app.post("/api/auth/login", authLimiter);
+app.post("/api/auth/register", authLimiter);
+app.post("/api/auth/forgot-password", authLimiter);
+app.post("/api/auth/reset-password", authLimiter);
+app.get("/api/auth/google", authLimiter);
+app.get("/api/auth/google/callback", authLimiter);
 
 app.get("/api/healthz", (_req, res) => {
   res.json({ status: "ok" });
