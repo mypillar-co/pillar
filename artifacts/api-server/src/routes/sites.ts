@@ -388,7 +388,23 @@ ${plainText}`;
       messages: [{ role: "user", content: extractPrompt }],
     });
     const raw = response.choices[0]?.message?.content ?? "{}";
-    extracted = JSON.parse(raw) as ImportedSiteData;
+    const parsed: unknown = JSON.parse(raw);
+    // Validate + sanitize all fields — ensure each is a non-null string
+    const safeStr = (v: unknown, fallback = ""): string =>
+      typeof v === "string" ? v.trim().slice(0, 2000) : fallback;
+    const obj = typeof parsed === "object" && parsed !== null ? parsed as Record<string, unknown> : {};
+    extracted = {
+      name: safeStr(obj.name),
+      mission: safeStr(obj.mission),
+      services: safeStr(obj.services),
+      location: safeStr(obj.location),
+      schedule: safeStr(obj.schedule),
+      events: safeStr(obj.events),
+      contact: safeStr(obj.contact),
+      audience: safeStr(obj.audience),
+      style: safeStr(obj.style),
+      extra: safeStr(obj.extra),
+    };
   } catch {
     res.status(500).json({ error: "AI extraction failed. Please try again or start the interview manually." });
     return;
