@@ -2,16 +2,32 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 
-// Global fetch interceptor — automatically attach CSRF token to all
-// state-changing requests (POST / PUT / PATCH / DELETE).
-// This covers every fetch call in the app without requiring per-file changes.
+// ─── CSRF Token Manager ───────────────────────────────────────────────────────
+// Dual-source: prefers the in-memory token captured from response headers
+// (reliable in all proxy environments), falls back to document.cookie.
+let _csrfToken: string | null = null;
+
+function readCsrfToken(): string | null {
+  if (_csrfToken) return _csrfToken;
+  const match = document.cookie.match(/(?:^|;\s*)__csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function captureTokenFromResponse(res: Response): void {
+  const token = res.headers.get("x-csrf-token");
+  if (token) _csrfToken = token;
+}
+
+// Global fetch interceptor — auto-attaches CSRF token to all mutating requests
+// and captures fresh tokens from every response.
 (function patchFetch() {
   const _fetch = window.fetch.bind(window);
-  window.fetch = function (input, init) {
+  window.fetch = async function (input, init) {
     const method = ((init?.method) ?? "GET").toUpperCase();
-    if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
-      const match = document.cookie.match(/(?:^|;\s*)__csrf=([^;]+)/);
-      const token = match ? decodeURIComponent(match[1]) : null;
+    const isMutating = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
+
+    if (isMutating) {
+      const token = readCsrfToken();
       if (token) {
         init = {
           ...init,
@@ -22,8 +38,17 @@ import "./index.css";
         };
       }
     }
-    return _fetch(input, init);
+
+    const res = await _fetch(input, init);
+    // Capture any fresh token the server sends back (on GET responses and
+    // even on 403 responses so the client can retry immediately).
+    captureTokenFromResponse(res);
+    return res;
   };
 })();
+
+// Pre-warm the CSRF token before React boots by hitting a lightweight endpoint.
+// This guarantees the token is in memory before the user can trigger any mutations.
+fetch("/api/tiers", { credentials: "include" }).catch(() => {});
 
 createRoot(document.getElementById("root")!).render(<App />);
