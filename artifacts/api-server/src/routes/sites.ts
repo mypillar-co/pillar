@@ -250,6 +250,30 @@ async function isSafeUrl(url: URL): Promise<boolean> {
   return allAddresses.every(addr => !isPrivateIp(addr));
 }
 
+const MAX_REDIRECTS = 5;
+
+async function safeFetch(startUrl: URL, init: RequestInit): Promise<Response> {
+  let currentUrl = startUrl;
+  let remaining = MAX_REDIRECTS;
+  while (true) {
+    const response = await fetch(currentUrl.toString(), { ...init, redirect: "manual" });
+    if (response.status < 300 || response.status >= 400) return response;
+    if (remaining-- <= 0) throw new Error("Too many redirects");
+    const location = response.headers.get("location");
+    if (!location) throw new Error("Redirect with no Location header");
+    let nextUrl: URL;
+    try {
+      nextUrl = new URL(location, currentUrl.toString());
+    } catch {
+      throw new Error("Invalid redirect URL");
+    }
+    if (!["http:", "https:"].includes(nextUrl.protocol)) throw new Error("Redirect to non-HTTP protocol blocked");
+    const safe = await isSafeUrl(nextUrl);
+    if (!safe) throw new Error("Redirect to private/internal address blocked");
+    currentUrl = nextUrl;
+  }
+}
+
 type ImportedSiteData = {
   name: string;
   mission: string;
@@ -294,7 +318,7 @@ router.post("/import-url", async (req: Request, res: Response) => {
 
   let rawHtml: string;
   try {
-    const response = await fetch(parsedUrl.toString(), {
+    const response = await safeFetch(parsedUrl, {
       signal: controller.signal,
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; Pillar-Importer/1.0; +https://mypillar.co)",
@@ -314,7 +338,12 @@ router.post("/import-url", async (req: Request, res: Response) => {
     rawHtml = await response.text();
   } catch (err) {
     const isTimeout = err instanceof Error && err.name === "AbortError";
-    res.status(422).json({ error: isTimeout ? "The page took too long to respond. Try a different URL." : "Could not reach that website. Make sure the URL is correct and publicly accessible." });
+    const isBlocked = err instanceof Error && err.message.includes("blocked");
+    if (isBlocked) {
+      res.status(400).json({ error: "That URL cannot be accessed. Please enter a publicly accessible website address." });
+    } else {
+      res.status(422).json({ error: isTimeout ? "The page took too long to respond. Try a different URL." : "Could not reach that website. Make sure the URL is correct and publicly accessible." });
+    }
     return;
   } finally {
     clearTimeout(timer);
