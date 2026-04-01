@@ -187,7 +187,7 @@ router.get("/billing/subscription", async (req: Request, res: Response) => {
       return;
     }
 
-    const tierId = sub.metadata?.tierId ?? org.tier ?? null;
+    const tierId = (sub.metadata?.tierId || org.tier) || null;
     const tier = tierId ? getTierById(tierId) : undefined;
 
     res.json({

@@ -114,7 +114,7 @@ export default function Overview() {
     queryFn: () => fetch("/api/organizations", { credentials: "include" }).then(r => r.ok ? r.json() : null),
   });
 
-  const currentTierId = subscription?.tierId ?? org?.tier ?? null;
+  const currentTierId = (subscription?.tierId || org?.tier) || null;
   const hasPlan = !!currentTierId;
   const hasEvents = currentTierId ? TIER_INCLUDES_EVENTS.has(currentTierId) : false;
   const hasSocial = currentTierId ? TIER_INCLUDES_SOCIAL.has(currentTierId) : false;
