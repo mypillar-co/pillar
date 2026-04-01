@@ -197,6 +197,14 @@ router.get("/billing/subscription", async (req: Request, res: Response) => {
     const stripeActive = ["active", "trialing"].includes(sub.status);
     const dbActive = org.subscriptionStatus === "active" && !!org.tier;
 
+    // Auto-heal: if Stripe has a valid tier/status but DB is out of sync, update it.
+    if (tierId && stripeActive && (!org.tier || org.subscriptionStatus !== "active")) {
+      db.update(organizationsTable)
+        .set({ tier: tierId, subscriptionStatus: "active" })
+        .where(eq(organizationsTable.id, org.id))
+        .catch(() => {});
+    }
+
     res.json({
       hasSubscription: stripeActive || dbActive,
       tierId,

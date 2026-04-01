@@ -64,23 +64,23 @@ args = "pnpm --filter @workspace/steward exec tsc --noEmit"
 name = "typecheck-api"
 author = "agent"
 
+[workflows.workflow.metadata]
+isValidation = true
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/api-server run build"
-
-[workflows.workflow.metadata]
-isValidation = true
 
 [[workflows.workflow]]
 name = "healthcheck"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "curl -sf http://localhost:$(pnpm --filter @workspace/api-server exec node -e \"process.stdout.write(process.env.PORT||'')\" 2>/dev/null || echo 3000)/api/healthz && echo OK"
-
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "sleep 2 && curl -sf http://localhost:$(pnpm --filter @workspace/api-server exec node -e \"process.stdout.write(process.env.PORT||'')\" 2>/dev/null || echo 3000)/api/healthz && echo OK"
 
 [agent]
 stack = "PNPM_WORKSPACE"
@@ -98,4 +98,4 @@ channel = "stable-25_05"
 
 [userenv.shared]
 ADMIN_USER_IDS = "53650667,56678663"
-ADMIN_EMAILS = "steward.ai.app@gmail.com,ampaluch@hotmail.com"
+ADMIN_EMAILS = "steward.ai.app@gmail.com,ampaluch@hotmail.com,irwincarcruise@gmail.com"

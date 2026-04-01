@@ -134,7 +134,7 @@ router.get("/decisions", async (req: Request, res: Response) => {
     db.select({
       id: socialPostsTable.id,
       content: sql<string>`LEFT(${socialPostsTable.content}, 80)`,
-      platform: socialPostsTable.platform,
+      platforms: socialPostsTable.platforms,
       scheduledAt: socialPostsTable.scheduledAt,
     }).from(socialPostsTable).where(
       and(
