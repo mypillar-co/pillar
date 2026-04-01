@@ -126,6 +126,8 @@ export default function Domains() {
   const [claiming, setClaiming] = useState(false);
   const [icannAccepted, setIcannAccepted] = useState(false);
 
+  const [byodChoice, setByodChoice] = useState<"yes" | "no" | null>(null);
+
   const [byodInput, setByodInput] = useState("");
   const [addingExternal, setAddingExternal] = useState(false);
   const [showByodForm, setShowByodForm] = useState(false);
@@ -180,7 +182,7 @@ export default function Domains() {
   const activeDomain = domains.find(d => d.status === "active");
   const pendingDomain = domains.find(d => d.status !== "active" && d.status !== "failed");
   const hasDomain = domains.length > 0;
-  const showSearch = (isFreeForTier || isAddonAvailable) && !hasDomain;
+  const showSearch = (isFreeForTier || isAddonAvailable) && !hasDomain && byodChoice === "no";
 
   // Show in-app expiry warning for non-auto-renew domains expiring within 30 days
   const expiringDomain = domains.find(d => {
@@ -409,7 +411,34 @@ export default function Domains() {
         </div>
       )}
 
-      {isFreeForTier && !hasDomain && (
+      {/* First-time question — shown when no domain and no choice made yet */}
+      {hasAnyTier && !hasDomain && byodChoice === null && (
+        <div className="rounded-xl border border-white/10 bg-card/30 overflow-hidden">
+          <div className="p-5 space-y-4">
+            <p className="text-sm font-semibold text-white">Do you already own a domain for your organization?</p>
+            <p className="text-xs text-muted-foreground">For example: norwinrotary.org or norwinrotary.com — something you registered with GoDaddy, Namecheap, or another service.</p>
+            <div className="flex gap-3">
+              <Button
+                className="flex-1 gap-2"
+                onClick={() => setByodChoice("yes")}
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                Yes, I have one
+              </Button>
+              <Button
+                variant="outline"
+                className="flex-1 gap-2 border-white/10 hover:bg-white/5"
+                onClick={() => setByodChoice("no")}
+              >
+                <Search className="w-4 h-4" />
+                No, help me register one
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isFreeForTier && !hasDomain && byodChoice === "no" && (
         <div className="flex items-center gap-3 p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5">
           <Gift className="w-5 h-5 text-emerald-400 flex-shrink-0" />
           <div>
@@ -419,13 +448,27 @@ export default function Domains() {
         </div>
       )}
 
-      {isAddonAvailable && !hasDomain && (
+      {isAddonAvailable && !hasDomain && byodChoice === "no" && (
         <div className="flex items-center gap-3 p-4 rounded-xl border border-primary/20 bg-primary/5">
           <Globe className="w-5 h-5 text-primary flex-shrink-0" />
           <div>
             <p className="text-sm font-medium text-white">Domain add-on — $24/year</p>
             <p className="text-xs text-muted-foreground mt-0.5">
               Purchase a custom domain below, or bring your own. Upgrade to the Autopilot plan for a free included domain.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* No register option available — nudge to upgrade */}
+      {!isFreeForTier && !isAddonAvailable && !hasDomain && byodChoice === "no" && (
+        <div className="flex items-start gap-3 p-4 rounded-xl border border-primary/20 bg-primary/5">
+          <Globe className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-white">Register a new domain</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Domain registration is included on the Autopilot plan and above.{" "}
+              <Link href="/billing" className="text-primary hover:underline">Upgrade your plan →</Link>
             </p>
           </div>
         </div>
@@ -497,11 +540,17 @@ export default function Domains() {
               )}
             </div>
           )}
+          <button
+            onClick={() => { setByodChoice(null); setCheckResult(null); setSearchInput(""); }}
+            className="text-xs text-muted-foreground hover:text-white transition-colors"
+          >
+            ← I actually have a domain already
+          </button>
         </div>
       )}
 
       {/* Bring your own domain (BYOD) */}
-      {hasAnyTier && !hasDomain && (
+      {hasAnyTier && !hasDomain && byodChoice === "yes" && (
         <div className="rounded-xl border border-white/10 bg-card/30 overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b border-white/8">
@@ -596,6 +645,12 @@ export default function Domains() {
                 </Button>
               </div>
             )}
+            <button
+              onClick={() => { setByodChoice(null); setByodInput(""); setShowByodForm(false); }}
+              className="text-xs text-muted-foreground hover:text-white transition-colors pt-1"
+            >
+              ← I don't have a domain yet
+            </button>
           </div>
         </div>
       )}
