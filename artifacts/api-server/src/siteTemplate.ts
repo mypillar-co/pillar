@@ -170,20 +170,25 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
     .hero-bg {
       position: absolute;
       inset: 0;
+      background: linear-gradient(135deg,
+        rgba(var(--primary-rgb), 1) 0%,
+        color-mix(in srgb, rgb(var(--primary-rgb)) 60%, #000) 60%,
+        #0a0a14 100%);
     }
     .hero-img {
       width: 100%; height: 100%;
       object-fit: cover;
-      object-position: center;
+      object-position: center 30%;
       transform: scale(1.04);
       transition: transform 20s ease-out;
+      position: absolute; inset: 0;
     }
     .hero-img.loaded { transform: scale(1); }
     .hero-overlay {
       position: absolute; inset: 0;
       background:
-        radial-gradient(ellipse at 20% 60%, rgba(var(--primary-rgb), 0.22) 0%, transparent 58%),
-        linear-gradient(130deg, rgba(0,0,0,0.86) 0%, rgba(0,0,0,0.38) 50%, rgba(0,0,0,0.76) 100%);
+        radial-gradient(ellipse at 20% 60%, rgba(var(--primary-rgb), 0.18) 0%, transparent 55%),
+        linear-gradient(130deg, rgba(0,0,0,0.80) 0%, rgba(0,0,0,0.28) 50%, rgba(0,0,0,0.72) 100%);
     }
     .hero-orbs {
       position: absolute; inset: 0;
@@ -770,7 +775,7 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
   <!-- HERO -->
   <section class="hero" id="home">
     <div class="hero-bg">
-      <img id="heroImg" class="hero-img" src="%%HERO_IMAGE_URL%%" alt="%%ORG_NAME%%" loading="eager">
+      %%HERO_IMG_TAG%%
       <div class="hero-overlay"></div>
       <div class="hero-orbs">
         <div class="hero-orb"></div>
@@ -816,11 +821,7 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
             <p>%%ORG_MISSION%%</p>
           </div>
         </div>
-        <div class="about-media">
-          <div class="about-img-wrap reveal-right">
-            <img src="%%ABOUT_IMAGE_URL%%" alt="%%ORG_NAME%%">
-          </div>
-        </div>
+        %%ABOUT_MEDIA_BLOCK%%
       </div>
     </div>
   </section>
@@ -1054,7 +1055,12 @@ export function buildSiteFromTemplate(content: SiteContent): string {
     PRIMARY_HEX: content.primaryHex,
     ACCENT_HEX: content.accentHex,
     PRIMARY_RGB: content.primaryRgb,
-    HERO_IMAGE_URL: content.heroImageUrl,
+    HERO_IMG_TAG: content.heroImageUrl
+      ? `<img id="heroImg" class="hero-img" src="${content.heroImageUrl}" alt="${content.orgName}" loading="eager" onerror="this.style.display='none'">`
+      : "",
+    ABOUT_MEDIA_BLOCK: content.aboutImageUrl
+      ? `<div class="about-media"><div class="about-img-wrap reveal-right"><img src="${content.aboutImageUrl}" alt="${content.orgName}" onerror="this.closest('.about-media').style.display='none'"></div></div>`
+      : "",
     ABOUT_IMAGE_URL: content.aboutImageUrl,
     ABOUT_HEADING: content.aboutHeading,
     STAT_1_VALUE: content.stat1Value, STAT_1_LABEL: content.stat1Label,

@@ -4,6 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import { resolveFullOrg } from "../lib/resolveOrg";
 import OpenAI from "openai";
 import { buildSiteFromTemplate, type SiteContent } from "../siteTemplate";
+import { sanitizeAiHtml } from "../lib/sanitizeHtml";
 import { load as cheerioLoad } from "cheerio";
 import { promises as dnsPromises } from "dns";
 import { isIP } from "net";
@@ -571,8 +572,9 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
   const safeOrgName = (s.orgName || org.name).replace(/["<>&]/g, c => c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;");
   const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-  const HERO_IDS = ["1529156069898-aa78f52d3b87","1559027615-cd4628902d4a","1582213782179-e0d53f98f2ca","1600880292203-757bb62b4baf","1540575467063-178a50c9c6d0","1511795409834-ef04bbd61622","1515187029135-18ee286d815b","1486406146926-c627a92ad1ab"];
-  const ABOUT_IDS = ["1568992687947-868a62a9f521","1577495508326-19a1b3cf65b7","1441974231531-c6227db76b6e","1469474968028-56623f02e42e","1582213782179-e0d53f98f2ca","1559027615-cd4628902d4a"];
+  // Civic/community-appropriate Unsplash photos — people, service, professional gatherings
+  const HERO_IDS = ["1529156069898-aa78f52d3b87","1521737604082-f4eb08bd4e18","1573497491765-57b4f23b3624","1531545514256-b1400bc00f31","1488521787991-ed7bbaae773c","1521791055366-0d553872952f","1573164574572-cb89e39749b4","1559425036-3b9ba2e45e93"];
+  const ABOUT_IDS = ["1573497491765-57b4f23b3624","1531545514256-b1400bc00f31","1559425036-3b9ba2e45e93","1521737604082-f4eb08bd4e18","1488521787991-ed7bbaae773c","1582213782179-e0d53f98f2ca"];
 
   type ContentData = {
     primaryHex: string; accentHex: string; primaryRgb: string;
@@ -826,7 +828,7 @@ Rules: use REAL content from the spec — no lorem ipsum. If stat values not giv
   };
 
   try {
-    const cleanedHtml = buildSiteFromTemplate(siteContent);
+    const cleanedHtml = sanitizeAiHtml(buildSiteFromTemplate(siteContent));
 
     const metaTitle = s.orgName || name;
     const metaDescription = s.mission || `Welcome to ${name}`;
@@ -902,6 +904,9 @@ Output ONLY the complete, updated HTML document starting with <!DOCTYPE html>. N
       res.status(500).json({ error: "AI returned invalid HTML. Please try again." });
       return;
     }
+
+    // Sanitize before save — removes script injection, event handlers, javascript: URIs
+    cleanedHtml = sanitizeAiHtml(cleanedHtml);
 
     // Save proposal server-side — do NOT return HTML to client
     await db.update(sitesTable).set({ proposedHtml: cleanedHtml }).where(eq(sitesTable.orgId, org.id));
@@ -1015,12 +1020,15 @@ Return the complete updated HTML document.`;
     const htmlStart = start !== -1 ? start : altStart;
     if (htmlStart !== -1) raw = raw.substring(htmlStart);
     const endTag = raw.lastIndexOf("</html>");
-    const cleanedHtml = endTag !== -1 ? raw.substring(0, endTag + 7) : raw;
+    let cleanedHtml = endTag !== -1 ? raw.substring(0, endTag + 7) : raw;
 
     if (!cleanedHtml.includes("<html") && !cleanedHtml.includes("<!DOCTYPE")) {
       res.status(500).json({ error: "AI returned invalid HTML. Please try again." });
       return;
     }
+
+    // Sanitize before save — removes script injection, event handlers, javascript: URIs
+    cleanedHtml = sanitizeAiHtml(cleanedHtml);
 
     await db.update(sitesTable).set({ proposedHtml: cleanedHtml }).where(eq(sitesTable.orgId, org.id));
     await db.update(organizationsTable).set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` }).where(eq(organizationsTable.id, org.id));

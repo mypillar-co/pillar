@@ -30,6 +30,14 @@ args = "build-api"
 task = "workflow.run"
 args = "typecheck-steward"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "typecheck-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "healthcheck"
+
 [[workflows.workflow]]
 name = "build-api"
 author = "agent"
@@ -45,9 +53,31 @@ isValidation = true
 name = "typecheck-steward"
 author = "agent"
 
+[workflows.workflow.metadata]
+isValidation = true
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/steward exec tsc --noEmit"
+
+[[workflows.workflow]]
+name = "typecheck-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server run build"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "healthcheck"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "curl -sf http://localhost:$(pnpm --filter @workspace/api-server exec node -e \"process.stdout.write(process.env.PORT||'')\" 2>/dev/null || echo 3000)/api/healthz && echo OK"
 
 [workflows.workflow.metadata]
 isValidation = true

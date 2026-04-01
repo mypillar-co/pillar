@@ -937,6 +937,52 @@ export default function SiteBuilder() {
                         ))}
                       </div>
                     </div>
+
+                    <div className="pt-2 border-t border-white/8 space-y-2">
+                      <h3 className="text-xs font-medium text-slate-400 mb-3 uppercase tracking-wide">Rebuild site</h3>
+                      <button
+                        onClick={() => {
+                          setMessages([]);
+                          setImportData(null);
+                          setEditableImportData(null);
+                          setImportError(null);
+                          setImportUrl("");
+                          setShowImportForm(true);
+                          setShowSetup(false);
+                          setMode("interview");
+                        }}
+                        className="w-full flex items-center gap-3 p-3.5 rounded-xl border border-white/10 bg-white/3 hover:bg-white/6 hover:border-white/20 transition-all text-left group"
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          <Link2 className="w-4 h-4 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-white">Import from existing website</p>
+                          <p className="text-xs text-slate-500">Paste your URL — Pillar reads your site and rebuilds from your real content</p>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-slate-300 transition-colors flex-shrink-0" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setMessages([]);
+                          setImportData(null);
+                          setEditableImportData(null);
+                          setShowImportForm(false);
+                          setShowSetup(true);
+                          setMode("interview");
+                        }}
+                        className="w-full flex items-center gap-3 p-3.5 rounded-xl border border-white/10 bg-white/3 hover:bg-white/6 hover:border-white/20 transition-all text-left group"
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0">
+                          <Sparkles className="w-4 h-4 text-slate-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-white">Start fresh interview</p>
+                          <p className="text-xs text-slate-500">Answer a few questions and generate a completely new version</p>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-slate-300 transition-colors flex-shrink-0" />
+                      </button>
+                    </div>
                   </>
                 )}
               </div>
