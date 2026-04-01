@@ -157,6 +157,7 @@ export default function SiteBuilder() {
   const [importUrl, setImportUrl] = useState("");
   const [importing, setImporting] = useState(false);
   const [importData, setImportData] = useState<ImportedSiteData | null>(null);
+  const [editableImportData, setEditableImportData] = useState<ImportedSiteData | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importedFromUrl, setImportedFromUrl] = useState<string | null>(null);
   const [showImportForm, setShowImportForm] = useState(false);
@@ -335,6 +336,7 @@ export default function SiteBuilder() {
       const data = await res.json() as { data?: ImportedSiteData; url?: string; error?: string };
       if (!res.ok) { setImportError(data.error ?? "Import failed. Please try again."); return; }
       setImportData(data.data!);
+      setEditableImportData({ ...data.data! });
       setImportedFromUrl(data.url ?? trimmed);
     } catch {
       setImportError("Could not reach the server. Please try again.");
@@ -344,8 +346,8 @@ export default function SiteBuilder() {
   };
 
   const confirmImport = () => {
-    if (!importData) return;
-    const d = importData;
+    if (!editableImportData) return;
+    const d = editableImportData;
     const orgName = org?.name ?? d.name ?? "your organization";
     const qa: { q: string; a: string }[] = [
       { q: `Let's build ${orgName}'s website! What is your mission or main purpose?`, a: d.mission || `We are ${orgName}.` },
@@ -365,6 +367,7 @@ export default function SiteBuilder() {
     syntheticMessages.push({ id: "import-ai-final", role: "assistant", content: "I have everything I need! Click **Generate My Site** to build your website." });
     setMessages(syntheticMessages);
     setImportData(null);
+    setEditableImportData(null);
     setImportUrl("");
     setImportedFromUrl(null);
     setShowImportForm(false);
@@ -1139,43 +1142,57 @@ export default function SiteBuilder() {
                     <p className="text-sm text-red-300">You've used all {usage?.limit} AI messages this month.</p>
                     <Link href="/billing"><Button size="sm">Upgrade Plan</Button></Link>
                   </div>
-                ) : importData ? (
-                  /* ── Review card ── */
+                ) : importData && editableImportData ? (
+                  /* ── Review & edit card ── */
                   <div className="w-full rounded-xl border border-emerald-500/20 bg-emerald-500/5 text-left overflow-hidden">
                     <div className="flex items-center gap-3 px-4 py-3 border-b border-emerald-500/15">
                       <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-white">Content found — does this look right?</p>
+                        <p className="text-sm font-semibold text-white">Review & edit before generating</p>
                         <p className="text-xs text-emerald-400/80 truncate">{importedFromUrl}</p>
                       </div>
-                      <button onClick={() => { setImportData(null); setImportError(null); }} className="text-slate-400 hover:text-white transition-colors flex-shrink-0">
+                      <button onClick={() => { setImportData(null); setEditableImportData(null); setImportError(null); }} className="text-slate-400 hover:text-white transition-colors flex-shrink-0">
                         <X className="w-4 h-4" />
                       </button>
                     </div>
-                    <div className="px-4 py-3 space-y-2 max-h-64 overflow-y-auto">
-                      {([
-                        { label: "Name", value: importData.name },
-                        { label: "Mission", value: importData.mission },
-                        { label: "Programs / Services", value: importData.services },
-                        { label: "Location & Schedule", value: [importData.location, importData.schedule].filter(Boolean).join(" · ") },
-                        { label: "Events", value: importData.events },
-                        { label: "Contact", value: importData.contact },
-                        { label: "Audience", value: importData.audience },
-                        { label: "Style", value: importData.style },
-                        { label: "Other highlights", value: importData.extra },
-                      ] as { label: string; value: string }[]).filter(f => f.value?.trim()).map(field => (
-                        <div key={field.label} className="flex gap-2 text-xs">
-                          <span className="text-slate-400 flex-shrink-0 w-32">{field.label}</span>
-                          <span className="text-slate-200 flex-1">{field.value}</span>
+                    <div className="px-4 py-3 space-y-3 max-h-[380px] overflow-y-auto">
+                      {([ 
+                        { key: "name", label: "Organization name", multiline: false },
+                        { key: "mission", label: "Mission / purpose", multiline: true },
+                        { key: "services", label: "Programs & services", multiline: true },
+                        { key: "location", label: "Location", multiline: false },
+                        { key: "schedule", label: "Meeting schedule", multiline: false },
+                        { key: "events", label: "Events", multiline: true },
+                        { key: "contact", label: "Contact info", multiline: false },
+                        { key: "audience", label: "Audience", multiline: false },
+                        { key: "style", label: "Visual style", multiline: false },
+                        { key: "extra", label: "Other highlights", multiline: true },
+                      ] as { key: keyof ImportedSiteData; label: string; multiline: boolean }[]).map(field => (
+                        <div key={field.key} className="space-y-1">
+                          <label className="text-[11px] font-medium text-slate-400 uppercase tracking-wide">{field.label}</label>
+                          {field.multiline ? (
+                            <textarea
+                              value={editableImportData[field.key]}
+                              onChange={e => setEditableImportData(prev => prev ? { ...prev, [field.key]: e.target.value } : null)}
+                              rows={2}
+                              className="w-full px-2.5 py-1.5 rounded-md bg-white/5 border border-white/10 text-slate-200 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-emerald-500/50 placeholder:text-slate-600"
+                              placeholder={`No ${field.label.toLowerCase()} found`}
+                            />
+                          ) : (
+                            <input
+                              type="text"
+                              value={editableImportData[field.key]}
+                              onChange={e => setEditableImportData(prev => prev ? { ...prev, [field.key]: e.target.value } : null)}
+                              className="w-full px-2.5 py-1.5 rounded-md bg-white/5 border border-white/10 text-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500/50 placeholder:text-slate-600"
+                              placeholder={`No ${field.label.toLowerCase()} found`}
+                            />
+                          )}
                         </div>
                       ))}
                     </div>
-                    <div className="px-4 py-3 border-t border-emerald-500/15 flex gap-2">
-                      <Button onClick={confirmImport} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-sm h-9">
-                        <Sparkles className="w-3.5 h-3.5 mr-1.5" /> Looks good — Generate My Site
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => { setImportData(null); setImportError(null); }} className="border-white/10 text-slate-300 hover:bg-white/5 h-9">
-                        Edit
+                    <div className="px-4 py-3 border-t border-emerald-500/15">
+                      <Button onClick={confirmImport} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-sm h-9">
+                        <Sparkles className="w-3.5 h-3.5 mr-1.5" /> Generate My Site with This Content
                       </Button>
                     </div>
                   </div>

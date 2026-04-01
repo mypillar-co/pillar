@@ -3,6 +3,9 @@ import { db, organizationsTable, sitesTable, siteUpdateSchedulesTable, websiteSp
 import { eq, sql } from "drizzle-orm";
 import OpenAI from "openai";
 import { buildSiteFromTemplate, type SiteContent } from "../siteTemplate";
+import { load as cheerioLoad } from "cheerio";
+import { promises as dnsPromises } from "dns";
+import { isIP } from "net";
 
 const router = Router();
 
@@ -192,22 +195,59 @@ Keep every response under 60 words. Stay conversational and encouraging. Never s
 const FETCH_TIMEOUT_MS = 12_000;
 const MAX_TEXT_CHARS = 12_000;
 
-function stripHtml(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
-    .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&[a-z]+;/gi, " ")
+function extractVisibleText(html: string): string {
+  const $ = cheerioLoad(html);
+  $("script, style, noscript, head, meta, link, iframe, svg, canvas, template").remove();
+  const text = ($("body").text() || $.text())
     .replace(/\s{2,}/g, " ")
     .trim();
+  return text;
+}
+
+function isPrivateIp(ip: string): boolean {
+  // IPv6 loopback / link-local / ULA
+  const low = ip.toLowerCase();
+  if (low === "::1") return true;
+  if (low.startsWith("fe80:")) return true;
+  if (low.startsWith("fc") || low.startsWith("fd")) return true;
+  // IPv4-mapped IPv6
+  const v4mapped = low.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (v4mapped) return isPrivateIp(v4mapped[1]);
+  // IPv4
+  const parts = ip.split(".");
+  if (parts.length !== 4) return false;
+  const [a, b] = parts.map(Number);
+  if (isNaN(a) || isNaN(b)) return false;
+  if (a === 10) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 127) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 0) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  return false;
+}
+
+async function isSafeUrl(url: URL): Promise<boolean> {
+  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, ""); // strip IPv6 brackets
+  // Block internal hostnames
+  if (/^localhost$/i.test(hostname)) return false;
+  if (/\.(local|internal|localhost|example|test|invalid)$/.test(hostname)) return false;
+  if (/^metadata\.google\.internal$/.test(hostname)) return false;
+  // If hostname is a literal IP, validate directly
+  if (isIP(hostname) !== 0) return !isPrivateIp(hostname);
+  // Resolve DNS and check all returned addresses
+  const allAddresses: string[] = [];
+  try {
+    const v4 = await dnsPromises.resolve4(hostname);
+    allAddresses.push(...v4);
+  } catch { /* no A records */ }
+  try {
+    const v6 = await dnsPromises.resolve6(hostname);
+    allAddresses.push(...v6);
+  } catch { /* no AAAA records */ }
+  if (allAddresses.length === 0) return false; // unresolvable
+  return allAddresses.every(addr => !isPrivateIp(addr));
 }
 
 type ImportedSiteData = {
@@ -242,6 +282,13 @@ router.post("/import-url", async (req: Request, res: Response) => {
     return;
   }
 
+  // SSRF protection — block private/internal hosts
+  const safe = await isSafeUrl(parsedUrl);
+  if (!safe) {
+    res.status(400).json({ error: "That URL cannot be accessed. Please enter a publicly accessible website address." });
+    return;
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
@@ -273,7 +320,7 @@ router.post("/import-url", async (req: Request, res: Response) => {
     clearTimeout(timer);
   }
 
-  const plainText = stripHtml(rawHtml).slice(0, MAX_TEXT_CHARS);
+  const plainText = extractVisibleText(rawHtml).slice(0, MAX_TEXT_CHARS);
 
   if (plainText.length < 100) {
     res.status(422).json({ error: "Not enough readable content was found on that page. Try a different URL." });
