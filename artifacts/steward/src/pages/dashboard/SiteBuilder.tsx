@@ -11,6 +11,22 @@ import { useGetOrganization } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Link } from "wouter";
+import { csrfHeaders } from "@/lib/api";
+
+// Fetch wrapper that automatically attaches CSRF token for mutating methods
+// and ensures credentials are always included.
+function csrfFetch(input: string, init?: RequestInit): Promise<Response> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const mutating = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
+  return fetch(input, {
+    credentials: "include",
+    ...init,
+    headers: {
+      ...(mutating ? csrfHeaders(method) : {}),
+      ...init?.headers,
+    },
+  });
+}
 
 const CONTEXT_TURNS = 10;
 
@@ -176,8 +192,8 @@ export default function SiteBuilder() {
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/sites/builder/usage", { credentials: "include" }).then(r => r.json()),
-      fetch("/api/sites/my", { credentials: "include" }).then(r => r.json()),
+      csrfFetch("/api/sites/builder/usage").then(r => r.json()),
+      csrfFetch("/api/sites/my").then(r => r.json()),
     ]).then(([usageData, siteData]: [Usage, { site: Site | null; orgSlug: string | null; schedule: Schedule | null; tier: string | null }]) => {
       setUsage(usageData);
       setSite(siteData.site);
@@ -219,7 +235,7 @@ export default function SiteBuilder() {
 
   // Load saved embed code
   useEffect(() => {
-    fetch("/api/sites/embed-code", { credentials: "include" })
+    csrfFetch("/api/sites/embed-code", { credentials: "include" })
       .then(r => r.json())
       .then((d: { embedCode?: string }) => { if (d.embedCode) setShopEmbedCode(d.embedCode); })
       .catch(() => null);
@@ -229,7 +245,7 @@ export default function SiteBuilder() {
     setShopSaving(true);
     setShopMessage(null);
     try {
-      const res = await fetch("/api/sites/embed-code", {
+      const res = await csrfFetch("/api/sites/embed-code", {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -327,7 +343,7 @@ export default function SiteBuilder() {
     setImportError(null);
     setImportData(null);
     try {
-      const res = await fetch("/api/sites/import-url", {
+      const res = await csrfFetch("/api/sites/import-url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -377,7 +393,7 @@ export default function SiteBuilder() {
     setSyncingEvents(true);
     setSyncMessage(null);
     try {
-      const res = await fetch("/api/sites/sync-events", { method: "POST", credentials: "include" });
+      const res = await csrfFetch("/api/sites/sync-events", { method: "POST", credentials: "include" });
       const data = await res.json() as { proposalReady?: boolean; eventCount?: number; used?: number; limit?: number; remaining?: number; error?: string };
 
       if (res.status === 429) {
@@ -396,7 +412,7 @@ export default function SiteBuilder() {
       }
 
       // Fetch proposed HTML and load into preview
-      const proposeRes = await fetch("/api/sites/my/proposal-preview", { credentials: "include" });
+      const proposeRes = await csrfFetch("/api/sites/my/proposal-preview", { credentials: "include" });
       if (proposeRes.ok) {
         const proposeData = await proposeRes.json() as { proposedHtml?: string };
         if (proposeData.proposedHtml) {
@@ -427,7 +443,7 @@ export default function SiteBuilder() {
     setChatLoading(true);
 
     try {
-      const res = await fetch("/api/sites/builder", {
+      const res = await csrfFetch("/api/sites/builder", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -477,7 +493,7 @@ export default function SiteBuilder() {
     setMode("generating");
     try {
       const history = messages.map(m => ({ role: m.role, content: m.content }));
-      const res = await fetch("/api/sites/generate", {
+      const res = await csrfFetch("/api/sites/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -536,7 +552,7 @@ export default function SiteBuilder() {
     setPublishing(true);
     try {
       const publish = site.status !== "published";
-      const res = await fetch("/api/sites/my/publish", {
+      const res = await csrfFetch("/api/sites/my/publish", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -564,7 +580,7 @@ export default function SiteBuilder() {
     try {
       let res: Response;
       try {
-        res = await fetch("/api/sites/change-request/propose", {
+        res = await csrfFetch("/api/sites/change-request/propose", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
@@ -606,7 +622,7 @@ export default function SiteBuilder() {
       // Fetch the proposal HTML from the server (server-stored, never client-supplied)
       let previewRes: Response;
       try {
-        previewRes = await fetch("/api/sites/my/proposal-preview", { credentials: "include" });
+        previewRes = await csrfFetch("/api/sites/my/proposal-preview", { credentials: "include" });
       } catch {
         setChangeError("Preview could not be loaded. Please try again.");
         return;
@@ -636,7 +652,7 @@ export default function SiteBuilder() {
   const applyChange = async () => {
     // No HTML sent from client — server applies its stored proposal
     try {
-      const res = await fetch("/api/sites/change-request/apply", {
+      const res = await csrfFetch("/api/sites/change-request/apply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -654,7 +670,7 @@ export default function SiteBuilder() {
   const discardChange = async () => {
     setProposedHtml(null);
     // Clear server-side proposal
-    fetch("/api/sites/my/proposal", { method: "DELETE", credentials: "include" }).catch(() => {});
+    csrfFetch("/api/sites/my/proposal", { method: "DELETE", credentials: "include" }).catch(() => {});
     if (site?.generatedHtml) loadHtmlIntoIframe(site.generatedHtml);
   };
 
@@ -662,7 +678,7 @@ export default function SiteBuilder() {
     setScheduleSaving(true);
     setScheduleMessage(null);
     try {
-      const res = await fetch("/api/sites/schedule", {
+      const res = await csrfFetch("/api/sites/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -689,7 +705,7 @@ export default function SiteBuilder() {
     setScheduleRunning(true);
     setScheduleMessage(null);
     try {
-      const res = await fetch("/api/sites/schedule/run", { method: "POST", credentials: "include" });
+      const res = await csrfFetch("/api/sites/schedule/run", { method: "POST", credentials: "include" });
       if (!res.ok) throw new Error("Failed");
       const data = await res.json() as { html: string; lastRunAt: string; nextRunAt: string | null };
       setSite(prev => prev ? { ...prev, generatedHtml: data.html, updatedAt: new Date().toISOString() } : null);
@@ -705,7 +721,7 @@ export default function SiteBuilder() {
 
   const deleteSchedule = async () => {
     if (!confirm("Delete this schedule? Auto-updates will stop.")) return;
-    await fetch("/api/sites/schedule", { method: "DELETE", credentials: "include" });
+    await csrfFetch("/api/sites/schedule", { method: "DELETE", credentials: "include" });
     setSchedule(null);
     setScheduleMessage("Schedule deleted.");
   };
@@ -1136,7 +1152,7 @@ export default function SiteBuilder() {
                   </Button>
                   {shopEmbedCode && (
                     <Button
-                      onClick={async () => { setShopEmbedCode(""); await fetch("/api/sites/embed-code", { method: "PUT", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ embedCode: "" }) }); setShopMessage({ type: "success", text: "Embed code removed." }); }}
+                      onClick={async () => { setShopEmbedCode(""); await csrfFetch("/api/sites/embed-code", { method: "PUT", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ embedCode: "" }) }); setShopMessage({ type: "success", text: "Embed code removed." }); }}
                       variant="ghost" size="icon" className="text-red-400 hover:text-red-300 hover:bg-red-500/10 flex-shrink-0"
                     >
                       <Trash2 className="w-4 h-4" />
