@@ -188,6 +188,136 @@ Keep every response under 60 words. Stay conversational and encouraging. Never s
   }
 });
 
+// ─── Import from existing URL ─────────────────────────────────────────────────
+const FETCH_TIMEOUT_MS = 12_000;
+const MAX_TEXT_CHARS = 12_000;
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&[a-z]+;/gi, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+type ImportedSiteData = {
+  name: string;
+  mission: string;
+  services: string;
+  location: string;
+  schedule: string;
+  events: string;
+  contact: string;
+  audience: string;
+  style: string;
+  extra: string;
+};
+
+router.post("/import-url", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const { url } = req.body as { url?: string };
+  if (!url?.trim()) { res.status(400).json({ error: "url is required" }); return; }
+
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(url.trim().startsWith("http") ? url.trim() : `https://${url.trim()}`);
+  } catch {
+    res.status(400).json({ error: "Invalid URL. Please enter a valid website address." });
+    return;
+  }
+
+  if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+    res.status(400).json({ error: "Only http and https URLs are supported." });
+    return;
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+  let rawHtml: string;
+  try {
+    const response = await fetch(parsedUrl.toString(), {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; Pillar-Importer/1.0; +https://mypillar.co)",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+    });
+    if (!response.ok) {
+      res.status(422).json({ error: `Could not fetch that page (HTTP ${response.status}). Make sure the URL is publicly accessible.` });
+      return;
+    }
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("text/html") && !contentType.includes("text/plain")) {
+      res.status(422).json({ error: "That URL doesn't appear to be a webpage. Please enter the address of a public website." });
+      return;
+    }
+    rawHtml = await response.text();
+  } catch (err) {
+    const isTimeout = err instanceof Error && err.name === "AbortError";
+    res.status(422).json({ error: isTimeout ? "The page took too long to respond. Try a different URL." : "Could not reach that website. Make sure the URL is correct and publicly accessible." });
+    return;
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const plainText = stripHtml(rawHtml).slice(0, MAX_TEXT_CHARS);
+
+  if (plainText.length < 100) {
+    res.status(422).json({ error: "Not enough readable content was found on that page. Try a different URL." });
+    return;
+  }
+
+  const extractPrompt = `You are a data extraction assistant. Read the following text scraped from a civic organization's public website and extract key information.
+
+Return a JSON object with EXACTLY these keys (use empty string "" if information is not found):
+- name: the organization's name
+- mission: their mission or purpose in 1-2 sentences
+- services: programs, services, activities they offer (comma-separated list or short paragraph)
+- location: physical address or meeting place
+- schedule: regular meeting schedule, hours, or calendar
+- events: upcoming or recurring events and fundraisers
+- contact: email addresses, phone numbers, and social media links found
+- audience: who they serve or are trying to reach (members, community, volunteers, etc.)
+- style: any color palette, design style, or branding cues visible
+- extra: anything else notable — founding history, awards, recent news, calls to action
+
+Return ONLY valid JSON, no markdown, no explanation.
+
+Website text:
+${plainText}`;
+
+  let extracted: ImportedSiteData;
+  try {
+    const client = getOpenAIClient();
+    const response = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      max_tokens: 1000,
+      response_format: { type: "json_object" },
+      messages: [{ role: "user", content: extractPrompt }],
+    });
+    const raw = response.choices[0]?.message?.content ?? "{}";
+    extracted = JSON.parse(raw) as ImportedSiteData;
+  } catch {
+    res.status(500).json({ error: "AI extraction failed. Please try again or start the interview manually." });
+    return;
+  }
+
+  res.json({ data: extracted, url: parsedUrl.toString() });
+});
+
 // ─── Usage ───────────────────────────────────────────────────────────────────
 router.get("/builder/usage", async (req: Request, res: Response) => {
   const org = await resolveOrg(req, res);

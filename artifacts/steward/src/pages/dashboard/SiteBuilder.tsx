@@ -4,6 +4,7 @@ import {
   Eye, CheckCircle2, ExternalLink, RefreshCw, EyeOff,
   Edit3, Play, Save, Trash2, Zap, ChevronRight,
   X, Check, ImagePlus, CalendarClock, Images, ShoppingBag,
+  Download, Link2,
 } from "lucide-react";
 import { uploadImage, ACCEPTED_IMAGE_TYPES, MAX_IMAGE_SIZE_MB } from "@/lib/uploadImage";
 import { useGetOrganization } from "@workspace/api-client-react";
@@ -32,6 +33,19 @@ type Schedule = {
   isActive: boolean;
   lastRunAt: string | null;
   nextRunAt: string | null;
+};
+
+type ImportedSiteData = {
+  name: string;
+  mission: string;
+  services: string;
+  location: string;
+  schedule: string;
+  events: string;
+  contact: string;
+  audience: string;
+  style: string;
+  extra: string;
 };
 
 const DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -107,6 +121,13 @@ export default function SiteBuilder() {
   const [shopEmbedCode, setShopEmbedCode] = useState("");
   const [shopSaving, setShopSaving] = useState(false);
   const [shopMessage, setShopMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const [importUrl, setImportUrl] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importData, setImportData] = useState<ImportedSiteData | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importedFromUrl, setImportedFromUrl] = useState<string | null>(null);
+  const [showImportForm, setShowImportForm] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -237,6 +258,57 @@ export default function SiteBuilder() {
       setPhotoUploading(false);
       if (photoInputRef.current) photoInputRef.current.value = "";
     }
+  };
+
+  const handleImportUrl = async () => {
+    const trimmed = importUrl.trim();
+    if (!trimmed || importing) return;
+    setImporting(true);
+    setImportError(null);
+    setImportData(null);
+    try {
+      const res = await fetch("/api/sites/import-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ url: trimmed }),
+      });
+      const data = await res.json() as { data?: ImportedSiteData; url?: string; error?: string };
+      if (!res.ok) { setImportError(data.error ?? "Import failed. Please try again."); return; }
+      setImportData(data.data!);
+      setImportedFromUrl(data.url ?? trimmed);
+    } catch {
+      setImportError("Could not reach the server. Please try again.");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const confirmImport = () => {
+    if (!importData) return;
+    const d = importData;
+    const orgName = org?.name ?? d.name ?? "your organization";
+    const qa: { q: string; a: string }[] = [
+      { q: `Let's build ${orgName}'s website! What is your mission or main purpose?`, a: d.mission || `We are ${orgName}.` },
+      { q: "What programs, services, or activities do you offer?", a: d.services || "Various community programs and services." },
+      { q: "Where are you located? Include address and regular schedule.", a: [d.location, d.schedule].filter(Boolean).join(". ") || "Location and schedule available upon request." },
+      { q: "Tell me about your events — any recurring gatherings or fundraisers?", a: d.events || "We host regular community events throughout the year." },
+      { q: "How should visitors reach you? Share email, phone, and social media.", a: d.contact || "Contact information available on our website." },
+      { q: "Who are you trying to reach?", a: d.audience || "Community members, volunteers, and supporters." },
+      { q: "Any color or style preferences for your site?", a: d.style || "Keep it consistent with our existing branding." },
+      { q: "Anything else to highlight? Founding history, announcements, calls to action?", a: (d.extra ? d.extra + " " : "") + `Content imported from ${importedFromUrl ?? "existing website"}.` },
+    ];
+    const syntheticMessages: Message[] = [];
+    qa.forEach(({ q, a }, i) => {
+      syntheticMessages.push({ id: `import-ai-${i}`, role: "assistant", content: q });
+      syntheticMessages.push({ id: `import-user-${i}`, role: "user", content: a });
+    });
+    syntheticMessages.push({ id: "import-ai-final", role: "assistant", content: "I have everything I need! Click **Generate My Site** to build your website." });
+    setMessages(syntheticMessages);
+    setImportData(null);
+    setImportUrl("");
+    setImportedFromUrl(null);
+    setShowImportForm(false);
   };
 
   const syncEvents = async () => {
@@ -992,24 +1064,109 @@ export default function SiteBuilder() {
           {/* Chat messages */}
           <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
             {messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-center py-10 space-y-5">
+              <div className="flex flex-col items-center justify-center h-full text-center py-6 px-4 space-y-5 max-w-lg mx-auto w-full">
                 <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
                   <Globe className="w-8 h-8 text-primary" />
                 </div>
                 <div>
                   <h2 className="text-xl font-semibold text-white mb-2">Build your public website</h2>
-                  <p className="text-sm text-muted-foreground max-w-sm">The AI will walk you through 8 short questions about your organization, then build a complete, branded website ready to publish.</p>
+                  <p className="text-sm text-muted-foreground">The AI will walk you through a few questions about your organization, then build a complete, branded website ready to publish.</p>
                 </div>
+
                 {isLimitReached ? (
-                  <div className="flex flex-col items-center gap-3 p-4 rounded-xl border border-red-500/20 bg-red-500/5 max-w-sm">
+                  <div className="flex flex-col items-center gap-3 p-4 rounded-xl border border-red-500/20 bg-red-500/5 w-full max-w-sm">
                     <AlertCircle className="w-5 h-5 text-red-400" />
                     <p className="text-sm text-red-300">You've used all {usage?.limit} AI messages this month.</p>
                     <Link href="/billing"><Button size="sm">Upgrade Plan</Button></Link>
                   </div>
+                ) : importData ? (
+                  /* ── Review card ── */
+                  <div className="w-full rounded-xl border border-emerald-500/20 bg-emerald-500/5 text-left overflow-hidden">
+                    <div className="flex items-center gap-3 px-4 py-3 border-b border-emerald-500/15">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-white">Content found — does this look right?</p>
+                        <p className="text-xs text-emerald-400/80 truncate">{importedFromUrl}</p>
+                      </div>
+                      <button onClick={() => { setImportData(null); setImportError(null); }} className="text-slate-400 hover:text-white transition-colors flex-shrink-0">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="px-4 py-3 space-y-2 max-h-64 overflow-y-auto">
+                      {([
+                        { label: "Name", value: importData.name },
+                        { label: "Mission", value: importData.mission },
+                        { label: "Programs / Services", value: importData.services },
+                        { label: "Location & Schedule", value: [importData.location, importData.schedule].filter(Boolean).join(" · ") },
+                        { label: "Events", value: importData.events },
+                        { label: "Contact", value: importData.contact },
+                        { label: "Audience", value: importData.audience },
+                        { label: "Style", value: importData.style },
+                        { label: "Other highlights", value: importData.extra },
+                      ] as { label: string; value: string }[]).filter(f => f.value?.trim()).map(field => (
+                        <div key={field.label} className="flex gap-2 text-xs">
+                          <span className="text-slate-400 flex-shrink-0 w-32">{field.label}</span>
+                          <span className="text-slate-200 flex-1">{field.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="px-4 py-3 border-t border-emerald-500/15 flex gap-2">
+                      <Button onClick={confirmImport} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-sm h-9">
+                        <Sparkles className="w-3.5 h-3.5 mr-1.5" /> Looks good — Generate My Site
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => { setImportData(null); setImportError(null); }} className="border-white/10 text-slate-300 hover:bg-white/5 h-9">
+                        Edit
+                      </Button>
+                    </div>
+                  </div>
+                ) : showImportForm ? (
+                  /* ── URL input form ── */
+                  <div className="w-full rounded-xl border border-white/10 bg-white/3 text-left overflow-hidden">
+                    <div className="flex items-center gap-3 px-4 py-3 border-b border-white/8">
+                      <Link2 className="w-4 h-4 text-primary flex-shrink-0" />
+                      <p className="text-sm font-semibold text-white flex-1">Import from your existing website</p>
+                      <button onClick={() => { setShowImportForm(false); setImportError(null); setImportUrl(""); }} className="text-slate-400 hover:text-white transition-colors">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="p-4 space-y-3">
+                      <p className="text-xs text-muted-foreground">Paste your current website URL. Pillar will read the page and extract your organization's information so you can skip straight to generating.</p>
+                      <div className="flex gap-2">
+                        <input
+                          type="url"
+                          value={importUrl}
+                          onChange={e => { setImportUrl(e.target.value); setImportError(null); }}
+                          onKeyDown={e => { if (e.key === "Enter") void handleImportUrl(); }}
+                          placeholder="https://www.myclub.org"
+                          className="flex-1 h-9 px-3 rounded-md bg-white/5 border border-white/10 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-primary/60"
+                          disabled={importing}
+                        />
+                        <Button onClick={handleImportUrl} disabled={!importUrl.trim() || importing} size="sm" className="h-9 gap-1.5 flex-shrink-0">
+                          {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                          {importing ? "Importing…" : "Import"}
+                        </Button>
+                      </div>
+                      {importing && (
+                        <p className="text-xs text-muted-foreground animate-pulse">Reading your site and extracting content — this takes a few seconds…</p>
+                      )}
+                      {importError && (
+                        <div className="flex items-start gap-2 p-2.5 rounded-lg bg-red-500/10 border border-red-500/20">
+                          <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0 mt-0.5" />
+                          <p className="text-xs text-red-300">{importError}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 ) : (
-                  <Button onClick={() => send("Let's build my website.")} disabled={chatLoading} className="bg-primary hover:bg-primary/90 px-6">
-                    <Sparkles className="w-4 h-4 mr-2" /> Start the Interview
-                  </Button>
+                  /* ── Start options ── */
+                  <div className="w-full space-y-3">
+                    <Button onClick={() => send("Let's build my website.")} disabled={chatLoading} className="w-full bg-primary hover:bg-primary/90">
+                      <Sparkles className="w-4 h-4 mr-2" /> Start from Scratch
+                    </Button>
+                    <Button variant="outline" onClick={() => setShowImportForm(true)} className="w-full border-white/10 hover:bg-white/5 text-slate-300">
+                      <Link2 className="w-4 h-4 mr-2" /> Import from my existing website
+                    </Button>
+                  </div>
                 )}
               </div>
             ) : (
