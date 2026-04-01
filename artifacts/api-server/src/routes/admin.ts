@@ -111,6 +111,7 @@ router.get("/admin/subscribers", async (_req: Request, res: Response) => {
     const rows = await db
       .select({
         subId: subscriptionsTable.id,
+        orgId: organizationsTable.id,
         status: subscriptionsTable.status,
         tierId: subscriptionsTable.tierId,
         createdAt: subscriptionsTable.createdAt,
@@ -123,6 +124,7 @@ router.get("/admin/subscribers", async (_req: Request, res: Response) => {
         email: usersTable.email,
         firstName: usersTable.firstName,
         lastName: usersTable.lastName,
+        trialEndsAt: organizationsTable.trialEndsAt,
       })
       .from(subscriptionsTable)
       .leftJoin(organizationsTable, eq(organizationsTable.userId, subscriptionsTable.userId))
@@ -458,6 +460,55 @@ router.delete("/admin/prospects/:id", async (req: Request, res: Response) => {
   try {
     await db.delete(outreachProspectsTable).where(eq(outreachProspectsTable.id, req.params.id));
     res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin: List all orgs (for trial grants) ─────────────────────────────────
+router.get("/admin/orgs", async (_req: Request, res: Response) => {
+  try {
+    const orgs = await db.select({
+      id: organizationsTable.id,
+      name: organizationsTable.name,
+      type: organizationsTable.type,
+      tier: organizationsTable.tier,
+      subscriptionStatus: organizationsTable.subscriptionStatus,
+      trialEndsAt: organizationsTable.trialEndsAt,
+      email: usersTable.email,
+      createdAt: organizationsTable.createdAt,
+    })
+    .from(organizationsTable)
+    .leftJoin(usersTable, eq(usersTable.id, organizationsTable.userId))
+    .orderBy(desc(organizationsTable.createdAt));
+    res.json(orgs);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin: Grant free trial to an org ───────────────────────────────────────
+router.post("/admin/orgs/:orgId/grant-trial", async (req: Request, res: Response) => {
+  const { tierId, months } = req.body as { tierId?: string; months?: number };
+  if (!tierId || !months || months < 1 || months > 24) {
+    res.status(400).json({ error: "tierId and months (1–24) are required" });
+    return;
+  }
+  const trialEndsAt = new Date();
+  trialEndsAt.setMonth(trialEndsAt.getMonth() + months);
+  try {
+    const [updated] = await db
+      .update(organizationsTable)
+      .set({ tier: tierId, subscriptionStatus: "active", trialEndsAt })
+      .where(eq(organizationsTable.id, req.params.orgId))
+      .returning({
+        id: organizationsTable.id,
+        name: organizationsTable.name,
+        tier: organizationsTable.tier,
+        trialEndsAt: organizationsTable.trialEndsAt,
+      });
+    if (!updated) { res.status(404).json({ error: "Organization not found" }); return; }
+    res.json({ ok: true, org: updated });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

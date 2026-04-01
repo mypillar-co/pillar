@@ -70,7 +70,7 @@ export default function Admin() {
   const { isAuthenticated, isLoading } = useAuth();
   const [, navigate] = useLocation();
 
-  const [tab, setTab] = useState<"overview" | "financials" | "subscribers" | "churn" | "health" | "support" | "agents">("overview");
+  const [tab, setTab] = useState<"overview" | "financials" | "subscribers" | "churn" | "health" | "support" | "agents" | "trials">("overview");
   const [overview, setOverview] = useState<any>(null);
   const [financials, setFinancials] = useState<any>(null);
   const [subscribers, setSubscribers] = useState<any[]>([]);
@@ -88,6 +88,13 @@ export default function Admin() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [subFilter, setSubFilter] = useState("");
+  const [allOrgs, setAllOrgs] = useState<any[]>([]);
+  const [orgSearch, setOrgSearch] = useState("");
+  const [grantTrialOrg, setGrantTrialOrg] = useState<any | null>(null);
+  const [grantTrialMonths, setGrantTrialMonths] = useState(3);
+  const [grantTrialTierId, setGrantTrialTierId] = useState("tier3");
+  const [grantingTrial, setGrantingTrial] = useState(false);
+  const [grantTrialMsg, setGrantTrialMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -108,8 +115,9 @@ export default function Admin() {
       apiFetch("/api/admin/content-queue"),
       apiFetch("/api/admin/prospects"),
       apiFetch("/api/admin/agents/logs?limit=100"),
+      apiFetch("/api/admin/orgs"),
     ])
-      .then(([ov, fin, subs, ch, he, tix, ag, cq, pros, logs]) => {
+      .then(([ov, fin, subs, ch, he, tix, ag, cq, pros, logs, orgs]) => {
         setOverview(ov);
         setFinancials(fin);
         setSubscribers(subs);
@@ -120,6 +128,7 @@ export default function Admin() {
         setContentQueue(cq ?? []);
         setProspects(pros ?? []);
         setAgentLogs(logs ?? []);
+        setAllOrgs(Array.isArray(orgs) ? orgs : []);
         setLoading(false);
       })
       .catch((err) => {
@@ -137,6 +146,7 @@ export default function Admin() {
     { key: "financials", label: "Financials" },
     { key: "subscribers", label: "Subscribers" },
     { key: "churn", label: "Churn" },
+    { key: "trials", label: "🎁 Grant Trial" },
     { key: "agents", label: "AI Agents" },
     { key: "health", label: "Server Health" },
     { key: "support", label: `Support${tickets.filter(t => t.status === "open").length > 0 ? ` (${tickets.filter(t => t.status === "open").length})` : ""}` },
@@ -527,6 +537,136 @@ export default function Admin() {
                       </td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        {tab === "trials" && (
+          <>
+            <div style={{ fontSize: 13, color: "#8b9ab5", marginBottom: 16 }}>
+              Search for any organization and grant them a free trial at any plan level.
+            </div>
+            <input
+              style={styles.input}
+              placeholder="Search organizations by name or email..."
+              value={orgSearch}
+              onChange={(e) => setOrgSearch(e.target.value)}
+            />
+            {grantTrialMsg && (
+              <div style={{ background: "#16a34a22", border: "1px solid #16a34a", borderRadius: 8, padding: "10px 14px", marginBottom: 16, color: "#4ade80", fontSize: 13 }}>
+                {grantTrialMsg}
+              </div>
+            )}
+            {grantTrialOrg && (
+              <div style={{ background: "#1a2540", border: "1px solid #e8b84b44", borderRadius: 10, padding: 20, marginBottom: 20 }}>
+                <div style={{ fontWeight: 600, color: "#fff", marginBottom: 4 }}>{grantTrialOrg.name}</div>
+                <div style={{ fontSize: 12, color: "#8b9ab5", marginBottom: 16 }}>{grantTrialOrg.email} · {grantTrialOrg.type}</div>
+                <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                  <select
+                    value={grantTrialTierId}
+                    onChange={(e) => setGrantTrialTierId(e.target.value)}
+                    style={{ ...styles.input, width: "auto", marginBottom: 0 }}
+                  >
+                    <option value="tier1">Starter ($29/mo)</option>
+                    <option value="tier1a">Autopilot ($59/mo)</option>
+                    <option value="tier2">Events ($99/mo)</option>
+                    <option value="tier3">Total Operations ($149/mo)</option>
+                  </select>
+                  <select
+                    value={grantTrialMonths}
+                    onChange={(e) => setGrantTrialMonths(Number(e.target.value))}
+                    style={{ ...styles.input, width: "auto", marginBottom: 0 }}
+                  >
+                    {[1,2,3,6,12].map(m => (
+                      <option key={m} value={m}>{m} month{m > 1 ? "s" : ""} free</option>
+                    ))}
+                  </select>
+                  <button
+                    disabled={grantingTrial}
+                    onClick={async () => {
+                      setGrantingTrial(true);
+                      setGrantTrialMsg(null);
+                      try {
+                        const res = await apiFetch(`/api/admin/orgs/${grantTrialOrg.id}/grant-trial`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ tierId: grantTrialTierId, months: grantTrialMonths }),
+                        });
+                        if (res?.ok) {
+                          setGrantTrialMsg(`✓ Granted ${grantTrialMonths}-month free trial to ${grantTrialOrg.name}`);
+                          setGrantTrialOrg(null);
+                          setOrgSearch("");
+                          const orgs = await apiFetch("/api/admin/orgs");
+                          setAllOrgs(Array.isArray(orgs) ? orgs : []);
+                        }
+                      } finally {
+                        setGrantingTrial(false);
+                      }
+                    }}
+                    style={{ background: "#e8b84b", color: "#0c1526", border: "none", borderRadius: 8, padding: "8px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+                  >
+                    {grantingTrial ? "Granting..." : `Grant ${grantTrialMonths}-Month Trial`}
+                  </button>
+                  <button
+                    onClick={() => setGrantTrialOrg(null)}
+                    style={{ background: "transparent", color: "#8b9ab5", border: "1px solid #8b9ab544", borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer" }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            <div style={styles.card}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Organization</th>
+                    <th style={styles.th}>Email</th>
+                    <th style={styles.th}>Current Plan</th>
+                    <th style={styles.th}>Trial Ends</th>
+                    <th style={styles.th}>Joined</th>
+                    <th style={styles.th}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allOrgs
+                    .filter(o => {
+                      const q = orgSearch.toLowerCase();
+                      return !q || o.name?.toLowerCase().includes(q) || o.email?.toLowerCase().includes(q);
+                    })
+                    .slice(0, 50)
+                    .map((o) => (
+                      <tr key={o.id}>
+                        <td style={styles.td}>
+                          <div style={{ fontWeight: 500 }}>{o.name}</div>
+                          {o.type && <div style={{ fontSize: 11, color: "#8b9ab5" }}>{o.type}</div>}
+                        </td>
+                        <td style={{ ...styles.td, color: "#8b9ab5" }}>{o.email ?? "—"}</td>
+                        <td style={styles.td}>
+                          {o.tier ? (
+                            <span style={{ color: o.subscriptionStatus === "active" ? "#34d399" : "#8b9ab5" }}>
+                              {o.tier} · {o.subscriptionStatus ?? "—"}
+                            </span>
+                          ) : <span style={{ color: "#8b9ab5" }}>None</span>}
+                        </td>
+                        <td style={{ ...styles.td, color: "#8b9ab5" }}>
+                          {o.trialEndsAt ? new Date(o.trialEndsAt).toLocaleDateString() : "—"}
+                        </td>
+                        <td style={{ ...styles.td, color: "#8b9ab5" }}>
+                          {new Date(o.createdAt).toLocaleDateString()}
+                        </td>
+                        <td style={styles.td}>
+                          <button
+                            onClick={() => { setGrantTrialOrg(o); setGrantTrialMsg(null); }}
+                            style={{ background: "#e8b84b22", color: "#e8b84b", border: "1px solid #e8b84b44", borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer" }}
+                          >
+                            Grant Trial
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>
