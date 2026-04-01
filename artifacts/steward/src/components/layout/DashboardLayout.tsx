@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard,
@@ -24,12 +24,14 @@ import {
   HelpCircle,
   ClipboardList,
   ShoppingBag,
+  LogOut,
 } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetOrganization } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { GuidedTour, FeatureTourRunner } from "@/components/GuidedTour";
+import { useToast } from "@/hooks/use-toast";
 
 type NavItem = {
   label: string;
@@ -116,13 +118,59 @@ function NavLink({ item, collapsed, onClick }: { item: NavItem; collapsed: boole
   );
 }
 
+const IDLE_WARN_MS  = 25 * 60 * 1000; // 25 min
+const IDLE_LIMIT_MS = 30 * 60 * 1000; // 30 min
+
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading, logout } = useAuth();
   const { data: orgData, isLoading: orgLoading } = useGetOrganization();
   const org = orgData?.organization;
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
+
+  const lastActivityRef = useRef(Date.now());
+  const warnedRef = useRef(false);
+  const warnToastIdRef = useRef<string | null>(null);
+
+  const resetActivity = useCallback(() => {
+    lastActivityRef.current = Date.now();
+    if (warnedRef.current) {
+      warnedRef.current = false;
+    }
+  }, []);
+
+  // Idle timer — check every 60 s
+  useEffect(() => {
+    if (!user) return;
+
+    const EVENTS = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"];
+    EVENTS.forEach(e => window.addEventListener(e, resetActivity, { passive: true }));
+
+    const interval = setInterval(() => {
+      const idle = Date.now() - lastActivityRef.current;
+      if (idle >= IDLE_LIMIT_MS) {
+        clearInterval(interval);
+        logout();
+        return;
+      }
+      if (idle >= IDLE_WARN_MS && !warnedRef.current) {
+        warnedRef.current = true;
+        const { id } = toast({
+          title: "Still there?",
+          description: "You'll be signed out in 5 minutes due to inactivity.",
+          duration: 5 * 60 * 1000,
+        });
+        warnToastIdRef.current = id ?? null;
+      }
+    }, 60_000);
+
+    return () => {
+      EVENTS.forEach(e => window.removeEventListener(e, resetActivity));
+      clearInterval(interval);
+    };
+  }, [user, logout, resetActivity, toast]);
 
   useEffect(() => {
     if (authLoading || orgLoading) return;
@@ -213,18 +261,34 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         {BOTTOM_NAV.map(item => (
           <NavLink key={item.href} item={item} collapsed={collapsed && !mobile} onClick={mobile ? () => setMobileOpen(false) : undefined} />
         ))}
-        {(!collapsed || mobile) && user && (
-          <div className="flex items-center gap-2.5 px-3 py-2 mt-1">
+        {/* User row + logout */}
+        {(!collapsed || mobile) && user ? (
+          <div className="flex items-center gap-2 px-3 py-2 mt-1 group">
             <img
               src={user.profileImageUrl ?? `https://api.dicebear.com/7.x/initials/svg?seed=${user.firstName ?? user.email ?? "U"}`}
               alt={user.firstName ?? "User"}
               className="w-6 h-6 rounded-full flex-shrink-0"
             />
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="text-xs text-white truncate">{[user.firstName, user.lastName].filter(Boolean).join(" ") || user.email || "User"}</p>
             </div>
+            <button
+              onClick={() => logout()}
+              title="Sign out"
+              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-white/10 text-slate-500 hover:text-slate-300 flex-shrink-0"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
           </div>
-        )}
+        ) : collapsed && !mobile && user ? (
+          <button
+            onClick={() => logout()}
+            title="Sign out"
+            className="w-full flex items-center justify-center p-2 rounded-lg text-slate-500 hover:bg-white/8 hover:text-slate-300 transition-colors mt-1"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        ) : null}
       </div>
     </div>
   );
