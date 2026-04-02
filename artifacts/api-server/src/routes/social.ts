@@ -13,6 +13,19 @@ import OpenAI from "openai";
 
 const router = Router();
 
+// Derive the public-facing base URL from the request itself so OAuth
+// redirects work in every environment without needing BASE_URL set.
+function getBaseUrl(req: Request): string {
+  if (process.env.BASE_URL) return process.env.BASE_URL;
+  const proto =
+    (req.headers["x-forwarded-proto"] as string | undefined)
+      ?.split(",")[0].trim() ?? req.protocol;
+  const host =
+    (req.headers["x-forwarded-host"] as string | undefined)
+      ?.split(",")[0].trim() ?? (req.headers.host as string | undefined) ?? "";
+  return `${proto}://${host}`;
+}
+
 interface OAuthState {
   orgId: string;
   platform: string;
@@ -186,7 +199,7 @@ router.get("/oauth/:platform/start", async (req, res) => {
     const scope = platform === "instagram"
       ? "pages_show_list,pages_read_engagement,instagram_basic,instagram_content_publish,instagram_manage_insights"
       : "pages_show_list,pages_manage_posts,pages_read_engagement";
-    const redirectUri = encodeURIComponent(`${process.env.BASE_URL ?? ""}/api/social/oauth/${platform}/callback`);
+    const redirectUri = encodeURIComponent(`${getBaseUrl(req)}/api/social/oauth/${platform}/callback`);
     const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirectUri}&scope=${scope}&state=${state}`;
     res.json({ authUrl });
     return;
@@ -208,7 +221,7 @@ router.get("/oauth/:platform/start", async (req, res) => {
     // Derive S256 code challenge: base64url(sha256(verifier))
     const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
     await saveOAuthState(state, { orgId: org.id, platform, sessionId: getSessionId(req) ?? "", codeVerifier });
-    const redirectUri = encodeURIComponent(`${process.env.BASE_URL ?? ""}/api/social/oauth/twitter/callback`);
+    const redirectUri = encodeURIComponent(`${getBaseUrl(req)}/api/social/oauth/twitter/callback`);
     const authUrl = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&scope=tweet.write%20tweet.read%20users.read&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
     res.json({ authUrl });
     return;
@@ -272,7 +285,7 @@ router.get("/oauth/facebook/callback", async (req, res) => {
   }
 
   try {
-    const redirectUri = encodeURIComponent(`${process.env.BASE_URL ?? ""}/api/social/oauth/facebook/callback`);
+    const redirectUri = encodeURIComponent(`${getBaseUrl(req)}/api/social/oauth/facebook/callback`);
     const tokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${appId}&redirect_uri=${redirectUri}&client_secret=${appSecret}&code=${code}`;
     const tokenResp = await fetch(tokenUrl);
     const tokenData = await tokenResp.json() as { access_token?: string; error?: { message?: string } };
@@ -340,7 +353,7 @@ router.get("/oauth/instagram/callback", async (req, res) => {
   }
 
   try {
-    const redirectUri = encodeURIComponent(`${process.env.BASE_URL ?? ""}/api/social/oauth/instagram/callback`);
+    const redirectUri = encodeURIComponent(`${getBaseUrl(req)}/api/social/oauth/instagram/callback`);
     const tokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${appId}&redirect_uri=${redirectUri}&client_secret=${appSecret}&code=${code}`;
     const tokenResp = await fetch(tokenUrl);
     const tokenData = await tokenResp.json() as { access_token?: string; error?: { message?: string } };
@@ -436,7 +449,7 @@ router.get("/oauth/twitter/callback", async (req, res) => {
   }
 
   try {
-    const redirectUri = `${process.env.BASE_URL ?? ""}/api/social/oauth/twitter/callback`;
+    const redirectUri = `${getBaseUrl(req)}/api/social/oauth/twitter/callback`;
     const tokenResp = await fetch("https://api.twitter.com/2/oauth2/token", {
       method: "POST",
       headers: {

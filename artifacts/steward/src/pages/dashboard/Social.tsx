@@ -51,152 +51,78 @@ const STATUS_META: Record<string, { label: string; color: string; icon: React.El
 };
 
 function ConnectAccountDialog({ open, onClose, onConnected }: { open: boolean; onClose: () => void; onConnected: () => void }) {
-  const [manualPlatform, setManualPlatform] = useState("facebook");
-  const [showManual, setShowManual] = useState<string | null>(null);
-  const [accountName, setAccountName] = useState("");
-  const [accessToken, setAccessToken] = useState("");
-  const [accountId, setAccountId] = useState("");
-  const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
 
   const handleOAuthConnect = async (platform: string) => {
+    setConnectError(null);
     setOauthLoading(platform);
     try {
       const result = await api.social.oauth.start(platform);
       if (result.authUrl) {
         window.location.href = result.authUrl;
-      } else if (result.manualConnect) {
-        setShowManual(platform);
-        setManualPlatform(platform);
-        toast.info(result.message ?? "OAuth not configured — please use manual token connection below.");
+      } else {
+        setConnectError("Connection could not be started. Please try again or contact support.");
       }
     } catch {
-      toast.error("Failed to start OAuth. Try connecting manually.");
-      setShowManual(platform);
-      setManualPlatform(platform);
+      setConnectError("Unable to connect right now. Please try again in a moment.");
     } finally {
       setOauthLoading(null);
     }
   };
 
-  const handleManualConnect = async () => {
-    if (!accountName || !accessToken) { toast.error("Account name and access token are required"); return; }
-    setLoading(true);
-    try {
-      await api.social.accounts.connect({ platform: manualPlatform, accountName, accessToken, accountId: accountId || undefined });
-      toast.success(`${PLATFORM_META[manualPlatform]?.label ?? manualPlatform} account connected`);
-      onConnected();
-      onClose();
-      setAccountName(""); setAccessToken(""); setAccountId(""); setShowManual(null);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to connect account");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const manualInstructions: Record<string, string> = {
-    facebook: "Get a Page Access Token from Meta Business Suite → Settings → Integrations → API. The token needs pages_manage_posts permission.",
-    instagram: "Get a Page Access Token that has access to your Instagram Business account from Meta Business Suite. Also enter your Instagram Business Account ID from Instagram → Settings → About.",
-    twitter: "Get an OAuth 2.0 Bearer Token from the Twitter/X Developer Portal under Keys and Tokens. The app needs Read and Write permissions.",
-  };
-
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) { setShowManual(null); setAccountName(""); setAccessToken(""); setAccountId(""); } onClose(); }}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) { setConnectError(null); } onClose(); }}>
       <DialogContent className="bg-card border-white/10 text-white max-w-md">
         <DialogHeader>
           <DialogTitle>Connect Social Account</DialogTitle>
         </DialogHeader>
 
-        {!showManual ? (
-          <div className="space-y-3">
-            <p className="text-xs text-slate-400">Choose a platform to connect. OAuth lets you connect with one click — if it is not configured, you will be prompted to enter a token manually.</p>
-            <div className="flex items-start gap-2 rounded-lg bg-amber-500/5 border border-amber-500/20 px-3 py-2.5">
-              <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-              <p className="text-xs text-amber-400/90 leading-relaxed">
-                By connecting, Pillar will securely store your access token to post on your behalf. Your token is encrypted and never shared. You can revoke access anytime from this page or from the social platform's app settings.
-              </p>
+        <div className="space-y-3">
+          <p className="text-xs text-slate-400">
+            Choose a platform below. You will be redirected to log in and grant Pillar permission to post on your behalf.
+          </p>
+          <div className="flex items-start gap-2 rounded-lg bg-amber-500/5 border border-amber-500/20 px-3 py-2.5">
+            <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-400/90 leading-relaxed">
+              Your credentials are encrypted and never shared. You can revoke access anytime from this page or from the platform's own app settings.
+            </p>
+          </div>
+
+          {connectError && (
+            <div className="flex items-start gap-2 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2.5">
+              <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+              <p className="text-xs text-red-400 leading-relaxed">{connectError}</p>
             </div>
-            {Object.entries(PLATFORM_META).map(([key, meta]) => {
-              const Icon = meta.icon;
-              const isLoading = oauthLoading === key;
-              return (
-                <div key={key} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-4 py-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${meta.bgColor}`}>
-                      <Icon className={`w-4 h-4 ${meta.color}`} />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-white">{meta.label}</p>
-                    </div>
+          )}
+
+          {Object.entries(PLATFORM_META).map(([key, meta]) => {
+            const Icon = meta.icon;
+            const isLoading = oauthLoading === key;
+            return (
+              <div key={key} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-4 py-3">
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${meta.bgColor}`}>
+                    <Icon className={`w-4 h-4 ${meta.color}`} />
                   </div>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() => handleOAuthConnect(key)}
-                      disabled={isLoading || oauthLoading !== null}
-                      className="bg-primary hover:bg-primary/90 h-8 text-xs"
-                    >
-                      {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
-                      Connect
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => { setShowManual(key); setManualPlatform(key); }}
-                      disabled={oauthLoading !== null}
-                      className="border-white/20 text-slate-300 hover:text-white hover:bg-white/10 h-8 text-xs"
-                    >
-                      Manual
-                    </Button>
-                  </div>
+                  <p className="text-sm font-medium text-white">{meta.label}</p>
                 </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <button
-              onClick={() => { setShowManual(null); setAccountName(""); setAccessToken(""); setAccountId(""); }}
-              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
-            >
-              ← Back to platform selection
-            </button>
-            <div className="text-xs text-slate-400 bg-white/5 rounded-lg p-3 leading-relaxed">
-              {manualInstructions[showManual]}
-            </div>
-            <div>
-              <Label className="text-slate-300 text-sm mb-1.5 block">Account / Page Name</Label>
-              <Input value={accountName} onChange={e => setAccountName(e.target.value)} placeholder="e.g. My Organization Page" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
-            </div>
-            {(showManual === "instagram" || showManual === "facebook") && (
-              <div>
-                <Label className="text-slate-300 text-sm mb-1.5 block">
-                  {showManual === "instagram" ? "Instagram Business Account ID" : "Page ID (optional)"}
-                </Label>
-                <Input
-                  value={accountId}
-                  onChange={e => setAccountId(e.target.value)}
-                  placeholder={showManual === "instagram" ? "e.g. 1234567890" : "e.g. 1234567890 (leave blank for personal feed)"}
-                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-500"
-                />
+                <Button
+                  size="sm"
+                  onClick={() => handleOAuthConnect(key)}
+                  disabled={isLoading || oauthLoading !== null}
+                  className="bg-primary hover:bg-primary/90 h-8 text-xs"
+                >
+                  {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
+                  {isLoading ? "Connecting…" : "Connect"}
+                </Button>
               </div>
-            )}
-            <div>
-              <Label className="text-slate-300 text-sm mb-1.5 block">Access Token</Label>
-              <Input type="password" value={accessToken} onChange={e => setAccessToken(e.target.value)} placeholder="Paste your access token here" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500 font-mono text-xs" />
-            </div>
-          </div>
-        )}
+            );
+          })}
+        </div>
 
         <DialogFooter>
           <Button variant="ghost" onClick={onClose} className="text-slate-400 hover:text-white">Cancel</Button>
-          {showManual && (
-            <Button onClick={handleManualConnect} disabled={loading} className="bg-primary hover:bg-primary/90">
-              {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-              Connect Account
-            </Button>
-          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
