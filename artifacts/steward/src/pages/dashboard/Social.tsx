@@ -30,6 +30,18 @@ const PLATFORM_META: Record<string, { label: string; color: string; bgColor: str
 const TIER_ALLOWS_SOCIAL = new Set(["tier1a", "tier2", "tier3"]);
 const TIER_ALLOWS_STRATEGY = new Set(["tier3"]);
 
+/**
+ * Convert a stored UTC ISO string to the YYYY-MM-DDTHH:MM format that
+ * datetime-local inputs expect, expressed in the user's LOCAL timezone.
+ * (Using .toISOString() gives UTC which shows the wrong time in the UI.)
+ */
+function toLocalDatetimeInput(isoString: string): string {
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function PlatformBadge({ platform }: { platform: string }) {
   const meta = PLATFORM_META[platform];
   if (!meta) return <Badge variant="outline">{platform}</Badge>;
@@ -209,11 +221,14 @@ function ComposePostDialog({
     if (needsMedia && !mediaUrl.trim()) { toast.error("An image URL is required for Instagram posts"); return; }
     setLoading(true);
     try {
+      // datetime-local gives "2025-04-02T15:30" with no timezone — convert to
+      // a full UTC ISO string so the server validates against the user's real time.
+      const scheduledAtIso = scheduledAt ? new Date(scheduledAt).toISOString() : undefined;
       await api.social.posts.create({
         platforms: selectedPlatforms,
         content,
         mediaUrl: mediaUrl.trim() || undefined,
-        scheduledAt: scheduledAt || undefined,
+        scheduledAt: scheduledAtIso,
       });
       toast.success(scheduledAt ? "Post scheduled" : "Post saved as draft");
       onCreated();
@@ -399,7 +414,7 @@ function EditPostDialog({
   const [content, setContent] = useState(post.content);
   const [mediaUrl, setMediaUrl] = useState(post.mediaUrl ?? "");
   const [scheduledAt, setScheduledAt] = useState(
-    post.scheduledAt ? new Date(post.scheduledAt).toISOString().slice(0, 16) : ""
+    post.scheduledAt ? toLocalDatetimeInput(post.scheduledAt) : ""
   );
   const [loading, setLoading] = useState(false);
   const [imageUploading, setImageUploading] = useState(false);
@@ -410,7 +425,8 @@ function EditPostDialog({
   useEffect(() => {
     setContent(post.content);
     setMediaUrl(post.mediaUrl ?? "");
-    setScheduledAt(post.scheduledAt ? new Date(post.scheduledAt).toISOString().slice(0, 16) : "");
+    // Show the stored UTC time in the user's local timezone for the input
+    setScheduledAt(post.scheduledAt ? toLocalDatetimeInput(post.scheduledAt) : "");
   }, [post]);
 
   const handleEditImageFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -439,10 +455,12 @@ function EditPostDialog({
     setLoading(true);
     try {
       const newStatus = scheduledAt ? "scheduled" : "draft";
+      // Convert datetime-local value to full UTC ISO string before sending
+      const scheduledAtIso = scheduledAt ? new Date(scheduledAt).toISOString() : undefined;
       await api.social.posts.update(post.id, {
         content,
         mediaUrl: mediaUrl.trim() || undefined,
-        scheduledAt: scheduledAt || undefined,
+        scheduledAt: scheduledAtIso,
         status: newStatus,
       });
       toast.success("Post updated");
