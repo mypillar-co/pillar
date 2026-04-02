@@ -3,8 +3,8 @@ import { db, organizationsTable, sitesTable, siteUpdateSchedulesTable, websiteSp
 import { eq, sql } from "drizzle-orm";
 import { resolveFullOrg } from "../lib/resolveOrg";
 import OpenAI from "openai";
-import { buildSiteFromTemplate, type SiteContent } from "../siteTemplate";
-import { sanitizeAiHtml } from "../lib/sanitizeHtml";
+import { buildSiteFromTemplate, SITE_SCRIPT_BLOCK, type SiteContent } from "../siteTemplate";
+import { sanitizeAiSiteHtml } from "../lib/sanitizeHtml";
 import { load as cheerioLoad } from "cheerio";
 import { promises as dnsPromises } from "dns";
 import { isIP } from "net";
@@ -1003,7 +1003,7 @@ Rules: Use REAL content only — never lorem ipsum. Make programs specific to th
   };
 
   try {
-    const cleanedHtml = sanitizeAiHtml(buildSiteFromTemplate(siteContent));
+    const cleanedHtml = buildSiteFromTemplate(siteContent);
 
     const metaTitle = s.orgName || name;
     const metaDescription = s.mission || `Welcome to ${name}`;
@@ -1081,7 +1081,7 @@ Output ONLY the complete, updated HTML document starting with <!DOCTYPE html>. N
     }
 
     // Sanitize before save — removes script injection, event handlers, javascript: URIs
-    cleanedHtml = sanitizeAiHtml(cleanedHtml);
+    cleanedHtml = sanitizeAiSiteHtml(cleanedHtml, SITE_SCRIPT_BLOCK);
 
     // Save proposal server-side — do NOT return HTML to client
     await db.update(sitesTable).set({ proposedHtml: cleanedHtml }).where(eq(sitesTable.orgId, org.id));
@@ -1203,7 +1203,7 @@ Return the complete updated HTML document.`;
     }
 
     // Sanitize before save — removes script injection, event handlers, javascript: URIs
-    cleanedHtml = sanitizeAiHtml(cleanedHtml);
+    cleanedHtml = sanitizeAiSiteHtml(cleanedHtml, SITE_SCRIPT_BLOCK);
 
     await db.update(sitesTable).set({ proposedHtml: cleanedHtml }).where(eq(sitesTable.orgId, org.id));
     await db.update(organizationsTable).set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` }).where(eq(organizationsTable.id, org.id));

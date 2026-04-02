@@ -74,6 +74,20 @@ app.use(
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Safety net: ensure req.body is always at least {} for mutating requests
+// so routes never crash with "Cannot destructure property of undefined".
+// This guards against missing Content-Type or an empty body payload.
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  if (["POST", "PUT", "PATCH"].includes(req.method) && req.body === undefined) {
+    const ct = (req.headers["content-type"] ?? "").toLowerCase();
+    if (!ct.startsWith("multipart/") && !ct.startsWith("application/octet-stream")) {
+      req.body = {};
+    }
+  }
+  next();
+});
+
 app.use(authMiddleware);
 app.use(csrfMiddleware);
 

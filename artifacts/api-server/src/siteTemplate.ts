@@ -1009,6 +1009,120 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
 </body>
 </html>`;
 
+/**
+ * The canonical interactive script block embedded in every generated site.
+ * Exported so it can be re-injected after sanitizing AI-modified HTML.
+ */
+export const SITE_SCRIPT_BLOCK = `  <script>
+    (function() {
+      // ── Navbar scroll behavior
+      var navbar = document.getElementById('navbar');
+      var lastScroll = 0;
+      function onScroll() {
+        var s = window.scrollY;
+        if (s > 80) { navbar.classList.add('scrolled'); } else { navbar.classList.remove('scrolled'); }
+        // Active nav link
+        var sections = document.querySelectorAll('section[id]');
+        var links = document.querySelectorAll('.nav-links a');
+        sections.forEach(function(sec) {
+          var rect = sec.getBoundingClientRect();
+          if (rect.top <= 120 && rect.bottom >= 120) {
+            links.forEach(function(l) { l.classList.remove('active'); });
+            var matching = document.querySelector('.nav-links a[href="#' + sec.id + '"]');
+            if (matching) matching.classList.add('active');
+          }
+        });
+        lastScroll = s;
+      }
+      window.addEventListener('scroll', onScroll, { passive: true });
+
+      // ── Smooth scroll
+      document.querySelectorAll('a[href^="#"]').forEach(function(a) {
+        a.addEventListener('click', function(e) {
+          var target = document.querySelector(a.getAttribute('href'));
+          if (!target) return;
+          e.preventDefault();
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+
+      // ── Mobile menu
+      var hamburger = document.getElementById('hamburger');
+      var mobileMenu = document.getElementById('mobileMenu');
+      hamburger.addEventListener('click', function() {
+        var open = mobileMenu.classList.toggle('open');
+        hamburger.classList.toggle('open', open);
+        hamburger.setAttribute('aria-expanded', open);
+        document.body.style.overflow = open ? 'hidden' : '';
+      });
+      document.querySelectorAll('.mobile-link').forEach(function(link) {
+        link.addEventListener('click', function() {
+          mobileMenu.classList.remove('open');
+          hamburger.classList.remove('open');
+          hamburger.setAttribute('aria-expanded', 'false');
+          document.body.style.overflow = '';
+        });
+      });
+
+      // ── Hero image zoom-in
+      var heroImg = document.getElementById('heroImg');
+      if (heroImg) {
+        heroImg.addEventListener('load', function() { heroImg.classList.add('loaded'); });
+        if (heroImg.complete) heroImg.classList.add('loaded');
+      }
+
+      // ── Parallax
+      var heroBg = document.querySelector('.hero-bg');
+      window.addEventListener('scroll', function() {
+        if (heroBg) heroBg.style.transform = 'translateY(' + (window.scrollY * 0.28) + 'px)';
+      }, { passive: true });
+
+      // ── IntersectionObserver for reveal classes
+      var observer = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+          }
+        });
+      }, { threshold: 0.08, rootMargin: '0px 0px -48px 0px' });
+
+      document.querySelectorAll('.reveal, .reveal-left, .reveal-right, .reveal-hero, .reveal-child').forEach(function(el) {
+        observer.observe(el);
+      });
+
+      // ── Animated counters
+      function animateCounter(el) {
+        var raw = el.getAttribute('data-target');
+        if (!raw) return;
+        var target = parseFloat(raw.replace(/[^0-9.]/g, ''));
+        var suffix = raw.replace(/[0-9.]/g, '');
+        var start = 0;
+        var duration = 1600;
+        var startTime = null;
+        function step(ts) {
+          if (!startTime) startTime = ts;
+          var progress = Math.min((ts - startTime) / duration, 1);
+          var ease = 1 - Math.pow(2, -10 * progress);
+          var current = Math.round(ease * target);
+          el.textContent = current.toLocaleString() + suffix;
+          if (progress < 1) requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
+      }
+      var counterObserver = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          if (entry.isIntersecting) {
+            animateCounter(entry.target);
+            counterObserver.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.5 });
+      document.querySelectorAll('[data-target]').forEach(function(el) {
+        counterObserver.observe(el);
+      });
+    })();
+  </script>`;
+
 export type SiteContent = {
   orgName: string;
   orgTagline: string;

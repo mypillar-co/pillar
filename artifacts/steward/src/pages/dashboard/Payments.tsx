@@ -81,13 +81,19 @@ export default function Payments() {
     queryFn: () => req<{ transactions: Transaction[] }>("/api/connect/transactions"),
   });
 
+  const [connectUnavailable, setConnectUnavailable] = React.useState(false);
+
   const onboardMutation = useMutation({
     mutationFn: () => req<{ url: string }>("/api/connect/onboard", { method: "POST" }),
     onSuccess: (data) => {
       window.location.href = data.url;
     },
     onError: (err: Error) => {
-      toast.error(err.message ?? "Could not start Stripe setup. Please try again.");
+      if (err.message?.includes("not yet available") || err.message?.includes("signed up for Connect")) {
+        setConnectUnavailable(true);
+      } else {
+        toast.error(err.message ?? "Could not start Stripe setup. Please try again.");
+      }
     },
   });
 
@@ -174,18 +180,46 @@ export default function Payments() {
                       <span>Nonprofit support</span>
                     </div>
                   </div>
-                  <Button
-                    data-tour="connect-stripe-btn"
-                    onClick={() => onboardMutation.mutate()}
-                    disabled={onboardMutation.isPending}
-                    className="bg-primary text-primary-foreground hover:bg-primary/90"
-                  >
-                    {onboardMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CreditCard className="w-4 h-4 mr-2" />}
-                    Connect with Stripe
-                  </Button>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    You'll be redirected to Stripe to sign in or create a free account. Stripe handles all payment security and compliance.
-                  </p>
+                  {connectUnavailable ? (
+                    <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+                        <span className="text-sm font-medium text-yellow-300">One-time platform activation required</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Stripe Connect needs to be enabled on your Pillar platform account before organizations can accept payments. This is a one-time setup.
+                      </p>
+                      <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+                        <li>Go to <a href="https://dashboard.stripe.com/connect/settings" target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">dashboard.stripe.com/connect/settings</a></li>
+                        <li>Fill in the platform profile (website: mypillar.co)</li>
+                        <li>Accept Stripe Connect terms &amp; submit</li>
+                        <li>Repeat in <a href="https://dashboard.stripe.com/test/connect/settings" target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">Test mode</a> for development</li>
+                      </ol>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-1 border-yellow-500/30 text-yellow-300 hover:bg-yellow-500/10"
+                        onClick={() => { setConnectUnavailable(false); onboardMutation.mutate(); }}
+                      >
+                        Retry after activating
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <Button
+                        data-tour="connect-stripe-btn"
+                        onClick={() => onboardMutation.mutate()}
+                        disabled={onboardMutation.isPending}
+                        className="bg-primary text-primary-foreground hover:bg-primary/90"
+                      >
+                        {onboardMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CreditCard className="w-4 h-4 mr-2" />}
+                        Connect with Stripe
+                      </Button>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        You'll be redirected to Stripe to sign in or create a free account. Stripe handles all payment security and compliance.
+                      </p>
+                    </>
+                  )}
                 </div>
               </div>
             </CardContent>
