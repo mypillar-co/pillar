@@ -1,0 +1,303 @@
+The current website builder output is not good enough. It feels like a single generic AI landing page, not a real modern website for an organization.
+
+I do NOT want a simple token-filled HTML template anymore.
+
+I want you to redesign the Pillar website builder architecture so it generates GOOD, modern, dynamic websites based on structured data and reusable page modules.
+
+Important:
+Do not switch to “AI generates arbitrary HTML/CSS from scratch.”
+That will become unstable and low quality.
+Instead, build a structured website generation system using:
+1. a richer interview/spec
+2. a page planner
+3. reusable design-quality modules
+4. dynamic data binding for events, sponsors, announcements, and contact/actions
+
+CORE PRODUCT DIRECTION
+
+Pillar should generate websites that feel:
+- modern
+- clean
+- tailored to the organization
+- content-rich
+- functional
+- dynamic
+- editable after generation
+
+The website should not just look nice.
+It should be useful and connected to the platform.
+
+The site builder should take inspiration from the way discoverirwin.com works:
+- dynamic event-driven content
+- editable content stored as structured data
+- functional modules
+- reusable system-driven rendering
+- not one giant hard-coded HTML blob
+
+WHAT IS WRONG WITH THE CURRENT BUILDER
+
+The current builder has these problems:
+- one fixed master template
+- same section order for every org
+- same layout for every org
+- generic stock photos
+- made-up stats
+- thin copy
+- no meaningful variation
+- homepage-only feel instead of a real website
+- AI fills text but does not shape the site intelligently
+
+I want to replace that model.
+
+NEW ARCHITECTURE I WANT
+
+PART 1 — STRUCTURED SITE GENERATION PIPELINE
+
+Build the website generator as a pipeline with these stages:
+
+Stage A: Interview / intake
+The AI interview should collect enough structured information to build a real site.
+Gather:
+- organization type
+- mission
+- audience
+- programs/services
+- recurring events
+- membership/join info
+- contact details
+- meeting location and schedule
+- tone/personality
+- colors/branding
+- logo / photo availability
+- key calls to action
+- optional history, board, sponsors, partners, donation info
+
+Stage B: Site spec
+Convert the interview into a structured site spec JSON.
+This should include:
+- organization profile
+- recommended pages
+- navigation structure
+- page goals
+- section recommendations per page
+- CTA strategy
+- content blocks
+- event and sponsor display rules
+- brand settings
+
+Stage C: Page planner
+Before rendering anything, generate a page plan.
+Do not assume every organization gets the same pages.
+Choose pages based on organization type.
+
+Examples:
+Rotary / civic org:
+- Home
+- About
+- Service Projects or Programs
+- Events
+- Membership / Join
+- Contact
+
+Festival / event org:
+- Home
+- Event Info
+- Vendors
+- Sponsors
+- FAQ
+- Contact
+
+General nonprofit:
+- Home
+- Mission
+- Programs
+- Events
+- Get Involved
+- Contact
+
+Stage D: Module composition
+Each page should be built from reusable modules, not one hard-coded layout.
+Create a modular design system with components such as:
+- hero variants
+- intro sections
+- card grids
+- event lists
+- timeline blocks
+- stats sections
+- CTA bands
+- sponsor strips
+- testimonials
+- FAQ sections
+- board/member highlights
+- gallery/media sections
+- contact panels
+- join/donate/volunteer sections
+
+The AI should choose which modules to use and in what order based on the site spec.
+
+PART 2 — DESIGN SYSTEM / CREATIVE VARIATION
+
+I want visual variation without sacrificing quality.
+
+Create a strong website design system with:
+- multiple high-quality hero variants
+- multiple page layout patterns
+- multiple section compositions
+- strong typography hierarchy
+- better spacing rhythm
+- calmer, more premium SaaS-quality aesthetics
+- proper image treatment
+- cleaner navigation/header behavior
+- mobile-first responsiveness
+
+Do not let every site look identical.
+But also do not let the output become chaotic.
+
+The right approach is:
+AI selects from a curated system of high-quality compositions.
+
+Examples of variation that should be possible:
+- left-text / right-image hero
+- centered hero with background image
+- split hero with stats
+- mission-first nonprofit homepage
+- event-first civic homepage
+- membership-first service club homepage
+
+PART 3 — CONTENT QUALITY
+
+The AI should not generate shallow filler copy.
+Improve content generation so that:
+- it writes more specific copy
+- it reflects the organization type
+- it avoids generic nonprofit buzzwords
+- it does not invent fake stats unless clearly marked placeholders
+- it surfaces missing info instead of making things up
+
+If the org did not provide real stats, do not fake “200+ members” or “1985 founded.”
+Either omit those sections or ask for the data.
+
+PART 4 — IMAGES / MEDIA
+
+Stop using a tiny fixed list of stock photo IDs.
+
+New rules:
+- prefer organization-uploaded images and logos whenever available
+- support placeholders gracefully if no media exists
+- if stock imagery is used, it should be broader, more relevant, and selected by theme
+- image choice should match org type
+- do not make every site look like the same community-stock-photo website
+
+Also:
+make the design still look strong even when the organization has no good photos.
+
+PART 5 — DYNAMIC / FUNCTIONAL WEBSITE FEATURES
+
+This is critical.
+
+I do not want static brochure pages only.
+The generated sites should be able to bind to live platform data where available.
+
+Support dynamic website sections for:
+- upcoming events
+- ticketed events
+- sponsor lists
+- announcements
+- volunteer opportunities
+- contact / interest capture
+- registrations
+- membership/join prompts
+
+This should work like discoverirwin.com:
+the site should reflect live data from the platform, not just frozen generated content.
+
+PART 6 — EDITABILITY AFTER GENERATION
+
+The generated site must remain editable.
+Do not generate one giant final HTML blob that is hard to maintain.
+
+Store website content in structured records such as:
+- pages
+- sections
+- content blocks
+- settings
+- navigation
+- CTA config
+- brand config
+
+I want admins to be able to:
+- reorder sections
+- toggle sections on/off
+- swap hero variants
+- edit page copy
+- update CTA text
+- manage navigation
+- manage colors / typography presets
+- edit or replace dynamic content bindings
+
+PART 7 — IMPLEMENTATION DIRECTION
+
+Please refactor away from the “one master 1000-line HTML template with token replacement” approach.
+
+Instead, implement a real website generation/rendering system using:
+- structured page definitions
+- reusable section components
+- variant-based rendering
+- dynamic data bindings
+- editable content records
+
+If helpful, create:
+- site_pages table
+- site_sections table
+- site_navigation table
+- site_theme / brand_settings table
+- reusable section schema
+- content block schema
+- dynamic binding schema for events/sponsors/etc.
+
+PART 8 — UX GOAL
+
+The generated websites should feel like:
+- modern local-organization websites
+- not cookie-cutter AI templates
+- not gimmicky startup landing pages
+- not generic brochure sites
+- not overdesigned agency mockups
+
+They should feel:
+credible
+warm
+functional
+clean
+current
+easy to update
+
+PART 9 — DELIVERABLES I WANT
+
+Before making major changes, give me:
+1. a clear critique of the current builder
+2. the proposed new architecture
+3. the proposed content/data model
+4. the design system approach
+5. what can be done in phase 1 vs phase 2
+
+Then implement the highest-value phase 1 version.
+
+PHASE 1 PRIORITY
+
+Focus first on:
+- replacing the fixed-template model
+- adding page planning
+- adding modular page sections
+- improving content quality
+- supporting dynamic event sections
+- making the output feel significantly better visually
+
+Do not overbuild a giant no-code website builder yet.
+But do build the right architecture foundation so we are not stuck with “AI fills a single HTML template.”
+
+At the end, tell me:
+- what changed
+- what still needs work
+- how the new builder decides page structure
+- how editable the generated site now is

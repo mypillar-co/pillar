@@ -1,0 +1,888 @@
+PILLAR WEBSITE SYSTEM — EXACT ARCHITECTURE PLAN
+
+GOAL
+
+Replace the current giant-template website generator with a structured website operating system for organizations.
+
+The system must:
+- generate better websites
+- preserve organization identity
+- support site import intelligently
+- support dynamic event/vendor/sponsor/announcement behavior
+- support safe auto-update
+- remain editable after generation
+- keep generated_html only as a compiled artifact for preview/publish compatibility
+
+NON-NEGOTIABLE PRINCIPLES
+
+1. Structured records are the source of truth
+2. generated_html is a compiled artifact, not editable source of truth
+3. Site generation must happen in stages, not one AI blob step
+4. Site import must curate and map, not scrape and rewrite
+5. Dynamic sections must bind to real structured data
+6. Mission/history/identity text must be stable unless explicitly changed
+7. Event behavior must be explicit, not guessed everywhere
+8. Auto-update must be modular and conservative
+9. AI helps with extraction, planning, and drafting — not uncontrolled rewriting
+
+==================================================
+PART 1 — SYSTEM ARCHITECTURE
+==================================================
+
+BUILD THE WEBSITE SYSTEM AS 6 DISTINCT LAYERS
+
+LAYER 1 — Organization Intelligence Layer
+Purpose:
+Understand the organization and normalize all inputs into structured data.
+
+Inputs:
+- interview answers
+- existing site import results
+- uploaded logo/images
+- organization record
+- events
+- sponsors
+- vendors
+- participants
+- announcements
+- admin settings/preferences
+
+Output:
+A structured site profile object, not HTML.
+
+Example shape:
+{
+  orgType,
+  mission,
+  audience,
+  tone,
+  primaryCtaType,
+  recurringPrograms,
+  recurringEventModel,
+  dynamicDataAvailable,
+  staticIdentityContent,
+  brandAssets,
+  contactProfile,
+  pageArchetypeRecommendation,
+  missingFields
+}
+
+Rules:
+- no prose-heavy final copy generation here
+- no rendering here
+- no layout here
+
+----------------------------------
+LAYER 2 — Site Import Layer
+Purpose:
+Import existing websites as structured source material.
+
+Flow:
+1. crawl homepage
+2. detect up to 5 relevant internal pages
+3. classify each page
+4. extract structured findings
+5. rank images
+6. build import summary
+7. require user review before applying
+
+Rules:
+- preserve strong source copy where appropriate
+- reject footer clutter / nav duplication / cookie text / junk
+- store import findings separately from final accepted site content
+
+----------------------------------
+LAYER 3 — Site Planning Layer
+Purpose:
+Decide what website to build before writing or rendering it.
+
+Inputs:
+- structured site profile
+- import findings
+- org type
+- available dynamic data
+- admin preferences
+
+Output:
+A page plan.
+
+Example:
+{
+  siteType,
+  pages: [
+    {
+      pageType: "home",
+      title: "Home",
+      slug: "/",
+      layoutKey: "mission-first",
+      modules: [
+        { blockType: "hero", variantKey: "mission-centered" },
+        { blockType: "about", variantKey: "split" },
+        { blockType: "events_list", variantKey: "featured-first" },
+        { blockType: "cta_band", variantKey: "join" },
+        { blockType: "contact", variantKey: "two-column" }
+      ]
+    }
+  ],
+  navItems: [...],
+  homepagePageType,
+  includeStats,
+  dynamicBindingsPlan
+}
+
+Rules:
+- every org does NOT get the same site structure
+- planning happens before content generation and rendering
+- planner selects pages, blocks, and variants
+
+----------------------------------
+LAYER 4 — Content Generation Layer
+Purpose:
+Generate structured block content, not raw websites.
+
+Inputs:
+- page plan
+- structured site profile
+- preserved source copy
+- event/sponsor/vendor/announcement data
+- media selections
+
+Output:
+Block content payloads.
+
+Rules:
+- preserve strong imported mission/about copy when clean and specific
+- do not invent fake stats ever
+- omit missing sections instead of fabricating
+- use organization-specific names and programs
+- output content suitable for block rendering, not full HTML pages
+
+----------------------------------
+LAYER 5 — Rendering Layer
+Purpose:
+Render site_pages + site_blocks + bindings + theme into final HTML.
+
+Rules:
+- no arbitrary AI HTML/CSS generation
+- renderer only uses curated components/modules
+- block rendering is deterministic from stored records
+- generated_html is compiled from structured records
+
+----------------------------------
+LAYER 6 — Auto-Update Layer
+Purpose:
+Update only safe dynamic modules using real data.
+
+Rules:
+- module-level updates only
+- no whole-page regeneration for small changes
+- event/sponsor/announcement modules can auto-update
+- mission/about/history/programs require review
+- every update writes to audit log
+
+==================================================
+PART 2 — EXACT DATA MODEL
+==================================================
+
+USE THESE TABLES
+
+----------------------------------
+A. sites
+----------------------------------
+
+Purpose:
+One site per organization.
+
+Columns:
+- id: serial primary key
+- organization_id: integer not null unique references organizations(id)
+- name: text not null
+- slug: text not null unique
+- status: text not null default 'draft'   // draft | published | archived
+- site_type: text not null default 'default'  // civic | nonprofit | festival | hoa | default
+- primary_cta_type: text not null default 'contact' // join | donate | register | attend | contact | sponsor
+- homepage_page_id: integer references site_pages(id)
+- theme_id: integer references site_themes(id)
+- current_version: integer not null default 1
+- published_version: integer
+- generated_html: text
+- generated_spec_json: jsonb
+- import_source_url: text
+- auto_update_enabled: boolean not null default false
+- created_at: timestamp not null default now()
+- updated_at: timestamp not null default now()
+- published_at: timestamp
+
+Rules:
+- generated_html is compiled artifact only
+- generated_spec_json stores the last page plan/spec snapshot for debugging/rebuilds
+
+----------------------------------
+B. site_pages
+----------------------------------
+
+Purpose:
+Structured page definitions.
+
+Columns:
+- id: serial primary key
+- site_id: integer not null references sites(id) on delete cascade
+- title: text not null
+- slug: text not null
+- page_type: text not null  // home | about | programs | events | membership | contact | faq | sponsors | vendors | join | donate | announcements | custom
+- seo_title: text
+- seo_description: text
+- is_homepage: boolean not null default false
+- is_published: boolean not null default true
+- sort_order: integer not null default 0
+- layout_key: text
+- visibility_rules_json: jsonb
+- created_at: timestamp not null default now()
+- updated_at: timestamp not null default now()
+
+Indexes:
+- index on site_id
+- unique index on (site_id, slug)
+
+----------------------------------
+C. site_nav_items
+----------------------------------
+
+Purpose:
+Header/footer navigation.
+
+Columns:
+- id: serial primary key
+- site_id: integer not null references sites(id) on delete cascade
+- label: text not null
+- page_id: integer references site_pages(id) on delete set null
+- external_url: text
+- nav_location: text not null default 'header' // header | footer | both
+- sort_order: integer not null default 0
+- is_visible: boolean not null default true
+- created_at: timestamp not null default now()
+- updated_at: timestamp not null default now()
+
+Indexes:
+- index on site_id
+
+----------------------------------
+D. site_blocks
+----------------------------------
+
+Purpose:
+Ordered modular sections on each page.
+
+Columns:
+- id: serial primary key
+- site_id: integer not null references sites(id) on delete cascade
+- page_id: integer not null references site_pages(id) on delete cascade
+- block_type: text not null
+  // hero | intro | about | stats | cards | events_list | featured_event | sponsor_grid | faq | contact | cta_band | announcements | gallery | join | volunteer | membership | board | custom_html
+- variant_key: text
+- title: text
+- sort_order: integer not null default 0
+- is_visible: boolean not null default true
+- content_json: jsonb not null default '{}'
+- settings_json: jsonb not null default '{}'
+- source_mode: text not null default 'generated' // manual | generated | imported | dynamic | hybrid
+- lock_level: text not null default 'editable' // editable | review_required | locked
+- created_at: timestamp not null default now()
+- updated_at: timestamp not null default now()
+
+Indexes:
+- index on page_id
+- index on site_id
+- index on (page_id, sort_order)
+
+Rules:
+- content_json stores actual content
+- settings_json stores presentation and behavior settings only
+- do not store data binding queries here
+
+----------------------------------
+E. site_block_bindings
+----------------------------------
+
+Purpose:
+Explicit dynamic bindings for blocks.
+
+Columns:
+- id: serial primary key
+- block_id: integer not null references site_blocks(id) on delete cascade
+- binding_type: text not null
+  // events | featured_event | sponsors | announcements | vendors | participants | contact | stats | tickets
+- source_table_key: text not null
+  // events | sponsors | announcements | organizations | contacts | registrations | ticket_sales etc.
+- query_config_json: jsonb not null default '{}'
+- display_config_json: jsonb not null default '{}'
+- update_policy: text not null default 'auto_apply' // auto_apply | suggest_review | manual_only
+- created_at: timestamp not null default now()
+- updated_at: timestamp not null default now()
+
+Indexes:
+- index on block_id
+
+Examples:
+query_config_json:
+- {"featured": true, "limit": 1}
+- {"publicOnly": true, "orderBy": "startDate", "limit": 3}
+- {"eventModes": ["ticketed", "fundraiser"]}
+
+display_config_json:
+- {"showPricing": true, "showCapacity": true, "ctaStyle": "button"}
+- {"groupSponsorsByTier": true}
+- {"showDeadline": true}
+
+This table is mandatory.
+Do not bury dynamic binding logic in content_json.
+
+----------------------------------
+F. site_themes
+----------------------------------
+
+Purpose:
+Site-wide theme and brand settings.
+
+Columns:
+- id: serial primary key
+- site_id: integer not null unique references sites(id) on delete cascade
+- theme_preset_key: text not null default 'pillar-default'
+- color_primary: text
+- color_secondary: text
+- color_accent: text
+- color_surface: text
+- color_text: text
+- font_heading_key: text
+- font_body_key: text
+- radius_scale: text
+- shadow_style: text
+- hero_style_default: text
+- button_style: text
+- logo_mode: text not null default 'image' // image | text | both
+- created_at: timestamp not null default now()
+- updated_at: timestamp not null default now()
+
+Keep this simple in phase 1.
+
+----------------------------------
+G. site_import_runs
+----------------------------------
+
+Purpose:
+Track each import attempt.
+
+Columns:
+- id: serial primary key
+- site_id: integer references sites(id) on delete set null
+- source_url: text not null
+- status: text not null default 'started' // started | completed | failed | reviewed | applied
+- detected_site_type: text
+- raw_summary_json: jsonb
+- recommended_structure_json: jsonb
+- created_at: timestamp not null default now()
+- completed_at: timestamp
+
+Indexes:
+- index on site_id
+
+----------------------------------
+H. site_import_findings
+----------------------------------
+
+Purpose:
+Structured extracted findings from imports.
+
+Columns:
+- id: serial primary key
+- import_run_id: integer not null references site_import_runs(id) on delete cascade
+- finding_type: text not null
+  // page | contact | mission | program | event | image | logo | cta | nav_item | sponsor_ref | join_flow | donate_flow
+- source_url: text
+- page_classification: text
+- title: text
+- content_json: jsonb not null default '{}'
+- quality_score: integer not null default 0
+- preserve_verbatim: boolean not null default false
+- is_selected: boolean not null default true
+- created_at: timestamp not null default now()
+
+Indexes:
+- index on import_run_id
+- index on (import_run_id, finding_type)
+
+This table is mandatory.
+Do not flatten import results into one blob.
+
+----------------------------------
+I. site_change_log
+----------------------------------
+
+Purpose:
+Audit trail for auto-update, import application, publish, and manual changes.
+
+Columns:
+- id: serial primary key
+- site_id: integer not null references sites(id) on delete cascade
+- page_id: integer references site_pages(id) on delete set null
+- block_id: integer references site_blocks(id) on delete set null
+- change_type: text not null
+  // auto_update | suggestion_created | manual_edit | import_applied | publish
+- source_type: text not null
+  // events | sponsors | announcements | admin | import | ai_generation
+- source_reference_id: text
+- summary: text not null
+- old_value_json: jsonb
+- new_value_json: jsonb
+- confidence_score: integer
+- action_status: text not null default 'applied' // applied | pending_review | dismissed
+- created_by_user_id: integer references users(id) on delete set null
+- created_at: timestamp not null default now()
+
+Indexes:
+- index on site_id
+- index on block_id
+- index on created_at
+
+This table is mandatory.
+Do not store audit/update history inside site_blocks.settings_json.
+
+----------------------------------
+J. site_media_assets
+----------------------------------
+
+Purpose:
+Manage selected media used by site generation and editing.
+
+Columns:
+- id: serial primary key
+- site_id: integer not null references sites(id) on delete cascade
+- source_type: text not null // uploaded | imported | generated_placeholder | stock
+- source_url: text
+- local_storage_key: text
+- asset_type: text not null // logo | hero | gallery | program_image | sponsor_logo | other
+- width: integer
+- height: integer
+- quality_score: integer
+- alt_text: text
+- is_selected: boolean not null default true
+- created_at: timestamp not null default now()
+
+Indexes:
+- index on site_id
+- index on (site_id, asset_type)
+
+==================================================
+PART 3 — EVENT MODEL EXTENSIONS
+==================================================
+
+EXTEND THE EXISTING events TABLE WITH THESE COLUMNS
+
+Add:
+- event_mode: text not null default 'informational'
+  // informational | registration | ticketed | fundraiser | vendor | participant | sponsor | hybrid
+
+- revenue_classification: text not null default 'none'
+  // none | admin_fee | ticket_revenue | sponsor_revenue | donation | mixed
+
+- show_on_public_site: boolean not null default true
+
+- public_cta_mode: text not null default 'learn_more'
+  // learn_more | register | rsvp | buy_tickets | apply_vendor | apply_participant | sponsor | donate
+
+- enable_ticket_sales: boolean not null default false
+- enable_registration: boolean not null default false
+- enable_vendor_applications: boolean not null default false
+- enable_participant_signup: boolean not null default false
+- enable_sponsorship: boolean not null default false
+
+- show_public_pricing: boolean not null default false
+- show_public_sold_count: boolean not null default false
+- show_public_capacity: boolean not null default false
+
+- event_status: text not null default 'draft'
+  // draft | published | registration_open | registration_closed | sold_out | completed | cancelled
+
+- featured_on_site: boolean not null default false
+
+BACKWARD COMPATIBILITY RULES
+
+Create a helper inferLegacyEventBehavior(event) that maps old fields to new defaults:
+- if isTicketed === true -> event_mode = ticketed or fundraiser based on title/category/admin config
+- if hasRegistration === true and isTicketed === false -> event_mode = registration
+- if ticketPrice exists and isTicketed -> revenue_classification = ticket_revenue
+- if sponsor flow exists but no public sales -> enable_sponsorship = true
+- default public_cta_mode based on event_mode
+
+The renderer should use the new explicit fields first.
+Only infer from legacy fields when new fields are unset.
+
+==================================================
+PART 4 — BLOCK TYPES AND VARIANTS
+==================================================
+
+PHASE 1 REQUIRED BLOCK TYPES
+
+1. hero
+Variants:
+- hero-centered
+- hero-split
+- hero-mission
+- hero-event-featured
+
+2. about
+Variants:
+- about-split
+- about-centered
+- about-simple
+
+3. stats
+Variants:
+- stats-strip
+- stats-cards
+
+Rules:
+- render only with real data
+- never invent stat values
+
+4. cards
+Variants:
+- cards-2up
+- cards-3up
+- cards-icon
+- cards-image
+
+5. events_list
+Variants:
+- events-list-standard
+- events-list-featured-first
+- events-list-compact
+
+6. featured_event
+Variants:
+- featured-event-banner
+- featured-event-card
+
+7. sponsor_grid
+Variants:
+- sponsor-grid-standard
+- sponsor-grid-tiered
+
+8. announcements
+Variants:
+- announcements-list
+- announcements-highlight
+
+9. faq
+Variants:
+- faq-accordion
+- faq-simple
+
+10. cta_band
+Variants:
+- cta-join
+- cta-donate
+- cta-register
+- cta-sponsor
+- cta-contact
+
+11. contact
+Variants:
+- contact-two-column
+- contact-simple
+
+12. gallery
+Variants:
+- gallery-grid
+- gallery-feature
+
+13. membership / join / volunteer
+Variants as needed by org type
+
+==================================================
+PART 5 — GENERATION FLOW
+==================================================
+
+USE THIS EXACT FLOW
+
+STEP 1 — Gather inputs
+- organization profile
+- interview answers
+- import findings
+- logo/media
+- events/sponsors/announcements/contact settings
+
+STEP 2 — Build normalized site profile
+- orgType
+- mission
+- audience
+- tone
+- page archetype
+- primary CTA
+- available dynamic data
+- preserved source copy
+- missing fields
+
+STEP 3 — Run page planner
+Return:
+- pages
+- nav items
+- page-level layouts
+- blocks per page
+- block variants
+- required dynamic bindings
+
+STEP 4 — Generate block content
+Generate structured content_json for each block.
+Rules:
+- preserve clean imported copy
+- no fake stats
+- use real event/program names
+- omit weak sections instead of fabricating
+
+STEP 5 — Persist structured records
+Create/update:
+- sites
+- site_pages
+- site_nav_items
+- site_blocks
+- site_block_bindings
+- site_themes
+- site_media_assets
+
+STEP 6 — Compile HTML
+Render from structured records into generated_html for preview/publish compatibility.
+
+STEP 7 — Preview/publish
+Continue using iframe preview and existing publish endpoints, but always compile from structured source records.
+
+==================================================
+PART 6 — IMPORT PIPELINE
+==================================================
+
+SITE IMPORT MUST WORK LIKE THIS
+
+1. fetch homepage
+2. detect up to 5 relevant internal pages
+3. classify each page:
+   - home
+   - about
+   - programs
+   - events
+   - contact
+   - join
+   - sponsors
+   - donate
+   - faq
+   - other
+
+4. extract structured findings:
+   - mission
+   - contact info
+   - nav structure
+   - CTA patterns
+   - recurring programs
+   - events references
+   - sponsor references
+   - logo
+   - images
+   - color/brand cues
+
+5. score and filter:
+   reject
+   - cookie/privacy junk
+   - repeated nav/footer text
+   - low-quality images
+   - stale notices
+   - decorative clutter
+
+6. preserve_verbatim logic:
+   mark strong mission/about/program text as preserve_verbatim = true
+
+7. store findings in:
+   - site_import_runs
+   - site_import_findings
+
+8. build import review summary:
+   - pages detected
+   - logo found
+   - contact info found
+   - programs detected
+   - events detected
+   - images ranked
+   - recommended site structure
+
+9. user confirms selected findings before generation
+
+==================================================
+PART 7 — AUTO-UPDATE RULES
+==================================================
+
+AUTO-UPDATE MUST BE MODULE-LEVEL ONLY
+
+SAFE TO AUTO-APPLY
+- events_list blocks
+- featured_event bindings when event status/date changes
+- sponsor_grid blocks from approved sponsor data
+- announcements blocks from structured announcement data
+- contact block only when source is explicit admin settings and policy allows it
+
+SUGGEST FOR REVIEW
+- homepage hero headline copy
+- featured event promo copy
+- CTA wording
+- seasonal banners
+- AI-written summaries
+
+NEVER AUTO-REWRITE
+- mission
+- about
+- history
+- programs/services descriptions
+- board/member information
+- legal/policy text
+
+Every auto-update must create a site_change_log record.
+
+Do not regenerate whole pages for a single event update.
+
+==================================================
+PART 8 — EDITING RULES
+==================================================
+
+ADMINS MUST BE ABLE TO:
+- edit block copy
+- reorder blocks
+- toggle blocks visible/invisible
+- change block variant
+- manage nav items
+- manage theme preset/colors
+- approve/reject suggested updates
+- control auto-update
+- review import findings before use
+
+PHASE 1 DOES NOT NEED:
+- full drag-and-drop builder
+- complex visual designer
+- arbitrary freeform layout editing
+
+But the schema must support later evolution.
+
+==================================================
+PART 9 — DRIZZLE IMPLEMENTATION RULES
+==================================================
+
+IMPLEMENT USING DRIZZLE WITH:
+- pgTable definitions
+- jsonb columns for structured payloads
+- strong indexes on foreign keys and sort order
+- enums can remain text columns in phase 1 for speed
+- zod schemas generated for insert/update validation
+- use repository/service layer, not route-level schema logic
+
+REQUIRED SERVICE MODULES
+
+1. siteProfileService.ts
+- normalize organization/interview/import data into structured site profile
+
+2. siteImportService.ts
+- crawl, classify, extract, filter, and persist import runs/findings
+
+3. pagePlanner.ts
+- create page plan by org type + dynamic data + source material
+
+4. blockContentService.ts
+- generate structured content_json for blocks
+
+5. blockRenderer.ts
+- deterministic HTML rendering for each block type/variant
+
+6. siteCompiler.ts
+- compile site pages/blocks/theme/nav into generated_html
+
+7. siteAutoUpdateService.ts
+- update safe bindings and create review suggestions + audit log
+
+8. eventBehaviorService.ts
+- infer legacy event behavior and normalize event public rendering logic
+
+==================================================
+PART 10 — MIGRATION PLAN
+==================================================
+
+PHASE 1 MIGRATIONS
+
+1. add/confirm core site tables:
+- sites
+- site_pages
+- site_nav_items
+- site_blocks
+- site_block_bindings
+- site_themes
+- site_import_runs
+- site_import_findings
+- site_change_log
+- site_media_assets
+
+2. extend events table with:
+- event_mode
+- revenue_classification
+- show_on_public_site
+- public_cta_mode
+- enable_ticket_sales
+- enable_registration
+- enable_vendor_applications
+- enable_participant_signup
+- enable_sponsorship
+- show_public_pricing
+- show_public_sold_count
+- show_public_capacity
+- event_status
+- featured_on_site
+
+3. backfill logic:
+- derive explicit event behavior from legacy flags
+- create site record for any existing generated site
+- split existing generated site into at least a starter set of pages/blocks where practical
+- keep generated_html intact until recompiled from blocks
+
+==================================================
+PART 11 — WHAT TO BUILD NOW VS LATER
+==================================================
+
+BUILD NOW
+- structured site/page/block system
+- explicit block bindings
+- import runs/findings
+- change log
+- event behavior model
+- page planner
+- renderer
+- compiler
+- module-level auto-update
+- review step for imports
+
+DEFER
+- drag-and-drop editor
+- revision history UI beyond change log
+- deep vendor/participant public modules
+- complex design controls
+- exhaustive multi-page crawler
+- full content diff/revision engine
+
+==================================================
+PART 12 — SUCCESS CRITERIA
+==================================================
+
+DONE LOOKS LIKE THIS
+
+1. Site generation no longer depends on a single giant HTML template
+2. Different org types generate different page plans
+3. generated_html is compiled from structured records
+4. Dynamic event modules show correct CTA behavior based on explicit event settings
+5. Imported sites preserve better source material and avoid junk
+6. Stats never get fabricated
+7. Auto-update only changes safe modules
+8. Identity copy remains stable
+9. Admins can reorder/toggle blocks and preserve editability
+10. The system is clearly extensible instead of trapped in one-off blobs

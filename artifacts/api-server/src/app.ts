@@ -132,7 +132,7 @@ app.use("/api/public/registrations", registrationLimiter);
 app.use("/api/public/registration-docs/upload-url", uploadLimiter);
 app.use("/api/public/", publicApiLimiter);
 // Only rate-limit auth mutations, not the polling /user and /providers GETs
-app.post("/api/auth/logout", authLimiter);
+app.get("/api/auth/logout", authLimiter);
 app.post("/api/auth/login", authLimiter);
 app.post("/api/auth/register", authLimiter);
 app.post("/api/auth/forgot-password", authLimiter);

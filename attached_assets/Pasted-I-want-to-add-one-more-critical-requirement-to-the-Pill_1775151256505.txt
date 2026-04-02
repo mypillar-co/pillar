@@ -1,0 +1,345 @@
+I want to add one more critical requirement to the Pillar website generator, event system, and importer.
+
+The generated site must handle events, vendors, participants, registrations, and sales dynamically and correctly.
+
+This is not optional brochure content.
+For many organizations, events are the website.
+
+The system must understand the operational type of each event and render the right site behavior automatically.
+
+CORE GOAL
+
+When Pillar generates or imports a website, it should correctly model and display:
+- events
+- ticketed events
+- free registration events
+- vendor registration events
+- participant signup events
+- sponsor-driven events
+- donation/fundraising events
+- informational events with no registration
+- events that mix multiple flows
+
+The website must be dynamic and tied to real platform data, not just static text.
+
+PART 1 — EVENT TYPE INTELLIGENCE
+
+Add an event-type interpretation layer.
+
+For each event, the system should infer and/or explicitly store:
+
+- event purpose
+- whether it is public-facing
+- whether it is informational only
+- whether it requires RSVP
+- whether it requires participant registration
+- whether it requires vendor registration
+- whether it has sponsorship opportunities
+- whether it is ticketed
+- whether it is a fundraising/profit event
+- whether it is just a registration/attendance event
+- whether it needs capacity tracking
+- whether it needs payment status tracking
+- whether it has deadlines for vendors/participants/sponsors
+
+Examples:
+1. Rotary dinner fundraiser
+   - public event
+   - ticketed
+   - fundraising/profit event
+   - sponsor visibility likely relevant
+   - ticket sales and revenue should be surfaced
+
+2. Community volunteer cleanup
+   - public event
+   - registration event
+   - not a profit event
+   - no ticket sales
+   - participant signup needed
+
+3. Street market
+   - public event
+   - vendor registration event
+   - may have sponsor opportunities
+   - may or may not have public ticketing
+   - vendor approvals and vendor sales tracking matter
+
+4. Parade participation signup
+   - participant registration event
+   - not ticketed
+   - capacity / form collection matters
+   - no “tickets sold” language
+
+The AI and the platform should understand these differences and not treat all events the same.
+
+PART 2 — TOGGLEABLE SALES / REGISTRATION BEHAVIOR
+
+Ticket sales must be toggleable at the event level.
+
+Each event should support clean configurable modes such as:
+
+- informational only
+- RSVP only
+- free registration
+- paid ticket sales
+- vendor application
+- participant registration
+- sponsor opportunities only
+- hybrid mode (for example public attendance + vendor application)
+
+Do not assume every event needs ticketing.
+
+For every event, the system should be able to toggle:
+
+- tickets enabled on/off
+- registration enabled on/off
+- vendor applications enabled on/off
+- participant signup enabled on/off
+- sponsorship enabled on/off
+- public sales totals shown or hidden
+- capacity limits on/off
+- public countdown / urgency UI on/off
+- waitlist mode on/off if needed later
+
+PART 3 — UNDERSTAND REGISTRATION EVENT VS PROFIT EVENT
+
+This is very important.
+
+I need the AI and data model to distinguish between:
+
+A. registration / participation events
+Examples:
+- volunteer signup
+- parade participation
+- membership interest night
+- board dinner RSVP
+- free community event with registration
+- vendor application intake where fees are administrative but the event is not fundamentally ticket-sales-driven
+
+B. profit / fundraising events
+Examples:
+- gala
+- dinner fundraiser
+- paid community night
+- ticketed benefit event
+- festival ticket sales
+- events where revenue, sales, capacity, and conversion matter
+
+This distinction should affect:
+- site UI
+- dashboard metrics
+- copy tone
+- CTA language
+- reporting
+- whether revenue widgets appear
+- whether “tickets sold” is emphasized
+- whether “register” vs “buy tickets” is used
+
+Examples:
+If it is a registration event:
+- CTA should say Register / Sign Up / Participate
+- show registration status
+- avoid revenue-heavy language
+- focus on attendance, participation, form completion
+
+If it is a profit event:
+- CTA should say Buy Tickets / Reserve Seats / Purchase Admission
+- show pricing, availability, sold count if enabled
+- emphasize fundraising/revenue if appropriate
+
+The AI should infer this from:
+- imported source site language
+- event metadata
+- form/payment setup
+- admin-configured settings
+- organization type
+But admins must also be able to override the classification.
+
+PART 4 — DYNAMIC EVENT MODULES ON THE WEBSITE
+
+The generated websites must support dynamic event modules, not just static event text.
+
+Build reusable modules for:
+- upcoming events list
+- featured event hero
+- event calendar/list
+- ticketed event card
+- registration event card
+- vendor application section
+- participant signup section
+- sponsor opportunities section
+- event countdown / deadline notice
+- sold out / registration closed / force open states
+- capacity remaining indicator if enabled
+- event detail page modules
+
+The site should bind these modules to real platform records.
+
+If event data changes in Pillar, the site should update the affected module appropriately.
+
+PART 5 — VENDORS / PARTICIPANTS / SPONSORS AS DYNAMIC WEBSITE FEATURES
+
+The website must be able to surface operational event-related data for:
+- vendors
+- participants
+- sponsors
+
+Examples of dynamic site behavior:
+- vendor application open / closed state
+- participant registration open / closed state
+- sponsor opportunity CTA
+- approved sponsor logos displayed automatically
+- vendor list or marketplace roster if enabled
+- participant instructions or check-in info if applicable
+- countdown to vendor deadline or sponsorship deadline
+
+Do not treat vendors and participants as hidden back-office concepts only.
+For many organizations they are part of the public site experience.
+
+PART 6 — IMPORT EXISTING EVENT DATA INTELLIGENTLY
+
+If I provide an existing site URL, the importer should try to identify and preserve event logic from the existing site.
+
+When importing a source site, detect:
+- upcoming events
+- recurring events
+- ticket links
+- registration forms
+- vendor/sponsor calls to action
+- event deadlines
+- pricing language
+- “buy tickets” vs “register” vs “apply” wording
+- whether the event appears to be fundraising/profit-oriented or attendance-oriented
+
+The importer should map that into structured event records where possible.
+
+Do not just scrape event descriptions into paragraphs.
+
+If an existing site clearly supports:
+- ticket sales
+- registration
+- vendor signup
+- sponsor promotion
+the imported Pillar site should preserve those behaviors in the new modular system.
+
+PART 7 — SALES / PAYMENT / IMPORT ACCURACY
+
+If ticket sales, registration payments, or related event sales data are imported or synced, the system must use sound logic and preserve accuracy.
+
+I need:
+- proper mapping between event records and payment/sales records
+- imported revenue/ticket numbers to match the correct event
+- clear distinction between ticket sales revenue vs registration fee revenue vs vendor fees vs sponsor revenue
+- safe fallback behavior if imported data is incomplete or ambiguous
+- visibility into whether values are live, imported once, estimated, or awaiting confirmation
+
+Do not collapse all money into one generic “sales” number.
+
+Track and differentiate:
+- ticket revenue
+- vendor fee revenue
+- participant fee revenue
+- sponsorship revenue
+- donation revenue if applicable
+
+PART 8 — ADMIN UX FOR EVENT CONFIGURATION
+
+When creating or editing an event, the admin experience should make this easy.
+
+I want the event editor to include a clear event mode / behavior section.
+
+Examples:
+Event Type / Mode:
+- Info only
+- Registration
+- Ticketed
+- Fundraiser
+- Vendor-driven
+- Participant signup
+- Hybrid
+
+Behavior toggles:
+- Show on public site
+- Enable ticket sales
+- Enable registration
+- Enable vendor applications
+- Enable participant signup
+- Enable sponsorship section
+- Show pricing publicly
+- Show sold count publicly
+- Track capacity
+- Show countdown/deadline
+
+Revenue classification:
+- attendance / registration event
+- fundraising / profit event
+- administrative fee event
+- mixed / custom
+
+AI can suggest the mode based on the event details, but the admin must be able to confirm or override it.
+
+PART 9 — AUTO-UPDATE / DYNAMIC LOGIC
+
+If auto-update is enabled, event-related modules should update safely and modularly.
+
+Examples of safe automatic updates:
+- upcoming event list refresh
+- pricing display from event settings
+- sold out state
+- registration closed state
+- sponsor logos from approved sponsors
+- vendor application status open/closed
+- participant signup deadline messaging
+- event counts or schedule changes from structured records
+
+These should update at the module level without regenerating the entire page.
+
+Examples of changes that should require review:
+- rewriting event marketing copy
+- changing homepage featured event messaging
+- changing fundraiser framing
+- major CTA wording changes
+- changing event classification from registration to profit automatically without admin confirmation
+
+PART 10 — SOURCE OF TRUTH RULES FOR EVENTS
+
+Establish a clear hierarchy for event/site behavior:
+
+1. explicit admin event settings
+2. structured platform event records
+3. linked registration/payment/vendor/sponsor records
+4. approved imported site content
+5. AI inference / fallback suggestions
+
+The AI should never override explicit admin configuration.
+
+PART 11 — WHAT I WANT IMPLEMENTED
+
+Please improve the website generator, importer, and event architecture so that:
+
+- event behavior is dynamic and driven by real records
+- ticket sales are toggleable per event
+- registration events and profit/fundraising events are treated differently
+- vendors, participants, sponsors, and event sales can appear on the site intelligently
+- imported sites preserve event logic where possible
+- event-related data and sales map correctly
+- the website becomes a live operations-facing website, not just a brochure
+
+PART 12 — DELIVERABLES
+
+Before making major implementation changes, give me:
+1. critique of the current event handling in the builder/importer
+2. proposed event behavior model
+3. proposed event classification logic
+4. proposed data model updates if needed
+5. how website modules will bind to events/vendors/participants/sponsors dynamically
+6. phase 1 implementation plan
+
+PHASE 1 PRIORITIES
+Focus first on:
+- event mode classification
+- toggleable ticketing / registration behavior
+- dynamic event modules on the website
+- vendor/participant/sponsor-aware site logic
+- safer import of event CTAs and event type signals
+- proper distinction between registration events and profit events

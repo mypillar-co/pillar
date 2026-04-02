@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from "express";
 import {
   db, organizationsTable, registrationsTable, sponsorsTable, vendorsTable,
 } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, or, desc } from "drizzle-orm";
 import { resolveFullOrg } from "../lib/resolveOrg";
 import { getUncachableStripeClient } from "../stripeClient";
 import { ObjectStorageService } from "../lib/objectStorage";
@@ -47,7 +47,7 @@ router.post("/public/registration-docs/upload-url", async (req: Request, res: Re
   res.json({ uploadURL, objectPath });
 });
 
-// ─── Public: serve a registration document (admin-gated in practice via the dashboard) ──
+// ─── Protected: serve a registration document — must belong to requesting user's org ──
 router.get("/public/registration-docs/objects/*path", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
@@ -56,6 +56,44 @@ router.get("/public/registration-docs/objects/*path", async (req: Request, res: 
   try {
     const raw = (req.params as Record<string, string>)["path"];
     const objectPath = `/objects/${raw}`;
+
+    // Verify the document belongs to an org the requesting user administers.
+    // Both servSafeUrl and insuranceCertUrl are stored as the full object path.
+    const userId = (req.user as Record<string, unknown>)?.id as string | undefined;
+    if (!userId) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    const [userOrg] = await db
+      .select({ orgId: organizationsTable.id })
+      .from(organizationsTable)
+      .where(eq(organizationsTable.userId, userId));
+
+    if (!userOrg) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+
+    // Verify the document path belongs to a registration under the user's org
+    const [owningReg] = await db
+      .select({ id: registrationsTable.id })
+      .from(registrationsTable)
+      .where(
+        and(
+          eq(registrationsTable.orgId, userOrg.orgId),
+          or(
+            eq(registrationsTable.servSafeUrl, objectPath),
+            eq(registrationsTable.insuranceCertUrl, objectPath)
+          )
+        )
+      )
+      .limit(1);
+
+    if (!owningReg) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+
     const file = await objectStorage.getObjectEntityFile(objectPath);
     const response = await objectStorage.downloadObject(file, 60);
     const headers: Record<string, string> = {};

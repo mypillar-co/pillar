@@ -1,0 +1,375 @@
+I want to tighten the Website Builder Phase 1 overhaul with a clearer schema blueprint.
+
+Use this schema direction unless there is a strong technical reason to adjust it.
+
+GOAL
+
+The website system should have:
+- structured source-of-truth records
+- modular pages and blocks
+- explicit dynamic bindings
+- editable content after generation
+- import tracking
+- safe auto-update logging
+- generated_html only as a compiled artifact for preview/publish compatibility
+
+Do NOT treat generated_html as the primary source of truth.
+
+========================================
+1. CORE SITE TABLES
+========================================
+
+A. sites
+Purpose:
+One record per organization website / site instance.
+
+Suggested columns:
+- id
+- organization_id (FK)
+- name
+- slug
+- status (draft, published, archived)
+- site_type (civic, nonprofit, festival, hoa, default)
+- primary_cta_type (join, donate, register, attend, contact, sponsor)
+- homepage_page_id (nullable FK to site_pages)
+- theme_id (nullable FK to site_themes)
+- current_version (int default 1)
+- published_version (int nullable)
+- generated_html (long text, compiled artifact only)
+- generated_spec_json (jsonb, optional snapshot of latest site plan/spec)
+- import_source_url (nullable)
+- auto_update_enabled (boolean default false)
+- created_at
+- updated_at
+- published_at (nullable)
+
+Notes:
+- generated_html is for preview/publish compatibility, not source of truth
+- generated_spec_json can store the site plan snapshot for debugging/rebuilds
+
+B. site_pages
+Purpose:
+Structured page definitions.
+
+Suggested columns:
+- id
+- site_id (FK)
+- title
+- slug
+- page_type (home, about, programs, events, membership, contact, faq, sponsors, vendors, join, donate, announcements, custom)
+- seo_title (nullable)
+- seo_description (nullable)
+- is_homepage (boolean default false)
+- is_published (boolean default true)
+- sort_order
+- layout_key (nullable; e.g. standard, event-first, mission-first)
+- visibility_rules_json (jsonb nullable)
+- created_at
+- updated_at
+
+Notes:
+- page_type is important for planning and rendering
+- layout_key can help renderer choose page-level wrappers without hardcoding everything
+
+C. site_nav_items
+Purpose:
+Navigation configuration.
+
+Suggested columns:
+- id
+- site_id (FK)
+- label
+- page_id (nullable FK to site_pages)
+- external_url (nullable)
+- nav_location (header, footer, both)
+- sort_order
+- is_visible (boolean default true)
+- created_at
+- updated_at
+
+========================================
+2. BLOCK / SECTION MODEL
+========================================
+
+A. site_blocks
+Purpose:
+Each page is composed from ordered blocks/sections.
+
+Suggested columns:
+- id
+- site_id (FK)
+- page_id (FK)
+- block_type (hero, intro, about, stats, cards, events_list, featured_event, sponsor_grid, faq, contact, cta_band, announcements, gallery, join, volunteer, membership, board, custom_html)
+- variant_key (nullable; e.g. hero-centered, hero-split, cards-3up, cta-donate)
+- title (nullable internal/admin label)
+- sort_order
+- is_visible (boolean default true)
+- content_json (jsonb)
+- settings_json (jsonb)
+- source_mode (manual, generated, imported, dynamic, hybrid)
+- lock_level (editable, review_required, locked)
+- created_at
+- updated_at
+
+What belongs in content_json:
+- actual copy/content for the block
+- headings
+- body copy
+- CTA text
+- selected images/media refs
+- stat values (if real)
+- cards array
+- FAQ items
+- anything content-oriented
+
+What belongs in settings_json:
+- presentation/behavior settings for this block
+- background style
+- show_divider
+- spacing mode
+- highlight style
+- update policy override
+- per-block flags like “show pricing” if block-specific
+
+Notes:
+- block_type + variant_key is the heart of the modular rendering system
+- source_mode tells us where the block came from
+- lock_level helps auto-update and editing safety
+
+B. site_block_bindings
+Purpose:
+Explicit dynamic data bindings for blocks.
+
+Suggested columns:
+- id
+- block_id (FK)
+- binding_type (events, featured_event, sponsors, announcements, vendors, participants, contact, stats, tickets)
+- source_table_key (events, sponsors, announcements, organizations, contacts, registrations, etc.)
+- query_config_json (jsonb)
+- display_config_json (jsonb)
+- update_policy (auto_apply, suggest_review, manual_only)
+- created_at
+- updated_at
+
+Examples of query_config_json:
+- {"featured": true, "limit": 1}
+- {"public_only": true, "orderBy": "start_date", "limit": 3}
+- {"eventMode": ["ticketed", "fundraiser"]}
+
+Examples of display_config_json:
+- {"showPricing": true, "showCapacity": true, "ctaStyle": "button"}
+- {"groupByTier": true}
+- {"showDeadline": true}
+
+Notes:
+- This is better than hiding bindings inside block JSON
+- It makes auto-update, rendering, and debugging much cleaner
+
+========================================
+3. THEME / BRAND MODEL
+========================================
+
+A. site_themes
+Purpose:
+Site-wide design/theme settings.
+
+Suggested columns:
+- id
+- site_id (FK, unique if one theme per site)
+- theme_preset_key
+- color_primary
+- color_secondary
+- color_accent
+- color_surface
+- color_text
+- font_heading_key
+- font_body_key
+- radius_scale
+- shadow_style
+- hero_style_default
+- button_style
+- logo_mode (image, text, both)
+- created_at
+- updated_at
+
+Notes:
+- Keep this light in Phase 1
+- Enough to support curated variation without building a full theme engine
+
+========================================
+4. IMPORT PIPELINE TABLES
+========================================
+
+A. site_import_runs
+Purpose:
+Track each import attempt.
+
+Suggested columns:
+- id
+- site_id (nullable FK, if import happens before site creation)
+- source_url
+- status (started, completed, failed, reviewed, applied)
+- detected_site_type (nullable)
+- raw_summary_json (jsonb)
+- recommended_structure_json (jsonb)
+- created_at
+- completed_at (nullable)
+
+B. site_import_findings
+Purpose:
+Normalized extracted findings from an import.
+
+Suggested columns:
+- id
+- import_run_id (FK)
+- finding_type (page, contact, mission, program, event, image, logo, cta, nav_item, sponsor_ref, join_flow, donate_flow)
+- source_url
+- page_classification (nullable)
+- title (nullable)
+- content_json (jsonb)
+- quality_score (numeric or int)
+- preserve_verbatim (boolean default false)
+- is_selected (boolean default true)
+- created_at
+
+Notes:
+- This lets you review import results cleanly instead of stuffing all import data into one blob
+
+========================================
+5. AUTO-UPDATE / CHANGE TRACKING
+========================================
+
+A. site_change_log
+Purpose:
+Audit trail for auto-updates and manual publish-relevant edits.
+
+Suggested columns:
+- id
+- site_id (FK)
+- page_id (nullable FK)
+- block_id (nullable FK)
+- change_type (auto_update, suggestion_created, manual_edit, import_applied, publish)
+- source_type (events, sponsors, announcements, admin, import, ai_generation)
+- source_reference_id (nullable)
+- summary
+- old_value_json (nullable)
+- new_value_json (nullable)
+- confidence_score (nullable)
+- action_status (applied, pending_review, dismissed)
+- created_by_user_id (nullable)
+- created_at
+
+Notes:
+- This is cleaner than storing auto-update notes inside site_blocks.settings
+- Much better for future review UI
+
+========================================
+6. EVENT MODEL ADJUSTMENTS
+========================================
+
+I want the events table extended so the website system does not have to guess too much.
+
+Add columns to events:
+
+- event_mode
+  enum-like string:
+  informational, registration, ticketed, fundraiser, vendor, participant, sponsor, hybrid
+
+- revenue_classification
+  enum-like string:
+  none, admin_fee, ticket_revenue, sponsor_revenue, donation, mixed
+
+- show_on_public_site (boolean default true)
+
+- public_cta_mode
+  enum-like string:
+  learn_more, register, rsvp, buy_tickets, apply_vendor, apply_participant, sponsor, donate
+
+- enable_ticket_sales (boolean)
+- enable_registration (boolean)
+- enable_vendor_applications (boolean)
+- enable_participant_signup (boolean)
+- enable_sponsorship (boolean)
+
+- show_public_pricing (boolean default false)
+- show_public_sold_count (boolean default false)
+- show_public_capacity (boolean default false)
+
+- event_status
+  enum-like string:
+  draft, published, registration_open, registration_closed, sold_out, completed, cancelled
+
+- featured_on_site (boolean default false)
+
+Notes:
+- infer these from legacy fields where possible for backward compatibility
+- admin can override
+- the site renderer should rely on these fields, not infer everything ad hoc
+
+========================================
+7. OPTIONAL BUT STRONGLY RECOMMENDED
+========================================
+
+A. site_media_assets
+Purpose:
+Track curated media used by the site.
+
+Suggested columns:
+- id
+- site_id (FK)
+- source_type (uploaded, imported, generated_placeholder, stock)
+- source_url
+- local_storage_key (nullable)
+- asset_type (logo, hero, gallery, program_image, sponsor_logo, other)
+- width (nullable)
+- height (nullable)
+- quality_score (nullable)
+- alt_text (nullable)
+- is_selected (boolean default true)
+- created_at
+
+This will help keep media from becoming chaotic.
+
+========================================
+8. RELATIONSHIP SUMMARY
+========================================
+
+sites
+  -> site_pages
+  -> site_nav_items
+  -> site_blocks
+  -> site_themes
+  -> site_import_runs
+  -> site_change_log
+  -> site_media_assets
+
+site_pages
+  -> site_blocks
+
+site_blocks
+  -> site_block_bindings
+
+site_import_runs
+  -> site_import_findings
+
+events remain separate operational records, but site_block_bindings connects site blocks to them dynamically
+
+========================================
+9. IMPLEMENTATION RULES
+========================================
+
+Please implement with these rules:
+
+- generated_html remains for preview/publish compatibility only
+- source of truth is structured tables
+- do not put all logic into content_json or settings_json
+- use site_block_bindings for dynamic data connections
+- keep import findings separate from final accepted site content
+- use site_change_log for auto-update and publishing auditability
+- extend events so public-site behavior is explicit, not inferred everywhere
+
+Before implementing, tell me:
+1. which existing schema objects already match this
+2. what you would add exactly in Phase 1
+3. what you would defer to Phase 2
+4. what migrations are needed
