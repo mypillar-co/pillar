@@ -59,41 +59,51 @@ router.post("/connect/onboard", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
 
-  const stripe = await getUncachableStripeClient();
-  const origin = `${req.headers["x-forwarded-proto"] ?? "https"}://${req.headers["x-forwarded-host"] ?? req.headers["host"]}`;
+  try {
+    const stripe = await getUncachableStripeClient();
+    const origin = `${req.headers["x-forwarded-proto"] ?? "https"}://${req.headers["x-forwarded-host"] ?? req.headers["host"]}`;
 
-  let accountId = org.stripeConnectAccountId;
+    let accountId = org.stripeConnectAccountId;
 
-  if (!accountId) {
-    const account = await stripe.accounts.create({
-      type: "express",
-      email: req.user?.email ?? undefined,
-      metadata: {
-        orgId: org.id,
-        orgName: org.name,
-      },
-      capabilities: {
-        card_payments: { requested: true },
-        transfers: { requested: true },
-      },
-      business_type: org.isNonprofit ? "non_profit" : "company",
+    if (!accountId) {
+      const account = await stripe.accounts.create({
+        type: "express",
+        email: req.user?.email ?? undefined,
+        metadata: {
+          orgId: org.id,
+          orgName: org.name,
+        },
+        capabilities: {
+          card_payments: { requested: true },
+          transfers: { requested: true },
+        },
+        business_type: org.isNonprofit ? "non_profit" : "company",
+      });
+      accountId = account.id;
+
+      await db
+        .update(organizationsTable)
+        .set({ stripeConnectAccountId: accountId })
+        .where(eq(organizationsTable.id, org.id));
+    }
+
+    const accountLink = await stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: `${origin}/dashboard/payments?connect=refresh`,
+      return_url: `${origin}/dashboard/payments?connect=complete`,
+      type: "account_onboarding",
     });
-    accountId = account.id;
 
-    await db
-      .update(organizationsTable)
-      .set({ stripeConnectAccountId: accountId })
-      .where(eq(organizationsTable.id, org.id));
+    res.json({ url: accountLink.url });
+  } catch (err: unknown) {
+    const raw = err instanceof Error ? err.message : String(err);
+    // Surface a helpful message for the most common setup error
+    if (raw.includes("signed up for Connect")) {
+      res.status(503).json({ error: "Stripe payment setup is not yet available on this platform. Please contact support." });
+      return;
+    }
+    res.status(500).json({ error: "Could not start Stripe setup. Please try again or contact support." });
   }
-
-  const accountLink = await stripe.accountLinks.create({
-    account: accountId,
-    refresh_url: `${origin}/dashboard/payments?connect=refresh`,
-    return_url: `${origin}/dashboard/payments?connect=complete`,
-    type: "account_onboarding",
-  });
-
-  res.json({ url: accountLink.url });
 });
 
 router.post("/connect/dashboard", async (req: Request, res: Response) => {

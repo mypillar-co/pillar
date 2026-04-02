@@ -183,6 +183,9 @@ export default function Payments() {
                     {onboardMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CreditCard className="w-4 h-4 mr-2" />}
                     Connect with Stripe
                   </Button>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    You'll be redirected to Stripe to sign in or create a free account. Stripe handles all payment security and compliance.
+                  </p>
                 </div>
               </div>
             </CardContent>
