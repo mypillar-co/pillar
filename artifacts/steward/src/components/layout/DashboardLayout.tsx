@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard,
@@ -132,45 +132,65 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   const lastActivityRef = useRef(Date.now());
   const warnedRef = useRef(false);
-  const warnToastIdRef = useRef<string | null>(null);
 
-  const resetActivity = useCallback(() => {
-    lastActivityRef.current = Date.now();
-    if (warnedRef.current) {
-      warnedRef.current = false;
-    }
-  }, []);
-
-  // Idle timer — check every 60 s
+  // Idle timer — check every 30 s and also on tab-focus (browsers throttle intervals in bg tabs)
   useEffect(() => {
     if (!user) return;
 
-    const EVENTS = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"];
-    EVENTS.forEach(e => window.addEventListener(e, resetActivity, { passive: true }));
+    const ACTIVITY_KEY = "pillar_last_activity";
 
-    const interval = setInterval(() => {
+    // Persist activity time in localStorage so background-tab throttling can't mask it
+    const markActivity = () => {
+      const now = Date.now();
+      lastActivityRef.current = now;
+      try { localStorage.setItem(ACTIVITY_KEY, String(now)); } catch { /* ignore */ }
+      if (warnedRef.current) warnedRef.current = false;
+    };
+
+    // Seed from localStorage in case we're coming back from a long bg period
+    try {
+      const stored = localStorage.getItem(ACTIVITY_KEY);
+      if (stored) lastActivityRef.current = Math.min(lastActivityRef.current, Number(stored));
+    } catch { /* ignore */ }
+
+    const checkIdle = () => {
+      // Also read from localStorage in case another tab updated it
+      try {
+        const stored = localStorage.getItem(ACTIVITY_KEY);
+        if (stored) lastActivityRef.current = Math.max(lastActivityRef.current, Number(stored));
+      } catch { /* ignore */ }
+
       const idle = Date.now() - lastActivityRef.current;
       if (idle >= IDLE_LIMIT_MS) {
-        clearInterval(interval);
         logout();
         return;
       }
       if (idle >= IDLE_WARN_MS && !warnedRef.current) {
         warnedRef.current = true;
-        const { id } = toast({
+        toast({
           title: "Still there?",
           description: "You'll be signed out in 5 minutes due to inactivity.",
           duration: 5 * 60 * 1000,
         });
-        warnToastIdRef.current = id ?? null;
       }
-    }, 60_000);
+    };
+
+    const EVENTS = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"];
+    EVENTS.forEach(e => window.addEventListener(e, markActivity, { passive: true }));
+
+    // Check on visibility change — catches background-tab idle
+    const onVisibility = () => { if (document.visibilityState === "visible") checkIdle(); };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    // Poll every 30 s (reduced from 60 s for faster response)
+    const interval = setInterval(checkIdle, 30_000);
 
     return () => {
-      EVENTS.forEach(e => window.removeEventListener(e, resetActivity));
+      EVENTS.forEach(e => window.removeEventListener(e, markActivity));
+      document.removeEventListener("visibilitychange", onVisibility);
       clearInterval(interval);
     };
-  }, [user, logout, resetActivity, toast]);
+  }, [user, logout, toast]);
 
   useEffect(() => {
     if (authLoading || orgLoading) return;
