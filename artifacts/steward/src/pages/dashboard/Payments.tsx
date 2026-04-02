@@ -12,6 +12,7 @@ import {
   Receipt,
   TrendingUp,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -85,12 +86,18 @@ export default function Payments() {
     onSuccess: (data) => {
       window.location.href = data.url;
     },
+    onError: (err: Error) => {
+      toast.error(err.message ?? "Could not start Stripe setup. Please try again.");
+    },
   });
 
   const dashboardMutation = useMutation({
     mutationFn: () => req<{ url: string }>("/api/connect/dashboard", { method: "POST" }),
     onSuccess: (data) => {
       window.open(data.url, "_blank");
+    },
+    onError: (err: Error) => {
+      toast.error(err.message ?? "Could not open Stripe Dashboard. Please try again.");
     },
   });
 

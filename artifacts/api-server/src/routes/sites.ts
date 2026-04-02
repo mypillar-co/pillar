@@ -191,13 +191,74 @@ Keep every response under 60 words. Stay conversational and encouraging. Never s
 const FETCH_TIMEOUT_MS = 12_000;
 const MAX_TEXT_CHARS = 12_000;
 
-function extractVisibleText(html: string): string {
+interface ExtractedPage {
+  title: string;
+  metaDescription: string;
+  ogTitle: string;
+  ogDescription: string;
+  bodyText: string;
+  /** Combined, cleaned text for AI ingestion */
+  combined: string;
+}
+
+function extractPageContent(html: string): ExtractedPage {
   const $ = cheerioLoad(html);
-  $("script, style, noscript, head, meta, link, iframe, svg, canvas, template").remove();
-  const text = ($("body").text() || $.text())
-    .replace(/\s{2,}/g, " ")
+
+  // ── Pull reliable metadata BEFORE stripping <head> ───────────────────────
+  const title = $("title").first().text().trim();
+  const metaDescription = $('meta[name="description"]').attr("content")?.trim() ?? "";
+  const ogTitle = $('meta[property="og:title"]').attr("content")?.trim() ?? "";
+  const ogDescription = $('meta[property="og:description"]').attr("content")?.trim() ?? "";
+
+  // ── Strip all non-visible elements, including JSON-LD <script> tags ───────
+  $(
+    "script, style, noscript, head, meta, link, iframe, svg, canvas, template, [aria-hidden='true']"
+  ).remove();
+  // Extra pass: remove any remaining <script> anywhere (catches mis-placed JSON-LD)
+  $("script").remove();
+
+  let bodyText = ($("body").text() || $.text())
+    // Collapse whitespace
+    .replace(/[ \t]+/g, " ")
+    .replace(/(\n\s*){3,}/g, "\n\n")
     .trim();
-  return text;
+
+  // Strip lines that look like raw JSON / JS (e.g. JSON-LD content rendered as text)
+  bodyText = bodyText
+    .split("\n")
+    .filter(line => {
+      const t = line.trim();
+      if (t.length === 0) return false;
+      // Remove lines that are clearly JSON blobs
+      if (/^\s*[{\[].*[}\]]\s*$/.test(t) && t.includes('"')) return false;
+      if (t.startsWith('"@context"') || t.startsWith("@context")) return false;
+      if (t.startsWith('"@type"') || t.includes('"@type":')) return false;
+      // Remove very long single-token lines (minified JS/data)
+      if (t.length > 300 && !t.includes(" ")) return false;
+      return true;
+    })
+    .join("\n")
+    .trim();
+
+  // ── Build a prioritised combined text for AI ingestion ────────────────────
+  const parts: string[] = [];
+  if (ogTitle || title) parts.push(`Page title: ${ogTitle || title}`);
+  if (ogDescription || metaDescription) parts.push(`Description: ${ogDescription || metaDescription}`);
+  if (bodyText) parts.push(bodyText);
+
+  return {
+    title,
+    metaDescription,
+    ogTitle,
+    ogDescription,
+    bodyText,
+    combined: parts.join("\n\n"),
+  };
+}
+
+/** Legacy helper — returns the cleaned body text only */
+function extractVisibleText(html: string): string {
+  return extractPageContent(html).combined;
 }
 
 const NON_PUBLIC_RANGES = new Set([
@@ -347,30 +408,43 @@ router.post("/import-url", async (req: Request, res: Response) => {
     clearTimeout(timer);
   }
 
-  const plainText = extractVisibleText(rawHtml).slice(0, MAX_TEXT_CHARS);
+  const pageContent = extractPageContent(rawHtml);
+  const plainText = pageContent.combined.slice(0, MAX_TEXT_CHARS);
 
-  if (plainText.length < 100) {
+  if (plainText.length < 50) {
     res.status(422).json({ error: "Not enough readable content was found on that page. Try a different URL." });
     return;
   }
 
-  const extractPrompt = `You are a data extraction assistant. Read the following text scraped from a civic organization's public website and extract key information.
+  // Build a structured context block that puts the most reliable signals first
+  const metaBlock = [
+    pageContent.ogTitle || pageContent.title ? `Page title: ${pageContent.ogTitle || pageContent.title}` : "",
+    pageContent.ogDescription || pageContent.metaDescription ? `Meta description: ${pageContent.ogDescription || pageContent.metaDescription}` : "",
+  ].filter(Boolean).join("\n");
 
-Return a JSON object with EXACTLY these keys (use empty string "" if information is not found):
-- name: the organization's name
-- mission: their mission or purpose in 1-2 sentences
-- services: programs, services, activities they offer (comma-separated list or short paragraph)
+  const extractPrompt = `You are a data extraction assistant helping build a new, professional website for a civic organization. Analyze the content scraped from their existing website and extract key information to use as source material.
+
+IMPORTANT RULES:
+- Use the page title and meta description as the most authoritative source for the organization's name and mission
+- Ignore any raw JSON, code snippets, or technical strings in the content
+- Write mission/services in clean, readable prose — never output raw data or code
+- If a field is genuinely not found, use ""
+
+Return a JSON object with EXACTLY these keys:
+- name: the organization's name (from title/headings, not JSON)
+- mission: their mission or purpose in 1-2 clear, human-readable sentences
+- services: programs, services, activities they offer (clean prose or comma-separated)
 - location: physical address or meeting place
-- schedule: regular meeting schedule, hours, or calendar
+- schedule: regular meeting schedule, hours, or calendar info
 - events: upcoming or recurring events and fundraisers
-- contact: email addresses, phone numbers, and social media links found
-- audience: who they serve or are trying to reach (members, community, volunteers, etc.)
-- style: any color palette, design style, or branding cues visible
-- extra: anything else notable — founding history, awards, recent news, calls to action
+- contact: email addresses, phone numbers, website links found
+- audience: who they serve (members, community, volunteers, youth, etc.)
+- style: any branding colors, design style, or visual identity cues
+- extra: anything else notable — history, awards, recent news, calls to action
 
 Return ONLY valid JSON, no markdown, no explanation.
 
-Website text:
+${metaBlock ? `=== HIGH-PRIORITY METADATA (most reliable) ===\n${metaBlock}\n\n` : ""}=== WEBSITE CONTENT ===
 ${plainText}`;
 
   let extracted: ImportedSiteData;
