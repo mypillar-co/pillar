@@ -62,6 +62,12 @@ type ImportedSiteData = {
   audience: string;
   style: string;
   extra: string;
+  /** Logo/icon URL detected from the crawled site */
+  logoUrl?: string;
+  /** Hero image URL detected from the crawled site */
+  heroUrl?: string;
+  /** Additional image URLs from the crawled site */
+  imageUrls?: string[];
 };
 
 const DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -176,6 +182,9 @@ export default function SiteBuilder() {
   const [editableImportData, setEditableImportData] = useState<ImportedSiteData | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importedFromUrl, setImportedFromUrl] = useState<string | null>(null);
+  const [importedLogoUrl, setImportedLogoUrl] = useState<string | null>(null);
+  const [importedHeroUrl, setImportedHeroUrl] = useState<string | null>(null);
+  const [importedImageUrls, setImportedImageUrls] = useState<string[]>([]);
   const [showImportForm, setShowImportForm] = useState(false);
 
   const [showSetup, setShowSetup] = useState(false);
@@ -354,6 +363,10 @@ export default function SiteBuilder() {
       setImportData(data.data!);
       setEditableImportData({ ...data.data! });
       setImportedFromUrl(data.url ?? trimmed);
+      // Capture discovered images from the crawled site
+      setImportedLogoUrl(data.data?.logoUrl ?? null);
+      setImportedHeroUrl(data.data?.heroUrl ?? null);
+      setImportedImageUrls(data.data?.imageUrls ?? []);
     } catch {
       setImportError("Could not reach the server. Please try again.");
     } finally {
@@ -385,7 +398,8 @@ export default function SiteBuilder() {
     setImportData(null);
     setEditableImportData(null);
     setImportUrl("");
-    setImportedFromUrl(null);
+    // NOTE: Do NOT clear importedFromUrl / importedLogoUrl / importedHeroUrl / importedImageUrls here.
+    // generateSite reads them — they stay until the site is actually generated.
     setShowImportForm(false);
   };
 
@@ -503,6 +517,10 @@ export default function SiteBuilder() {
           orgType: org?.type,
           logoDataUrl: logoDataUrl ?? undefined,
           photoUrls: uploadedPhotos.length > 0 ? uploadedPhotos.map(p => p.url) : undefined,
+          importedLogoUrl: importedLogoUrl ?? undefined,
+          importedHeroUrl: importedHeroUrl ?? undefined,
+          importedImageUrls: importedImageUrls.length > 0 ? importedImageUrls : undefined,
+          originalSiteUrl: importedFromUrl ?? undefined,
         }),
       });
 
@@ -1252,6 +1270,46 @@ export default function SiteBuilder() {
                         </div>
                       ))}
                     </div>
+                    {(importedLogoUrl || importedHeroUrl || importedImageUrls.length > 0) && (
+                      <div className="px-4 py-3 border-t border-emerald-500/15 space-y-2">
+                        <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Images detected from your site</p>
+                        <div className="flex flex-wrap gap-2">
+                          {importedLogoUrl && (
+                            <div className="relative group">
+                              <img
+                                src={importedLogoUrl}
+                                alt="Detected logo"
+                                className="h-10 w-auto max-w-[80px] object-contain rounded bg-white/10 p-1 border border-white/15"
+                                onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                              />
+                              <span className="absolute -bottom-4 left-0 text-[9px] text-emerald-400 whitespace-nowrap">Logo</span>
+                            </div>
+                          )}
+                          {importedHeroUrl && (
+                            <div className="relative group">
+                              <img
+                                src={importedHeroUrl}
+                                alt="Detected hero image"
+                                className="h-10 w-16 object-cover rounded border border-white/15"
+                                onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                              />
+                              <span className="absolute -bottom-4 left-0 text-[9px] text-emerald-400 whitespace-nowrap">Hero</span>
+                            </div>
+                          )}
+                          {importedImageUrls.slice(0, 3).map((url, i) => (
+                            <div key={url} className="relative group">
+                              <img
+                                src={url}
+                                alt={`Site image ${i + 1}`}
+                                className="h-10 w-16 object-cover rounded border border-white/15"
+                                onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <p className="text-[10px] text-slate-500 mt-3">These will be used in your generated site. Upload your own images after generation to replace them.</p>
+                      </div>
+                    )}
                     <div className="px-4 py-3 border-t border-emerald-500/15">
                       <Button onClick={confirmImport} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-sm h-9">
                         <Sparkles className="w-3.5 h-3.5 mr-1.5" /> Generate My Site with This Content

@@ -196,12 +196,29 @@ interface ExtractedPage {
   metaDescription: string;
   ogTitle: string;
   ogDescription: string;
+  /** Absolute URL of the best logo candidate (og:image, logo img, or favicon) */
+  logoUrl: string;
+  /** Absolute URL of the best hero/banner image from the page */
+  heroUrl: string;
+  /** Up to 4 additional absolute image URLs from the page body */
+  imageUrls: string[];
+  /** Branding colors found in the page CSS (hex values) */
+  brandColors: string[];
   bodyText: string;
   /** Combined, cleaned text for AI ingestion */
   combined: string;
 }
 
-function extractPageContent(html: string): ExtractedPage {
+function toAbsoluteUrl(src: string, base: URL): string | null {
+  if (!src || src.startsWith("data:")) return null;
+  try {
+    return new URL(src, base).toString();
+  } catch {
+    return null;
+  }
+}
+
+function extractPageContent(html: string, baseUrl?: URL): ExtractedPage {
   const $ = cheerioLoad(html);
 
   // ── Pull reliable metadata BEFORE stripping <head> ───────────────────────
@@ -210,37 +227,78 @@ function extractPageContent(html: string): ExtractedPage {
   const ogTitle = $('meta[property="og:title"]').attr("content")?.trim() ?? "";
   const ogDescription = $('meta[property="og:description"]').attr("content")?.trim() ?? "";
 
+  // ── Extract images and branding BEFORE stripping ──────────────────────────
+  const base = baseUrl ?? new URL("https://example.com");
+
+  // og:image is usually the most representative image
+  const ogImage = $('meta[property="og:image"]').attr("content")?.trim() ?? "";
+  const ogImageAbs = ogImage ? toAbsoluteUrl(ogImage, base) : null;
+
+  // Favicon as logo fallback
+  const faviconHref =
+    $('link[rel="icon"]').attr("href") ??
+    $('link[rel="shortcut icon"]').attr("href") ??
+    $('link[rel="apple-touch-icon"]').attr("href") ?? "";
+  const faviconAbs = faviconHref ? toAbsoluteUrl(faviconHref, base) : null;
+
+  // Pull brand colors from inline styles / meta theme-color
+  const themeColor = $('meta[name="theme-color"]').attr("content")?.trim() ?? "";
+  const brandColors: string[] = [];
+  if (themeColor && /^#[0-9a-f]{3,8}$/i.test(themeColor)) brandColors.push(themeColor);
+
   // ── Strip all non-visible elements, including JSON-LD <script> tags ───────
   $(
     "script, style, noscript, head, meta, link, iframe, svg, canvas, template, [aria-hidden='true']"
   ).remove();
-  // Extra pass: remove any remaining <script> anywhere (catches mis-placed JSON-LD)
-  $("script").remove();
+  $("script").remove(); // extra pass catches mis-placed JSON-LD
 
+  // ── Extract body images AFTER removing head/script ────────────────────────
+  // Collect <img> src attributes, preferring larger images over icons
+  const bodyImageUrls: string[] = [];
+  $("img[src]").each((_i, el) => {
+    const src = $(el).attr("src")?.trim() ?? "";
+    if (!src) return;
+    const abs = toAbsoluteUrl(src, base);
+    if (!abs) return;
+    // Skip tiny images (icons, spacers) by heuristic name/size checks
+    const lower = abs.toLowerCase();
+    if (/icon|logo|avatar|sprite|pixel|badge|seal|emblem|1x1|blank/i.test(lower)) return;
+    if (bodyImageUrls.length < 6) bodyImageUrls.push(abs);
+  });
+
+  // Determine best logo URL: prefer a src that looks like a logo, then og:image, favicon
+  const logoImgSrc = $('img[src*="logo"], img[alt*="logo" i], img[class*="logo" i]').first().attr("src");
+  const logoImgAbs = logoImgSrc ? toAbsoluteUrl(logoImgSrc, base) : null;
+  const logoUrl = logoImgAbs ?? ogImageAbs ?? faviconAbs ?? "";
+
+  // Hero: og:image first, then first non-logo body image
+  const heroUrl = ogImageAbs ?? (bodyImageUrls.length > 0 ? bodyImageUrls[0] : "") ?? "";
+
+  // Additional images: body images, skip the one used as hero
+  const imageUrls = bodyImageUrls.filter(u => u !== heroUrl).slice(0, 4);
+
+  // ── Extract body text ─────────────────────────────────────────────────────
   let bodyText = ($("body").text() || $.text())
-    // Collapse whitespace
     .replace(/[ \t]+/g, " ")
     .replace(/(\n\s*){3,}/g, "\n\n")
     .trim();
 
-  // Strip lines that look like raw JSON / JS (e.g. JSON-LD content rendered as text)
+  // Strip lines that look like raw JSON / JS
   bodyText = bodyText
     .split("\n")
     .filter(line => {
       const t = line.trim();
       if (t.length === 0) return false;
-      // Remove lines that are clearly JSON blobs
       if (/^\s*[{\[].*[}\]]\s*$/.test(t) && t.includes('"')) return false;
       if (t.startsWith('"@context"') || t.startsWith("@context")) return false;
       if (t.startsWith('"@type"') || t.includes('"@type":')) return false;
-      // Remove very long single-token lines (minified JS/data)
       if (t.length > 300 && !t.includes(" ")) return false;
       return true;
     })
     .join("\n")
     .trim();
 
-  // ── Build a prioritised combined text for AI ingestion ────────────────────
+  // ── Build combined text for AI ─────────────────────────────────────────────
   const parts: string[] = [];
   if (ogTitle || title) parts.push(`Page title: ${ogTitle || title}`);
   if (ogDescription || metaDescription) parts.push(`Description: ${ogDescription || metaDescription}`);
@@ -251,6 +309,10 @@ function extractPageContent(html: string): ExtractedPage {
     metaDescription,
     ogTitle,
     ogDescription,
+    logoUrl,
+    heroUrl,
+    imageUrls,
+    brandColors,
     bodyText,
     combined: parts.join("\n\n"),
   };
@@ -344,6 +406,12 @@ type ImportedSiteData = {
   audience: string;
   style: string;
   extra: string;
+  /** Absolute URL of the detected logo/icon from the crawled site */
+  logoUrl?: string;
+  /** Absolute URL of the best hero image from the crawled site */
+  heroUrl?: string;
+  /** Additional image URLs from the crawled site */
+  imageUrls?: string[];
 };
 
 router.post("/import-url", async (req: Request, res: Response) => {
@@ -408,7 +476,7 @@ router.post("/import-url", async (req: Request, res: Response) => {
     clearTimeout(timer);
   }
 
-  const pageContent = extractPageContent(rawHtml);
+  const pageContent = extractPageContent(rawHtml, parsedUrl);
   const plainText = pageContent.combined.slice(0, MAX_TEXT_CHARS);
 
   if (plainText.length < 50) {
@@ -473,6 +541,10 @@ ${plainText}`;
       audience: safeStr(obj.audience),
       style: safeStr(obj.style),
       extra: safeStr(obj.extra),
+      // Attach discovered image assets
+      logoUrl: pageContent.logoUrl || undefined,
+      heroUrl: pageContent.heroUrl || undefined,
+      imageUrls: pageContent.imageUrls.length > 0 ? pageContent.imageUrls : undefined,
     };
   } catch {
     res.status(500).json({ error: "AI extraction failed. Please try again or start the interview manually." });
@@ -551,12 +623,23 @@ router.post("/generate", async (req: Request, res: Response) => {
   if (!usageInfo) return;
   const { used, limit: monthlyLimit } = usageInfo;
 
-  const { history = [], orgName, orgType, logoDataUrl: rawLogoDataUrl, photoUrls: rawPhotoUrls } = req.body as {
+  const {
+    history = [], orgName, orgType,
+    logoDataUrl: rawLogoDataUrl, photoUrls: rawPhotoUrls,
+    importedLogoUrl: rawImportedLogoUrl,
+    importedHeroUrl: rawImportedHeroUrl,
+    importedImageUrls: rawImportedImageUrls,
+    originalSiteUrl: rawOriginalSiteUrl,
+  } = req.body as {
     history: { role: string; content: string }[];
     orgName?: string;
     orgType?: string;
     logoDataUrl?: unknown;
     photoUrls?: unknown;
+    importedLogoUrl?: unknown;
+    importedHeroUrl?: unknown;
+    importedImageUrls?: unknown;
+    originalSiteUrl?: unknown;
   };
   // Validate logo on server side — reject SVG, non-image data, oversized payloads
   const logoDataUrl = validateLogoDataUrl(rawLogoDataUrl);
@@ -566,6 +649,15 @@ router.post("/generate", async (req: Request, res: Response) => {
         .filter((u): u is string => typeof u === "string" && (u.startsWith("/api/storage/") || u.startsWith("https://")))
         .slice(0, 6)
     : [];
+  // External images discovered from crawled site — must be absolute https:// URLs
+  const isSafeExternalUrl = (u: unknown): u is string =>
+    typeof u === "string" && u.startsWith("https://");
+  const importedLogoUrl: string | null = isSafeExternalUrl(rawImportedLogoUrl) ? rawImportedLogoUrl : null;
+  const importedHeroUrl: string | null = isSafeExternalUrl(rawImportedHeroUrl) ? rawImportedHeroUrl : null;
+  const importedImageUrls: string[] = Array.isArray(rawImportedImageUrls)
+    ? (rawImportedImageUrls as unknown[]).filter(isSafeExternalUrl).slice(0, 4)
+    : [];
+  const originalSiteUrl: string | null = isSafeExternalUrl(rawOriginalSiteUrl) ? rawOriginalSiteUrl : null;
 
   const name = orgName ?? org.name;
   const type = orgType ?? org.type ?? "organization";
@@ -691,40 +783,46 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
   };
 
   const colorHints = s.colors || "navy and gold";
+  const hasImportedImages = !!(importedHeroUrl || importedLogoUrl);
+  const originalSiteContext = originalSiteUrl
+    ? `\nOriginal site: ${originalSiteUrl} — you are creating a dramatically improved version of this site.`
+    : "";
   try {
     const contentJson = await callOpenAI([
       {
         role: "system",
-        content: `You are a copywriter for civic and community organizations. Given org info, output ONLY a valid JSON object — no explanation, no markdown fences.
+        content: `You are a master UX/UI designer and copywriter specializing in civic and community organizations. Your job is to produce content for a stunning, modern website that is far superior to the organization's existing site. Create content that is compelling, specific, and authentic — this will be seen by the community and must make a strong first impression.${originalSiteContext}
+
+Output ONLY a valid JSON object — no explanation, no markdown fences.
 
 Required JSON structure:
 {
-  "primaryHex": "#hex derived from: "${colorHints}". Navy=#1e3a5f, Gold=#c9a84c, Green=#2d6a4f, Red=#9b2226, Blue=#0077b6, Purple=#5e2d91",
-  "accentHex": "#hex complementary accent — use gold/amber (#c9a84c) if primary is dark, use navy if primary is warm",
-  "primaryRgb": "r,g,b comma-separated of primaryHex e.g. 30,58,95",
-  "heroUnsplashId": "one ID from: ${HERO_IDS.join(",")}",
-  "aboutUnsplashId": "different ID from: ${ABOUT_IDS.join(",")}",
-  "orgTypeLabel": "2-3 word label e.g. Civic Organization, Masonic Lodge, Community Association, Service Club, Homeowners Association, Rotary Club",
-  "aboutHeading": "compelling 3-6 word heading for mission section e.g. 'Serving Our Community Since 1952' or 'Building Stronger Neighborhoods'",
-  "missionExpanded": "2-3 compelling sentences about their mission. Make it specific and meaningful. Use real details from the spec.",
+  "primaryHex": "#hex derived from: "${colorHints}". Navy=#1e3a5f, Gold=#c9a84c, Green=#2d6a4f, Red=#9b2226, Blue=#0077b6, Purple=#5e2d91. If brand colors available, match them.",
+  "accentHex": "#hex complementary accent — gold/amber (#c9a84c) pairs with dark primaries; navy pairs with warm tones",
+  "primaryRgb": "r,g,b of primaryHex e.g. 30,58,95",
+  "heroUnsplashId": "${hasImportedImages ? '"" (leave empty — real site images will be used instead of Unsplash)' : `"one ID from: ${HERO_IDS.join(",")}`}",
+  "aboutUnsplashId": "${hasImportedImages ? '"" (leave empty — real site images will be used instead of Unsplash)' : `"different ID from: ${ABOUT_IDS.join(",")}`}",
+  "orgTypeLabel": "precise 2-3 word label e.g. Rotary Club, Lions Club, Civic Association, Service Organization, Community Foundation",
+  "aboutHeading": "powerful 4-7 word heading — specific to this org e.g. 'Serving Norwin Since 1952' or 'Making Irwin Stronger Together'",
+  "missionExpanded": "3 compelling, specific sentences that capture WHY this organization matters to their community. Use real details — names of programs, specific impact, the human story. No generic platitudes.",
   "stat1Value": "founding year e.g. '1952'", "stat1Label": "Year Founded",
-  "stat2Value": "member count e.g. '340+'", "stat2Label": "Active Members",
-  "stat3Value": "annual events e.g. '28+'", "stat3Label": "Annual Events",
+  "stat2Value": "member count with + e.g. '45+'", "stat2Label": "Active Members",
+  "stat3Value": "annual events count e.g. '12+'", "stat3Label": "Annual Events",
   "programs": [
-    {"icon":"relevant emoji","title":"program name","description":"2 compelling sentences about this specific program"},
-    {"icon":"emoji","title":"program name","description":"2 sentences"},
-    {"icon":"emoji","title":"program name","description":"2 sentences"}
+    {"icon":"highly relevant emoji","title":"exact program name from their content","description":"2 vivid, specific sentences about this program's real impact"},
+    {"icon":"emoji","title":"program name","description":"2 specific sentences"},
+    {"icon":"emoji","title":"program name","description":"2 specific sentences"}
   ],
-  "contactHeading": "3-5 word invitation e.g. 'Come Join Our Community'",
-  "contactIntro": "1-2 sentences warmly inviting contact or membership",
-  "contactCardHeading": "short CTA headline e.g. 'Ready to get involved?'",
-  "contactCardText": "1-2 sentences for the contact card body"
+  "contactHeading": "warm, specific 4-6 word invitation tied to this org e.g. 'Join Norwin Rotary Today'",
+  "contactIntro": "2 genuine sentences that speak to WHY someone would want to get involved — specific to this org",
+  "contactCardHeading": "action-oriented CTA e.g. 'Become a Member' or 'Attend a Meeting'",
+  "contactCardText": "2 sentences with the most useful info — when/where they meet, what to expect"
 }
-Rules: use REAL content from the spec — no lorem ipsum. If stat values not given, infer plausible ones. Use relevant emojis (🤝🎓🌿🎭🏛️🌟📚🤲🎵🏅).`,
+Rules: Use REAL content only — never lorem ipsum. Make programs specific to this org (not generic). If stat values unknown, infer plausible ones based on org age/type. Emojis must be highly relevant (🎰❌ — pick emojis that actually match the program).`,
       },
       {
         role: "user",
-        content: `Name: ${s.orgName}\nType: ${type}\nTagline: ${s.tagline}\nMission: ${s.mission}\nServices: ${s.services.join(", ") || ""}\nLocation: ${s.location || ""}\nColors: ${colorHints}\nEmail: ${s.contactEmail || ""}\nPhone: ${s.contactPhone || ""}\nAudience: ${s.audience || ""}\nExtras: ${s.extras || ""}`,
+        content: `Name: ${s.orgName}\nType: ${type}\nTagline: ${s.tagline}\nMission: ${s.mission}\nServices: ${s.services.join(", ") || "Community service programs"}\nLocation: ${s.location || ""}\nHours/Schedule: ${s.hours || ""}\nColors/Branding: ${colorHints}\nEmail: ${s.contactEmail || ""}\nPhone: ${s.contactPhone || ""}\nAudience: ${s.audience || ""}\nExtras/History: ${s.extras || ""}${originalSiteContext}`,
       },
     ], 2000, "gpt-5-mini");
 
@@ -742,18 +840,21 @@ Rules: use REAL content from the spec — no lorem ipsum. If stat values not giv
   }
 
   // Step 5: Build all HTML blocks server-side from real data
+  // Image priority: user-uploaded > imported from crawl > Unsplash stock
   const heroImageUrl = photoUrls.length > 0
     ? photoUrls[0]
-    : `https://images.unsplash.com/photo-${contentData.heroUnsplashId}?auto=format&fit=crop&w=1920&q=80`;
+    : importedHeroUrl ?? `https://images.unsplash.com/photo-${contentData.heroUnsplashId}?auto=format&fit=crop&w=1920&q=80`;
   const aboutImageUrl = photoUrls.length > 1
     ? photoUrls[1]
-    : `https://images.unsplash.com/photo-${contentData.aboutUnsplashId}?auto=format&fit=crop&w=900&q=80`;
+    : (importedImageUrls[0] ?? importedHeroUrl ?? `https://images.unsplash.com/photo-${contentData.aboutUnsplashId}?auto=format&fit=crop&w=900&q=80`);
 
-  const navLogoHtml = logoDataUrl
-    ? `<div class="nav-logo"><img src="${logoDataUrl}" alt="${safeOrgName} logo"></div>`
+  // Logo priority: user-uploaded data URL > imported logo URL > org name text
+  const effectiveLogoSrc = logoDataUrl ?? importedLogoUrl;
+  const navLogoHtml = effectiveLogoSrc
+    ? `<div class="nav-logo"><img src="${effectiveLogoSrc}" alt="${safeOrgName} logo"></div>`
     : `<div class="nav-logo">${safeOrgName}</div>`;
-  const footerLogoHtml = logoDataUrl
-    ? `<div class="footer-brand-name"><img src="${logoDataUrl}" alt="${safeOrgName} logo"></div>`
+  const footerLogoHtml = effectiveLogoSrc
+    ? `<div class="footer-brand-name"><img src="${effectiveLogoSrc}" alt="${safeOrgName} logo"></div>`
     : `<div class="footer-brand-name">${safeOrgName}</div>`;
 
   const programsBlock = contentData.programs.map(p => `
