@@ -63,78 +63,254 @@ const STATUS_META: Record<string, { label: string; color: string; icon: React.El
 };
 
 function ConnectAccountDialog({ open, onClose, onConnected }: { open: boolean; onClose: () => void; onConnected: () => void }) {
-  const [oauthLoading, setOauthLoading] = useState<string | null>(null);
+  const [view, setView] = useState<"choose" | "manual-facebook" | "manual-instagram">("choose");
+  const [oauthLoading, setOauthLoading] = useState(false);
+  const [manualLoading, setManualLoading] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [pageName, setPageName] = useState("");
+  const [pageToken, setPageToken] = useState("");
+  const [pageId, setPageId] = useState("");
 
-  const handleOAuthConnect = async (platform: string) => {
+  const resetState = () => {
+    setView("choose");
+    setOauthLoading(false);
+    setManualLoading(false);
     setConnectError(null);
-    setOauthLoading(platform);
+    setPageName("");
+    setPageToken("");
+    setPageId("");
+  };
+
+  const handleClose = () => { resetState(); onClose(); };
+
+  const handleOAuthConnect = async () => {
+    setConnectError(null);
+    setOauthLoading(true);
     try {
-      const result = await api.social.oauth.start(platform);
+      const result = await api.social.oauth.start("twitter");
       if (result.authUrl) {
         window.location.href = result.authUrl;
       } else {
-        setConnectError("Connection could not be started. Please try again or contact support.");
+        setConnectError("Could not start Twitter login. Please try again.");
       }
     } catch {
       setConnectError("Unable to connect right now. Please try again in a moment.");
     } finally {
-      setOauthLoading(null);
+      setOauthLoading(false);
     }
   };
 
+  const handleManualConnect = async () => {
+    const platform = view === "manual-facebook" ? "facebook" : "instagram";
+    if (!pageName.trim()) { setConnectError("Page name is required."); return; }
+    if (!pageToken.trim()) { setConnectError("Access token is required."); return; }
+    setConnectError(null);
+    setManualLoading(true);
+    try {
+      await api.social.accounts.connect({
+        platform,
+        accountName: pageName.trim(),
+        accessToken: pageToken.trim(),
+        accountId: pageId.trim() || undefined,
+      });
+      toast.success(`${platform === "facebook" ? "Facebook" : "Instagram"} page connected!`);
+      resetState();
+      onConnected();
+      onClose();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to save token. Please check your token and try again.";
+      setConnectError(msg);
+    } finally {
+      setManualLoading(false);
+    }
+  };
+
+  const manualPlatform = view === "manual-facebook" ? "facebook" : "instagram";
+  const manualMeta = PLATFORM_META[manualPlatform];
+  const ManualIcon = manualMeta?.icon ?? Facebook;
+
+  const STEPS_FB = [
+    { n: 1, text: <span>Open the <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener noreferrer" className="underline text-primary hover:text-primary/80">Meta Graph API Explorer</a></span> },
+    { n: 2, text: <span>In the top-right dropdown, choose <strong>your Facebook app</strong> (or create a free one)</span> },
+    { n: 3, text: <span>Click <strong>"Generate Access Token"</strong> and log in if prompted</span> },
+    { n: 4, text: <span>Add the permissions <code className="bg-white/10 px-1 rounded text-xs">pages_manage_posts</code> and <code className="bg-white/10 px-1 rounded text-xs">pages_show_list</code></span> },
+    { n: 5, text: <span>Under <strong>User or Page</strong>, select your <strong>Facebook Page</strong></span> },
+    { n: 6, text: <span>Copy the token shown in the <strong>Access Token</strong> field and paste it below</span> },
+  ];
+
+  const STEPS_IG = [
+    { n: 1, text: <span>Make sure your Instagram account is a <strong>Business or Creator</strong> account linked to a Facebook Page</span> },
+    { n: 2, text: <span>Open the <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener noreferrer" className="underline text-primary hover:text-primary/80">Meta Graph API Explorer</a></span> },
+    { n: 3, text: <span>Generate a token with <code className="bg-white/10 px-1 rounded text-xs">instagram_basic</code>, <code className="bg-white/10 px-1 rounded text-xs">instagram_content_publish</code>, and <code className="bg-white/10 px-1 rounded text-xs">pages_show_list</code></span> },
+    { n: 4, text: <span>Select your <strong>Facebook Page</strong> (which has Instagram linked) in the "User or Page" dropdown</span> },
+    { n: 5, text: <span>Copy the Page Access Token and paste it below — also paste your <strong>Instagram Business Account ID</strong> in the ID field</span> },
+  ];
+
+  const steps = view === "manual-facebook" ? STEPS_FB : STEPS_IG;
+
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) { setConnectError(null); } onClose(); }}>
-      <DialogContent className="bg-card border-white/10 text-white max-w-md">
+    <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
+      <DialogContent className="bg-card border-white/10 text-white max-w-lg">
         <DialogHeader>
-          <DialogTitle>Connect Social Account</DialogTitle>
+          <DialogTitle>
+            {view === "choose" ? "Connect Social Account" : (
+              <span className="flex items-center gap-2">
+                <button onClick={() => { setView("choose"); setConnectError(null); }} className="text-slate-400 hover:text-white transition-colors">
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                Connect {manualMeta?.label}
+              </span>
+            )}
+          </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-3">
-          <p className="text-xs text-slate-400">
-            Choose a platform below. You will be redirected to log in and grant Pillar permission to post on your behalf.
-          </p>
-          <div className="flex items-start gap-2 rounded-lg bg-amber-500/5 border border-amber-500/20 px-3 py-2.5">
-            <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-            <p className="text-xs text-amber-400/90 leading-relaxed">
-              Your credentials are encrypted and never shared. You can revoke access anytime from this page or from the platform's own app settings.
+        {view === "choose" && (
+          <div className="space-y-3">
+            <p className="text-xs text-slate-400">
+              Choose a platform to connect. X (Twitter) uses one-click login. Facebook and Instagram use a quick copy-paste setup.
             </p>
-          </div>
-
-          {connectError && (
-            <div className="flex items-start gap-2 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2.5">
-              <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
-              <p className="text-xs text-red-400 leading-relaxed">{connectError}</p>
+            <div className="flex items-start gap-2 rounded-lg bg-amber-500/5 border border-amber-500/20 px-3 py-2.5">
+              <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-400/90 leading-relaxed">
+                Your credentials are encrypted and never shared. You can revoke access anytime from this page or from the platform's settings.
+              </p>
             </div>
-          )}
 
-          {Object.entries(PLATFORM_META).map(([key, meta]) => {
-            const Icon = meta.icon;
-            const isLoading = oauthLoading === key;
-            return (
-              <div key={key} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-4 py-3">
-                <div className="flex items-center gap-2.5">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${meta.bgColor}`}>
-                    <Icon className={`w-4 h-4 ${meta.color}`} />
-                  </div>
-                  <p className="text-sm font-medium text-white">{meta.label}</p>
-                </div>
-                <Button
-                  size="sm"
-                  onClick={() => handleOAuthConnect(key)}
-                  disabled={isLoading || oauthLoading !== null}
-                  className="bg-primary hover:bg-primary/90 h-8 text-xs"
-                >
-                  {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
-                  {isLoading ? "Connecting…" : "Connect"}
-                </Button>
+            {connectError && (
+              <div className="flex items-start gap-2 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2.5">
+                <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-red-400 leading-relaxed">{connectError}</p>
               </div>
-            );
-          })}
-        </div>
+            )}
 
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose} className="text-slate-400 hover:text-white">Cancel</Button>
+            {(["facebook", "instagram"] as const).map((key) => {
+              const meta = PLATFORM_META[key];
+              const Icon = meta.icon;
+              return (
+                <div key={key} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-4 py-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${meta.bgColor}`}>
+                      <Icon className={`w-4 h-4 ${meta.color}`} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-white">{meta.label}</p>
+                      <p className="text-xs text-slate-400">Paste access token</p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => { setConnectError(null); setView(key === "facebook" ? "manual-facebook" : "manual-instagram"); }}
+                    className="bg-primary hover:bg-primary/90 h-8 text-xs"
+                  >
+                    Connect
+                  </Button>
+                </div>
+              );
+            })}
+
+            <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-4 py-3">
+              <div className="flex items-center gap-2.5">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${PLATFORM_META.twitter.bgColor}`}>
+                  <Twitter className={`w-4 h-4 ${PLATFORM_META.twitter.color}`} />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-white">X (Twitter)</p>
+                  <p className="text-xs text-slate-400">One-click login</p>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                onClick={handleOAuthConnect}
+                disabled={oauthLoading}
+                className="bg-primary hover:bg-primary/90 h-8 text-xs"
+              >
+                {oauthLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
+                {oauthLoading ? "Connecting…" : "Connect"}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {(view === "manual-facebook" || view === "manual-instagram") && (
+          <div className="space-y-4">
+            <div className="rounded-lg bg-white/5 border border-white/10 p-3 space-y-2">
+              <p className="text-xs font-semibold text-slate-300 uppercase tracking-wide">How to get your access token</p>
+              <ol className="space-y-1.5">
+                {steps.map((s) => (
+                  <li key={s.n} className="flex items-start gap-2">
+                    <span className="flex-shrink-0 w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] font-bold flex items-center justify-center mt-0.5">{s.n}</span>
+                    <p className="text-xs text-slate-300 leading-relaxed">{s.text}</p>
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            {connectError && (
+              <div className="flex items-start gap-2 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2.5">
+                <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-red-400 leading-relaxed">{connectError}</p>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-400">
+                  {manualPlatform === "facebook" ? "Page Name" : "Account Name"}
+                </Label>
+                <Input
+                  value={pageName}
+                  onChange={(e) => setPageName(e.target.value)}
+                  placeholder={manualPlatform === "facebook" ? "Norwin Rotary Club" : "@norwinrotary"}
+                  className="bg-white/5 border-white/10 text-white text-sm"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-400">
+                  {manualPlatform === "facebook" ? "Page ID" : "Instagram Business Account ID"}{" "}
+                  <span className="text-slate-500">(optional but recommended)</span>
+                </Label>
+                <Input
+                  value={pageId}
+                  onChange={(e) => setPageId(e.target.value)}
+                  placeholder="e.g. 123456789012345"
+                  className="bg-white/5 border-white/10 text-white text-sm font-mono"
+                />
+                <p className="text-[10px] text-slate-500">
+                  Found in your Page's About section or the Graph API Explorer response.
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-400">Access Token</Label>
+                <Input
+                  value={pageToken}
+                  onChange={(e) => setPageToken(e.target.value)}
+                  placeholder="Paste your Page Access Token here"
+                  className="bg-white/5 border-white/10 text-white text-sm font-mono"
+                  type="password"
+                />
+                <div className="flex items-center gap-1.5">
+                  <Lock className="w-3 h-3 text-amber-400/70" />
+                  <p className="text-[10px] text-slate-500">Encrypted and stored securely — never visible again after saving.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <DialogFooter className="gap-2">
+          <Button variant="ghost" onClick={handleClose} className="text-slate-400 hover:text-white">Cancel</Button>
+          {(view === "manual-facebook" || view === "manual-instagram") && (
+            <Button
+              onClick={handleManualConnect}
+              disabled={manualLoading || !pageName.trim() || !pageToken.trim()}
+              className="bg-primary hover:bg-primary/90"
+            >
+              {manualLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <ManualIcon className="w-3.5 h-3.5 mr-1.5" />}
+              {manualLoading ? "Saving…" : `Save ${manualMeta?.label} Connection`}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
