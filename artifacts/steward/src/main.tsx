@@ -29,13 +29,12 @@ function captureTokenFromResponse(res: Response): void {
     if (isMutating) {
       const token = readCsrfToken();
       if (token) {
-        init = {
-          ...init,
-          headers: {
-            "x-csrf-token": token,
-            ...init?.headers,
-          },
-        };
+        // Use the Headers constructor so both plain-object headers and Headers
+        // instances are merged correctly — spread ({ ...headersInstance }) silently
+        // drops all entries because Headers doesn't expose enumerable own properties.
+        const merged = new Headers(init?.headers);
+        merged.set("x-csrf-token", token);
+        init = { ...init, headers: merged };
       }
     }
 
