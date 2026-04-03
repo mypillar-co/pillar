@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { db, sponsorsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { resolveOrgId as resolveOrg } from "../lib/resolveOrg";
+import { scheduleSiteAutoUpdate } from "../lib/scheduleSiteAutoUpdate";
 
 const router = Router();
 
@@ -30,6 +31,8 @@ router.post("/", async (req: Request, res: Response) => {
     status: "active",
   }).returning();
   res.status(201).json(sponsor);
+  // Fire-and-forget: new sponsor may affect the public site's sponsors display
+  scheduleSiteAutoUpdate(orgId).catch(() => {});
 });
 
 export default router;

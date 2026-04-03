@@ -22,6 +22,7 @@ The project is organized as a monorepo containing several distinct packages:
 - `lib/api-client-react/`: Generated React hooks for API interaction.
 - `lib/api-zod/`: Generated Zod schemas for API validation.
 - `lib/db/`: Drizzle ORM schema and PostgreSQL client.
+- `lib/site/`: Site Engine package — deterministic site-building pipeline with 8 adapters, block renderer, page planner, site compiler (CSP), import service, auto-update service, version service, job queue, and feature flag system.
 - `lib/replit-auth-web/`: Client library for Replit Authentication.
 - `scripts/`: One-off utility scripts.
 
@@ -49,9 +50,17 @@ The project is organized as a monorepo containing several distinct packages:
 | tier3 | Total Operations | $149 | $124/mo | + fully autonomous events, AI social content |
 
 ### Core Features
-- **AI Site Builder**: Chat-based interview (8 questions) using AI models to generate and update organizational websites. Includes event data injection, logo upload, Google Fonts typography, Unsplash photography, scroll animations, parallax effects, and responsive hamburger navigation. Sites are Squarespace-quality with CSS custom properties architecture.
+- **AI Site Builder (v1)**: Chat-based interview (8 questions) using AI models to generate and update organizational websites. Includes event data injection, logo upload, Google Fonts typography, Unsplash photography, scroll animations, parallax effects, and responsive hamburger navigation. Sites are Squarespace-quality with CSS custom properties architecture.
   - **Setup Wizard** (Wix ADI-style): Before the interview, users choose a style preset (Classic/Modern/Warm/Minimal), a color theme (6 options with color swatches), and which sections to include (10 sections: hero, about, mission, events, leadership, gallery, contact, news, donate, sponsors). Selections are injected as context before the AI interview starts.
-  - **Website Import**: Users can paste an existing website URL; Pillar fetches it server-side, strips HTML, and uses GPT-4o-mini to extract 10 content fields (name, mission, services, location, schedule, events, contact, audience, style, extra). Extracted data is shown in a review card, and on confirmation all fields are injected as synthetic interview Q&A pairs — skipping the interview entirely and enabling immediate site generation.
+  - **Website Import (v1)**: Users can paste an existing website URL; Pillar fetches it server-side, strips HTML, and uses GPT-4o-mini to extract 10 content fields (name, mission, services, location, schedule, events, contact, audience, style, extra). Extracted data is shown in a review card, and on confirmation all fields are injected as synthetic interview Q&A pairs — skipping the interview entirely and enabling immediate site generation.
+- **Site Engine (v2)** — `/api/site-engine/`: Structured, deterministic website operating system with 7 architectural layers:
+  - Schema layer: `site_pages` + `site_blocks` + `site_themes` + `site_nav_items` + 12 new tables (site_versions, site_modules, site_import_runs, site_import_findings, site_render_cache, site_block_bindings, site_data_sources, job_queue, org_activity_stream, org_plan, org_feature_flags, org_usage_limits)
+  - Org isolation: every query carries `WHERE org_id = ?`; soft-delete pattern with `deleted_at IS NULL`
+  - Deterministic engine: `eventBehaviorService` → `siteProfileService` → `pagePlanner` (6 strategies) → `blockRenderer` → `siteCompiler` (with CSP headers)
+  - 8 adapter services: organization, event, sponsor, vendor, contact, announcement, social, payment
+  - Job queue service (`job_queue` table), versioned publish history (`site_versions`), block-level render cache (`site_render_cache`)
+  - Import pipeline: `siteImportService` scrapes existing sites → `siteImportFindings` for structured review
+  - AI touches only structured `contentJson` payloads; identity blocks locked against AI modification
 - **Guided Tour**: First-time dashboard visitors see a 5-step guided tour highlighting key features (Overview, Site Builder, Events, Social, Payments). Uses localStorage to track completion.
 - **Event Dashboard**: Management of events, vendors, sponsors, contacts, and payments.
 - **Payment Collection (Stripe Connect)**: Organizations connect their bank accounts via Stripe Express to collect ticket sales, vendor fees, and sponsorship payments. Pillar takes 2.9% + $0.30 per transaction. Public ticket purchase pages at `/events/:slug/tickets` with Stripe Checkout. Atomic inventory reservation prevents overselling. Webhook handles `checkout.session.completed`, `checkout.session.expired` (releases inventory), and `charge.refunded` (marks refunds). Tax liability notice and nonprofit support built into Payments page.

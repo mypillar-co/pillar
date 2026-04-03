@@ -13,6 +13,7 @@ import { eq, and, asc, desc, gte, sum, sql } from "drizzle-orm";
 import OpenAI from "openai";
 import { refreshSiteEventsSection } from "./sites";
 import { resolveFullOrg, getFullOrgForUser } from "../lib/resolveOrg";
+import { scheduleSiteAutoUpdate } from "../lib/scheduleSiteAutoUpdate";
 
 const router = Router();
 
@@ -464,6 +465,8 @@ router.post("/", async (req: Request, res: Response) => {
     })
     .returning();
   res.status(201).json(event);
+  // Fire-and-forget: new event may affect the public site's events display
+  scheduleSiteAutoUpdate(org.id).catch(() => {});
 });
 
 // PUT /api/events/:id
@@ -500,6 +503,8 @@ router.put("/:id", async (req: Request, res: Response) => {
     return;
   }
   res.json(updated);
+  // Fire-and-forget: event changes may affect the public site
+  scheduleSiteAutoUpdate(org.id).catch(() => {});
 });
 
 // DELETE /api/events/:id
@@ -522,8 +527,9 @@ router.post("/:id/submit", async (req: Request, res: Response) => {
   if (!event.requiresApproval) {
     const [updated] = await db.update(eventsTable).set({ status: "published" }).where(eq(eventsTable.id, eventId)).returning();
     res.json(updated);
-    // Fire-and-forget: update the org's website events section
+    // Fire-and-forget: refresh events section + enqueue full block auto-update
     refreshSiteEventsSection(org.id).catch(() => {});
+    scheduleSiteAutoUpdate(org.id).catch(() => {});
     return;
   }
   await db.insert(eventApprovalsTable).values({
@@ -558,8 +564,9 @@ router.post("/:id/approve", async (req: Request, res: Response) => {
   const [updated] = await db.update(eventsTable).set({ status: "published" }).where(and(eq(eventsTable.id, eventId), eq(eventsTable.orgId, org.id))).returning();
   if (!updated) { res.status(404).json({ error: "Event not found" }); return; }
   res.json(updated);
-  // Fire-and-forget: update the org's website events section
+  // Fire-and-forget: refresh events section + enqueue full block auto-update
   refreshSiteEventsSection(org.id).catch(() => {});
+  scheduleSiteAutoUpdate(org.id).catch(() => {});
 });
 
 // POST /api/events/:id/reject

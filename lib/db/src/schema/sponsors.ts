@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, timestamp, index } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const sponsorsTable = pgTable("sponsors", {
@@ -12,6 +12,9 @@ export const sponsorsTable = pgTable("sponsors", {
   logoUrl: text("logo_url"),
   status: varchar("status").default("active"),
   notes: text("notes"),
+  tierRank: integer("tier_rank").default(0),
+  siteVisible: boolean("site_visible").default(true),
+  siteDisplayPriority: integer("site_display_priority").default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => ({

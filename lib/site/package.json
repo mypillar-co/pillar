@@ -1,0 +1,21 @@
+{
+  "name": "@workspace/site",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./schema": "./schema/index.ts",
+    "./services": "./services/index.ts",
+    "./types": "./types/index.ts",
+    "./utils": "./utils/index.ts"
+  },
+  "dependencies": {
+    "@workspace/db": "workspace:*",
+    "drizzle-orm": "catalog:",
+    "openai": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:"
+  }
+}
