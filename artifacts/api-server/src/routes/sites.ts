@@ -188,8 +188,24 @@ Keep every response under 60 words. Stay conversational and encouraging. Never s
 });
 
 // ─── Import from existing URL ─────────────────────────────────────────────────
-const FETCH_TIMEOUT_MS = 12_000;
-const MAX_TEXT_CHARS = 12_000;
+const FETCH_TIMEOUT_MS = 15_000;
+const MAX_TEXT_CHARS = 20_000;
+
+/** Read the real image URL from an element — handles lazy-loading patterns */
+function getRealSrc(el: ReturnType<ReturnType<typeof cheerioLoad>>, $: ReturnType<typeof cheerioLoad>): string {
+  const attrs = ["src", "data-src", "data-lazy-src", "data-lazy", "data-original", "data-image"];
+  for (const attr of attrs) {
+    const val = $(el).attr(attr)?.trim();
+    if (val && !val.startsWith("data:") && val.length > 4) return val;
+  }
+  // srcset fallback — take the first descriptor
+  const srcset = $(el).attr("srcset")?.trim();
+  if (srcset) {
+    const first = srcset.split(",")[0]?.trim().split(/\s+/)[0];
+    if (first && !first.startsWith("data:")) return first;
+  }
+  return "";
+}
 
 interface ExtractedPage {
   title: string;
@@ -202,6 +218,8 @@ interface ExtractedPage {
   heroUrl: string;
   /** Up to 4 additional absolute image URLs from the page body */
   imageUrls: string[];
+  /** Structured data extracted from JSON-LD blocks (name, address, phone, etc.) */
+  jsonLdText: string;
   /** Branding colors found in the page CSS (hex values) */
   brandColors: string[];
   bodyText: string;
@@ -239,58 +257,90 @@ function extractPageContent(html: string, baseUrl?: URL): ExtractedPage {
   const _plainFaviconHref =
     $('link[rel="icon"]').attr("href") ?? $('link[rel="shortcut icon"]').attr("href") ?? "";
 
+  // ── Extract JSON-LD structured data BEFORE stripping scripts ─────────────
+  let jsonLdText = "";
+  $('script[type="application/ld+json"]').each((_i, el) => {
+    try {
+      const raw = $(el).html()?.trim() ?? "";
+      const obj = JSON.parse(raw) as Record<string, unknown>;
+      // Flatten useful fields
+      const parts: string[] = [];
+      const pick = (keys: string[]) => keys.map(k => obj[k]).filter(Boolean).join(" — ");
+      if (obj.name) parts.push(`Name: ${obj.name}`);
+      if (obj.description) parts.push(`Description: ${obj.description}`);
+      if (obj.telephone) parts.push(`Phone: ${obj.telephone}`);
+      if (obj.email) parts.push(`Email: ${obj.email}`);
+      if (obj.address) {
+        const a = obj.address as Record<string, unknown>;
+        const addr = pick.call(null, ["streetAddress", "addressLocality", "addressRegion", "postalCode"].filter(k => a[k]));
+        if (addr) parts.push(`Address: ${addr}`);
+      }
+      if (obj.url) parts.push(`Website: ${obj.url}`);
+      if (obj.openingHours) parts.push(`Hours: ${obj.openingHours}`);
+      if (parts.length > 0) jsonLdText += parts.join("\n") + "\n";
+    } catch { /* ignore malformed JSON-LD */ }
+  });
+
   // Pull brand colors from inline styles / meta theme-color
   const themeColor = $('meta[name="theme-color"]').attr("content")?.trim() ?? "";
   const brandColors: string[] = [];
   if (themeColor && /^#[0-9a-f]{3,8}$/i.test(themeColor)) brandColors.push(themeColor);
 
-  // ── Strip all non-visible elements, including JSON-LD <script> tags ───────
-  $(
-    "script, style, noscript, head, meta, link, iframe, svg, canvas, template, [aria-hidden='true']"
-  ).remove();
-  $("script").remove(); // extra pass catches mis-placed JSON-LD
-
-  // ── Extract body images AFTER removing head/script ────────────────────────
-  // Collect <img> src attributes, preferring larger images over icons
-  const bodyImageUrls: string[] = [];
-  $("img[src]").each((_i, el) => {
-    const src = $(el).attr("src")?.trim() ?? "";
-    if (!src) return;
-    const abs = toAbsoluteUrl(src, base);
-    if (!abs) return;
-    // Skip tiny images (icons, spacers) by heuristic name/size checks
-    const lower = abs.toLowerCase();
-    if (/icon|logo|avatar|sprite|pixel|badge|seal|emblem|1x1|blank/i.test(lower)) return;
-    if (bodyImageUrls.length < 6) bodyImageUrls.push(abs);
-  });
-
-  // Determine best logo URL using a priority chain:
-  // 1. Explicit logo markup (src/alt/class contains "logo")
-  // 2. First image inside a header/nav (almost always the org logo)
-  // 3. Image inside a home-page anchor link
+  // ── Logo detection BEFORE stripping — check all lazy-load src attrs ───────
+  // Priority chain:
+  // 1. Img with "logo" in src/alt/class (explicit branding markup)
+  // 2. First img in header/nav (almost always the org logo)
+  // 3. First img inside a home-link anchor
   // 4. og:image
-  // 5. Apple-touch-icon (high-res, designed for display — better than tiny favicon)
-  // 6. Standard favicon (last resort — often tiny/blurry)
+  // 5. Apple-touch-icon (high-res icon designed for display)
+  // 6. Standard favicon (last resort)
   const appleTouchIconAbs = _appleTouchIconHref ? toAbsoluteUrl(_appleTouchIconHref, base) : null;
   const plainFaviconAbs = _plainFaviconHref ? toAbsoluteUrl(_plainFaviconHref, base) : null;
 
-  const explicitLogoSrc = $('img[src*="logo" i], img[alt*="logo" i], img[class*="logo" i]').first().attr("src");
-  const explicitLogoAbs = explicitLogoSrc ? toAbsoluteUrl(explicitLogoSrc, base) : null;
+  let explicitLogoAbs: string | null = null;
+  $('img[src*="logo" i], img[alt*="logo" i], img[class*="logo" i], img[id*="logo" i], img[data-src*="logo" i]').each((_i, el) => {
+    if (explicitLogoAbs) return;
+    const src = getRealSrc($(el), $);
+    if (src) explicitLogoAbs = toAbsoluteUrl(src, base);
+  });
 
-  const headerNavLogoSrc =
-    $("header img, nav img, #header img, #nav img, .header img, .navbar img, .nav img, .site-header img, .top-bar img").first().attr("src");
-  const headerNavLogoAbs = headerNavLogoSrc ? toAbsoluteUrl(headerNavLogoSrc, base) : null;
+  let headerNavLogoAbs: string | null = null;
+  $("header img, nav img, #header img, #nav img, .header img, .navbar img, .nav img, .site-header img, .top-bar img, .site-branding img, .brand img, .logo img").each((_i, el) => {
+    if (headerNavLogoAbs) return;
+    const src = getRealSrc($(el), $);
+    if (src) headerNavLogoAbs = toAbsoluteUrl(src, base);
+  });
 
-  const homeLinkLogoSrc =
-    $('a[href="/"] img, a[href="./"] img, a[href="index.html"] img, a[href="../"] img').first().attr("src");
-  const homeLinkLogoAbs = homeLinkLogoSrc ? toAbsoluteUrl(homeLinkLogoSrc, base) : null;
+  let homeLinkLogoAbs: string | null = null;
+  $('a[href="/"] img, a[href="./"] img, a[href="index.html"] img, a[href="../"] img, .navbar-brand img, .site-logo img').each((_i, el) => {
+    if (homeLinkLogoAbs) return;
+    const src = getRealSrc($(el), $);
+    if (src) homeLinkLogoAbs = toAbsoluteUrl(src, base);
+  });
+
+  // ── Strip all non-visible elements ────────────────────────────────────────
+  $(
+    "script, style, noscript, head, meta, link, iframe, svg, canvas, template, [aria-hidden='true']"
+  ).remove();
+
+  // ── Extract body images AFTER removing head/script ────────────────────────
+  const bodyImageUrls: string[] = [];
+  $("img").each((_i, el) => {
+    const src = getRealSrc($(el), $);
+    if (!src) return;
+    const abs = toAbsoluteUrl(src, base);
+    if (!abs) return;
+    const lower = abs.toLowerCase();
+    if (/icon|logo|avatar|sprite|pixel|badge|seal|emblem|1x1|blank/i.test(lower)) return;
+    if (bodyImageUrls.length < 8) bodyImageUrls.push(abs);
+  });
 
   const logoUrl =
     explicitLogoAbs ??
     headerNavLogoAbs ??
     homeLinkLogoAbs ??
-    ogImageAbs ??
     appleTouchIconAbs ??
+    ogImageAbs ??
     plainFaviconAbs ??
     "";
 
@@ -325,6 +375,7 @@ function extractPageContent(html: string, baseUrl?: URL): ExtractedPage {
   const parts: string[] = [];
   if (ogTitle || title) parts.push(`Page title: ${ogTitle || title}`);
   if (ogDescription || metaDescription) parts.push(`Description: ${ogDescription || metaDescription}`);
+  if (jsonLdText) parts.push(`=== STRUCTURED DATA ===\n${jsonLdText}`);
   if (bodyText) parts.push(bodyText);
 
   return {
@@ -335,6 +386,7 @@ function extractPageContent(html: string, baseUrl?: URL): ExtractedPage {
     logoUrl,
     heroUrl,
     imageUrls,
+    jsonLdText,
     brandColors,
     bodyText,
     combined: parts.join("\n\n"),
@@ -500,12 +552,64 @@ router.post("/import-url", async (req: Request, res: Response) => {
   }
 
   const pageContent = extractPageContent(rawHtml, parsedUrl);
-  const plainText = pageContent.combined.slice(0, MAX_TEXT_CHARS);
 
-  if (plainText.length < 50) {
+  if (pageContent.combined.length < 50) {
     res.status(422).json({ error: "Not enough readable content was found on that page. Try a different URL." });
     return;
   }
+
+  // ── Sub-page crawling — fetch About / Contact / Events / Programs pages ───
+  // Find internal links matching keyword patterns, fetch up to 2 extra pages
+  const subPageKeywords = /about|contact|programs?|services?|events?|history|mission|who-we-are|what-we-do/i;
+  const seenUrls = new Set([parsedUrl.href]);
+  const subPageTexts: string[] = [];
+
+  try {
+    const homeDom = cheerioLoad(rawHtml);
+    const subPageLinks: string[] = [];
+    homeDom("a[href]").each((_i, el) => {
+      if (subPageLinks.length >= 6) return;
+      const href = homeDom(el).attr("href")?.trim() ?? "";
+      if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) return;
+      try {
+        const abs = new URL(href, parsedUrl).href;
+        // Only same-origin internal links matching our keywords
+        if (new URL(abs).hostname !== parsedUrl.hostname) return;
+        if (!subPageKeywords.test(abs) && !subPageKeywords.test(homeDom(el).text())) return;
+        if (!seenUrls.has(abs)) {
+          seenUrls.add(abs);
+          subPageLinks.push(abs);
+        }
+      } catch { /* ignore invalid URLs */ }
+    });
+
+    // Fetch up to 2 sub-pages in parallel with short timeout
+    const SUB_TIMEOUT = 8_000;
+    const subFetches = subPageLinks.slice(0, 2).map(async (link) => {
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), SUB_TIMEOUT);
+        const resp = await safeFetch(new URL(link), {
+          signal: ctrl.signal,
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; Pillar-Importer/1.0; +https://mypillar.co)", Accept: "text/html" },
+        });
+        clearTimeout(t);
+        if (!resp.ok) return;
+        const ct = resp.headers.get("content-type") ?? "";
+        if (!ct.includes("text/html")) return;
+        const subHtml = await resp.text();
+        const subContent = extractPageContent(subHtml, new URL(link));
+        if (subContent.bodyText.length > 100) {
+          subPageTexts.push(`=== SUB-PAGE: ${link} ===\n${subContent.bodyText.slice(0, 4000)}`);
+        }
+      } catch { /* ignore sub-page errors */ }
+    });
+    await Promise.all(subFetches);
+  } catch { /* sub-page crawling is best-effort */ }
+
+  // ── Combine all scraped content ───────────────────────────────────────────
+  const allContent = [pageContent.combined, ...subPageTexts].join("\n\n");
+  const plainText = allContent.slice(0, MAX_TEXT_CHARS);
 
   // Build a structured context block that puts the most reliable signals first
   const metaBlock = [
@@ -513,25 +617,27 @@ router.post("/import-url", async (req: Request, res: Response) => {
     pageContent.ogDescription || pageContent.metaDescription ? `Meta description: ${pageContent.ogDescription || pageContent.metaDescription}` : "",
   ].filter(Boolean).join("\n");
 
-  const extractPrompt = `You are a data extraction assistant helping build a new, professional website for a civic organization. Analyze the content scraped from their existing website and extract key information to use as source material.
+  const extractPrompt = `You are a data extraction assistant helping build a new, professional website for a civic organization. Analyze the content scraped from their existing website (homepage + sub-pages) and extract key information to use as source material.
 
 IMPORTANT RULES:
 - Use the page title and meta description as the most authoritative source for the organization's name and mission
 - Ignore any raw JSON, code snippets, or technical strings in the content
 - Write mission/services in clean, readable prose — never output raw data or code
+- Extract ALL programs, services, and activities you can find — be thorough
+- Extract ALL events and recurring activities mentioned
 - If a field is genuinely not found, use ""
 
 Return a JSON object with EXACTLY these keys:
 - name: the organization's name (from title/headings, not JSON)
 - mission: their mission or purpose in 1-2 clear, human-readable sentences
-- services: programs, services, activities they offer (clean prose or comma-separated)
+- services: ALL programs, services, and activities they offer (clean prose or comma-separated list)
 - location: physical address or meeting place
 - schedule: regular meeting schedule, hours, or calendar info
-- events: upcoming or recurring events and fundraisers
+- events: upcoming or recurring events and fundraisers — be thorough
 - contact: email addresses, phone numbers, website links found
 - audience: who they serve (members, community, volunteers, youth, etc.)
 - style: any branding colors, design style, or visual identity cues
-- extra: anything else notable — history, awards, recent news, calls to action
+- extra: history, awards, recent news, leadership, calls to action, anything else notable
 
 Return ONLY valid JSON, no markdown, no explanation.
 
