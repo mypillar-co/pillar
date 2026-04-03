@@ -497,6 +497,7 @@ router.post("/chat", async (req: Request, res: Response) => {
         ticketPrice: args.ticketPrice ? Number(args.ticketPrice) : undefined,
         ticketCapacity: args.ticketCapacity ? Number(args.ticketCapacity) : undefined,
         hasRegistration: args.hasRegistration === true,
+        hasSponsorSection: args.hasSponsorSection === true,
         status: "published",
         isActive: true,
         showOnPublicSite: true,

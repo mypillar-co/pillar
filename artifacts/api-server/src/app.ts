@@ -9,9 +9,18 @@ import { sendErrorAlert } from "./lib/errorAlert";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { WebhookHandlers } from "./webhookHandlers";
-import { db, sitesTable, domainsTable, organizationsTable, eventsTable, ticketTypesTable } from "@workspace/db";
-import { eq, or, and } from "drizzle-orm";
+import { db, sitesTable, domainsTable, organizationsTable, eventsTable, ticketTypesTable, eventSponsorsTable, sponsorsTable } from "@workspace/db";
+import { eq, or, and, asc } from "drizzle-orm";
 import { buildEventPage, buildEventSuccessPage, buildEventNotFoundPage } from "./eventPage";
+import {
+  buildEventsListingPage,
+  buildEventDetailPage,
+  buildEventNotFoundPage as buildPublicEventNotFoundPage,
+  type PublicEvent,
+  type PublicTicketType,
+  type PublicSponsor,
+  type OrgInfo,
+} from "./publicEventPages";
 
 const app: Express = express();
 
@@ -232,6 +241,106 @@ app.use(async (req, res, next) => {
 
   if (resolved) {
     const { orgSlug, isPreview } = resolved;
+
+    // ── Events listing page: <orgSlug>.mypillar.co/events ─────────────────────
+    if (req.path === "/events" && !isPreview) {
+      const [orgRow] = await db
+        .select({ id: organizationsTable.id, name: organizationsTable.name, slug: organizationsTable.slug, stripeConnectAccountId: organizationsTable.stripeConnectAccountId, stripeConnectOnboarded: organizationsTable.stripeConnectOnboarded, senderEmail: organizationsTable.senderEmail, tier: organizationsTable.tier })
+        .from(organizationsTable)
+        .where(eq(organizationsTable.slug, orgSlug));
+      const [site] = await db.select({ generatedHtml: sitesTable.generatedHtml }).from(sitesTable).where(eq(sitesTable.orgSlug, orgSlug));
+      const siteHtml = site?.generatedHtml ?? null;
+
+      if (!orgRow) { res.status(404).send(SITE_NOT_FOUND_HTML); return; }
+
+      const org: OrgInfo = { name: orgRow.name, slug: orgRow.slug ?? orgSlug, stripeConnectAccountId: orgRow.stripeConnectAccountId ?? null, stripeConnectOnboarded: orgRow.stripeConnectOnboarded ?? null, contactEmail: orgRow.senderEmail ?? null };
+
+      const eventRows = await db
+        .select()
+        .from(eventsTable)
+        .where(and(eq(eventsTable.orgId, orgRow.id), eq(eventsTable.status, "published"), eq(eventsTable.isActive, true)))
+        .orderBy(asc(eventsTable.startDate));
+
+      const events: PublicEvent[] = eventRows.map(e => ({
+        id: e.id, name: e.name, slug: e.slug, description: e.description ?? null,
+        eventType: e.eventType ?? null, startDate: e.startDate ?? null, endDate: e.endDate ?? null,
+        startTime: e.startTime ?? null, endTime: e.endTime ?? null, location: e.location ?? null,
+        isTicketed: e.isTicketed ?? null, ticketPrice: e.ticketPrice ?? null, ticketCapacity: e.ticketCapacity ?? null,
+        hasRegistration: e.hasRegistration ?? null, hasSponsorSection: (e as Record<string,unknown>).hasSponsorSection as boolean ?? null,
+        registrationClosed: e.registrationClosed ?? null, imageUrl: e.imageUrl ?? null, featured: e.featured ?? null,
+      }));
+
+      const html = buildEventsListingPage({ events, org, siteHtml });
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store, no-cache");
+      res.send(html);
+      return;
+    }
+
+    // ── Event detail page: <orgSlug>.mypillar.co/events/:slug ─────────────────
+    const eventDetailMatch = req.path.match(/^\/events\/([^/]+)$/);
+    if (eventDetailMatch && !isPreview) {
+      const eventSlug = eventDetailMatch[1];
+      const [orgRow] = await db
+        .select({ id: organizationsTable.id, name: organizationsTable.name, slug: organizationsTable.slug, stripeConnectAccountId: organizationsTable.stripeConnectAccountId, stripeConnectOnboarded: organizationsTable.stripeConnectOnboarded, senderEmail: organizationsTable.senderEmail })
+        .from(organizationsTable)
+        .where(eq(organizationsTable.slug, orgSlug));
+      const [site] = await db.select({ generatedHtml: sitesTable.generatedHtml }).from(sitesTable).where(eq(sitesTable.orgSlug, orgSlug));
+      const siteHtml = site?.generatedHtml ?? null;
+
+      if (!orgRow) { res.status(404).send(SITE_NOT_FOUND_HTML); return; }
+
+      const org: OrgInfo = { name: orgRow.name, slug: orgRow.slug ?? orgSlug, stripeConnectAccountId: orgRow.stripeConnectAccountId ?? null, stripeConnectOnboarded: orgRow.stripeConnectOnboarded ?? null, contactEmail: orgRow.senderEmail ?? null };
+
+      const [eventRow] = await db
+        .select()
+        .from(eventsTable)
+        .where(and(eq(eventsTable.slug, eventSlug), eq(eventsTable.orgId, orgRow.id), eq(eventsTable.status, "published"), eq(eventsTable.isActive, true)));
+
+      if (!eventRow) {
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.status(404).send(buildPublicEventNotFoundPage(org, siteHtml));
+        return;
+      }
+
+      const event: PublicEvent = {
+        id: eventRow.id, name: eventRow.name, slug: eventRow.slug, description: eventRow.description ?? null,
+        eventType: eventRow.eventType ?? null, startDate: eventRow.startDate ?? null, endDate: eventRow.endDate ?? null,
+        startTime: eventRow.startTime ?? null, endTime: eventRow.endTime ?? null, location: eventRow.location ?? null,
+        isTicketed: eventRow.isTicketed ?? null, ticketPrice: eventRow.ticketPrice ?? null, ticketCapacity: eventRow.ticketCapacity ?? null,
+        hasRegistration: eventRow.hasRegistration ?? null, hasSponsorSection: (eventRow as Record<string,unknown>).hasSponsorSection as boolean ?? null,
+        registrationClosed: eventRow.registrationClosed ?? null, imageUrl: eventRow.imageUrl ?? null, featured: eventRow.featured ?? null,
+      };
+
+      const [ticketTypeRows, sponsorRows] = await Promise.all([
+        db.select().from(ticketTypesTable).where(and(eq(ticketTypesTable.eventId, eventRow.id), eq(ticketTypesTable.isActive, true))),
+        event.hasSponsorSection
+          ? db.select({ sponsorId: eventSponsorsTable.sponsorId, tier: eventSponsorsTable.tier, tierRank: sponsorsTable.tierRank, name: sponsorsTable.name, logoUrl: sponsorsTable.logoUrl, website: sponsorsTable.website })
+              .from(eventSponsorsTable)
+              .innerJoin(sponsorsTable, eq(eventSponsorsTable.sponsorId, sponsorsTable.id))
+              .where(and(eq(eventSponsorsTable.eventId, eventRow.id), eq(sponsorsTable.siteVisible, true), eq(sponsorsTable.status, "active")))
+          : Promise.resolve([]),
+      ]);
+
+      const ticketTypes: PublicTicketType[] = ticketTypeRows.map(tt => ({
+        id: tt.id, name: tt.name, description: tt.description ?? null,
+        price: tt.price, quantity: tt.quantity ?? null, sold: tt.sold,
+      }));
+
+      const sponsors: PublicSponsor[] = sponsorRows.map(s => ({
+        sponsorId: s.sponsorId, name: s.name, tier: s.tier ?? null,
+        tierRank: s.tierRank ?? null, logoUrl: s.logoUrl ?? null, website: s.website ?? null,
+      }));
+
+      const html = buildEventDetailPage({
+        event, ticketTypes, sponsors, org, siteHtml,
+        cancelled: req.query.cancelled === "true",
+      });
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store, no-cache");
+      res.send(html);
+      return;
+    }
 
     // ── Event pages: <orgSlug>.mypillar.co/events/:eventSlug/tickets[/success] ──
     const eventTicketsMatch = req.path.match(/^\/events\/([^/]+)\/tickets(\/success)?$/);
