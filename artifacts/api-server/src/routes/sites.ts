@@ -234,12 +234,10 @@ function extractPageContent(html: string, baseUrl?: URL): ExtractedPage {
   const ogImage = $('meta[property="og:image"]').attr("content")?.trim() ?? "";
   const ogImageAbs = ogImage ? toAbsoluteUrl(ogImage, base) : null;
 
-  // Favicon as logo fallback
-  const faviconHref =
-    $('link[rel="icon"]').attr("href") ??
-    $('link[rel="shortcut icon"]').attr("href") ??
-    $('link[rel="apple-touch-icon"]').attr("href") ?? "";
-  const faviconAbs = faviconHref ? toAbsoluteUrl(faviconHref, base) : null;
+  // Favicon/touch-icon hrefs extracted before head is stripped (used later for logo fallback)
+  const _appleTouchIconHref = $('link[rel="apple-touch-icon"]').attr("href") ?? "";
+  const _plainFaviconHref =
+    $('link[rel="icon"]').attr("href") ?? $('link[rel="shortcut icon"]').attr("href") ?? "";
 
   // Pull brand colors from inline styles / meta theme-color
   const themeColor = $('meta[name="theme-color"]').attr("content")?.trim() ?? "";
@@ -266,10 +264,35 @@ function extractPageContent(html: string, baseUrl?: URL): ExtractedPage {
     if (bodyImageUrls.length < 6) bodyImageUrls.push(abs);
   });
 
-  // Determine best logo URL: prefer a src that looks like a logo, then og:image, favicon
-  const logoImgSrc = $('img[src*="logo"], img[alt*="logo" i], img[class*="logo" i]').first().attr("src");
-  const logoImgAbs = logoImgSrc ? toAbsoluteUrl(logoImgSrc, base) : null;
-  const logoUrl = logoImgAbs ?? ogImageAbs ?? faviconAbs ?? "";
+  // Determine best logo URL using a priority chain:
+  // 1. Explicit logo markup (src/alt/class contains "logo")
+  // 2. First image inside a header/nav (almost always the org logo)
+  // 3. Image inside a home-page anchor link
+  // 4. og:image
+  // 5. Apple-touch-icon (high-res, designed for display — better than tiny favicon)
+  // 6. Standard favicon (last resort — often tiny/blurry)
+  const appleTouchIconAbs = _appleTouchIconHref ? toAbsoluteUrl(_appleTouchIconHref, base) : null;
+  const plainFaviconAbs = _plainFaviconHref ? toAbsoluteUrl(_plainFaviconHref, base) : null;
+
+  const explicitLogoSrc = $('img[src*="logo" i], img[alt*="logo" i], img[class*="logo" i]').first().attr("src");
+  const explicitLogoAbs = explicitLogoSrc ? toAbsoluteUrl(explicitLogoSrc, base) : null;
+
+  const headerNavLogoSrc =
+    $("header img, nav img, #header img, #nav img, .header img, .navbar img, .nav img, .site-header img, .top-bar img").first().attr("src");
+  const headerNavLogoAbs = headerNavLogoSrc ? toAbsoluteUrl(headerNavLogoSrc, base) : null;
+
+  const homeLinkLogoSrc =
+    $('a[href="/"] img, a[href="./"] img, a[href="index.html"] img, a[href="../"] img').first().attr("src");
+  const homeLinkLogoAbs = homeLinkLogoSrc ? toAbsoluteUrl(homeLinkLogoSrc, base) : null;
+
+  const logoUrl =
+    explicitLogoAbs ??
+    headerNavLogoAbs ??
+    homeLinkLogoAbs ??
+    ogImageAbs ??
+    appleTouchIconAbs ??
+    plainFaviconAbs ??
+    "";
 
   // Hero: og:image first, then first non-logo body image
   const heroUrl = ogImageAbs ?? (bodyImageUrls.length > 0 ? bodyImageUrls[0] : "") ?? "";
