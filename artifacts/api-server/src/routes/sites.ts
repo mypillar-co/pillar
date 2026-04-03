@@ -971,6 +971,7 @@ function buildFeaturedEventSection(
   event: EventRow,
   esc: (s: string) => string,
   accentHex: string,
+  orgSlug: string,
 ): string {
   const dateObj = event.startDate ? new Date(event.startDate + "T00:00:00") : null;
   const day = dateObj ? String(dateObj.getDate()) : "";
@@ -980,7 +981,7 @@ function buildFeaturedEventSection(
     ? `🕐 ${esc(event.startTime)}${event.endTime ? ` – ${esc(event.endTime)}` : ""}`
     : "";
   const { label: ctaLabel } = inferEventCta(event.name, event.description ?? "");
-  const eventUrl = event.slug ? `https://mypillar.co/events/${event.slug}/tickets` : null;
+  const eventUrl = event.slug ? `https://${orgSlug}.mypillar.co/events/${event.slug}/tickets` : null;
   const primaryCta = eventUrl
     ? `<a href="${eventUrl}" target="_blank" rel="noopener noreferrer" class="btn-primary">${event.hasRegistration ? esc(ctaLabel) : "Learn More"}</a>`
     : `<a href="#contact" class="btn-primary">${esc(ctaLabel)}</a>`;
@@ -1466,7 +1467,7 @@ Rules: Use REAL content only — never lorem ipsum. Make programs specific to th
     const day = dateObj ? String(dateObj.getDate()) : "";
     const month = dateObj ? dateObj.toLocaleDateString("en-US", { month: "short" }).toUpperCase() : "";
     const timeStr = e.startTime ? `${e.startTime}${e.endTime ? ` – ${e.endTime}` : ""}` : "";
-    const eventUrl = e.slug ? `https://mypillar.co/events/${e.slug}/tickets` : null;
+    const eventUrl = e.slug ? `https://${slug}.mypillar.co/events/${e.slug}/tickets` : null;
     const registerBtn = e.hasRegistration && eventUrl
       ? `<a href="${eventUrl}" target="_blank" rel="noopener noreferrer" class="btn-primary" style="margin-top:0.5rem;display:inline-block;padding:0.5rem 1.25rem;font-size:0.85rem">Register</a>`
       : eventUrl
@@ -1588,7 +1589,7 @@ Rules: Use REAL content only — never lorem ipsum. Make programs specific to th
     ?? null;
 
   const featuredEventSection = plan.showFeaturedEvent && featuredEventCandidate
-    ? buildFeaturedEventSection(featuredEventCandidate, esc, contentData.accentHex || "#c9a84c")
+    ? buildFeaturedEventSection(featuredEventCandidate, esc, contentData.accentHex || "#c9a84c", slug)
     : "";
 
   // ── Sponsor strip — parse from extras text ────────────────────────────────
@@ -1936,7 +1937,7 @@ router.post("/sync-events", async (req: Request, res: Response) => {
     const day = dateObj ? String(dateObj.getDate()) : "";
     const month = dateObj ? dateObj.toLocaleDateString("en-US", { month: "short" }).toUpperCase() : "";
     const timeStr = e.startTime ? `${e.startTime}${e.endTime ? ` – ${e.endTime}` : ""}` : "";
-    const eventUrl = e.slug ? `https://mypillar.co/events/${e.slug}/tickets` : null;
+    const eventUrl = e.slug ? `https://${org.slug}.mypillar.co/events/${e.slug}/tickets` : null;
     const registerBtn = e.hasRegistration && eventUrl
       ? `<a href="${eventUrl}" target="_blank" rel="noopener noreferrer" class="btn-primary" style="margin-top:0.5rem;display:inline-block;padding:0.5rem 1.25rem;font-size:0.85rem">Register</a>`
       : eventUrl
@@ -1982,7 +1983,30 @@ router.post("/sync-events", async (req: Request, res: Response) => {
     updatedHtml = updatedHtml.replace(/<section[^>]*\bid="contact"/, `${newEventsSectionHtml}\n  <section id="contact"`);
   }
 
-  await db.update(sitesTable).set({ proposedHtml: updatedHtml }).where(eq(sitesTable.orgId, org.id));
+  // Ensure "Events" link appears in desktop nav, mobile menu, and footer (add if missing)
+  if (!updatedHtml.includes('href="#events"')) {
+    updatedHtml = updatedHtml
+      // Desktop nav: insert Events between Programs and Contact
+      .replace(
+        /(<a href="#programs"[^<]*<\/a>)([\s\S]*?)(<a href="#contact")/,
+        `$1$2<a href="#events">Events</a>\n        $3`,
+      )
+      // Mobile menu: insert Events between Programs and Contact
+      .replace(
+        /(<a href="#programs" class="mobile-link"[^<]*<\/a>)([\s\S]*?)(<a href="#contact" class="mobile-link")/,
+        `$1$2<a href="#events" class="mobile-link">Events</a>\n    $3`,
+      )
+      // Footer nav: insert Events between Programs and Contact
+      .replace(
+        /(<li><a href="#programs"[^<]*<\/a><\/li>)([\s\S]*?)(<li><a href="#contact")/,
+        `$1$2<li><a href="#events">Events</a></li>\n            $3`,
+      );
+  }
+
+  // Auto-apply: save to both proposedHtml (preview) and generatedHtml (live site)
+  await db.update(sitesTable)
+    .set({ generatedHtml: updatedHtml, proposedHtml: updatedHtml, updatedAt: new Date() })
+    .where(eq(sitesTable.orgId, org.id));
 
   // No AI tokens consumed — derive usage from already-loaded org
   const used = org.aiMessagesUsed ?? 0;
