@@ -1,0 +1,358 @@
+Pillar: Event Rendering Specification (STRICT)
+
+This document defines exactly how events created in the dashboard become pages on the site. Every event in the database MUST appear on the site with the correct visual treatment. No event should ever be "created but not showing."
+
+THE PIPELINE: DASHBOARD OR AUTOPILOT → DATABASE → SITE
+
+Events can be created TWO ways. Both MUST produce the exact same result:
+
+Path A: User creates event in dashboard
+
+1. User fills out event form in dashboard (title, date, time, location, description, ticketed?, price, capacity, featured?)
+2. Dashboard stores event in database with all fields + auto-generated slug
+3. Site's frontend queries the database via API
+4. Frontend renders the event everywhere it belongs (homepage featured, events listing, nav dropdown)
+5. Each event with a slug gets its own detail page at /events/{slug}
+6. If the event is ticketed, the detail page includes a working purchase form
+7. If the event has sponsors, the detail page shows sponsor logos by tier
+Path B: Autopilot creates event via AI
+
+1. User tells Autopilot (the AI agent) to create an event — e.g., "Add a pancake breakfast fundraiser on April 12"
+2. Autopilot extracts event data from the user's message:
+   - Title, date, time, location, description
+   - Whether it's ticketed (if user mentions tickets, price, or capacity)
+   - Ticket price and capacity (if applicable)
+   - Category (inferred from context: "fundraiser" → Fundraiser, "cookoff" → Community, etc.)
+   - Featured flag (Autopilot SHOULD set featured=true for the next upcoming ticketed event or any event the user emphasizes)
+3. Autopilot calls the SAME API endpoint the dashboard uses:
+   POST /api/management/events { ... same payload ... }
+4. Result is identical to Path A — event appears on the site immediately
+Autopilot MUST NOT create events by editing code or templates. It MUST use the API. This ensures events go through the same pipeline as dashboard-created events and appear on the site immediately without a rebuild.
+
+Autopilot MUST ask clarifying questions if critical info is missing:
+
+Title: REQUIRED (never guess)
+Date: REQUIRED (ask if not mentioned)
+Time: Ask if not mentioned, default to "TBD" if user says "I'll set it later"
+Location: Ask if not mentioned, default to org's primary address
+Ticketed: Default to false unless user mentions tickets, price, or "paid event"
+Price: REQUIRED if ticketed (never guess a price)
+Capacity: Optional, default to null (unlimited)
+Featured: Default to true for the soonest upcoming event, false for others
+If any step in this pipeline breaks, events don't show up. The build engine MUST verify the full pipeline after every event creation, regardless of which path created it.
+
+SLUG GENERATION (AUTOMATIC)
+
+When an event is created, the system MUST auto-generate a URL slug if one isn't provided.
+
+Input: "Annual Chili Cookoff 2026"
+Output: "annual-chili-cookoff-2026"
+Input: "St. Patrick's Day Fun Fest"
+Output: "st-patricks-day-fun-fest"
+Input: "34th Annual Car Cruise"
+Output: "34th-annual-car-cruise"
+Rules:
+1. Lowercase everything
+2. Replace spaces and special characters with hyphens
+3. Remove apostrophes, periods, commas, ampersands
+4. Collapse multiple hyphens into one
+5. Trim leading/trailing hyphens
+6. If slug already exists in database, append -2, -3, etc.
+The slug is used for:
+
+The event's URL: https://{baseUrl}/events/{slug}
+Linking sponsors to events: eventType = slug
+Linking vendor registrations: eventSlug = slug
+Dashboard API: /api/event-tickets.json?event={slug}
+EVENT LISTING PAGE (/events)
+
+This page MUST automatically display every event in the database where isActive = true.
+
+The page queries:
+
+GET /api/events → returns all active events
+Rendering Rules
+
+Sort order: By date, soonest first. Events without dates go to the bottom. This sort MUST happen on every page load — not just once at build time.
+
+Layout: Responsive card grid (1 col mobile, 2 col tablet, 3 col desktop).
+
+Each event card MUST contain:
+
+┌─────────────────────────────────────┐
+│ [Event image if exists, h-48,       │
+│  object-cover, full width]          │
+│ OR                                  │
+│ [4px colored accent bar if no image]│
+├─────────────────────────────────────┤
+│ [Category badge]                    │
+│                                     │
+│ Event Title                         │
+│ Description (2 lines max)           │
+│                                     │
+│ 📅 Date                             │
+│ 🕐 Time                             │
+│ 📍 Location                         │
+│                                     │
+│ [IF ticketed: "Tickets: $XX" badge] │
+│ [IF ticketed: "Buy Tickets" button] │
+│ [IF has slug: "Learn More" button]  │
+└─────────────────────────────────────┘
+MANDATORY: If the event is ticketed, the card MUST show the ticket price and a Buy Tickets button. Do not hide ticket information on the listing page — it's a primary call to action.
+
+Category filtering: If there are more than 5 events, show filter tabs at the top by category. Categories come from the event data (Community, Festival, Fundraiser, etc.).
+
+EVENT DETAIL PAGE (/events/{slug})
+
+Every event with a slug MUST have a detail page. This is not optional. The detail page is what people land on from shared links, Google, newsletters, and event cards.
+
+The page queries:
+
+GET /api/events/slug/{slug} → event data
+GET /api/sponsors/event/{slug} → sponsors for this event
+GET /api/events/{slug}/ticket-availability → remaining tickets (if ticketed)
+Page Structure (STRICT — this order, these sections)
+
+SECTION 1: HERO
+├── Full-width section with colored background (event's category color or primary color)
+├── OR event image as background with dark overlay
+├── Event title (h1, text-4xl, bold)
+├── Date + Time + Location (with icons, large enough to read)
+├── [IF ticketed: Price badge + "Buy Tickets" CTA button]
+├── [IF ticketed + capacity: "XX tickets remaining" indicator]
+SECTION 2: ABOUT THIS EVENT
+├── Full event description
+├── [IF event has highlights: icon cards in a grid]
+│   └── Each highlight: icon + title + short description
+├── [IF event has schedule: timeline/list of scheduled activities]
+│   └── Each item: time + activity
+SECTION 3: TICKET PURCHASE (ONLY if isTicketed === true)
+├── Section heading: "Get Your Tickets"
+├── Purchase form:
+│   ├── Full Name (required text input)
+│   ├── Email (required email input)
+│   ├── Quantity (dropdown, 1-10)
+│   ├── Price display: "$XX per ticket"
+│   ├── Total display: "$XX total" (computed: price × quantity)
+│   ├── [IF capacity set: "XX of YY tickets remaining"]
+│   ├── [IF sold out: "SOLD OUT" badge, form disabled]
+│   └── "Buy Tickets" submit button (primary, large)
+├── On submit: POST to /api/events/{slug}/ticket-checkout
+├── On success: redirect to payment provider checkout URL
+├── On error: show error message (sold out, capacity exceeded, etc.)
+SECTION 4: SPONSORS (ONLY if hasSponsorSection === true AND sponsors exist)
+├── Section heading: "Our Sponsors" or "Thank You to Our Sponsors"
+├── Sponsors grouped by tier, visual size decreasing:
+│   ├── Presenting: grid-cols-1 md:grid-cols-2, logos h-24 to h-32
+│   ├── Gold: grid-cols-2 md:grid-cols-3, logos h-16 to h-20
+│   ├── Silver: grid-cols-3 md:grid-cols-4, logos h-12 to h-16
+│   └── Supporting: grid-cols-4 md:grid-cols-6, logos h-8 to h-12
+├── Each logo links to sponsor website if provided
+├── Tier labels above each group
+SECTION 5: VENDOR REGISTRATION (ONLY if hasRegistration === true AND NOT closed)
+├── Section heading: "Vendor Registration"
+├── Registration form or link to registration
+├── [IF registrationClosed: "Registration is closed" message]
+SECTION 6: CONTACT
+├── "Questions about this event?"
+├── Organization contact info
+├── Link to contact page
+Section Visibility Rules
+
+These rules are absolute. The build engine MUST follow them:
+
+Condition	Section 3 (Tickets)	Section 4 (Sponsors)	Section 5 (Vendors)
+isTicketed = false	HIDDEN	—	—
+isTicketed = true	VISIBLE with full purchase form	—	—
+hasSponsorSection = false	—	HIDDEN	—
+hasSponsorSection = true, no sponsors in DB	—	HIDDEN (don't show empty section)	—
+hasSponsorSection = true, sponsors exist	—	VISIBLE with logos	—
+hasRegistration = false	—	—	HIDDEN
+hasRegistration = true, registrationClosed = true	—	—	VISIBLE but shows "closed" message
+hasRegistration = true, registrationClosed = false	—	—	VISIBLE with form
+NEVER show an empty section. If there are no sponsors, hide the entire sponsors section — don't show a heading with nothing under it.
+
+TICKET PURCHASE FLOW (WHEN isTicketed = true)
+
+This is the most critical feature. A broken ticket flow means lost revenue. Follow this EXACTLY.
+
+Step 1: Display
+
+On the event detail page, the ticket section MUST show:
+
+Price per ticket (from event.ticketPrice)
+Buyer name input (required)
+Buyer email input (required)
+Quantity selector (1-10 dropdown)
+Computed total (price × quantity, displayed in real time as quantity changes)
+Remaining tickets (if capacity is set): fetch from /api/events/{slug}/ticket-availability
+Sold Out state: if remaining = 0, show "SOLD OUT" badge, disable form
+Step 2: Submit
+
+POST /api/events/{slug}/ticket-checkout
+{
+  "buyerName": "John Doe",
+  "buyerEmail": "john@example.com",
+  "quantity": 2
+}
+The backend:
+
+Validates input
+Computes total server-side (NEVER trust frontend total)
+Checks capacity
+Creates PENDING purchase record
+Creates payment link with payment provider
+Returns { checkoutUrl: "https://..." }
+The frontend redirects to checkoutUrl.
+
+Step 3: Payment
+
+User pays on the payment provider's hosted checkout. Provider redirects back to:
+
+https://{baseUrl}/payment-success?purchaseId={id}
+Step 4: Confirmation
+
+The payment success page:
+
+Polls /api/ticket-purchases/{id}/status every 2 seconds
+Shows "Processing your payment..." with spinner while status = pending
+When status = completed: shows confirmation number, event details, "check your email"
+Webhook + background reconciler handle the status update (see agent guide for details)
+Step 5: Email
+
+System sends confirmation email with:
+
+Confirmation number
+Event name, date, time, location
+Quantity and total paid
+"Show this email at check-in"
+NON-TICKETED EVENTS
+
+If isTicketed = false:
+
+No ticket section on the detail page
+No price display on the event card
+No "Buy Tickets" button
+The event still gets a full detail page with hero, description, sponsors, etc.
+The event card on the listing page shows "Learn More" instead of "Buy Tickets"
+RECURRING EVENTS
+
+Detection: If two or more events in the database have the same title (case-insensitive, ignoring trailing whitespace), they are recurring.
+
+Display rules:
+
+On the LISTING PAGE:
+
+Show ONE card for the recurring event
+Date line shows the schedule pattern: "Every Tuesday, 12:00-1:00 PM"
+OR shows the next upcoming occurrence date
+Do NOT show separate cards for every occurrence
+On the NAV DROPDOWN:
+
+Show ONE entry for the recurring event
+Label: "[Event Name] — [Schedule]"
+Exception: If the recurring events have DIFFERENT locations, descriptions, or prices, they may be intentionally separate and should display individually. Only collapse identical recurring events.
+
+EVENT DATA FRESHNESS
+
+The site MUST display current data, not stale build-time data.
+
+Rules:
+
+Event listing page fetches from API on every page load (not cached at build time)
+Ticket availability fetches fresh on every detail page load
+Sponsor list fetches fresh on every detail page load
+If an event is created in the dashboard, it MUST appear on the site within seconds (next page load), NOT after a rebuild or deploy
+This means the site MUST be a live application querying an API, not a static site generated at build time. Static generation will always have stale data. Events must appear immediately after creation.
+
+DASHBOARD → SITE VERIFICATION
+
+After creating an event in the dashboard, the system MUST verify:
+
+1. [ ] Event exists in database with all fields populated
+2. [ ] Event has a valid slug
+3. [ ] Event appears on /events listing page
+4. [ ] Event card shows date, time, location with icons
+5. [ ] Event detail page loads at /events/{slug}
+6. [ ] IF ticketed: detail page shows purchase form with correct price
+7. [ ] IF ticketed: purchase form submits successfully to checkout endpoint
+8. [ ] IF ticketed: payment redirect URL uses correct baseUrl
+9. [ ] IF ticketed + capacity: remaining count displays correctly
+10. [ ] IF sponsors exist for this event: sponsor section shows logos
+11. [ ] Event appears in nav dropdown (if showInNav = true)
+12. [ ] Event is sorted correctly by date relative to other events
+If any check fails, the pipeline is broken and MUST be fixed.
+
+ERROR STATES THE SITE MUST HANDLE
+
+Event Not Found
+
+If someone visits /events/nonexistent-slug:
+
+Show a 404 page with "Event not found"
+Link back to /events listing
+Do NOT show a blank white page or a crash
+Sold Out
+
+If a ticketed event reaches capacity:
+
+Event card shows "SOLD OUT" badge (red)
+Detail page shows "SOLD OUT" in ticket section
+Purchase form is disabled (grayed out, submit button disabled)
+Price and capacity info still visible
+Registration Closed
+
+If vendor/sponsor registration is closed:
+
+Show "Registration is closed" message in that section
+Do NOT hide the section entirely (people need to know it exists but is closed)
+Do NOT show the registration form
+No Events
+
+If there are no active events in the database:
+
+Events page shows a friendly empty state
+"No upcoming events. Check back soon!"
+Do NOT show a blank page or error
+WHAT HAPPENS WHEN THE USER CREATES AN EVENT IN THE DASHBOARD
+
+Exact sequence the system follows:
+
+1. User fills out event form in dashboard:
+   - Title: "Spring Gala"
+   - Date: "Saturday, May 10, 2026"
+   - Time: "6:00 - 10:00 PM"
+   - Location: "Community Center"
+   - Description: "Annual fundraising gala with dinner and auction"
+   - Category: "Fundraiser"
+   - Ticketed: Yes
+   - Price: $50
+   - Capacity: 150
+2. Dashboard sends to API:
+   POST /api/management/events {
+     title: "Spring Gala",
+     slug: "spring-gala",          ← auto-generated
+     date: "Saturday, May 10, 2026",
+     time: "6:00 - 10:00 PM",
+     location: "Community Center",
+     description: "Annual fundraising gala with dinner and auction",
+     category: "Fundraiser",
+     isTicketed: true,
+     ticketPrice: "50",
+     ticketCapacity: 150,
+     isActive: true,
+     showInNav: true,
+     hasRegistration: false,
+     hasSponsorSection: false
+   }
+3. API creates event record in database with id and slug
+4. Site immediately reflects the new event:
+   - /events page: new card appears, sorted by date into correct position
+   - /events/spring-gala: detail page is accessible with full content
+   - Nav dropdown: "Spring Gala" appears in the event list
+   - Ticket form on detail page shows $50/ticket, 150 capacity, 0 sold
+5. User shares https://{baseUrl}/events/spring-gala
+   - Anyone clicking this link sees the event detail page
+   - They can buy tickets immediately
+6. No rebuild. No deploy. No manual steps. It just works.
+If this sequence doesn't work end-to-end, the site architecture is wrong.

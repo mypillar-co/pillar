@@ -37,14 +37,21 @@ function renderHero(block: SiteBlock, theme: SiteTheme): string {
   const ctaUrl = esc(content.ctaUrl ?? "#contact");
   const imageUrl = esc(content.imageUrl ?? "");
 
+  const secondaryCta = esc(content.secondaryCtaText ?? content.secondaryCta ?? "");
+  const secondaryCtaUrl = esc(content.secondaryCtaUrl ?? "#about");
+
   const base = `<style>
-    .block-hero { position: relative; min-height: 70vh; display: flex; align-items: center; background: linear-gradient(135deg, var(--color-primary), #0a0a14); overflow: hidden; }
-    .block-hero-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.45); }
-    .block-hero-content { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 80px 24px 60px; }
-    .block-hero h1 { font-family: var(--font-heading); font-size: clamp(2.2rem, 5vw, 4rem); font-weight: 400; color: #fff; line-height: 1.1; margin-bottom: 20px; }
-    .block-hero p { font-size: 1.1rem; color: rgba(255,255,255,0.8); max-width: 560px; line-height: 1.7; margin-bottom: 36px; }
-    .block-hero-cta { display: inline-flex; align-items: center; padding: 14px 28px; background: var(--color-accent); color: #fff; font-weight: 600; border-radius: var(--radius); text-decoration: none; transition: all 0.25s; }
-    .block-hero-cta:hover { filter: brightness(1.1); transform: translateY(-2px); }
+    .block-hero { position: relative; min-height: 72vh; display: flex; align-items: center; background: linear-gradient(135deg, var(--color-primary) 0%, #0a0a14 100%); overflow: hidden; }
+    .block-hero-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.4); }
+    .block-hero-content { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 100px 24px 80px; }
+    .block-hero-badge { display: inline-block; padding: 4px 14px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.25); border-radius: 100px; font-size: 0.78rem; font-weight: 600; color: rgba(255,255,255,0.85); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 24px; }
+    .block-hero h1 { font-family: var(--font-heading); font-size: clamp(2.4rem, 5.5vw, 4.5rem); font-weight: 700; color: #fff; line-height: 1.08; margin-bottom: 20px; }
+    .block-hero p { font-size: 1.15rem; color: rgba(255,255,255,0.82); max-width: 580px; line-height: 1.75; margin-bottom: 40px; }
+    .block-hero-ctas { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+    .block-hero-cta { display: inline-flex; align-items: center; padding: 14px 30px; background: var(--color-accent); color: #fff; font-weight: 700; font-size: 0.95rem; border-radius: var(--radius); text-decoration: none; transition: all 0.25s; }
+    .block-hero-cta:hover { filter: brightness(1.12); transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.3); }
+    .block-hero-cta-outline { display: inline-flex; align-items: center; padding: 13px 28px; background: transparent; color: #fff; font-weight: 600; font-size: 0.95rem; border: 2px solid rgba(255,255,255,0.45); border-radius: var(--radius); text-decoration: none; transition: all 0.25s; }
+    .block-hero-cta-outline:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.8); transform: translateY(-2px); }
   </style>`;
 
   if (variant === "hero-split") {
@@ -95,13 +102,19 @@ function renderHero(block: SiteBlock, theme: SiteTheme): string {
     </section>`;
   }
 
-  return base + `<section class="block-hero" style="text-align:center;">
+  const orgTypeLabel = esc((block.contentJson as Record<string, unknown>).orgTypeLabel as string ?? "");
+
+  return base + `<section class="block-hero">
     ${imageUrl ? `<img src="${imageUrl}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0.3;">` : ""}
     <div class="block-hero-overlay"></div>
-    <div class="block-hero-content" style="text-align:center;">
+    <div class="block-hero-content">
+      ${orgTypeLabel ? `<div class="block-hero-badge">${orgTypeLabel}</div>` : ""}
       <h1>${headline}</h1>
-      ${subheadline ? `<p style="margin:0 auto 36px;">${subheadline}</p>` : ""}
-      <a href="${ctaUrl}" class="block-hero-cta">${ctaText}</a>
+      ${subheadline ? `<p>${subheadline}</p>` : ""}
+      <div class="block-hero-ctas">
+        <a href="${ctaUrl}" class="block-hero-cta">${ctaText}</a>
+        ${secondaryCta ? `<a href="${secondaryCtaUrl}" class="block-hero-cta-outline">${secondaryCta}</a>` : ""}
+      </div>
     </div>
   </section>`;
 }
@@ -196,11 +209,13 @@ function renderCards(block: SiteBlock, theme: SiteTheme): string {
     .block-cards h2 { font-family: var(--font-heading); font-size: clamp(1.8rem, 3vw, 2.6rem); color: var(--color-text); text-align: center; margin-bottom: 48px; }
     .block-cards-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
     .block-cards-grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
-    .block-card { background: #fff; border-radius: var(--radius); padding: 32px; box-shadow: 0 4px 24px rgba(0,0,0,0.07); border-top: 4px solid var(--color-primary); }
+    .block-card { background: #fff; border-radius: var(--radius); padding: 32px; box-shadow: 0 4px 24px rgba(0,0,0,0.07); border: 1px solid #e5e7eb; border-top: 4px solid var(--color-primary); transition: box-shadow 0.2s ease, transform 0.2s ease; }
+    .block-card:hover { box-shadow: 0 10px 32px rgba(0,0,0,0.13); transform: translateY(-3px); }
     .block-card-icon { font-size: 2.4rem; margin-bottom: 16px; line-height: 1; }
     .block-card h3 { font-family: var(--font-heading); font-size: 1.15rem; color: var(--color-text); margin-bottom: 10px; }
     .block-card p { font-size: 0.9rem; line-height: 1.75; color: #6b7280; }
-    .block-card-icon-variant { background: #fff; border-radius: var(--radius); padding: 32px 28px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); display: flex; flex-direction: column; align-items: flex-start; }
+    .block-card-icon-variant { background: #fff; border-radius: var(--radius); padding: 32px 28px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); border: 1px solid #e5e7eb; display: flex; flex-direction: column; align-items: flex-start; transition: box-shadow 0.2s ease, transform 0.2s ease; }
+    .block-card-icon-variant:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.12); transform: translateY(-2px); }
     .icon-circle { width: 52px; height: 52px; background: color-mix(in srgb, var(--color-primary) 12%, transparent); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; margin-bottom: 18px; flex-shrink: 0; }
     @media (max-width: 768px) { .block-cards-grid-3, .block-cards-grid-2 { grid-template-columns: 1fr; } }
   </style>`;
@@ -237,6 +252,12 @@ function renderCards(block: SiteBlock, theme: SiteTheme): string {
   </section>`;
 }
 
+// ── Inline SVG icons for event metadata ────────────────────────────────────
+const ICON_CALENDAR = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>`;
+const ICON_CLOCK    = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`;
+const ICON_MAPPIN   = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>`;
+const ICON_TICKET   = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0;"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/></svg>`;
+
 function renderEventsList(block: SiteBlock, theme: SiteTheme, liveData?: unknown): string {
   const events = (Array.isArray(liveData) ? liveData : []) as SiteEventItem[];
   const content = block.contentJson as Record<string, unknown>;
@@ -246,23 +267,34 @@ function renderEventsList(block: SiteBlock, theme: SiteTheme, liveData?: unknown
   if (events.length === 0) return "";
 
   const base = `<style>
-    .block-events { padding: 80px 0; }
+    .block-events { padding: 80px 0; background: var(--color-surface, #f8fafc); }
     .block-events-inner { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
-    .block-events h2 { font-family: var(--font-heading); font-size: clamp(1.8rem, 3vw, 2.6rem); text-align: center; margin-bottom: 48px; }
-    .event-row { display: grid; grid-template-columns: 80px 1fr auto; gap: 20px; align-items: center; padding: 20px; background: #fff; border-radius: var(--radius); margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border-left: 4px solid var(--color-primary); }
+    .block-events h2 { font-family: var(--font-heading); font-size: clamp(1.8rem, 3vw, 2.6rem); text-align: center; margin-bottom: 8px; }
+    .block-events-sub { text-align: center; color: #6b7280; margin-bottom: 48px; font-size: 1rem; }
+    .event-row { display: grid; grid-template-columns: 80px 1fr auto; gap: 20px; align-items: center; padding: 20px; background: #fff; border-radius: var(--radius); margin-bottom: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid #e5e7eb; border-left: 4px solid var(--color-primary); transition: box-shadow 0.2s ease, transform 0.2s ease; cursor: default; }
+    .event-row:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.12); transform: translateY(-2px); }
     .event-date { text-align: center; }
     .event-date-month { font-size: 0.65rem; text-transform: uppercase; font-weight: 700; letter-spacing: 0.1em; color: var(--color-accent); }
     .event-date-day { font-family: var(--font-heading); font-size: 2rem; color: var(--color-primary); line-height: 1; }
-    .event-title { font-weight: 600; color: var(--color-text); margin-bottom: 4px; }
-    .event-location { font-size: 0.85rem; color: #6b7280; }
-    .event-cta { display: inline-flex; padding: 8px 18px; background: var(--color-primary); color: #fff; border-radius: 8px; font-size: 0.85rem; font-weight: 600; text-decoration: none; white-space: nowrap; }
-    .badge-sold-out { display: inline-block; padding: 2px 8px; background: #fee2e2; color: #dc2626; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-left: 8px; }
-    .events-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; }
-    .event-card { background: #fff; border-radius: var(--radius); overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
+    .event-title { font-weight: 600; color: var(--color-text); margin-bottom: 6px; font-size: 1rem; }
+    .event-meta { display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
+    .event-meta-item { display: flex; align-items: center; gap: 5px; font-size: 0.82rem; color: #6b7280; }
+    .event-cta { display: inline-flex; padding: 10px 20px; background: var(--color-primary); color: #fff; border-radius: 8px; font-size: 0.85rem; font-weight: 600; text-decoration: none; white-space: nowrap; transition: filter 0.2s, transform 0.2s; }
+    .event-cta:hover { filter: brightness(1.12); transform: translateY(-1px); }
+    .badge-sold-out { display: inline-block; padding: 2px 8px; background: #fee2e2; color: #dc2626; border-radius: 4px; font-size: 0.72rem; font-weight: 600; margin-left: 8px; }
+    .badge-category { display: inline-flex; align-items: center; padding: 2px 10px; background: color-mix(in srgb, var(--color-primary) 10%, transparent); color: var(--color-primary); border-radius: 100px; font-size: 0.72rem; font-weight: 600; margin-bottom: 6px; }
+    .events-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 24px; }
+    @media (max-width: 640px) { .events-grid { grid-template-columns: 1fr; } .event-row { grid-template-columns: 64px 1fr; } .event-cta { display: none; } }
+    .event-card { background: #fff; border-radius: var(--radius); overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.08); border: 1px solid #e5e7eb; transition: box-shadow 0.2s ease, transform 0.2s ease; }
+    .event-card:hover { box-shadow: 0 10px 28px rgba(0,0,0,0.14); transform: translateY(-3px); }
+    .event-card-accent { height: 5px; background: var(--color-primary); }
     .event-card-body { padding: 20px; }
-    .event-card-date { font-size: 0.8rem; color: var(--color-accent); font-weight: 600; margin-bottom: 8px; }
-    .event-card-title { font-weight: 600; margin-bottom: 8px; }
-    .event-card-cta { display: block; margin-top: 12px; padding: 8px 16px; background: var(--color-primary); color: #fff; border-radius: 8px; text-align: center; text-decoration: none; font-size: 0.85rem; }
+    .event-card-meta { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+    .event-card-meta-item { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: #6b7280; }
+    .event-card-title { font-weight: 700; font-size: 1.05rem; color: var(--color-text); margin-bottom: 4px; }
+    .event-card-desc { font-size: 0.875rem; color: #6b7280; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-bottom: 4px; }
+    .event-card-cta { display: block; margin-top: 14px; padding: 10px 16px; background: var(--color-primary); color: #fff; border-radius: 8px; text-align: center; text-decoration: none; font-size: 0.875rem; font-weight: 600; transition: filter 0.2s, transform 0.2s; }
+    .event-card-cta:hover { filter: brightness(1.12); transform: translateY(-1px); }
   </style>`;
 
   const renderEventRow = (event: SiteEventItem) => {
@@ -270,7 +302,10 @@ function renderEventsList(block: SiteBlock, theme: SiteTheme, liveData?: unknown
       const date = event.date ? new Date(event.date) : null;
       const month = date ? date.toLocaleString("en-US", { month: "short" }).toUpperCase() : "";
       const day = date ? String(date.getDate()) : "";
+      const dateLabel = date ? date.toLocaleDateString("en-US", { weekday: "short", month: "long", day: "numeric" }) : "";
       const badge = event.isSoldOut ? `<span class="badge-sold-out">Sold Out</span>` : "";
+      const category = event.category ? `<span class="badge-category">${esc(event.category)}</span>` : "";
+      const time = (event as Record<string, unknown>).time as string | undefined;
 
       return `<div class="event-row">
         <div class="event-date">
@@ -278,9 +313,14 @@ function renderEventsList(block: SiteBlock, theme: SiteTheme, liveData?: unknown
           <div class="event-date-day">${day}</div>
         </div>
         <div>
+          ${category}
           <div class="event-title">${esc(event.name)}${badge}</div>
-          ${event.location ? `<div class="event-location">📍 ${esc(event.location)}</div>` : ""}
-          ${event.showPricing && event.price ? `<div style="font-size:0.85rem;margin-top:4px;color:#6b7280;">$${event.price}</div>` : ""}
+          <div class="event-meta">
+            ${dateLabel ? `<div class="event-meta-item">${ICON_CALENDAR} ${dateLabel}</div>` : ""}
+            ${time ? `<div class="event-meta-item">${ICON_CLOCK} ${esc(time)}</div>` : ""}
+            ${event.location ? `<div class="event-meta-item">${ICON_MAPPIN} ${esc(event.location)}</div>` : ""}
+            ${event.showPricing && event.price ? `<div class="event-meta-item">${ICON_TICKET} $${event.price}</div>` : ""}
+          </div>
         </div>
         <a href="${esc(event.ctaUrl)}" class="event-cta">${esc(event.ctaLabel)}</a>
       </div>`;
@@ -290,17 +330,17 @@ function renderEventsList(block: SiteBlock, theme: SiteTheme, liveData?: unknown
   };
 
   if (variant === "events-list-compact") {
-    return base + `<section class="block-events" style="padding:40px 0;">
+    return base + `<section class="block-events" style="padding:48px 0;">
       <div class="block-events-inner">
-        ${heading ? `<h2 style="font-size:clamp(1.4rem,2.5vw,2rem);margin-bottom:24px;">${heading}</h2>` : ""}
-        ${events.slice(0, 4).map(event => {
+        ${heading ? `<h2 style="font-size:clamp(1.4rem,2.5vw,2rem);margin-bottom:24px;text-align:left;">${heading}</h2>` : ""}
+        ${events.slice(0, 5).map(event => {
           try {
             const date = event.date ? new Date(event.date) : null;
             const dateStr = date ? date.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
-            return `<div style="display:flex;align-items:center;gap:16px;padding:12px 16px;border-bottom:1px solid #f0f0f0;">
-              <span style="font-weight:700;color:var(--color-accent);min-width:48px;font-size:0.85rem;">${dateStr}</span>
+            return `<div style="display:flex;align-items:center;gap:16px;padding:14px 16px;border-bottom:1px solid #f0f0f0;background:#fff;transition:background 0.15s;">
+              <span style="font-weight:700;color:var(--color-accent);min-width:52px;font-size:0.85rem;">${dateStr}</span>
               <span style="font-weight:500;color:var(--color-text);flex:1;">${esc(event.name)}</span>
-              <a href="${esc(event.ctaUrl)}" style="font-size:0.8rem;color:var(--color-primary);font-weight:600;white-space:nowrap;">${esc(event.ctaLabel)}</a>
+              <a href="${esc(event.ctaUrl)}" style="font-size:0.8rem;color:var(--color-primary);font-weight:600;white-space:nowrap;text-decoration:none;">${esc(event.ctaLabel)}</a>
             </div>`;
           } catch { return ""; }
         }).join("")}
@@ -311,18 +351,30 @@ function renderEventsList(block: SiteBlock, theme: SiteTheme, liveData?: unknown
   if (variant === "events-list-card-grid") {
     return base + `<section class="block-events">
       <div class="block-events-inner">
-        ${heading ? `<h2>${heading}</h2>` : ""}
+        ${heading ? `<h2>${heading}</h2><p class="block-events-sub">Stay up to date with everything happening</p>` : ""}
         <div class="events-grid">
           ${events.map(e => {
             try {
               const date = e.date ? new Date(e.date) : null;
               const dateStr = date ? date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "";
+              const time = (e as Record<string, unknown>).time as string | undefined;
+              const category = e.category ? `<span class="badge-category">${esc(e.category)}</span>` : "";
+              const description = (e as Record<string, unknown>).description as string | undefined;
               return `<div class="event-card">
-                ${e.imageUrl ? `<img src="${esc(e.imageUrl)}" alt="${esc(e.name)}" style="width:100%;height:160px;object-fit:cover;">` : ""}
+                ${e.imageUrl
+                  ? `<img src="${esc(e.imageUrl)}" alt="${esc(e.name)}" style="width:100%;height:180px;object-fit:cover;">`
+                  : `<div class="event-card-accent"></div>`
+                }
                 <div class="event-card-body">
-                  <div class="event-card-date">${dateStr}</div>
+                  ${category}
                   <div class="event-card-title">${esc(e.name)}${e.isSoldOut ? `<span class="badge-sold-out">Sold Out</span>` : ""}</div>
-                  ${e.location ? `<div style="font-size:0.8rem;color:#6b7280;">📍 ${esc(e.location)}</div>` : ""}
+                  ${description ? `<p class="event-card-desc">${esc(description)}</p>` : ""}
+                  <div class="event-card-meta">
+                    ${dateStr ? `<div class="event-card-meta-item">${ICON_CALENDAR} ${dateStr}</div>` : ""}
+                    ${time ? `<div class="event-card-meta-item">${ICON_CLOCK} ${esc(time)}</div>` : ""}
+                    ${e.location ? `<div class="event-card-meta-item">${ICON_MAPPIN} ${esc(e.location)}</div>` : ""}
+                    ${e.showPricing && e.price ? `<div class="event-card-meta-item">${ICON_TICKET} $${e.price}</div>` : ""}
+                  </div>
                   <a href="${esc(e.ctaUrl)}" class="event-card-cta">${esc(e.ctaLabel)}</a>
                 </div>
               </div>`;

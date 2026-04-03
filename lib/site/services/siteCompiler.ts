@@ -7,6 +7,7 @@ import { siteNavItemsTable } from "@workspace/db";
 import { siteThemesTable } from "@workspace/db";
 import { siteBlockBindingsTable } from "@workspace/db";
 import { siteRenderCacheTable } from "@workspace/db";
+import { organizationsTable } from "@workspace/db";
 import { getSiteData } from "./siteDataIntegrationService.js";
 import { renderBlock } from "./blockRenderer.js";
 import { logInfo, logError } from "./siteLogService.js";
@@ -37,21 +38,40 @@ function renderNav(navItems: Array<{ label: string; pageId?: string | null; exte
 </nav>`;
 }
 
-function renderFooter(navItems: Array<{ label: string; pageId?: string | null; externalUrl?: string | null; navLocation?: string | null }>, org: { name?: string | null; contactEmail?: string | null }): string {
-  const footerItems = navItems.filter(n => n.navLocation === "footer" || n.navLocation === "both");
-  const footerLinks = footerItems.map(item => {
-    const href = item.externalUrl ?? (item.pageId ? `#${item.pageId}` : "#");
-    return `<a href="${href}" style="color:rgba(255,255,255,0.6);text-decoration:none;font-size:0.85rem;">${item.label}</a>`;
-  }).join(" · ");
-
+function renderFooter(navItems: Array<{ label: string; pageId?: string | null; externalUrl?: string | null; navLocation?: string | null }>, org: { name?: string | null; contactEmail?: string | null; contactPhone?: string | null; contactAddress?: string | null }): string {
+  const headerItems = navItems.filter(n => n.navLocation === "header" || n.navLocation === "both");
   const year = new Date().getFullYear();
 
-  return `<footer style="background:#0a0a14;padding:40px 0;text-align:center;">
+  const quickLinks = headerItems.slice(0, 5).map(item => {
+    const href = item.externalUrl ?? (item.pageId ? `#${item.pageId}` : "#");
+    return `<a href="${href}" style="color:rgba(255,255,255,0.65);text-decoration:none;font-size:0.875rem;line-height:1.9;transition:color 0.15s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,0.65)'">${item.label}</a>`;
+  }).join("");
+
+  return `<footer style="background:#060912;border-top:1px solid rgba(255,255,255,0.08);padding:60px 0 0;">
   <div style="max-width:1200px;margin:0 auto;padding:0 24px;">
-    <div style="color:rgba(255,255,255,0.7);font-size:0.9rem;margin-bottom:12px;">${org.name ?? ""}</div>
-    ${org.contactEmail ? `<div style="margin-bottom:16px;"><a href="mailto:${org.contactEmail}" style="color:rgba(255,255,255,0.5);font-size:0.85rem;">${org.contactEmail}</a></div>` : ""}
-    ${footerLinks ? `<div style="margin-bottom:16px;">${footerLinks}</div>` : ""}
-    <div style="color:rgba(255,255,255,0.35);font-size:0.75rem;">&copy; ${year} ${org.name ?? ""}. All rights reserved.</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:40px;margin-bottom:48px;">
+      <!-- Org info -->
+      <div>
+        <h3 style="color:#fff;font-size:1.05rem;font-weight:700;margin-bottom:14px;">${org.name ?? ""}</h3>
+        ${org.contactAddress ? `<p style="color:rgba(255,255,255,0.6);font-size:0.85rem;line-height:1.7;margin-bottom:8px;">${org.contactAddress}</p>` : ""}
+        ${org.contactPhone ? `<p style="margin-bottom:6px;"><a href="tel:${org.contactPhone}" style="color:rgba(255,255,255,0.6);text-decoration:none;font-size:0.85rem;">${org.contactPhone}</a></p>` : ""}
+        ${org.contactEmail ? `<p><a href="mailto:${org.contactEmail}" style="color:rgba(255,255,255,0.6);text-decoration:none;font-size:0.85rem;">${org.contactEmail}</a></p>` : ""}
+      </div>
+      <!-- Quick links -->
+      <div>
+        <h3 style="color:#fff;font-size:1.05rem;font-weight:700;margin-bottom:14px;">Quick Links</h3>
+        <nav style="display:flex;flex-direction:column;">${quickLinks || '<span style="color:rgba(255,255,255,0.4);font-size:0.85rem;">—</span>'}</nav>
+      </div>
+      <!-- Powered by -->
+      <div>
+        <h3 style="color:#fff;font-size:1.05rem;font-weight:700;margin-bottom:14px;">Platform</h3>
+        <p style="color:rgba(255,255,255,0.6);font-size:0.85rem;line-height:1.7;">Powered by <a href="https://mypillar.co" style="color:rgba(255,255,255,0.85);text-decoration:underline;">Pillar</a> — the civic organization platform that runs on autopilot.</p>
+      </div>
+    </div>
+    <div style="border-top:1px solid rgba(255,255,255,0.1);padding:20px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+      <span style="color:rgba(255,255,255,0.35);font-size:0.78rem;">&copy; ${year} ${org.name ?? ""}. All rights reserved.</span>
+      <a href="https://mypillar.co" style="color:rgba(255,255,255,0.35);font-size:0.78rem;text-decoration:none;">Powered by Pillar</a>
+    </div>
   </div>
 </footer>`;
 }
@@ -224,10 +244,26 @@ export async function compileSite(
       }
     }
 
-    const org: { name?: string | null; contactEmail?: string | null; slug?: string | null } = {
+    // Look up org contact info for the footer
+    const [orgRow] = await db
+      .select({
+        senderEmail: organizationsTable.senderEmail,
+        slug: organizationsTable.slug,
+      })
+      .from(organizationsTable)
+      .where(eq(organizationsTable.id, orgId))
+      .limit(1);
+
+    // Pull contact info from the contact block's contentJson if present
+    const contactBlock = allBlocks.find(b => b.blockType === "contact");
+    const contactContent = (contactBlock?.contentJson ?? {}) as Record<string, unknown>;
+
+    const org: { name?: string | null; contactEmail?: string | null; contactPhone?: string | null; contactAddress?: string | null; slug?: string | null } = {
       name: site.name,
-      contactEmail: "",
-      slug: site.slug,
+      contactEmail: (contactContent.email as string) || orgRow?.senderEmail || "",
+      contactPhone: (contactContent.phone as string) || "",
+      contactAddress: (contactContent.address as string) || "",
+      slug: site.slug ?? orgRow?.slug,
     };
 
     const nav = renderNav(navItems, org);

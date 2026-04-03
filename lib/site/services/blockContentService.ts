@@ -231,6 +231,8 @@ CONTENT SAFETY RULES (non-negotiable):
 
 QUALITY RULES:
 - Hero headline: org name OR event-type tagline. Short, punchy, specific to this org. NO generic taglines.
+- Hero: populate secondaryCtaText with a secondary action (e.g. "Learn More", "Our Mission", "Join Us") and secondaryCtaUrl with "#about". Always include both CTAs.
+- Hero: if the org has a type label (e.g. "Rotary Club", "Service Organization", "Veterans Post"), populate orgTypeLabel for the badge above the headline.
 - About body: use the org's actual mission text verbatim if provided. If not provided, use only org name + type + location if known. Do NOT pad with filler sentences.
 - Cards: only generate if you have real, specific information about programs or benefits. Use concrete details, not vague abstractions.
   - GOOD: "Monthly dinner meetings every 2nd Tuesday", "Annual $5,000 scholarship for local students", "Chili Cook-Off fundraiser every winter"

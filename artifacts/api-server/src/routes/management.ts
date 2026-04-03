@@ -33,11 +33,13 @@ import {
   orgSiteContentTable,
   photoAlbumsTable,
   albumPhotosTable,
+  sitesTable,
+  siteBlocksTable,
 } from "@workspace/db";
-import { eq, and, gte, sum, count, isNull, desc, or } from "drizzle-orm";
+import { eq, and, gte, sum, count, isNull, desc, or, sql } from "drizzle-orm";
 import OpenAI from "openai";
 import { resolveFullOrg } from "../lib/resolveOrg";
-import { scheduleSiteAutoUpdate } from "../lib/scheduleSiteAutoUpdate";
+import { compileSite } from "@workspace/site/services";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -64,6 +66,38 @@ function toSlug(title: string): string {
 }
 
 // ─── Main chat endpoint ─────────────────────────────────────────────────────
+
+// ─── Site recompile helper ─────────────────────────────────────────────────
+// Called after any management change that affects the public website.
+// Directly recompiles the site HTML (bypasses the job queue, which requires
+// autoUpdateEnabled=true and block-level update policies — both rarely set).
+// Only runs if the site has blocks; legacy-blob-only sites are left alone.
+async function forceSiteRecompile(orgId: string): Promise<void> {
+  try {
+    const [site] = await db
+      .select({ id: sitesTable.id })
+      .from(sitesTable)
+      .where(and(eq(sitesTable.orgId, orgId), isNull(sitesTable.deletedAt)))
+      .limit(1);
+
+    if (!site) return;
+
+    const [{ n }] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(siteBlocksTable)
+      .where(and(
+        eq(siteBlocksTable.siteId, site.id),
+        eq(siteBlocksTable.orgId, orgId),
+        isNull(siteBlocksTable.deletedAt),
+      ));
+
+    if ((n ?? 0) === 0) return;
+
+    await compileSite(orgId, site.id, "full_compile");
+  } catch {
+    // Non-fatal — never block the originating operation
+  }
+}
 
 const AUTOPILOT_TIERS = new Set(["tier1a", "tier2", "tier3"]);
 
@@ -480,7 +514,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       });
     }
 
-    scheduleSiteAutoUpdate(org.id).catch(() => {});
+    forceSiteRecompile(org.id).catch(() => {});
 
     const publicUrl = `https://${org.slug}.mypillar.co/events/${uniqueSlug}`;
     return JSON.stringify({ ok: true, slug: uniqueSlug, publicUrl });
@@ -533,7 +567,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       .set(allowed)
       .where(and(eq(eventsTable.id, existing.id), eq(eventsTable.orgId, org.id)));
 
-    scheduleSiteAutoUpdate(org.id).catch(() => {});
+    forceSiteRecompile(org.id).catch(() => {});
     return JSON.stringify({ ok: true, slug, updated: Object.keys(allowed) });
   }
 
@@ -551,7 +585,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       .set({ isActive: false, showOnPublicSite: false, status: "cancelled" })
       .where(eq(eventsTable.id, existing.id));
 
-    scheduleSiteAutoUpdate(org.id).catch(() => {});
+    forceSiteRecompile(org.id).catch(() => {});
     return JSON.stringify({ ok: true, message: `"${existing.name}" has been removed from the site.` });
   }
 
@@ -687,6 +721,7 @@ router.post("/chat", async (req: Request, res: Response) => {
     const key = String(args.key ?? "");
     const value = String(args.value ?? "");
 
+    // Persist to the KV store
     await db
       .insert(orgSiteContentTable)
       .values({ orgId: org.id, key, value })
@@ -695,8 +730,64 @@ router.post("/chat", async (req: Request, res: Response) => {
         set: { value, updatedAt: new Date() },
       });
 
-    scheduleSiteAutoUpdate(org.id).catch(() => {});
-    return JSON.stringify({ ok: true, key, value });
+    // Sync to the actual site block so the change shows up on the website.
+    // Maps well-known content keys to block types + JSON field paths.
+    const CONTENT_BLOCK_MAP: Record<string, { blockType: string; field: string }[]> = {
+      home_tagline:          [{ blockType: "hero", field: "tagline" }, { blockType: "hero", field: "subheadline" }],
+      home_headline:         [{ blockType: "hero", field: "headline" }],
+      hero_headline:         [{ blockType: "hero", field: "headline" }],
+      hero_tagline:          [{ blockType: "hero", field: "tagline" }],
+      hero_subheadline:      [{ blockType: "hero", field: "subheadline" }],
+      hero_cta_text:         [{ blockType: "hero", field: "ctaText" }],
+      hero_cta_url:          [{ blockType: "hero", field: "ctaUrl" }],
+      about_description:     [{ blockType: "about", field: "body" }],
+      about_body:            [{ blockType: "about", field: "body" }],
+      mission_statement:     [{ blockType: "about", field: "mission" }, { blockType: "hero", field: "subheadline" }],
+      mission_text:          [{ blockType: "about", field: "mission" }],
+      contact_email:         [{ blockType: "contact", field: "email" }],
+      contact_phone:         [{ blockType: "contact", field: "phone" }],
+      contact_address:       [{ blockType: "contact", field: "address" }],
+      contact_hours:         [{ blockType: "contact", field: "hours" }],
+      contact_heading:       [{ blockType: "contact", field: "heading" }],
+      events_heading:        [{ blockType: "events", field: "heading" }],
+      sponsors_heading:      [{ blockType: "sponsors", field: "heading" }],
+      programs_heading:      [{ blockType: "programs", field: "heading" }],
+    };
+
+    const mappings = CONTENT_BLOCK_MAP[key];
+    if (mappings) {
+      const [site] = await db
+        .select({ id: sitesTable.id })
+        .from(sitesTable)
+        .where(and(eq(sitesTable.orgId, org.id), isNull(sitesTable.deletedAt)))
+        .limit(1);
+
+      if (site) {
+        for (const { blockType, field } of mappings) {
+          const blocks = await db
+            .select()
+            .from(siteBlocksTable)
+            .where(and(
+              eq(siteBlocksTable.siteId, site.id),
+              eq(siteBlocksTable.orgId, org.id),
+              eq(siteBlocksTable.blockType, blockType),
+              isNull(siteBlocksTable.deletedAt),
+            ));
+
+          for (const block of blocks) {
+            const content = (block.contentJson as Record<string, unknown>) ?? {};
+            content[field] = value;
+            await db
+              .update(siteBlocksTable)
+              .set({ contentJson: content, updatedAt: new Date() })
+              .where(eq(siteBlocksTable.id, block.id));
+          }
+        }
+      }
+    }
+
+    forceSiteRecompile(org.id).catch(() => {});
+    return JSON.stringify({ ok: true, key, value, appliedToBlocks: !!mappings });
   }
 
   async function execListBusinesses(): Promise<string> {
