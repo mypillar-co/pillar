@@ -189,7 +189,7 @@ app.use(async (req, res, next) => {
   let orgSlug: string | null = null;
 
   // Pattern 1: <slug>.mypillar.co subdomain
-  const subdomainMatch = host.match(/^([a-z0-9-]+)\.steward\.app$/);
+  const subdomainMatch = host.match(/^([a-z0-9-]+)\.mypillar\.co$/);
   if (subdomainMatch) {
     orgSlug = subdomainMatch[1];
   }
