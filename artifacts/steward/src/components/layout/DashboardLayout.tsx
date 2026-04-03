@@ -200,7 +200,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   if (authLoading || orgLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="flex items-center justify-center bg-background" style={{ minHeight: "100dvh" }}>
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
@@ -255,7 +255,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         {NAV_SECTIONS.map((section, si) => (
           <div key={si}>
             {section.title && !collapsed && (
-              <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+              <p className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
                 {section.title}
               </p>
             )}
@@ -314,7 +314,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
+    <div className="flex bg-background overflow-hidden" style={{ height: "100dvh" }}>
       <GuidedTour />
       <FeatureTourRunner />
 
@@ -341,7 +341,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         {/* Mobile header */}
         <div className="lg:hidden flex items-center justify-between px-4 py-3 border-b border-white/8 bg-[hsl(224,40%,10%)]">
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400" onClick={() => setMobileOpen(true)}>
+            <Button variant="ghost" size="icon" className="h-11 w-11 text-slate-400" onClick={() => setMobileOpen(true)}>
               <Menu className="w-5 h-5" />
             </Button>
             <div className="flex items-center gap-2">

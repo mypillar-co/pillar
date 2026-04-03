@@ -101,7 +101,7 @@ function CreateEventDialog({ open, onClose }: { open: boolean; onClose: () => vo
             <Label className="text-slate-300">Event Name *</Label>
             <Input value={form.name} onChange={e => setStr("name")(e.target.value)} placeholder="Summer Festival 2026" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-slate-300">Type</Label>
               <Select value={form.eventType} onValueChange={setStr("eventType")}>
@@ -118,7 +118,7 @@ function CreateEventDialog({ open, onClose }: { open: boolean; onClose: () => vo
               <Input value={form.location} onChange={e => setStr("location")(e.target.value)} placeholder="City Hall Park" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-slate-300">Start Date</Label>
               <Input type="date" value={form.startDate} onChange={e => setStr("startDate")(e.target.value)} className="bg-white/5 border-white/10 text-white" />
@@ -128,7 +128,7 @@ function CreateEventDialog({ open, onClose }: { open: boolean; onClose: () => vo
               <Input type="time" value={form.startTime} onChange={e => setStr("startTime")(e.target.value)} className="bg-white/5 border-white/10 text-white" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-slate-300">End Date</Label>
               <Input type="date" value={form.endDate} onChange={e => setStr("endDate")(e.target.value)} className="bg-white/5 border-white/10 text-white" />

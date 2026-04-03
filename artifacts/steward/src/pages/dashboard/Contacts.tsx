@@ -31,7 +31,7 @@ function AddContactDialog({ open, onClose }: { open: boolean; onClose: () => voi
       <DialogContent className="bg-[hsl(224,30%,14%)] border-white/10 text-white max-w-md">
         <DialogHeader><DialogTitle>Add Contact</DialogTitle></DialogHeader>
         <div className="space-y-4 py-2">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-slate-300">First Name *</Label>
               <Input value={form.firstName} onChange={e => set("firstName")(e.target.value)} placeholder="Jane" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
@@ -41,7 +41,7 @@ function AddContactDialog({ open, onClose }: { open: boolean; onClose: () => voi
               <Input value={form.lastName} onChange={e => set("lastName")(e.target.value)} placeholder="Smith" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-slate-300">Email</Label>
               <Input type="email" value={form.email} onChange={e => set("email")(e.target.value)} placeholder="jane@example.com" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
@@ -51,7 +51,7 @@ function AddContactDialog({ open, onClose }: { open: boolean; onClose: () => voi
               <Input value={form.phone} onChange={e => set("phone")(e.target.value)} placeholder="+1 555 000 0000" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-slate-300">Company</Label>
               <Input value={form.company} onChange={e => set("company")(e.target.value)} placeholder="Acme Corp" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
@@ -117,9 +117,9 @@ export default function Contacts() {
                 </div>
                 <div className="min-w-0">
                   <p className="font-medium text-white">{contact.firstName} {contact.lastName}</p>
-                  <div className="flex items-center gap-3 mt-0.5">
-                    {contact.company && <span className="flex items-center gap-1 text-xs text-muted-foreground"><Building2 className="w-3 h-3" />{contact.company}</span>}
-                    {contact.email && <span className="flex items-center gap-1 text-xs text-muted-foreground"><Mail className="w-3 h-3" />{contact.email}</span>}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5">
+                    {contact.company && <span className="flex items-center gap-1 text-xs text-muted-foreground"><Building2 className="w-3 h-3" /><span className="truncate max-w-[120px]">{contact.company}</span></span>}
+                    {contact.email && <span className="flex items-center gap-1 text-xs text-muted-foreground"><Mail className="w-3 h-3" /><span className="truncate max-w-[160px]">{contact.email}</span></span>}
                     {contact.phone && <span className="flex items-center gap-1 text-xs text-muted-foreground"><Phone className="w-3 h-3" />{contact.phone}</span>}
                   </div>
                 </div>

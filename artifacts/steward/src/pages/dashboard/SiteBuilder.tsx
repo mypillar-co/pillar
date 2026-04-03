@@ -760,7 +760,7 @@ export default function SiteBuilder() {
   }
 
   return (
-    <div className="flex flex-col h-full max-h-screen">
+    <div className="flex flex-col h-full min-h-0">
       {/* ── Header ── */}
       <div className="px-6 py-3.5 border-b border-white/8 flex items-center justify-between bg-[hsl(224,40%,10%)] flex-shrink-0">
         <div className="flex items-center gap-3">

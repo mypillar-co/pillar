@@ -306,37 +306,62 @@ export default function Payments() {
                   </p>
                 </div>
               ) : (
-                <div className="space-y-1">
-                  <div className="grid grid-cols-5 gap-4 text-xs text-muted-foreground font-medium px-3 py-2">
-                    <span>Attendee</span>
-                    <span>Event</span>
-                    <span>Amount</span>
-                    <span>Status</span>
-                    <span>Date</span>
-                  </div>
-                  {transactions.map((tx) => (
-                    <div key={tx.id} className="grid grid-cols-5 gap-4 text-sm px-3 py-2.5 rounded-md hover:bg-white/5">
-                      <div>
-                        <p className="text-white truncate">{tx.attendeeName}</p>
-                        {tx.attendeeEmail && <p className="text-xs text-muted-foreground truncate">{tx.attendeeEmail}</p>}
-                      </div>
-                      <p className="text-muted-foreground truncate">{tx.eventName ?? "—"}</p>
-                      <p className="text-white font-medium">${tx.amountPaid.toFixed(2)}</p>
-                      <div>
-                        <Badge variant="outline" className={
-                          tx.paymentStatus === "paid" ? "bg-green-500/15 text-green-400 border-green-500/20" :
-                          tx.paymentStatus === "pending" ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/20" :
-                          "bg-gray-500/15 text-gray-400 border-gray-500/20"
-                        }>
-                          {tx.paymentStatus}
-                        </Badge>
-                      </div>
-                      <p className="text-muted-foreground text-xs">
-                        {new Date(tx.createdAt).toLocaleDateString()}
-                      </p>
+                <>
+                  {/* Desktop table */}
+                  <div className="hidden sm:block space-y-1">
+                    <div className="grid grid-cols-5 gap-4 text-xs text-muted-foreground font-medium px-3 py-2">
+                      <span>Attendee</span>
+                      <span>Event</span>
+                      <span>Amount</span>
+                      <span>Status</span>
+                      <span>Date</span>
                     </div>
-                  ))}
-                </div>
+                    {transactions.map((tx) => (
+                      <div key={tx.id} className="grid grid-cols-5 gap-4 text-sm px-3 py-2.5 rounded-md hover:bg-white/5">
+                        <div>
+                          <p className="text-white truncate">{tx.attendeeName}</p>
+                          {tx.attendeeEmail && <p className="text-xs text-muted-foreground truncate">{tx.attendeeEmail}</p>}
+                        </div>
+                        <p className="text-muted-foreground truncate">{tx.eventName ?? "—"}</p>
+                        <p className="text-white font-medium">${tx.amountPaid.toFixed(2)}</p>
+                        <div>
+                          <Badge variant="outline" className={
+                            tx.paymentStatus === "paid" ? "bg-green-500/15 text-green-400 border-green-500/20" :
+                            tx.paymentStatus === "pending" ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/20" :
+                            "bg-gray-500/15 text-gray-400 border-gray-500/20"
+                          }>
+                            {tx.paymentStatus}
+                          </Badge>
+                        </div>
+                        <p className="text-muted-foreground text-xs">
+                          {new Date(tx.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Mobile card layout */}
+                  <div className="sm:hidden space-y-2">
+                    {transactions.map((tx) => (
+                      <div key={tx.id} className="flex items-center justify-between p-3 rounded-lg bg-white/3 border border-white/5">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm text-white font-medium truncate">{tx.attendeeName}</p>
+                          {tx.eventName && <p className="text-xs text-muted-foreground truncate mt-0.5">{tx.eventName}</p>}
+                          <p className="text-xs text-muted-foreground/60 mt-0.5">{new Date(tx.createdAt).toLocaleDateString()}</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1.5 ml-3 flex-shrink-0">
+                          <p className="text-sm text-white font-semibold">${tx.amountPaid.toFixed(2)}</p>
+                          <Badge variant="outline" className={
+                            tx.paymentStatus === "paid" ? "bg-green-500/15 text-green-400 border-green-500/20 text-[10px]" :
+                            tx.paymentStatus === "pending" ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/20 text-[10px]" :
+                            "bg-gray-500/15 text-gray-400 border-gray-500/20 text-[10px]"
+                          }>
+                            {tx.paymentStatus}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>

@@ -391,22 +391,26 @@ export default function Landing() {
             viewport={{ once: true }}
             className="rounded-2xl border border-white/10 bg-card/40 overflow-hidden"
           >
-            <div className="grid grid-cols-3 text-sm font-semibold text-muted-foreground border-b border-white/10 px-6 py-4">
+            <div className="overflow-x-auto">
+            <div className="min-w-[340px]">
+            <div className="grid grid-cols-3 text-sm font-semibold text-muted-foreground border-b border-white/10 px-3 sm:px-6 py-4">
               <span>Service</span>
               <span className="text-center">Typical Cost</span>
               <span className="text-center text-primary">With Pillar</span>
             </div>
             {comparisons.map((row, i) => (
-              <div key={i} className={`grid grid-cols-3 text-sm px-6 py-4 ${i < comparisons.length - 1 ? "border-b border-white/5" : ""}`}>
-                <span className="text-white">{row.task}</span>
-                <span className="text-center text-muted-foreground line-through decoration-red-400/50">{row.without}</span>
-                <span className="text-center text-primary font-medium">{row.with}</span>
+              <div key={i} className={`grid grid-cols-3 text-sm px-3 sm:px-6 py-3 sm:py-4 ${i < comparisons.length - 1 ? "border-b border-white/5" : ""}`}>
+                <span className="text-white text-xs sm:text-sm">{row.task}</span>
+                <span className="text-center text-muted-foreground line-through decoration-red-400/50 text-xs sm:text-sm">{row.without}</span>
+                <span className="text-center text-primary font-medium text-xs sm:text-sm">{row.with}</span>
               </div>
             ))}
-            <div className="grid grid-cols-3 text-sm px-6 py-4 bg-primary/5 border-t border-primary/20">
-              <span className="font-semibold text-white">Total annual cost</span>
-              <span className="text-center text-red-400 font-semibold">$10,000 – $40,000+</span>
-              <span className="text-center text-primary font-bold">From $288/yr</span>
+            <div className="grid grid-cols-3 text-sm px-3 sm:px-6 py-4 bg-primary/5 border-t border-primary/20">
+              <span className="font-semibold text-white text-xs sm:text-sm">Total annual cost</span>
+              <span className="text-center text-red-400 font-semibold text-xs sm:text-sm">$10k–$40k+</span>
+              <span className="text-center text-primary font-bold text-xs sm:text-sm">From $288/yr</span>
+            </div>
+            </div>
             </div>
           </motion.div>
         </div>

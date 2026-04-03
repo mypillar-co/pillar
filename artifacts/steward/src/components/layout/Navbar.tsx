@@ -101,12 +101,12 @@ function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 bg-card border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden">
+        <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-1rem)] bg-card border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden">
           <div className="flex items-center justify-between p-3 border-b border-white/10">
             <span className="text-sm font-semibold text-white">Notifications</span>
             <div className="flex items-center gap-2">
               {unreadCount > 0 && (
-                <button onClick={markAllRead} className="text-[11px] text-muted-foreground hover:text-white transition-colors">
+                <button onClick={markAllRead} className="text-xs text-muted-foreground hover:text-white transition-colors">
                   Mark all read
                 </button>
               )}
@@ -128,8 +128,8 @@ function NotificationBell() {
                   <div className="flex items-start gap-2">
                     {!n.read && <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />}
                     <div className={n.read ? "pl-3.5" : ""}>
-                      <p className={`text-[11px] font-semibold ${typeColor[n.type] ?? "text-white"}`}>{n.title}</p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{n.body}</p>
+                      <p className={`text-xs font-semibold ${typeColor[n.type] ?? "text-white"}`}>{n.title}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{n.body}</p>
                       <p className="text-[10px] text-muted-foreground/50 mt-1">{new Date(n.createdAt).toLocaleDateString()}</p>
                     </div>
                   </div>
