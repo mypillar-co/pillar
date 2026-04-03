@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useRoute } from "wouter";
+import { useRoute, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Calendar,
@@ -11,6 +11,7 @@ import {
   Minus,
   Plus,
   ExternalLink,
+  ChevronLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -156,6 +157,14 @@ export default function PublicEvent() {
   return (
     <div className="min-h-screen bg-[hsl(224,30%,8%)]">
       <div className="max-w-4xl mx-auto px-4 py-8 sm:py-12">
+        {/* Back link to event landing page */}
+        <Link href={`/events/${slug}`}>
+          <a className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-white transition-colors mb-6">
+            <ChevronLeft className="w-4 h-4" />
+            Back to event details
+          </a>
+        </Link>
+
         <div className="mb-2">
           <p className="text-sm text-primary font-medium">{organization.name}</p>
         </div>

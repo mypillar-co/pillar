@@ -16,6 +16,7 @@ import BoardApproval from "./pages/BoardApproval";
 import PublicRegistration, { RegistrationSuccess } from "./pages/PublicRegistration";
 import NotFound from "./pages/not-found";
 import PublicEvent from "./pages/PublicEvent";
+import PublicEventLanding from "./pages/PublicEventLanding";
 import TicketSuccess from "./pages/TicketSuccess";
 import { LodgesPage, RotaryPage, VFWPage, HOAPage, PTAPage, NonprofitsPage } from "./pages/verticals";
 
@@ -83,6 +84,7 @@ function AppRouter() {
       </Route>
       <Route path="/events/:slug/tickets/success" component={TicketSuccess} />
       <Route path="/events/:slug/tickets" component={PublicEvent} />
+      <Route path="/events/:slug" component={PublicEventLanding} />
       <Route path="/terms" component={Terms} />
       <Route path="/privacy" component={PrivacyPolicy} />
       <Route path="/dpa" component={DPA} />

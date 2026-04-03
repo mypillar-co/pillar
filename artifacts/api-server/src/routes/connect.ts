@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { db, organizationsTable, eventsTable, ticketTypesTable, ticketSalesTable } from "@workspace/db";
+import { db, organizationsTable, eventsTable, ticketTypesTable, ticketSalesTable, eventSponsorsTable, sponsorsTable } from "@workspace/db";
 import { eq, and, sum, sql } from "drizzle-orm";
 import { getUncachableStripeClient, getStripePublishableKey } from "../stripeClient";
 import { resolveFullOrg } from "../lib/resolveOrg";
@@ -348,6 +348,27 @@ router.get("/public/events/:slug", async (req: Request, res: Response) => {
   const hasFreeTicketsOnly = ticketTypes.every(tt => tt.price === 0);
   const acceptsPayments = hasFreeTicketsOnly || !!(org?.stripeConnectAccountId && org?.stripeConnectOnboarded);
 
+  // Fetch event sponsors (active, site-visible, confirmed)
+  const eventSponsorRows = await db
+    .select({
+      sponsorId: eventSponsorsTable.sponsorId,
+      tier: eventSponsorsTable.tier,
+      tierRank: sponsorsTable.tierRank,
+      name: sponsorsTable.name,
+      logoUrl: sponsorsTable.logoUrl,
+      website: sponsorsTable.website,
+    })
+    .from(eventSponsorsTable)
+    .innerJoin(sponsorsTable, eq(eventSponsorsTable.sponsorId, sponsorsTable.id))
+    .where(
+      and(
+        eq(eventSponsorsTable.eventId, event.id),
+        eq(sponsorsTable.siteVisible, true),
+        eq(sponsorsTable.status, "active"),
+      )
+    )
+    .orderBy(sponsorsTable.tierRank, sponsorsTable.siteDisplayPriority);
+
   res.json({
     event: {
       id: event.id,
@@ -362,6 +383,7 @@ router.get("/public/events/:slug", async (req: Request, res: Response) => {
       location: event.location,
       imageUrl: event.imageUrl,
       isTicketed: event.isTicketed,
+      hasRegistration: event.hasRegistration,
     },
     ticketTypes: ticketTypes.map(tt => ({
       id: tt.id,
@@ -369,6 +391,14 @@ router.get("/public/events/:slug", async (req: Request, res: Response) => {
       description: tt.description,
       price: tt.price,
       available: tt.quantity !== null ? Math.max(0, tt.quantity - tt.sold) : null,
+    })),
+    sponsors: eventSponsorRows.map(s => ({
+      id: s.sponsorId,
+      name: s.name,
+      tier: s.tier ?? "sponsor",
+      tierRank: s.tierRank ?? 0,
+      logoUrl: s.logoUrl,
+      website: s.website,
     })),
     organization: {
       name: org?.name ?? "Unknown",

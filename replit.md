@@ -80,6 +80,32 @@ The project is organized as a monorepo containing several distinct packages:
 - **Slug Uniqueness**: Database constraint ensures unique organization slugs.
 - **Webhook Safety**: Errors fail closed (re-thrown for Stripe retry). Idempotent payment processing. Atomic inventory reservation with rollback on failure.
 
+## Site Building Standards (Lessons from Norwin Rotary Review)
+
+These rules apply to every org site Pillar generates. Violations destroy credibility.
+
+### Content Rules
+- **No AI filler text.** If real content isn't available for a section (programs, descriptions), omit the section or show a name/icon only. "Our X program brings community members together for meaningful impact" is worse than nothing.
+- **Recurring events show once.** A weekly Tuesday lunch is ONE card ("Tuesdays 12–1pm at X location"), not 52 cards. Only one-time events get individual cards sorted by date.
+- **No content duplication.** Address, meeting time, contact info — each appears exactly once on the page.
+- **"Scroll to explore" is an anti-pattern.** Remove it. People know how to scroll.
+
+### Design Rules
+- **Always check for known brand colors first.** Rotary International = blue #003DA5 + gold #F7A81B. Lions Club = purple + gold. VFW = red/white/blue. Elks = purple/gold. If the org is part of a national/international organization, use those colors — they're immediately recognizable to members.
+- **Hero must never be empty.** Use a real event photo (dark overlay + white text) or solid brand color as background. Never text on white with no color/image.
+- **Programs/features need real descriptions.** Ask for one real sentence about each program. If not provided, show icon + name only.
+- **object-cover on all images, always.** User photos are random sizes. Never show distorted images.
+- **Max-w-2xl on all body text paragraphs.** Lines longer than ~70 chars are hard to read.
+
+### Event Page Rules (per guide)
+- **Event detail section order:** Hero → About → Buy Tickets → Sponsors → Vendor Registration → Contact/Questions
+- **Ticket CTA is visible on event cards.** Show price + "Buy Tickets" button on the card itself, not just "Learn More."
+- **Ticket purchase form is front and center** on the event detail page — name, email, quantity, buy button — not buried below fold.
+- **Event card images:** object-cover, h-48, never distorted.
+
+### What "Done" Means
+All pages load without error. Events sorted by date everywhere. Ticket flow works end-to-end. No hardcoded placeholder text. Contact section has no duplicated content. Mobile menu scrolls if event list is long. One dominant CTA per section.
+
 ## External Dependencies
 
 - **PostgreSQL**: Primary database for all application data.
