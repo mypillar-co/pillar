@@ -24,6 +24,7 @@ import registrationsRouter from "./registrations";
 import orgMembersRouter from "./orgMembers";
 import siteEngineRouter from "./siteEngine";
 import publicContactRouter from "./publicContact";
+import managementRouter from "./management";
 
 const router: IRouter = Router();
 
@@ -52,5 +53,6 @@ router.use(registrationsRouter);
 router.use("/org-members", orgMembersRouter);
 router.use("/site-engine", siteEngineRouter);
 router.use("/public/contact", publicContactRouter);
+router.use("/management", managementRouter);
 
 export default router;

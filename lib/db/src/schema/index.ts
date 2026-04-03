@@ -41,3 +41,8 @@ export * from "./eventRevenueSummary";
 export * from "./siteChangeLog";
 export * from "./siteMediaAssets";
 export * from "./siteCompiledSnapshots";
+export * from "./orgContactSubmissions";
+export * from "./newsletterSubscribers";
+export * from "./orgBusinesses";
+export * from "./orgSiteContent";
+export * from "./photoAlbums";

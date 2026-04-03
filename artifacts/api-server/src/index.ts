@@ -46,6 +46,94 @@ async function runMigrations() {
     await db.execute(sql`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS needs_electricity boolean DEFAULT false`);
     await db.execute(sql`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS event_id varchar`);
 
+    // Event registration control flags
+    await db.execute(sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS registration_closed boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS registration_force_open boolean DEFAULT false`);
+
+    // Management API — contact submissions
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS org_contact_submissions (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        org_id varchar NOT NULL,
+        name text NOT NULL,
+        email varchar NOT NULL,
+        message text NOT NULL,
+        read boolean NOT NULL DEFAULT false,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS ocs_org_idx ON org_contact_submissions (org_id)`);
+
+    // Management API — newsletter subscribers
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS newsletter_subscribers (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        org_id varchar NOT NULL,
+        email varchar NOT NULL,
+        name text,
+        subscribed_at timestamptz NOT NULL DEFAULT now(),
+        unsubscribed_at timestamptz,
+        UNIQUE (org_id, email)
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS ns_org_idx ON newsletter_subscribers (org_id)`);
+
+    // Management API — business directory
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS org_businesses (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        org_id varchar NOT NULL,
+        name text NOT NULL,
+        category varchar,
+        description text,
+        address text,
+        phone varchar,
+        website text,
+        active boolean NOT NULL DEFAULT true,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS ob_org_idx ON org_businesses (org_id)`);
+
+    // Management API — site content key-value store
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS org_site_content (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        org_id varchar NOT NULL,
+        key varchar NOT NULL,
+        value text NOT NULL,
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        UNIQUE (org_id, key)
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS osc_org_idx ON org_site_content (org_id)`);
+
+    // Management API — photo albums
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS photo_albums (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        org_id varchar NOT NULL,
+        title text NOT NULL,
+        description text,
+        event_slug varchar,
+        cover_photo_id varchar,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS pa_org_idx ON photo_albums (org_id)`);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS album_photos (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        album_id varchar NOT NULL,
+        org_id varchar NOT NULL,
+        url text NOT NULL,
+        caption text,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS ap_album_idx ON album_photos (album_id)`);
+
     logger.info("Startup migrations complete");
   } catch (err) {
     logger.warn({ err }, "Startup migration warning — continuing");

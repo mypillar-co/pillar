@@ -37,6 +37,7 @@ import ContentStudio from "./pages/dashboard/ContentStudio";
 import BoardLinksPage from "./pages/dashboard/BoardLinks";
 import Help from "./pages/dashboard/Help";
 import Registrations from "./pages/dashboard/Registrations";
+import Management from "./pages/dashboard/Management";
 import Admin from "./pages/Admin";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -124,6 +125,7 @@ function AppRouter() {
       <Route path="/dashboard/board-links"><DB><BoardLinksPage /></DB></Route>
       <Route path="/dashboard/help"><DB><Help /></DB></Route>
       <Route path="/dashboard/registrations"><DB><Registrations /></DB></Route>
+      <Route path="/dashboard/autopilot"><DB><Management /></DB></Route>
       <Route path="/dashboard"><DB><Overview /></DB></Route>
 
       <Route>

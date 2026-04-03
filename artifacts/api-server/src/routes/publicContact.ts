@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { db, organizationsTable, websiteSpecsTable } from "@workspace/db";
+import { db, organizationsTable, websiteSpecsTable, orgContactSubmissionsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "../lib/logger";
 
@@ -132,6 +132,18 @@ router.post("/:orgSlug", async (req: Request, res: Response) => {
       logger.error({ status: emailRes.status, body: errBody }, "Resend API error on contact form submission");
       res.status(500).json({ error: "Failed to send your message. Please try again." });
       return;
+    }
+
+    // Save submission to DB so it's retrievable via management API
+    try {
+      await db.insert(orgContactSubmissionsTable).values({
+        orgId: org.id,
+        name: name.trim(),
+        email: email.trim(),
+        message: message.trim(),
+      });
+    } catch (dbErr) {
+      logger.warn({ dbErr }, "Failed to persist contact submission to DB — email was delivered");
     }
 
     res.json({ success: true });

@@ -49,6 +49,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     items: [
       { label: "Overview", href: "/dashboard", icon: LayoutDashboard, tourId: "overview" },
+      { label: "Autopilot", href: "/dashboard/autopilot", icon: Sparkles },
     ],
   },
   {
