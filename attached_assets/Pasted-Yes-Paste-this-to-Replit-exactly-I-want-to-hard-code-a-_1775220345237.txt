@@ -1,0 +1,243 @@
+Yes. Paste this to Replit exactly:
+
+I want to hard-code a stricter web design system into Pillar so generated sites stop looking like AI junk.
+
+This is NOT an architecture task.
+This is NOT a schema task.
+This is a renderer / design-system / output-quality task.
+
+Implement these rules exactly.
+
+GOAL
+
+Generated sites should look like they came from a disciplined Webflow / Squarespace style design system:
+- clean
+- intentional
+- modern
+- restrained
+- readable
+- trustworthy
+
+AI should NOT invent layouts.
+AI should only fill content within a controlled design system.
+
+==================================================
+DESIGN SYSTEM RULES TO IMPLEMENT
+==================================================
+
+1. NEVER USE LOGOS AS HERO BACKGROUNDS
+
+Rule:
+Only use photographic images as hero backgrounds.
+
+Reject as hero background:
+- logos
+- icons
+- vector graphics
+- sponsor graphics
+- square images
+- transparent PNGs
+- flat brand marks
+
+If an image is logo-like, classify it as:
+- logo
+- decorative graphic
+- badge
+
+Do NOT use it as a full hero background.
+
+If no strong hero photo exists:
+use a clean non-image hero instead.
+
+==================================================
+2. EVERY PAGE MUST FOLLOW CLEAR VISUAL HIERARCHY
+==================================================
+
+Homepages must follow this structure:
+
+Hero
+Primary section (mission or featured event)
+Supporting section (programs or events)
+Trust section (sponsors/partners/testimonials if available)
+Conversion section (join/register/contact)
+Footer
+
+Do not allow random block stacking that breaks this hierarchy.
+
+The planner may vary which section appears, but the visual hierarchy must remain clear.
+
+==================================================
+3. LIMIT PAGE WIDTH
+==================================================
+
+All major content containers must use a max width.
+
+Rule:
+- max-width: 1100px to 1280px
+- centered with margin auto
+- horizontal padding: 24px desktop, 16px mobile
+
+Do not allow long full-width text rows.
+
+==================================================
+4. USE A STRICT TYPOGRAPHY SCALE
+==================================================
+
+Implement a fixed typography system.
+
+Use approximately:
+
+Hero title:
+- desktop: 48px to 64px
+- mobile: 32px to 40px
+
+Section title:
+- desktop: 28px to 36px
+- mobile: 22px to 28px
+
+Card title:
+- 18px to 22px
+
+Body:
+- 15px to 18px
+
+Small/meta:
+- 13px to 14px
+
+Spacing:
+- title to paragraph: 12px
+- paragraph to CTA row: 20px
+
+Do not use random font sizing.
+
+==================================================
+5. USE CONSISTENT SPACING RHYTHM
+==================================================
+
+Adopt a strict spacing scale using:
+8, 16, 24, 32, 48, 64, 80
+
+Rules:
+- section vertical padding: 80px desktop / 48px mobile
+- card padding: 20px to 24px
+- gap between blocks inside a section: 24px to 32px
+- gap between major sections: 64px to 96px
+
+Do not allow cramped, uneven spacing.
+
+==================================================
+6. LIMIT CTAS TO TWO PER SECTION
+==================================================
+
+Each section may have:
+- one primary CTA
+- one secondary CTA
+
+Never more than two buttons in a section.
+
+Primary:
+- filled button
+
+Secondary:
+- outline or ghost button
+
+Do not scatter extra links/buttons around the hero.
+
+==================================================
+7. NEVER PROMOTE WEAK CONTENT
+==================================================
+
+If content is weak or missing, remove or simplify the section.
+
+Rules:
+- no fake stats
+- no weak sponsor section if no real sponsors
+- no event section if no public events
+- no image hero if no strong hero image
+- no forced cards if content is too thin
+
+When in doubt:
+show fewer sections, better.
+
+Simple is better than fake.
+
+==================================================
+8. LIMIT CARDS PER ROW
+==================================================
+
+Rules:
+- desktop: max 3 cards per row for programs/events
+- tablet: 2
+- mobile: 1
+
+Sponsor logos:
+- max 6 per row desktop
+- 3 or 4 tablet
+- 2 mobile
+
+Do not allow overcrowded rows.
+
+==================================================
+9. EVERY HERO MUST HAVE ONE FOCAL POINT
+==================================================
+
+A hero may be:
+- headline-focused
+- event-focused
+- image-focused
+
+Never all at once.
+
+Every hero must contain:
+- heading
+- supporting text
+- CTA row
+
+And only one main visual focus.
+
+Do not let background graphics compete with text.
+
+==================================================
+10. WHEN CONFIDENCE IS LOW, CHOOSE SIMPLE
+==================================================
+
+If the system is unsure:
+- use clean gradient/solid hero
+- use logo badge
+- use strong headline
+- use one supporting paragraph
+- use CTA row
+
+Do NOT force complexity.
+
+Simple always beats ugly.
+
+==================================================
+11. IMAGE RESTRAINT RULES
+==================================================
+
+Use images intentionally:
+
+Hero:
+- one image only, if strong enough
+
+Programs:
+- icons or no image unless high-quality real photo exists
+
+Events:
+- event image only if it is relevant and good
+
+Sponsors:
+- logos only
+
+Do not mix logos, decorative marks, photos, and graphics randomly.
+
+==================================================
+IMPLEMENTATION REQUIREMENTS
+==================================================
+
+Apply these rules in:
+- blockRenderer
+- hero composition logic
+- image classification / selection logic
+- theme/layout
