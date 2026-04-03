@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { db, organizationsTable, sitesTable, siteUpdateSchedulesTable, websiteSpecsTable, eventsTable } from "@workspace/db";
+import { db, organizationsTable, sitesTable, siteUpdateSchedulesTable, websiteSpecsTable, eventsTable, recurringEventTemplatesTable } from "@workspace/db";
 import { eq, sql, and } from "drizzle-orm";
 import { resolveFullOrg } from "../lib/resolveOrg";
 import OpenAI from "openai";
@@ -1915,15 +1915,81 @@ router.post("/sync-events", async (req: Request, res: Response) => {
   const [existing] = await db.select().from(sitesTable).where(eq(sitesTable.orgId, org.id));
   if (!existing?.generatedHtml) { res.status(404).json({ error: "No published site found. Generate your site first." }); return; }
 
-  // Fetch events from DB (no AI needed — build HTML directly from template)
-  const today = new Date().toISOString().split("T")[0];
-  const allEventsFromDb = await db
-    .select({ name: eventsTable.name, startDate: eventsTable.startDate, startTime: eventsTable.startTime, endTime: eventsTable.endTime, location: eventsTable.location, description: eventsTable.description, slug: eventsTable.slug, hasRegistration: eventsTable.hasRegistration, status: eventsTable.status })
+  // Fetch one-off events from DB
+  const todayStr = new Date().toISOString().split("T")[0];
+  const todayDate = new Date(todayStr + "T00:00:00");
+
+  const oneOffEvents = await db
+    .select({ name: eventsTable.name, startDate: eventsTable.startDate, startTime: eventsTable.startTime, endTime: eventsTable.endTime, location: eventsTable.location, description: eventsTable.description, slug: eventsTable.slug, hasRegistration: eventsTable.hasRegistration })
     .from(eventsTable)
     .where(eq(eventsTable.orgId, org.id))
-    .limit(15);
-  const futureEvents = allEventsFromDb.filter(e => !e.startDate || e.startDate >= today);
-  const eventsToShow = futureEvents.length > 0 ? futureEvents : allEventsFromDb.slice(0, 5);
+    .limit(20);
+
+  // Fetch active recurring event templates — compute next 2 occurrences each
+  const recurringTemplates = await db
+    .select()
+    .from(recurringEventTemplatesTable)
+    .where(and(eq(recurringEventTemplatesTable.orgId, org.id), eq(recurringEventTemplatesTable.isActive, true)));
+
+  // Compute next occurrence of a recurring template after a given date
+  function nextOccurrence(template: typeof recurringTemplates[0], after: Date): Date {
+    const base = new Date(after);
+    base.setDate(base.getDate() + 1);
+    base.setHours(0, 0, 0, 0);
+    if ((template.frequency === "weekly" || template.frequency === "biweekly") && template.dayOfWeek != null) {
+      while (base.getDay() !== template.dayOfWeek) base.setDate(base.getDate() + 1);
+      if (template.frequency === "biweekly") base.setDate(base.getDate() + 7);
+      return base;
+    }
+    if (template.frequency === "monthly") {
+      if (template.dayOfMonth != null) {
+        base.setDate(1);
+        base.setMonth(base.getMonth() + 1);
+        const maxDay = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+        base.setDate(Math.min(template.dayOfMonth, maxDay));
+        return base;
+      }
+      if (template.weekOfMonth != null && template.dayOfWeek != null) {
+        base.setDate(1);
+        base.setMonth(base.getMonth() + 1);
+        let c = 0;
+        while (true) { if (base.getDay() === template.dayOfWeek) { c++; if (c === template.weekOfMonth) break; } base.setDate(base.getDate() + 1); }
+        return base;
+      }
+    }
+    base.setMonth(base.getMonth() + 1);
+    return base;
+  }
+
+  // Build synthetic event rows from recurring templates (next 2 occurrences)
+  type SyncEventRow = { name: string; startDate: string | null; startTime: string | null; endTime: string | null; location: string | null; description: string | null; slug: string | null; hasRegistration: boolean | null };
+  const recurringRows: SyncEventRow[] = [];
+  for (const tmpl of recurringTemplates) {
+    let occ = nextOccurrence(tmpl, todayDate);
+    for (let i = 0; i < 2; i++) {
+      recurringRows.push({
+        name: tmpl.name,
+        startDate: occ.toISOString().split("T")[0],
+        startTime: tmpl.startTime ?? null,
+        endTime: null,
+        location: tmpl.location ?? null,
+        description: tmpl.description ?? null,
+        slug: null,       // recurring templates have no ticket slug
+        hasRegistration: null,
+      });
+      occ = nextOccurrence(tmpl, occ);
+    }
+  }
+
+  // Merge: future one-off events + recurring occurrences, sorted by date
+  const futureOneOff = oneOffEvents.filter(e => !e.startDate || e.startDate >= todayStr);
+  const allRows: SyncEventRow[] = [
+    ...futureOneOff.map(e => ({ ...e, slug: e.slug ?? null, hasRegistration: e.hasRegistration ?? null })),
+    ...recurringRows,
+  ].sort((a, b) => (a.startDate ?? "9999") < (b.startDate ?? "9999") ? -1 : 1);
+
+  // If nothing future, fall back to most recent one-offs
+  const eventsToShow: SyncEventRow[] = allRows.length > 0 ? allRows.slice(0, 8) : oneOffEvents.slice(0, 5).map(e => ({ ...e, slug: e.slug ?? null, hasRegistration: e.hasRegistration ?? null }));
 
   if (eventsToShow.length === 0) {
     res.status(400).json({ error: "No events found. Add events in the Events section first." });
@@ -1932,7 +1998,7 @@ router.post("/sync-events", async (req: Request, res: Response) => {
 
   const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-  const buildRow = (e: typeof eventsToShow[0]) => {
+  const buildRow = (e: SyncEventRow) => {
     const dateObj = e.startDate ? new Date(e.startDate + "T00:00:00") : null;
     const day = dateObj ? String(dateObj.getDate()) : "";
     const month = dateObj ? dateObj.toLocaleDateString("en-US", { month: "short" }).toUpperCase() : "";
@@ -1979,29 +2045,31 @@ router.post("/sync-events", async (req: Request, res: Response) => {
   if (eventsSecRe.test(updatedHtml)) {
     updatedHtml = updatedHtml.replace(eventsSecRe, newEventsSectionHtml.trim());
   } else {
-    // Insert before contact section
     updatedHtml = updatedHtml.replace(/<section[^>]*\bid="contact"/, `${newEventsSectionHtml}\n  <section id="contact"`);
   }
 
-  // Ensure "Events" link appears in desktop nav, mobile menu, and footer (add if missing)
+  // Ensure "Events" nav link is present — simple targeted insertion before "Contact"
   if (!updatedHtml.includes('href="#events"')) {
-    updatedHtml = updatedHtml
-      // Desktop nav: insert Events between Programs and Contact
-      .replace(
-        /(<a href="#programs"[^<]*<\/a>)([\s\S]*?)(<a href="#contact")/,
-        `$1$2<a href="#events">Events</a>\n        $3`,
-      )
-      // Mobile menu: insert Events between Programs and Contact
-      .replace(
-        /(<a href="#programs" class="mobile-link"[^<]*<\/a>)([\s\S]*?)(<a href="#contact" class="mobile-link")/,
-        `$1$2<a href="#events" class="mobile-link">Events</a>\n    $3`,
-      )
-      // Footer nav: insert Events between Programs and Contact
-      .replace(
-        /(<li><a href="#programs"[^<]*<\/a><\/li>)([\s\S]*?)(<li><a href="#contact")/,
-        `$1$2<li><a href="#events">Events</a></li>\n            $3`,
-      );
+    // Desktop nav
+    updatedHtml = updatedHtml.replace(
+      '<a href="#contact">Contact</a>',
+      '<a href="#events">Events</a>\n        <a href="#contact">Contact</a>',
+    );
+    // Mobile menu
+    updatedHtml = updatedHtml.replace(
+      '<a href="#contact" class="mobile-link">Contact</a>',
+      '<a href="#events" class="mobile-link">Events</a>\n    <a href="#contact" class="mobile-link">Contact</a>',
+    );
+    // Footer
+    updatedHtml = updatedHtml.replace(
+      '<li><a href="#contact">Contact</a></li>',
+      '<li><a href="#events">Events</a></li>\n            <li><a href="#contact">Contact</a></li>',
+    );
   }
+
+  // Safety net: fix any stale wrong-domain event URLs from previous syncs
+  const badUrlRe = /https:\/\/mypillar\.co\/events\/([^/]+)\/tickets/g;
+  updatedHtml = updatedHtml.replace(badUrlRe, `https://${org.slug}.mypillar.co/events/$1/tickets`);
 
   // Auto-apply: save to both proposedHtml (preview) and generatedHtml (live site)
   await db.update(sitesTable)
