@@ -964,6 +964,7 @@ function planLayout(scores: ContentScores, hasActualHeroPhoto: boolean, hasLogo:
 type EventRow = {
   name: string; startDate: string | null; startTime: string | null;
   endTime: string | null; location: string | null; description: string | null;
+  slug?: string | null; hasRegistration?: boolean | null; status?: string | null;
 };
 
 function buildFeaturedEventSection(
@@ -979,6 +980,10 @@ function buildFeaturedEventSection(
     ? `🕐 ${esc(event.startTime)}${event.endTime ? ` – ${esc(event.endTime)}` : ""}`
     : "";
   const { label: ctaLabel } = inferEventCta(event.name, event.description ?? "");
+  const eventUrl = event.slug ? `https://mypillar.co/events/${event.slug}/tickets` : null;
+  const primaryCta = eventUrl
+    ? `<a href="${eventUrl}" target="_blank" rel="noopener noreferrer" class="btn-primary">${event.hasRegistration ? esc(ctaLabel) : "Learn More"}</a>`
+    : `<a href="#contact" class="btn-primary">${esc(ctaLabel)}</a>`;
 
   return `
   <section class="featured-event" id="featured-event">
@@ -1002,7 +1007,7 @@ function buildFeaturedEventSection(
           </p>` : ""}
           ${event.description ? `<p>${esc(event.description)}</p>` : ""}
           <div class="fe-cta-row">
-            <a href="#contact" class="btn-primary">${esc(ctaLabel)}</a>
+            ${primaryCta}
             <a href="#events" class="btn-ghost" style="background:transparent;color:var(--text);border-color:var(--border)">View All Events</a>
           </div>
         </div>
@@ -1156,9 +1161,9 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
   const s = extractedSpec;
   const today = new Date().toISOString().split("T")[0];
   const upcomingEvents = await db
-    .select({ name: eventsTable.name, startDate: eventsTable.startDate, startTime: eventsTable.startTime, endTime: eventsTable.endTime, location: eventsTable.location, description: eventsTable.description })
+    .select({ name: eventsTable.name, startDate: eventsTable.startDate, startTime: eventsTable.startTime, endTime: eventsTable.endTime, location: eventsTable.location, description: eventsTable.description, slug: eventsTable.slug, hasRegistration: eventsTable.hasRegistration, status: eventsTable.status })
     .from(eventsTable)
-    .where(eq(eventsTable.orgId, org.id))
+    .where(and(eq(eventsTable.orgId, org.id), sql`${eventsTable.status} != 'draft'`))
     .limit(10);
   const futureEvents = upcomingEvents.filter(e => !e.startDate || e.startDate >= today);
   const allEvents = futureEvents.length > 0 ? futureEvents : upcomingEvents.slice(0, 5);
@@ -1352,6 +1357,12 @@ Rules: Use REAL content only — never lorem ipsum. Make programs specific to th
     const day = dateObj ? String(dateObj.getDate()) : "";
     const month = dateObj ? dateObj.toLocaleDateString("en-US", { month: "short" }).toUpperCase() : "";
     const timeStr = e.startTime ? `${e.startTime}${e.endTime ? ` – ${e.endTime}` : ""}` : "";
+    const eventUrl = e.slug ? `https://mypillar.co/events/${e.slug}/tickets` : null;
+    const registerBtn = e.hasRegistration && eventUrl
+      ? `<a href="${eventUrl}" target="_blank" rel="noopener noreferrer" class="btn-primary" style="margin-top:0.5rem;display:inline-block;padding:0.5rem 1.25rem;font-size:0.85rem">Register</a>`
+      : eventUrl
+      ? `<a href="${eventUrl}" target="_blank" rel="noopener noreferrer" class="btn-ghost" style="margin-top:0.5rem;display:inline-block;padding:0.5rem 1.25rem;font-size:0.85rem;background:transparent;color:var(--text);border-color:var(--border)">Learn More</a>`
+      : "";
     return `
     <div class="event-row reveal">
       <div class="event-date-block">
@@ -1364,6 +1375,7 @@ Rules: Use REAL content only — never lorem ipsum. Make programs specific to th
           ${timeStr ? `<span class="event-meta-item">${esc(timeStr)}</span>` : ""}
           ${e.location ? `<span class="event-meta-item">${esc(e.location)}</span>` : ""}
         </div>
+        ${registerBtn}
       </div>
     </div>`;
   };
