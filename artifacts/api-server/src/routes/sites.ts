@@ -1125,16 +1125,16 @@ Required JSON structure:
   "stat2Value": "member count with + e.g. '45+'", "stat2Label": "Active Members",
   "stat3Value": "annual events count e.g. '12+'", "stat3Label": "Annual Events",
   "programs": [
-    {"icon":"highly relevant emoji","title":"exact program name from their content","description":"2 vivid, specific sentences about this program's real impact"},
-    {"icon":"emoji","title":"program name","description":"2 specific sentences"},
-    {"icon":"emoji","title":"program name","description":"2 specific sentences"}
+    {"icon":"2-3 word category label e.g. 'Youth Leadership' or 'Community Service' or 'Annual Fundraiser'","title":"exact program name from their content","description":"2 vivid, specific sentences about this program's real impact"},
+    {"icon":"2-3 word category label","title":"program name","description":"2 specific sentences"},
+    {"icon":"2-3 word category label","title":"program name","description":"2 specific sentences"}
   ],
   "contactHeading": "warm, specific 4-6 word invitation tied to this org e.g. 'Join Norwin Rotary Today'",
   "contactIntro": "2 genuine sentences that speak to WHY someone would want to get involved — specific to this org",
   "contactCardHeading": "action-oriented CTA e.g. 'Become a Member' or 'Attend a Meeting'",
   "contactCardText": "2 sentences with the most useful info — when/where they meet, what to expect"
 }
-Rules: Use REAL content only — never lorem ipsum. Make programs specific to this org (not generic). If stat values unknown, infer plausible ones based on org age/type. Emojis must be highly relevant (🎰❌ — pick emojis that actually match the program).`,
+Rules: Use REAL content only — never lorem ipsum. Make programs specific to this org (not generic). If stat values unknown, infer plausible ones based on org age/type. No emojis anywhere in the output.`,
       },
       {
         role: "user",
@@ -1226,7 +1226,7 @@ Rules: Use REAL content only — never lorem ipsum. Make programs specific to th
 
   const programsBlock = contentData.programs.map(p => `
     <div class="card reveal-child">
-      <span class="card-icon">${p.icon}</span>
+      <span class="card-category">${esc(p.icon)}</span>
       <h3>${esc(p.title)}</h3>
       <p>${esc(p.description)}</p>
     </div>`).join("\n");
@@ -1245,8 +1245,8 @@ Rules: Use REAL content only — never lorem ipsum. Make programs specific to th
         <h4>${esc(e.name)}</h4>
         ${e.description ? `<p>${esc(e.description)}</p>` : ""}
         <div class="event-meta">
-          ${timeStr ? `<span>🕐 ${esc(timeStr)}</span>` : ""}
-          ${e.location ? `<span>📍 ${esc(e.location)}</span>` : ""}
+          ${timeStr ? `<span class="event-meta-item">${esc(timeStr)}</span>` : ""}
+          ${e.location ? `<span class="event-meta-item">${esc(e.location)}</span>` : ""}
         </div>
       </div>
     </div>`;
@@ -1446,7 +1446,32 @@ Rules: Use REAL content only — never lorem ipsum. Make programs specific to th
     await db.update(organizationsTable).set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` }).where(eq(organizationsTable.id, org.id));
     const newUsed = used + 1;
 
-    res.json({ site: { ...site, proposedHtml: undefined }, orgSlug: slug, spec: extractedSpec, used: newUsed, limit: monthlyLimit, remaining: monthlyLimit - newUsed });
+    // Build walkthrough — a section-by-section description played back in the chat
+    const walkthroughSteps: string[] = [];
+    const heroTypeLabel = plan.heroType === "photo" ? "a photo background" : "a gradient background";
+    walkthroughSteps.push(
+      `Your site is built. Here's what we created.\n\nHero — ${s.orgName}'s mission leads above the fold with ${heroTypeLabel} and a clear call to action. This is the first thing every visitor sees.`
+    );
+    if (plan.showPrograms && contentData.programs.length > 0) {
+      const names = contentData.programs.map(p => p.title);
+      const nameStr = names.length === 1 ? names[0] : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+      walkthroughSteps.push(`Programs — ${names.length} program${names.length !== 1 ? "s" : ""} highlighted: ${nameStr}.`);
+    }
+    if (plan.showFeaturedEvent && plan.featuredEvent) {
+      walkthroughSteps.push(`Featured Event — "${plan.featuredEvent.name}" is spotlighted with the date, description, and a direct action button.`);
+    }
+    if (plan.showEventList && allEvents.length > 0) {
+      walkthroughSteps.push(`Events — ${Math.min(allEvents.length, 5)} upcoming event${allEvents.length !== 1 ? "s" : ""} listed with dates and details.`);
+    }
+    if (plan.showStats) {
+      walkthroughSteps.push(`By the Numbers — Key stats are displayed to build credibility with new visitors.`);
+    }
+    if (plan.showSponsorStrip && s.sponsors && s.sponsors.length >= 2) {
+      walkthroughSteps.push(`Sponsors — A sponsor strip recognizes ${s.sponsors.length} supporting organizations.`);
+    }
+    walkthroughSteps.push(`Contact — Your contact information and an invitation to get involved round out the page.\n\nTell me what you'd like to change — colors, copy, layout, or any section.`);
+
+    res.json({ site: { ...site, proposedHtml: undefined }, orgSlug: slug, walkthrough: walkthroughSteps, used: newUsed, limit: monthlyLimit, remaining: monthlyLimit - newUsed });
   } catch {
     res.status(500).json({ error: "Site generation failed. Please try again." });
   }

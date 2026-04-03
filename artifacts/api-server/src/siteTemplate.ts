@@ -510,7 +510,19 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
       box-shadow: 0 20px 60px rgba(var(--primary-rgb), 0.13), 0 6px 20px rgba(0,0,0,0.06), 0 0 0 1px rgba(var(--primary-rgb), 0.18);
     }
     .card:hover::before { opacity: 1; }
-    .card-icon { font-size: 2rem; margin-bottom: 18px; display: block; line-height: 1; }
+    .card-category {
+      display: inline-block;
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 16px;
+      padding: 3px 10px;
+      border-radius: 100px;
+      border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+      background: color-mix(in srgb, var(--accent) 8%, transparent);
+    }
     .card h3 {
       font-family: var(--font-display);
       font-size: var(--t-h3);

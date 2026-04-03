@@ -564,14 +564,34 @@ export default function SiteBuilder() {
       }
 
       if (!res.ok) throw new Error("Generation failed");
-      const data = await res.json() as { site: Site; orgSlug: string; used?: number; limit?: number; remaining?: number };
+      const data = await res.json() as { site: Site; orgSlug: string; walkthrough?: string[]; used?: number; limit?: number; remaining?: number };
       setSite(data.site);
       setOrgSlug(data.orgSlug);
       if (data.used !== undefined) {
         setUsage(prev => prev ? { ...prev, used: data.used!, limit: data.limit ?? prev.limit, remaining: data.remaining ?? 0 } : null);
       }
+      setMessages([]);
       setMode("preview");
       setActiveTab("preview");
+      // Animate the walkthrough steps into the chat
+      if (data.walkthrough?.length) {
+        for (let stepIdx = 0; stepIdx < data.walkthrough.length; stepIdx++) {
+          const step = data.walkthrough[stepIdx];
+          const msgId = crypto.randomUUID();
+          setMessages(prev => [...prev, { id: msgId, role: "assistant" as const, content: "", streaming: true }]);
+          let displayed = "";
+          for (let i = 0; i < step.length; i++) {
+            displayed += step[i];
+            const snap = displayed;
+            setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: snap } : m));
+            await new Promise(r => setTimeout(r, step.length > 200 ? 5 : 10));
+          }
+          setMessages(prev => prev.map(m => m.id === msgId ? { ...m, streaming: false } : m));
+          if (stepIdx < data.walkthrough.length - 1) {
+            await new Promise(r => setTimeout(r, 700));
+          }
+        }
+      }
     } catch {
       setMode("interview");
       alert("Site generation failed. Please try again.");
@@ -695,6 +715,74 @@ export default function SiteBuilder() {
     } finally {
       clearTimeout(timeout);
       setChangePending(false);
+    }
+  };
+
+  const handleSiteEditSend = async () => {
+    const text = input.trim();
+    if (!text || chatLoading) return;
+    setInput("");
+    const userMsgId = crypto.randomUUID();
+    setMessages(prev => [...prev, { id: userMsgId, role: "user" as const, content: text }]);
+    const assistantMsgId = crypto.randomUUID();
+    setMessages(prev => [...prev, { id: assistantMsgId, role: "assistant" as const, content: "", streaming: true }]);
+    setChatLoading(true);
+    setProposedHtml(null);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90_000);
+    try {
+      let res: Response;
+      try {
+        res = await csrfFetch("/api/sites/change-request/propose", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ changeRequest: text }),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        const msg = err instanceof DOMException && err.name === "AbortError" ? "Request timed out. Please try again." : "Connection error. Please try again.";
+        setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: msg, streaming: false } : m));
+        return;
+      }
+      if (res.status === 403) {
+        const reply = "Change requests require a paid plan. Upgrade to Starter or above to edit your site.";
+        setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: reply, streaming: false } : m));
+        return;
+      }
+      if (res.status === 429) {
+        setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: "Monthly AI limit reached. Upgrade to continue.", streaming: false } : m));
+        return;
+      }
+      if (!res.ok) {
+        let errMsg = "Something went wrong. Please try again.";
+        try { const d = await res.json() as { error?: string }; errMsg = d.error ?? errMsg; } catch { /* non-JSON */ }
+        setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: errMsg, streaming: false } : m));
+        return;
+      }
+      const data = await res.json() as { proposalReady: boolean; used: number; limit: number; remaining: number };
+      setUsage(prev => prev ? { ...prev, used: data.used, remaining: data.remaining } : null);
+      const previewRes = await csrfFetch("/api/sites/my/proposal-preview", { credentials: "include" });
+      if (!previewRes.ok) {
+        setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: "Preview could not be loaded. Please try again.", streaming: false } : m));
+        return;
+      }
+      const previewData = await previewRes.json() as { proposedHtml: string };
+      setProposedHtml(previewData.proposedHtml);
+      setPreviewKey(k => k + 1);
+      setActiveTab("preview");
+      const reply = "Done — the preview shows the updated version. Accept or discard the change below.";
+      let displayed = "";
+      for (let i = 0; i < reply.length; i++) {
+        displayed += reply[i];
+        const snap = displayed;
+        setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: snap } : m));
+        await new Promise(r => setTimeout(r, 10));
+      }
+      setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, streaming: false } : m));
+    } finally {
+      clearTimeout(timeout);
+      setChatLoading(false);
     }
   };
 
@@ -850,26 +938,77 @@ export default function SiteBuilder() {
         </div>
       )}
 
-      {/* ── Preview mode ── */}
+      {/* ── Preview mode — two-panel layout ── */}
       {mode === "preview" && site?.generatedHtml && (
-        <>
-          {/* Proposed-change confirmation bar */}
-          {proposedHtml && (
-            <div className="px-4 py-2.5 border-b border-amber-500/30 bg-amber-500/10 flex items-center justify-between flex-shrink-0">
-              <div className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                <span className="text-xs text-amber-200">Previewing proposed change — review and confirm or discard</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button size="sm" onClick={discardChange} variant="ghost" className="h-7 text-xs text-slate-400 hover:text-white">
-                  <X className="w-3.5 h-3.5 mr-1" /> Discard
-                </Button>
-                <Button size="sm" onClick={applyChange} className="h-7 text-xs bg-emerald-600 hover:bg-emerald-500">
-                  <Check className="w-3.5 h-3.5 mr-1" /> Apply Change
-                </Button>
+        <div className="flex flex-row flex-1 min-h-0 overflow-hidden">
+
+          {/* ── LEFT: Site chat panel ── */}
+          <div className="w-72 flex-shrink-0 border-r border-white/8 flex flex-col min-h-0 bg-[hsl(224,40%,9%)]">
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0">
+              {messages.map(msg => (
+                <div key={msg.id} className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                  {msg.role === "assistant" && (
+                    <div className="w-6 h-6 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Bot className="w-3.5 h-3.5 text-primary" />
+                    </div>
+                  )}
+                  <div className={`max-w-[85%] px-3 py-2.5 rounded-xl text-xs leading-relaxed ${msg.role === "user" ? "bg-primary text-primary-foreground rounded-tr-sm" : "bg-white/8 text-slate-200 rounded-tl-sm border border-white/8"}`}>
+                    {msg.content ? (
+                      <p className="whitespace-pre-wrap">{msg.content}</p>
+                    ) : (
+                      <div className="flex gap-1 py-0.5">
+                        {[0, 1, 2].map(i => <div key={i} className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}
+                      </div>
+                    )}
+                  </div>
+                  {msg.role === "user" && (
+                    <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <User className="w-3.5 h-3.5 text-slate-300" />
+                    </div>
+                  )}
+                </div>
+              ))}
+              {/* Accept / Discard when a proposal is pending */}
+              {proposedHtml && (
+                <div className="flex gap-2 pt-1">
+                  <Button size="sm" onClick={applyChange} className="flex-1 h-7 text-xs bg-emerald-600 hover:bg-emerald-500">
+                    <Check className="w-3 h-3 mr-1" /> Accept
+                  </Button>
+                  <Button size="sm" onClick={discardChange} variant="ghost" className="flex-1 h-7 text-xs text-slate-400 hover:text-white border border-white/10">
+                    <X className="w-3 h-3 mr-1" /> Discard
+                  </Button>
+                </div>
+              )}
+              <div ref={bottomRef} />
+            </div>
+
+            {/* Input bar */}
+            <div className="border-t border-white/8 px-3 py-3 flex-shrink-0">
+              <div className="flex gap-2 items-end">
+                <textarea
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleSiteEditSend(); } }}
+                  placeholder="Ask me to change anything…"
+                  disabled={chatLoading}
+                  rows={1}
+                  className="flex-1 resize-none bg-white/6 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-primary/50 min-h-[34px] max-h-[80px]"
+                  style={{ fieldSizing: "content" } as React.CSSProperties}
+                />
+                <button
+                  onClick={() => void handleSiteEditSend()}
+                  disabled={!input.trim() || chatLoading}
+                  className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center flex-shrink-0 disabled:opacity-40 hover:bg-primary/80 transition-colors"
+                >
+                  {chatLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin text-white" /> : <Send className="w-3.5 h-3.5 text-white" />}
+                </button>
               </div>
             </div>
-          )}
+          </div>
+
+          {/* ── RIGHT: Site preview ── */}
+          <div className="flex-1 overflow-hidden flex flex-col min-h-0">
 
           {/* Status bar */}
           <div className="px-4 py-2 border-b border-white/8 bg-[hsl(224,40%,9%)] flex items-center justify-between flex-shrink-0">
@@ -1430,7 +1569,9 @@ export default function SiteBuilder() {
               </div>
             )}
           </div>
-        </>
+
+          </div>
+        </div>
       )}
 
       {/* ── Interview mode ── */}
