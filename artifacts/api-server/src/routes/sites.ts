@@ -1033,6 +1033,34 @@ function buildSponsorStrip(sponsors: string[], esc: (s: string) => string): stri
   </section>`;
 }
 
+// ─── Section-based editing helpers ───────────────────────────────────────────
+type SectionTarget = { sectionId: string; label: string };
+const SECTION_TARGETS: Array<SectionTarget & { pattern: RegExp }> = [
+  { pattern: /\b(hero|headline|banner|tagline|above.?the.?fold|main.?cta|primary.?button|sign.?up.?link|membership.?button)\b/i, sectionId: "home", label: "hero" },
+  { pattern: /\b(about|mission|our.?story|who.?we.?are|history|overview)\b/i, sectionId: "about", label: "about" },
+  { pattern: /\b(program|service|activit|what.?we.?do|what.?we.?offer|feature.?card|ministries)\b/i, sectionId: "programs", label: "programs" },
+  { pattern: /\b(event|upcoming|schedule|calendar|meeting|gala|fundrais)\b/i, sectionId: "events", label: "events" },
+  { pattern: /\b(contact|email|phone|reach|message|address|form|location)\b/i, sectionId: "contact", label: "contact" },
+];
+
+function identifySectionTarget(changeRequest: string): SectionTarget | null {
+  for (const { pattern, sectionId, label } of SECTION_TARGETS) {
+    if (pattern.test(changeRequest)) return { sectionId, label };
+  }
+  return null;
+}
+
+function extractSection(fullHtml: string, sectionId: string): { before: string; section: string; after: string } | null {
+  const pattern = new RegExp(`(<section[^>]*\\bid=["']${sectionId}["'][^>]*>[\\s\\S]*?<\\/section>)`, "i");
+  const match = fullHtml.match(pattern);
+  if (!match || match.index === undefined) return null;
+  return {
+    before: fullHtml.substring(0, match.index),
+    section: match[1],
+    after: fullHtml.substring(match.index + match[1].length),
+  };
+}
+
 function buildContactRightPanel(
   orgSlug: string,
   contactEmail: string,
@@ -1244,7 +1272,7 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
   const upcomingEvents = await db
     .select({ name: eventsTable.name, startDate: eventsTable.startDate, startTime: eventsTable.startTime, endTime: eventsTable.endTime, location: eventsTable.location, description: eventsTable.description, slug: eventsTable.slug, hasRegistration: eventsTable.hasRegistration, status: eventsTable.status })
     .from(eventsTable)
-    .where(and(eq(eventsTable.orgId, org.id), sql`${eventsTable.status} != 'draft'`))
+    .where(eq(eventsTable.orgId, org.id))
     .limit(10);
   const futureEvents = upcomingEvents.filter(e => !e.startDate || e.startDate >= today);
   const allEvents = futureEvents.length > 0 ? futureEvents : upcomingEvents.slice(0, 5);
@@ -1712,49 +1740,95 @@ router.post("/change-request/propose", async (req: Request, res: Response) => {
     .filter(u => typeof u === "string" && u.startsWith("https://") && u.length < 2000)
     .slice(0, 4);
 
-  const imageContext = safeImageUrls.length > 0
-    ? `\n\nThe user has also uploaded the following image(s) — incorporate them into the site as appropriate (e.g. replace a photo, add to gallery, use as logo if described that way):\n${safeImageUrls.map((u, i) => `Image ${i + 1}: ${u}`).join("\n")}`
-    : "";
+  // ── Section-based approach: AI only sees and rewrites the relevant section ──
+  // This keeps input + output well within token limits for any site size.
+
+  // Detect style/CSS requests separately (color, font, theme)
+  const isStyleChange = /\b(color|colour|font|typography|palette|theme|dark|light|background.?color|text.?color)\b/i.test(changeRequest);
 
   try {
-    const proposedHtml = await callOpenAI([
-      {
-        role: "system",
-        content: `You are an expert web developer proposing a specific edit to an existing HTML website.
-Apply ONLY the user's requested change — nothing more.
-IMPORTANT: Preserve ALL existing JavaScript, CSS animations, hover effects, and interactive features. Do not remove or break any dynamic functionality.
-If the user has uploaded images, use the provided HTTPS URLs directly as <img src="..."> or CSS background values — do not convert them.
-Output ONLY the complete, updated HTML document starting with <!DOCTYPE html>. No explanations or commentary.`,
-      },
-      {
-        role: "user",
-        content: `Current website HTML:\n${site.generatedHtml}\n\nRequested change: "${changeRequest}"${imageContext}\n\nApply this change and output the complete updated HTML.`,
-      },
-    ], MAX_CHANGE_TOKENS, "gpt-4o-mini");
+    let updatedHtml: string;
 
-    let cleanedHtml = proposedHtml.trim();
-    const htmlStart = cleanedHtml.indexOf("<!DOCTYPE");
-    const altStart = cleanedHtml.indexOf("<html");
-    const startIdx = htmlStart >= 0 ? htmlStart : (altStart >= 0 ? altStart : -1);
-    if (startIdx > 0) cleanedHtml = cleanedHtml.substring(startIdx);
+    if (isStyleChange) {
+      // Extract just the <style> block, let AI modify it, splice back
+      const styleMatch = site.generatedHtml.match(/(<style[\s\S]*?<\/style>)/i);
+      if (!styleMatch || styleMatch.index === undefined) {
+        res.status(400).json({ error: "Could not locate the site's style block. Please regenerate your site." });
+        return;
+      }
+      const before = site.generatedHtml.substring(0, styleMatch.index);
+      const styleBlock = styleMatch[1];
+      const after = site.generatedHtml.substring(styleMatch.index + styleBlock.length);
 
-    // Validate output looks like HTML
-    if (!cleanedHtml.includes("<html") && !cleanedHtml.includes("<!DOCTYPE")) {
-      res.status(500).json({ error: "AI returned invalid HTML. Please try again." });
-      return;
+      const modifiedStyle = await callOpenAI([
+        {
+          role: "system",
+          content: `You are modifying a CSS <style> block for a website. Apply ONLY the user's requested style change — preserve all other existing CSS rules. Output ONLY the complete <style>...</style> block, no explanation.`,
+        },
+        {
+          role: "user",
+          content: `Current <style> block:\n${styleBlock}\n\nRequested change: "${changeRequest}"\n\nReturn the updated <style> block only.`,
+        },
+      ], 6000, "gpt-4o-mini");
+
+      const trimmedStyle = modifiedStyle.trim();
+      if (!trimmedStyle.includes("<style")) {
+        res.status(500).json({ error: "AI returned an invalid style block. Please try again." });
+        return;
+      }
+      updatedHtml = before + trimmedStyle + after;
+    } else {
+      // Identify which section to modify from keywords in the request
+      const target = identifySectionTarget(changeRequest);
+      if (!target) {
+        res.status(400).json({
+          error: `Please specify which section to update — for example: "hero", "about", "programs", "events", or "contact". Example: "Add a membership sign-up button to the hero section."`,
+        });
+        return;
+      }
+
+      const parts = extractSection(site.generatedHtml, target.sectionId);
+      if (!parts) {
+        // Section not present in this site's HTML — treat the whole thing as an update hint
+        res.status(400).json({ error: `This site doesn't have a ${target.label} section. Try a different section or regenerate your site.` });
+        return;
+      }
+
+      const imageCtxNote = safeImageUrls.length > 0
+        ? `\n\nThe user has uploaded image(s) to incorporate:\n${safeImageUrls.map((u, i) => `Image ${i + 1}: ${u}`).join("\n")}`
+        : "";
+
+      const modifiedSection = await callOpenAI([
+        {
+          role: "system",
+          content: `You are modifying a single section of an HTML website. Apply ONLY the user's requested change — preserve ALL existing CSS classes, IDs, data attributes, inline styles, and JavaScript hooks. Output ONLY the modified <section> element — start directly with the opening <section> tag, no <!DOCTYPE>, no <html>, no <head>, no <body>. No explanations.`,
+        },
+        {
+          role: "user",
+          content: `Current section HTML:\n${parts.section}${imageCtxNote}\n\nRequested change: "${changeRequest}"\n\nReturn the updated section HTML only.`,
+        },
+      ], 6000, "gpt-4o-mini");
+
+      const trimmed = modifiedSection.trim();
+      if (!trimmed.startsWith("<section") && !trimmed.startsWith("<div")) {
+        res.status(500).json({ error: "AI returned an unexpected response. Please try again." });
+        return;
+      }
+      updatedHtml = parts.before + trimmed + parts.after;
     }
 
     // Sanitize before save — removes script injection, event handlers, javascript: URIs
-    cleanedHtml = sanitizeAiSiteHtml(cleanedHtml, SITE_SCRIPT_BLOCK);
+    updatedHtml = sanitizeAiSiteHtml(updatedHtml, SITE_SCRIPT_BLOCK);
 
     // Save proposal server-side — do NOT return HTML to client
-    await db.update(sitesTable).set({ proposedHtml: cleanedHtml }).where(eq(sitesTable.orgId, org.id));
+    await db.update(sitesTable).set({ proposedHtml: updatedHtml }).where(eq(sitesTable.orgId, org.id));
 
     await db.update(organizationsTable).set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` }).where(eq(organizationsTable.id, org.id));
     const newUsed = used + 1;
 
     res.json({ proposalReady: true, used: newUsed, limit: monthlyLimit, remaining: monthlyLimit - newUsed });
-  } catch {
+  } catch (err) {
+    console.error("[change-request/propose] error:", err);
     res.status(500).json({ error: "Proposal generation failed. Please try again." });
   }
 });
@@ -1845,7 +1919,7 @@ router.post("/sync-events", async (req: Request, res: Response) => {
   const allEventsFromDb = await db
     .select({ name: eventsTable.name, startDate: eventsTable.startDate, startTime: eventsTable.startTime, endTime: eventsTable.endTime, location: eventsTable.location, description: eventsTable.description, slug: eventsTable.slug, hasRegistration: eventsTable.hasRegistration, status: eventsTable.status })
     .from(eventsTable)
-    .where(and(eq(eventsTable.orgId, org.id), sql`${eventsTable.status} != 'draft'`))
+    .where(eq(eventsTable.orgId, org.id))
     .limit(15);
   const futureEvents = allEventsFromDb.filter(e => !e.startDate || e.startDate >= today);
   const eventsToShow = futureEvents.length > 0 ? futureEvents : allEventsFromDb.slice(0, 5);
@@ -1910,10 +1984,9 @@ router.post("/sync-events", async (req: Request, res: Response) => {
 
   await db.update(sitesTable).set({ proposedHtml: updatedHtml }).where(eq(sitesTable.orgId, org.id));
 
-  // Read current usage for response (no AI tokens consumed)
-  const [orgRow] = await db.select({ aiMessagesUsed: organizationsTable.aiMessagesUsed, aiMessageLimit: organizationsTable.aiMessageLimit }).from(organizationsTable).where(eq(organizationsTable.id, org.id));
-  const used = orgRow?.aiMessagesUsed ?? 0;
-  const monthlyLimit = orgRow?.aiMessageLimit ?? 50;
+  // No AI tokens consumed — derive usage from already-loaded org
+  const used = org.aiMessagesUsed ?? 0;
+  const monthlyLimit = getMonthlyLimit(org.tier);
 
   res.json({ proposalReady: true, eventCount: eventsToShow.length, used, limit: monthlyLimit, remaining: Math.max(0, monthlyLimit - used) });
 });
