@@ -19,6 +19,7 @@ export const eventsTable = pgTable("events", {
   ticketPrice: real("ticket_price"),
   ticketCapacity: integer("ticket_capacity"),
   hasRegistration: boolean("has_registration").default(false),
+  hasSponsorSection: boolean("has_sponsor_section").default(false),
   registrationClosed: boolean("registration_closed").default(false),
   registrationForceOpen: boolean("registration_force_open").default(false),
   requiresApproval: boolean("requires_approval").default(false),

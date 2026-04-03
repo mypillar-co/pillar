@@ -662,6 +662,28 @@ router.get("/public/:orgSlug", async (req: Request, res: Response) => {
   res.json({ events, orgName: org.name });
 });
 
+// GET /api/events/public/:orgSlug/slug/:eventSlug — single event detail for public site
+router.get("/public/:orgSlug/slug/:eventSlug", async (req: Request, res: Response) => {
+  const orgSlug = String(req.params.orgSlug);
+  const eventSlug = String(req.params.eventSlug);
+  const [org] = await db
+    .select({ id: organizationsTable.id, name: organizationsTable.name, tier: organizationsTable.tier, senderEmail: organizationsTable.senderEmail })
+    .from(organizationsTable)
+    .where(eq(organizationsTable.slug, orgSlug));
+  if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
+  if (!tierAllowsEvents(org.tier)) { res.status(404).json({ error: "Events not available for this organization" }); return; }
+  const [event] = await db
+    .select()
+    .from(eventsTable)
+    .where(and(eq(eventsTable.orgId, org.id), eq(eventsTable.slug, eventSlug), eq(eventsTable.status, "published"), eq(eventsTable.isActive, true)));
+  if (!event) { res.status(404).json({ error: "Event not found" }); return; }
+  const ticketTypes = await db
+    .select()
+    .from(ticketTypesTable)
+    .where(and(eq(ticketTypesTable.eventId, event.id), eq(ticketTypesTable.isActive, true)));
+  res.json({ event, ticketTypes, orgName: org.name, orgEmail: org.senderEmail });
+});
+
 // ─────────────────────────────────────────────────────────────────
 // Events CRUD (/:id routes)
 // ─────────────────────────────────────────────────────────────────
@@ -719,7 +741,7 @@ router.post("/", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
   const body = req.body as Record<string, unknown>;
-  const { name, description, eventType, startDate, endDate, startTime, endTime, location, maxCapacity, isTicketed, ticketPrice, ticketCapacity, requiresApproval } = body;
+  const { name, description, eventType, startDate, endDate, startTime, endTime, location, maxCapacity, isTicketed, ticketPrice, ticketCapacity, requiresApproval, hasRegistration, hasSponsorSection } = body;
   if (!name || typeof name !== "string") {
     res.status(400).json({ error: "name is required" });
     return;
@@ -728,8 +750,18 @@ router.post("/", async (req: Request, res: Response) => {
     res.status(400).json({ error: "End date cannot be before start date" });
     return;
   }
-  const slug = String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-  const uniqueSlug = `${slug}-${Date.now().toString(36)}`;
+  // Generate URL-safe slug from name
+  const rawSlug = String(name)
+    .toLowerCase()
+    .replace(/['']/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+  // Ensure slug uniqueness by appending short timestamp if needed
+  const [existingSlug] = await db
+    .select({ slug: eventsTable.slug })
+    .from(eventsTable)
+    .where(and(eq(eventsTable.orgId, org.id), eq(eventsTable.slug, rawSlug)));
+  const uniqueSlug = existingSlug ? `${rawSlug}-${Date.now().toString(36)}` : rawSlug;
   const [event] = await db
     .insert(eventsTable)
     .values({
@@ -748,6 +780,8 @@ router.post("/", async (req: Request, res: Response) => {
       ticketPrice: ticketPrice ? Number(ticketPrice) : undefined,
       ticketCapacity: ticketCapacity ? Number(ticketCapacity) : undefined,
       requiresApproval: requiresApproval === true,
+      hasRegistration: hasRegistration === true,
+      hasSponsorSection: hasSponsorSection === true,
       status: "draft",
       isActive: true,
     })
@@ -762,7 +796,7 @@ router.put("/:id", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
   const body = req.body as Record<string, unknown>;
-  const allowed = ["name", "description", "eventType", "status", "startDate", "endDate", "startTime", "endTime", "location", "maxCapacity", "isTicketed", "ticketPrice", "ticketCapacity", "requiresApproval", "featured", "imageUrl", "isActive"];
+  const allowed = ["name", "description", "eventType", "status", "startDate", "endDate", "startTime", "endTime", "location", "maxCapacity", "isTicketed", "ticketPrice", "ticketCapacity", "requiresApproval", "hasRegistration", "hasSponsorSection", "registrationClosed", "featured", "imageUrl", "isActive", "showOnPublicSite", "featuredOnSite"];
   const updates: Record<string, unknown> = {};
   for (const k of allowed) {
     if (k in body) updates[k] = body[k];
