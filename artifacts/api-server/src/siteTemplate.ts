@@ -688,6 +688,55 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
       line-height: 1.72;
       margin-bottom: 28px;
     }
+    /* ─── CONTACT FORM ─── */
+    .cf-field { margin-bottom: 1rem; }
+    .cf-label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-muted);
+      margin-bottom: 0.35rem;
+    }
+    .cf-input {
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--bg-subtle, rgba(255,255,255,0.05));
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.6rem 0.9rem;
+      color: var(--text);
+      font-size: 0.9rem;
+      font-family: inherit;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .cf-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.15);
+    }
+    .cf-textarea { resize: vertical; min-height: 100px; }
+    .cf-error {
+      background: rgba(220,38,38,0.12);
+      border: 1px solid rgba(220,38,38,0.35);
+      color: #f87171;
+      border-radius: 8px;
+      padding: 0.6rem 0.9rem;
+      font-size: 0.85rem;
+      margin-bottom: 0.75rem;
+    }
+    .cf-success {
+      text-align: center;
+      padding: 2.5rem 1rem;
+    }
+    .cf-success .cf-check {
+      font-size: 2.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .cf-success strong { font-size: 1.1rem; display: block; margin-bottom: 0.4rem; }
+    .cf-success p { font-size: 0.9rem; color: var(--text-muted); margin: 0; }
+    .cf-submit { width: 100%; margin-top: 0.5rem; justify-content: center; }
 
     /* ─── FOOTER ─── */
     footer {
@@ -1052,11 +1101,7 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
             %%CONTACT_DETAILS%%
           </div>
         </div>
-        <div class="contact-card reveal-right">
-          <h3>%%CONTACT_CARD_HEADING%%</h3>
-          <p>%%CONTACT_CARD_TEXT%%</p>
-          <a href="mailto:%%CONTACT_EMAIL%%" class="btn-primary">Send Us a Message</a>
-        </div>
+        %%CONTACT_RIGHT_PANEL%%
       </div>
     </div>
   </section>
@@ -1346,6 +1391,7 @@ export type SiteContent = {
   contactCardText: string;
   contactEmail: string;
   contactDetails: string;
+  contactRightPanel: string;
   footerContact: string;
   navLogo: string;
   heroLogoBadge: string;
@@ -1401,6 +1447,7 @@ export function buildSiteFromTemplate(content: SiteContent): string {
     CONTACT_CARD_TEXT: content.contactCardText,
     CONTACT_EMAIL: content.contactEmail,
     CONTACT_DETAILS: content.contactDetails,
+    CONTACT_RIGHT_PANEL: content.contactRightPanel,
     FOOTER_CONTACT: content.footerContact,
     NAV_LOGO: content.navLogo,
     HERO_LOGO_BADGE: content.heroLogoBadge,

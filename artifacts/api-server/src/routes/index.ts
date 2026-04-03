@@ -23,6 +23,7 @@ import emailSettingsRouter from "./emailSettings";
 import registrationsRouter from "./registrations";
 import orgMembersRouter from "./orgMembers";
 import siteEngineRouter from "./siteEngine";
+import publicContactRouter from "./publicContact";
 
 const router: IRouter = Router();
 
@@ -50,5 +51,6 @@ router.use("/email-settings", emailSettingsRouter);
 router.use(registrationsRouter);
 router.use("/org-members", orgMembersRouter);
 router.use("/site-engine", siteEngineRouter);
+router.use("/public/contact", publicContactRouter);
 
 export default router;

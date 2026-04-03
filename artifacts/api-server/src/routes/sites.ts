@@ -1033,6 +1033,87 @@ function buildSponsorStrip(sponsors: string[], esc: (s: string) => string): stri
   </section>`;
 }
 
+function buildContactRightPanel(
+  orgSlug: string,
+  contactEmail: string,
+  cardHeading: string,
+  cardText: string,
+  contactPhone: string,
+  location: string,
+): string {
+  if (contactEmail) {
+    const action = `https://mypillar.co/api/public/contact/${orgSlug}`;
+    return `<div class="contact-card reveal-right">
+      <h3>${cardHeading || "Send Us a Message"}</h3>
+      <p>${cardText || "We'd love to hear from you. Fill out the form below and we'll get back to you shortly."}</p>
+      <form id="contact-form" novalidate>
+        <div style="display:none;opacity:0;position:absolute;left:-9999px" aria-hidden="true">
+          <input type="text" name="_honey" tabindex="-1" autocomplete="new-password">
+        </div>
+        <input type="hidden" name="_ts" id="cf-ts">
+        <div class="cf-field">
+          <label class="cf-label" for="cf-name">Your Name</label>
+          <input class="cf-input" type="text" id="cf-name" name="name" required autocomplete="name" placeholder="Jane Smith">
+        </div>
+        <div class="cf-field">
+          <label class="cf-label" for="cf-email">Your Email</label>
+          <input class="cf-input" type="email" id="cf-email" name="email" required autocomplete="email" placeholder="jane@example.com">
+        </div>
+        <div class="cf-field">
+          <label class="cf-label" for="cf-msg">Message</label>
+          <textarea class="cf-input cf-textarea" id="cf-msg" name="message" required rows="4" placeholder="Tell us how we can help\u2026"></textarea>
+        </div>
+        <div id="cf-error" class="cf-error" style="display:none"></div>
+        <button type="submit" class="btn-primary cf-submit">Send Message</button>
+      </form>
+      <div id="cf-success" class="cf-success" style="display:none">
+        <div class="cf-check">&#10003;</div>
+        <strong>Message sent!</strong>
+        <p>We'll be in touch shortly.</p>
+      </div>
+      <script>
+        (function(){
+          var ts=document.getElementById('cf-ts');
+          if(ts) ts.value=String(Date.now());
+          var form=document.getElementById('contact-form');
+          if(!form) return;
+          form.addEventListener('submit',function(e){
+            e.preventDefault();
+            var btn=form.querySelector('.cf-submit');
+            var err=document.getElementById('cf-error');
+            var n=document.getElementById('cf-name').value.trim();
+            var em=document.getElementById('cf-email').value.trim();
+            var msg=document.getElementById('cf-msg').value.trim();
+            var honey=form.querySelector('[name="_honey"]').value;
+            var ts2=form.querySelector('[name="_ts"]').value;
+            err.style.display='none';
+            if(!n||!em||!msg){err.textContent='Please fill in all fields.';err.style.display='block';return;}
+            btn.disabled=true;btn.textContent='Sending\u2026';
+            fetch('${action}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,email:em,message:msg,_honey:honey,_ts:ts2})})
+              .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+              .then(function(res){
+                if(res.d.success){form.style.display='none';document.getElementById('cf-success').style.display='block';}
+                else{err.textContent=res.d.error||'Something went wrong. Please try again.';err.style.display='block';btn.disabled=false;btn.textContent='Send Message';}
+              })
+              .catch(function(){err.textContent='Network error. Please try again.';err.style.display='block';btn.disabled=false;btn.textContent='Send Message';});
+          });
+        })();
+      </script>
+    </div>`;
+  }
+
+  // Fallback: no email — show available contact info in a card
+  const infoLines: string[] = [];
+  if (contactPhone) infoLines.push(`<div class="contact-item"><div class="contact-icon">&#128222;</div><a href="tel:${contactPhone}" style="color:inherit">${contactPhone}</a></div>`);
+  if (location) infoLines.push(`<div class="contact-item"><div class="contact-icon">&#128205;</div><span>${location}</span></div>`);
+
+  return `<div class="contact-card reveal-right">
+    <h3>${cardHeading || "Get in Touch"}</h3>
+    <p>${cardText || "We'd love to connect with you. Reach out using the contact information below."}</p>
+    ${infoLines.length ? `<div class="contact-items">${infoLines.join("")}</div>` : ""}
+  </div>`;
+}
+
 function buildStatsSection(statsBlock: string): string {
   if (!statsBlock.trim()) return "";
   return `
@@ -1534,6 +1615,7 @@ Rules: Use REAL content only — never lorem ipsum. Make programs specific to th
     contactCardText: esc(contentData.contactCardText),
     contactEmail: esc(s.contactEmail || ""),
     contactDetails,
+    contactRightPanel: buildContactRightPanel(slug, s.contactEmail || "", esc(contentData.contactCardHeading), esc(contentData.contactCardText), s.contactPhone || "", s.location || ""),
     footerContact,
     navLogo: navLogoHtml,
     heroLogoBadge: effectiveLogoSrc
