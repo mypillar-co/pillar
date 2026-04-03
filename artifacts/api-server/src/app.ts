@@ -152,7 +152,16 @@ const POWERED_BY_FOOTER = `<div style="position:fixed;bottom:0;left:0;right:0;te
 function sendSiteHtml(res: express.Response, html: string): void {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "public, max-age=60");
-  res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'none'; frame-ancestors 'none'");
+  // Allow inline scripts (site animations/observer), Google Fonts, and external images (Unsplash, org CDNs)
+  res.setHeader("Content-Security-Policy",
+    "default-src 'self'; " +
+    "script-src 'unsafe-inline'; " +
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+    "font-src 'self' data: https://fonts.gstatic.com; " +
+    "img-src * data: blob:; " +
+    "connect-src 'none'; " +
+    "frame-ancestors 'none'"
+  );
   res.setHeader("X-Content-Type-Options", "nosniff");
   const injected = html.includes("</body>")
     ? html.replace("</body>", `${POWERED_BY_FOOTER}</body>`)

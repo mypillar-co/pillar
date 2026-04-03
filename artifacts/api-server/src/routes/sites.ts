@@ -148,21 +148,27 @@ router.post("/builder", async (req: Request, res: Response) => {
 
   const systemPrompt = `You are a friendly, professional website consultant for Pillar — an AI platform that builds websites for civic organizations, nonprofits, clubs, and community groups.
 
-You're helping ${name} (a ${type}) build their public website. Your job is to conduct a focused interview, asking ONE question at a time. Be warm but efficient.
+You're helping ${name} (a ${type}) build their public website. Ask ONE question at a time. Be warm, conversational, and brief.
 
-Interview sequence — follow this order exactly:
-1. "Let's build ${name}'s website! First — in one or two sentences, what is your mission or main purpose? What does ${name} do for the community?"
-2. "What programs, services, or activities do you offer? These will become feature cards on your site."
-3. "Where are you located? Include the address or meeting place, plus your regular schedule (meeting days, office hours, etc.)."
-4. "Tell me about your events — any recurring gatherings, annual fundraisers, community events, or programs people can attend?"
-5. "How should visitors reach you? Share an email, phone number, and any social media profiles (Facebook page, Instagram, etc.)."
-6. "Who are you trying to reach? New members, volunteers, donors, community residents, families?"
-7. "Any color or style preferences? For example: 'navy and gold', 'earth tones', 'clean and modern'. If not sure, I'll pick something that fits your organization's character."
-8. "Last question — anything else to highlight? For example: founding history, membership benefits, sponsor recognition, upcoming announcements, or a call for volunteers."
+Interview sequence — follow this order exactly, asking each question word-for-word:
 
-After each answer, acknowledge warmly in ONE sentence that shows you understood, then ask the next question.
-After collecting all 8 answers, say EXACTLY: "I have everything I need! Click **Generate My Site** to build your website."
-Keep every response under 60 words. Stay conversational and encouraging. Never suggest changes or improvements — just collect info.`;
+1. "Let's build ${name}'s website! To start — finish this sentence for me: '${name} is a ${type} that ___.' Give me the one or two lines you'd say to a neighbor who'd never heard of you. Include how long you've been around if you know it."
+
+2. "Great. Now — what's the single most important thing you want a visitor to do when they land on your site? For example: join as a member, attend an upcoming event, make a donation, volunteer, or just get in touch."
+
+3. "What are your top 3 to 5 programs, activities, or ways you serve the community? Just name them and give a sentence on each — these become the highlight cards on your homepage."
+
+4. "Do you have any signature annual events, fundraisers, or regular community gatherings? Give me the names, roughly when they happen, and what makes them special."
+
+5. "How does someone become a member — and what do they get out of it? Mention any dues, requirements, or standout benefits. If membership isn't relevant, tell me the main way people get involved."
+
+6. "Where do you meet and when? Include the full address or venue, your regular meeting schedule, and the best way for someone to reach you — email, phone, Facebook page, whatever you use most."
+
+7. "Last one — how would you describe your organization's personality? Pick any that fit: Traditional, Modern, Warm & Friendly, Bold, Professional, Community-focused. Any color preferences? If you have a logo or existing colors, mention them and I'll match."
+
+After each answer, acknowledge in ONE sentence that shows you actually heard it, then ask the next question.
+After collecting all 7 answers, say EXACTLY: "I have everything I need! Click **Generate My Site** to build your website."
+Keep every response under 65 words. Stay conversational and encouraging. Never suggest edits or improvements — just collect information.`;
 
   const messages: OpenAI.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
@@ -558,34 +564,38 @@ router.post("/import-url", async (req: Request, res: Response) => {
     return;
   }
 
-  // ── Sub-page crawling — fetch About / Contact / Events / Programs pages ───
-  // Find internal links matching keyword patterns, fetch up to 2 extra pages
-  const subPageKeywords = /about|contact|programs?|services?|events?|history|mission|who-we-are|what-we-do/i;
+  // ── Sub-page crawling — fetch all relevant internal pages ────────────────
+  // Priority: keyword-matching pages first (about, events, programs, contact);
+  // then any remaining internal links up to the total cap.
+  const subPageKeywords = /about|contact|programs?|services?|events?|history|mission|who-we-are|what-we-do|join|member|volunteer|donat|fund/i;
   const seenUrls = new Set([parsedUrl.href]);
   const subPageTexts: string[] = [];
 
   try {
     const homeDom = cheerioLoad(rawHtml);
-    const subPageLinks: string[] = [];
+    const priorityLinks: string[] = [];
+    const otherLinks: string[] = [];
+
     homeDom("a[href]").each((_i, el) => {
-      if (subPageLinks.length >= 6) return;
       const href = homeDom(el).attr("href")?.trim() ?? "";
       if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) return;
       try {
         const abs = new URL(href, parsedUrl).href;
-        // Only same-origin internal links matching our keywords
         if (new URL(abs).hostname !== parsedUrl.hostname) return;
-        if (!subPageKeywords.test(abs) && !subPageKeywords.test(homeDom(el).text())) return;
-        if (!seenUrls.has(abs)) {
-          seenUrls.add(abs);
-          subPageLinks.push(abs);
-        }
+        if (seenUrls.has(abs)) return;
+        seenUrls.add(abs);
+        const isKeyword = subPageKeywords.test(abs) || subPageKeywords.test(homeDom(el).text());
+        if (isKeyword) priorityLinks.push(abs);
+        else otherLinks.push(abs);
       } catch { /* ignore invalid URLs */ }
     });
 
-    // Fetch up to 2 sub-pages in parallel with short timeout
+    // Keyword pages first, then fill with other internal pages up to 10 total
+    const subPageLinks = [...priorityLinks, ...otherLinks].slice(0, 10);
+
+    // Fetch up to 10 sub-pages in parallel with short timeout
     const SUB_TIMEOUT = 8_000;
-    const subFetches = subPageLinks.slice(0, 2).map(async (link) => {
+    const subFetches = subPageLinks.map(async (link) => {
       try {
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), SUB_TIMEOUT);
@@ -1597,11 +1607,20 @@ router.post("/change-request/propose", async (req: Request, res: Response) => {
   if (!usageInfo) return;
   const { used, limit: monthlyLimit } = usageInfo;
 
-  const { changeRequest } = req.body as { changeRequest: string };
+  const { changeRequest, uploadedImageUrls } = req.body as { changeRequest: string; uploadedImageUrls?: string[] };
   if (!changeRequest?.trim()) { res.status(400).json({ error: "changeRequest is required" }); return; }
 
   const [site] = await db.select().from(sitesTable).where(eq(sitesTable.orgId, org.id));
   if (!site?.generatedHtml) { res.status(404).json({ error: "No site found — generate one first" }); return; }
+
+  // Validate + sanitize uploaded image URLs (must be HTTPS, reasonable length)
+  const safeImageUrls = (uploadedImageUrls ?? [])
+    .filter(u => typeof u === "string" && u.startsWith("https://") && u.length < 2000)
+    .slice(0, 4);
+
+  const imageContext = safeImageUrls.length > 0
+    ? `\n\nThe user has also uploaded the following image(s) — incorporate them into the site as appropriate (e.g. replace a photo, add to gallery, use as logo if described that way):\n${safeImageUrls.map((u, i) => `Image ${i + 1}: ${u}`).join("\n")}`
+    : "";
 
   try {
     const proposedHtml = await callOpenAI([
@@ -1610,11 +1629,12 @@ router.post("/change-request/propose", async (req: Request, res: Response) => {
         content: `You are an expert web developer proposing a specific edit to an existing HTML website.
 Apply ONLY the user's requested change — nothing more.
 IMPORTANT: Preserve ALL existing JavaScript, CSS animations, hover effects, and interactive features. Do not remove or break any dynamic functionality.
+If the user has uploaded images, use the provided HTTPS URLs directly as <img src="..."> or CSS background values — do not convert them.
 Output ONLY the complete, updated HTML document starting with <!DOCTYPE html>. No explanations or commentary.`,
       },
       {
         role: "user",
-        content: `Current website HTML:\n${site.generatedHtml}\n\nRequested change: "${changeRequest}"\n\nApply this change and output the complete updated HTML.`,
+        content: `Current website HTML:\n${site.generatedHtml}\n\nRequested change: "${changeRequest}"${imageContext}\n\nApply this change and output the complete updated HTML.`,
       },
     ], MAX_CHANGE_TOKENS, "gpt-4o-mini");
 

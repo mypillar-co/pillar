@@ -30,7 +30,7 @@ function csrfFetch(input: string, init?: RequestInit): Promise<Response> {
 
 const CONTEXT_TURNS = 10;
 
-type Message = { id: string; role: "user" | "assistant"; content: string; streaming?: boolean };
+type Message = { id: string; role: "user" | "assistant"; content: string; streaming?: boolean; images?: string[] };
 type Usage = { used: number; limit: number; remaining: number; tier: string | null };
 type Site = {
   id: string;
@@ -177,6 +177,10 @@ export default function SiteBuilder() {
 
   const [uploadedPhotos, setUploadedPhotos] = useState<{ url: string; name: string }[]>([]);
   const [photoUploading, setPhotoUploading] = useState(false);
+
+  // ── Preview chat panel uploads ─────────────────────────────────────────────
+  const [editPanelImages, setEditPanelImages] = useState<{ url: string; name: string }[]>([]);
+  const [editPanelUploading, setEditPanelUploading] = useState(false);
   const [shopEmbedCode, setShopEmbedCode] = useState("");
   const [shopSaving, setShopSaving] = useState(false);
   const [shopMessage, setShopMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -201,6 +205,7 @@ export default function SiteBuilder() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const editPanelFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
@@ -718,12 +723,31 @@ export default function SiteBuilder() {
     }
   };
 
+  const handleEditPanelImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    if (editPanelImages.length + files.length > 4) { alert("You can attach up to 4 images per message."); return; }
+    setEditPanelUploading(true);
+    try {
+      const uploads = await Promise.all(files.map(async f => ({ url: await uploadImage(f), name: f.name })));
+      setEditPanelImages(prev => [...prev, ...uploads]);
+    } catch { alert("Image upload failed. Please try again."); }
+    finally { setEditPanelUploading(false); if (editPanelFileInputRef.current) editPanelFileInputRef.current.value = ""; }
+  };
+
   const handleSiteEditSend = async () => {
     const text = input.trim();
-    if (!text || chatLoading) return;
+    if ((!text && editPanelImages.length === 0) || chatLoading) return;
     setInput("");
+    const imagesCopy = [...editPanelImages];
+    setEditPanelImages([]);
+    // Build the display message — include image names if any
+    const displayText = text || (imagesCopy.length > 0 ? `Uploaded ${imagesCopy.length} image${imagesCopy.length > 1 ? "s" : ""}` : "");
     const userMsgId = crypto.randomUUID();
-    setMessages(prev => [...prev, { id: userMsgId, role: "user" as const, content: text }]);
+    setMessages(prev => [
+      ...prev,
+      { id: userMsgId, role: "user" as const, content: displayText, images: imagesCopy.length > 0 ? imagesCopy.map(i => i.url) : undefined },
+    ]);
     const assistantMsgId = crypto.randomUUID();
     setMessages(prev => [...prev, { id: assistantMsgId, role: "assistant" as const, content: "", streaming: true }]);
     setChatLoading(true);
@@ -737,7 +761,10 @@ export default function SiteBuilder() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ changeRequest: text }),
+          body: JSON.stringify({
+            changeRequest: text || "Incorporate the uploaded images into the site.",
+            uploadedImageUrls: imagesCopy.length > 0 ? imagesCopy.map(i => i.url) : undefined,
+          }),
           signal: controller.signal,
         });
       } catch (err) {
@@ -953,14 +980,21 @@ export default function SiteBuilder() {
                       <Bot className="w-3.5 h-3.5 text-primary" />
                     </div>
                   )}
-                  <div className={`max-w-[85%] px-3 py-2.5 rounded-xl text-xs leading-relaxed ${msg.role === "user" ? "bg-primary text-primary-foreground rounded-tr-sm" : "bg-white/8 text-slate-200 rounded-tl-sm border border-white/8"}`}>
-                    {msg.content ? (
-                      <p className="whitespace-pre-wrap">{msg.content}</p>
-                    ) : (
-                      <div className="flex gap-1 py-0.5">
-                        {[0, 1, 2].map(i => <div key={i} className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}
+                  <div className={`max-w-[85%] rounded-xl text-xs leading-relaxed ${msg.role === "user" ? "bg-primary text-primary-foreground rounded-tr-sm" : "bg-white/8 text-slate-200 rounded-tl-sm border border-white/8"}`}>
+                    {msg.images && msg.images.length > 0 && (
+                      <div className={`flex gap-1.5 flex-wrap p-2 ${msg.content ? "pb-1" : "pb-2"}`}>
+                        {msg.images.map((url, i) => (
+                          <img key={i} src={url} alt="attachment" className="h-16 w-16 object-cover rounded-lg border border-white/15" />
+                        ))}
                       </div>
                     )}
+                    {msg.content ? (
+                      <p className={`whitespace-pre-wrap px-3 py-2.5 ${msg.images && msg.images.length > 0 ? "pt-0" : ""}`}>{msg.content}</p>
+                    ) : msg.streaming ? (
+                      <div className="flex gap-1 px-3 py-2.5">
+                        {[0, 1, 2].map(i => <div key={i} className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}
+                      </div>
+                    ) : null}
                   </div>
                   {msg.role === "user" && (
                     <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -984,8 +1018,42 @@ export default function SiteBuilder() {
             </div>
 
             {/* Input bar */}
-            <div className="border-t border-white/8 px-3 py-3 flex-shrink-0">
-              <div className="flex gap-2 items-end">
+            <div className="border-t border-white/8 px-3 py-3 flex-shrink-0 space-y-2">
+              {/* Attached image previews */}
+              {editPanelImages.length > 0 && (
+                <div className="flex gap-1.5 flex-wrap">
+                  {editPanelImages.map((img, i) => (
+                    <div key={i} className="relative group">
+                      <img src={img.url} alt={img.name} className="h-12 w-12 object-cover rounded-lg border border-white/15" />
+                      <button
+                        onClick={() => setEditPanelImages(prev => prev.filter((_, idx) => idx !== i))}
+                        className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-slate-700 border border-white/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="w-2.5 h-2.5 text-white" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-1.5 items-end">
+                {/* Hidden file input */}
+                <input
+                  ref={editPanelFileInputRef}
+                  type="file"
+                  accept={ACCEPTED_IMAGE_TYPES}
+                  multiple
+                  className="hidden"
+                  onChange={handleEditPanelImageUpload}
+                />
+                {/* Upload button */}
+                <button
+                  onClick={() => editPanelFileInputRef.current?.click()}
+                  disabled={chatLoading || editPanelUploading || editPanelImages.length >= 4}
+                  title="Attach images"
+                  className="w-8 h-8 rounded-lg bg-white/6 border border-white/10 flex items-center justify-center flex-shrink-0 disabled:opacity-40 hover:bg-white/12 transition-colors"
+                >
+                  {editPanelUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" /> : <ImagePlus className="w-3.5 h-3.5 text-slate-400" />}
+                </button>
                 <textarea
                   value={input}
                   onChange={e => setInput(e.target.value)}
@@ -998,7 +1066,7 @@ export default function SiteBuilder() {
                 />
                 <button
                   onClick={() => void handleSiteEditSend()}
-                  disabled={!input.trim() || chatLoading}
+                  disabled={(!input.trim() && editPanelImages.length === 0) || chatLoading}
                   className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center flex-shrink-0 disabled:opacity-40 hover:bg-primary/80 transition-colors"
                 >
                   {chatLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin text-white" /> : <Send className="w-3.5 h-3.5 text-white" />}
