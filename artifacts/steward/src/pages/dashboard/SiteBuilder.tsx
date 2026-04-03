@@ -4,7 +4,7 @@ import {
   Eye, CheckCircle2, ExternalLink, RefreshCw, EyeOff,
   Edit3, Play, Save, Trash2, Zap, ChevronRight,
   X, Check, ImagePlus, CalendarClock, Images, ShoppingBag,
-  Download, Link2, Monitor, Tablet, Smartphone,
+  Download, Link2, Monitor, Tablet, Smartphone, Pencil,
 } from "lucide-react";
 import { uploadImage, ACCEPTED_IMAGE_TYPES, MAX_IMAGE_SIZE_MB } from "@/lib/uploadImage";
 import { useGetOrganization } from "@workspace/api-client-react";
@@ -151,6 +151,11 @@ export default function SiteBuilder() {
   const [changeError, setChangeError] = useState<string | null>(null);
   const [proposedHtml, setProposedHtml] = useState<string | null>(null);
 
+  const [slugEditing, setSlugEditing] = useState(false);
+  const [slugInput, setSlugInput] = useState("");
+  const [slugSaving, setSlugSaving] = useState(false);
+  const [slugError, setSlugError] = useState<string | null>(null);
+
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [scheduleForm, setScheduleForm] = useState({
     frequency: "weekly",
@@ -279,7 +284,29 @@ export default function SiteBuilder() {
   const aiSignaledCompletion = !!(lastAiMsg?.content?.toLowerCase().includes("i have everything i need") || lastAiMsg?.content?.toLowerCase().includes("generate my site"));
   const canGenerate = (userMsgCount >= 8 || aiSignaledCompletion) && !generating;
   const interviewProgress = Math.min(Math.max(0, userMsgCount - 1), 8);
-  const publicUrl = orgSlug ? `https://mypillar.co/sites/${orgSlug}` : null;
+  const publicUrl = orgSlug ? `https://${orgSlug}.mypillar.co` : null;
+
+  const handleSaveSlug = async () => {
+    const newSlug = slugInput.trim().toLowerCase();
+    if (!newSlug) return;
+    setSlugSaving(true);
+    setSlugError(null);
+    try {
+      const res = await csrfFetch("/api/sites/my/slug", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug: newSlug }),
+      });
+      const data = await res.json() as { slug?: string; error?: string };
+      if (!res.ok) { setSlugError(data.error ?? "Failed to update URL"); return; }
+      setOrgSlug(data.slug!);
+      setSlugEditing(false);
+    } catch {
+      setSlugError("Failed to update URL. Please try again.");
+    } finally {
+      setSlugSaving(false);
+    }
+  };
 
   const usagePercent = usage ? Math.round((usage.used / usage.limit) * 100) : 0;
   const usageColor = usagePercent >= 90 ? "text-red-400" : usagePercent >= 70 ? "text-amber-400" : "text-emerald-400";
@@ -902,20 +929,54 @@ export default function SiteBuilder() {
                     </div>
 
                     {/* Address bar */}
-                    <div className="flex-1 flex items-center gap-2 bg-white/[0.06] hover:bg-white/[0.09] transition-colors rounded-lg px-3 py-1.5 min-w-0 cursor-default border border-white/[0.06]">
+                    <div className="flex-1 flex items-center gap-2 bg-white/[0.06] hover:bg-white/[0.09] transition-colors rounded-lg px-3 py-1.5 min-w-0 border border-white/[0.06]">
                       <svg className="w-3 h-3 flex-shrink-0 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                         <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
                         <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
                       </svg>
-                      <span className="text-[11.5px] font-medium tracking-tight truncate" style={{ color: "#c8d0e0" }}>
-                        {site?.status === "published" && orgSlug
-                          ? `mypillar.co/sites/${orgSlug}`
-                          : "preview.mypillar.co — draft"}
-                      </span>
-                      {site?.status === "published"
-                        ? <span className="ml-auto flex-shrink-0 text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded-full">Live</span>
-                        : <span className="ml-auto flex-shrink-0 text-[10px] font-semibold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-full">Draft</span>
-                      }
+                      {slugEditing ? (
+                        <div className="flex-1 flex flex-col gap-1 min-w-0">
+                          <div className="flex items-center gap-1">
+                            <input
+                              autoFocus
+                              value={slugInput}
+                              onChange={e => { setSlugInput(e.target.value); setSlugError(null); }}
+                              onKeyDown={e => { if (e.key === "Enter") handleSaveSlug(); if (e.key === "Escape") { setSlugEditing(false); setSlugError(null); } }}
+                              className="flex-1 bg-white/10 rounded px-2 py-0.5 text-[11px] font-mono text-white outline-none border border-primary/50 focus:border-primary min-w-0"
+                              placeholder={orgSlug ?? "your-org"}
+                            />
+                            <span className="text-[11px] text-slate-400 flex-shrink-0">.mypillar.co</span>
+                            <button onClick={handleSaveSlug} disabled={slugSaving} className="p-1 rounded text-emerald-400 hover:bg-emerald-400/10 flex-shrink-0">
+                              {slugSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                            </button>
+                            <button onClick={() => { setSlugEditing(false); setSlugError(null); }} className="p-1 rounded text-slate-400 hover:bg-white/10 flex-shrink-0">
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                          {slugError && <p className="text-[10px] text-red-400 leading-tight">{slugError}</p>}
+                        </div>
+                      ) : (
+                        <>
+                          <span className="text-[11.5px] font-medium tracking-tight truncate" style={{ color: "#c8d0e0" }}>
+                            {site?.status === "published" && orgSlug
+                              ? `${orgSlug}.mypillar.co`
+                              : "preview.mypillar.co — draft"}
+                          </span>
+                          {site?.status === "published" && orgSlug && (
+                            <button
+                              title="Edit URL"
+                              onClick={() => { setSlugInput(orgSlug); setSlugEditing(true); setSlugError(null); }}
+                              className="flex-shrink-0 p-0.5 rounded text-slate-500 hover:text-slate-300 hover:bg-white/10 transition-colors"
+                            >
+                              <Pencil className="w-2.5 h-2.5" />
+                            </button>
+                          )}
+                          {site?.status === "published"
+                            ? <span className="ml-auto flex-shrink-0 text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded-full">Live</span>
+                            : <span className="ml-auto flex-shrink-0 text-[10px] font-semibold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-full">Draft</span>
+                          }
+                        </>
+                      )}
                     </div>
 
                     {/* Viewport segmented control */}

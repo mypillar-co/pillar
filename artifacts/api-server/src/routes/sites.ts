@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { db, organizationsTable, sitesTable, siteUpdateSchedulesTable, websiteSpecsTable, eventsTable } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
 import { resolveFullOrg } from "../lib/resolveOrg";
 import OpenAI from "openai";
 import { buildSiteFromTemplate, SITE_SCRIPT_BLOCK, type SiteContent } from "../siteTemplate";
@@ -1413,7 +1413,7 @@ Rules: Use REAL content only — never lorem ipsum. Make programs specific to th
       : "",
     footerLogo: footerLogoHtml,
     metaDescription: esc((s.mission || contentData.missionExpanded).substring(0, 155)),
-    canonicalUrl: `https://mypillar.co/sites/${slug}`,
+    canonicalUrl: `https://${slug}.mypillar.co`,
     schemaJson,
     currentYear: String(new Date().getFullYear()),
     heroModifierClass,
@@ -1535,6 +1535,51 @@ router.post("/change-request/apply", async (req: Request, res: Response) => {
     .returning();
 
   res.json({ site: { ...site, proposedHtml: undefined } });
+});
+
+// ─── Update site slug ─────────────────────────────────────────────────────────
+router.put("/my/slug", async (req: Request, res: Response) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+
+  const { slug: rawSlug } = req.body as { slug?: string };
+  if (!rawSlug?.trim()) { res.status(400).json({ error: "slug is required" }); return; }
+
+  const slug = rawSlug.trim().toLowerCase();
+
+  if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(slug)) {
+    res.status(400).json({ error: "Slug must be 3–63 characters: lowercase letters, numbers, and hyphens only. Cannot start or end with a hyphen." });
+    return;
+  }
+
+  // Check uniqueness across both sites and orgs tables (excluding current org)
+  const [existingSite] = await db
+    .select({ id: sitesTable.id })
+    .from(sitesTable)
+    .where(and(eq(sitesTable.orgSlug, slug), sql`${sitesTable.orgId} != ${org.id}`));
+
+  if (existingSite) {
+    res.status(409).json({ error: "That URL is already taken. Please choose another." });
+    return;
+  }
+
+  const [existingOrg] = await db
+    .select({ id: organizationsTable.id })
+    .from(organizationsTable)
+    .where(and(eq(organizationsTable.slug, slug), sql`${organizationsTable.id} != ${org.id}`));
+
+  if (existingOrg) {
+    res.status(409).json({ error: "That URL is already taken. Please choose another." });
+    return;
+  }
+
+  // Update both tables atomically
+  await db.transaction(async tx => {
+    await tx.update(sitesTable).set({ orgSlug: slug }).where(eq(sitesTable.orgId, org.id));
+    await tx.update(organizationsTable).set({ slug }).where(eq(organizationsTable.id, org.id));
+  });
+
+  res.json({ slug });
 });
 
 // ─── Sync events from DB into site ───────────────────────────────────────────
