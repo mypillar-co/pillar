@@ -1,12 +1,15 @@
 import React, { useState, useRef, useEffect } from "react";
 import {
   Sparkles, Send, Loader2, Bot, User, RefreshCw,
-  Calendar, Trophy, FileText, BarChart2, Users, Mail,
-  MessageSquare, Building2, Image, ChevronRight,
+  Calendar, Trophy, FileText, BarChart2, Mail,
+  MessageSquare, Building2, Image, ChevronRight, Lock,
 } from "lucide-react";
+import { Link } from "wouter";
 import { toast } from "sonner";
 import { csrfHeaders } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
+import { useGetSubscription } from "@workspace/api-client-react";
+import { Button } from "@/components/ui/button";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -114,7 +117,13 @@ function csrfFetch(input: string, init?: RequestInit): Promise<Response> {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+const AUTOPILOT_TIERS = new Set(["tier1a", "tier2", "tier3"]);
+
 export default function Management() {
+  const { data: subscription } = useGetSubscription();
+  const tier = subscription?.tierId;
+  const hasAccess = AUTOPILOT_TIERS.has(tier ?? "");
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -180,6 +189,27 @@ export default function Management() {
   }
 
   const showSuggestions = messages.length === 0;
+
+  // ── Tier gate ───────────────────────────────────────────────────────────────
+  if (subscription !== undefined && !hasAccess) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] px-6">
+        <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mb-5">
+          <Lock className="w-7 h-7 text-amber-400" />
+        </div>
+        <h2 className="text-xl font-semibold text-white mb-2">Autopilot requires the Autopilot plan</h2>
+        <p className="text-sm text-muted-foreground text-center max-w-sm mb-6">
+          Upgrade to the Autopilot plan ($59/mo) to manage your entire organization with plain English —
+          events, sponsors, newsletters, messages, and more.
+        </p>
+        <Link href="/billing">
+          <Button className="bg-amber-500 hover:bg-amber-400 text-black font-semibold px-6">
+            Upgrade to Autopilot
+          </Button>
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] max-h-[calc(100vh-4rem)]">

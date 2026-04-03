@@ -65,9 +65,19 @@ function toSlug(title: string): string {
 
 // ─── Main chat endpoint ─────────────────────────────────────────────────────
 
+const AUTOPILOT_TIERS = new Set(["tier1a", "tier2", "tier3"]);
+
 router.post("/chat", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
+
+  if (!AUTOPILOT_TIERS.has(org.tier ?? "")) {
+    res.status(403).json({
+      error: "Autopilot requires the Autopilot plan or higher.",
+      upgradeRequired: true,
+    });
+    return;
+  }
 
   const { message, history = [] } = req.body as {
     message: string;
