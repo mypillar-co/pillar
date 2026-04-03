@@ -651,7 +651,6 @@ export default function SiteBuilder() {
       setSite(null);
       setMessages([]);
       setMode("interview");
-      setActiveTab("chat");
     } catch {
       alert("Failed to reset site. Please try again.");
     }
