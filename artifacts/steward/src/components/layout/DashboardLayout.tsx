@@ -25,6 +25,7 @@ import {
   ClipboardList,
   ShoppingBag,
   LogOut,
+  Smartphone,
 } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetOrganization } from "@workspace/api-client-react";
@@ -362,8 +363,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           {org && <p className="text-xs text-slate-400 truncate max-w-[140px]">{org.name}</p>}
         </div>
 
-        {/* Page content */}
-        <main className="flex-1 overflow-y-auto">
+        {/* Page content — extra bottom padding on mobile so the sheet doesn't cover content */}
+        <main className={cn("flex-1 overflow-y-auto", isMobile && "pb-14")}>
           {children}
         </main>
       </div>
