@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, timestamp, integer, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, integer, index, boolean } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const registrationsTable = pgTable("registrations", {
@@ -8,13 +8,29 @@ export const registrationsTable = pgTable("registrations", {
   status: varchar("status").notNull().default("pending_payment"),
   // "pending_payment" → "pending_approval" → "approved" | "rejected"
 
-  // Applicant info
-  name: text("name").notNull(),
+  // Applicant — business name in `name`, contact person in `contactName`
+  name: text("name").notNull(),          // Business / organization name
+  contactName: text("contact_name"),     // Contact person's full name
   email: varchar("email").notNull(),
   phone: varchar("phone"),
   website: text("website"),
   logoUrl: text("logo_url"),
-  description: text("description"),
+
+  // Address
+  address: text("address"),
+  city: text("city"),
+  state: varchar("state", { length: 50 }),
+  zip: varchar("zip", { length: 20 }),
+
+  // What they're selling / offering
+  products: text("products"),     // Products or services they plan to sell/bring
+  description: text("description"), // Additional notes / about section
+
+  // Booth logistics
+  needsElectricity: boolean("needs_electricity").default(false),
+
+  // Event linkage
+  eventId: varchar("event_id"), // Which event they're applying for
 
   // Sponsor-specific
   tier: varchar("tier"), // "Gold" | "Silver" | "Bronze" | "Presenting"

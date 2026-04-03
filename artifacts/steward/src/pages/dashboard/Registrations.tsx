@@ -4,6 +4,7 @@ import { format } from "date-fns";
 import {
   Users, Star, ShoppingBag, Clock, CheckCircle2, XCircle, AlertCircle,
   ExternalLink, RefreshCw, DollarSign, FileText, Download, ShieldCheck,
+  MapPin, Zap, Package,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,9 +14,6 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger
-} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 
 type Registration = {
@@ -24,11 +22,19 @@ type Registration = {
   type: "vendor" | "sponsor";
   status: "pending_payment" | "pending_approval" | "approved" | "rejected";
   name: string;
+  contactName?: string | null;
   email: string;
   phone?: string | null;
   website?: string | null;
   logoUrl?: string | null;
   description?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+  products?: string | null;
+  needsElectricity?: boolean | null;
+  eventId?: string | null;
   tier?: string | null;
   vendorType?: string | null;
   feeAmount?: number | null;
@@ -397,8 +403,14 @@ export default function Registrations() {
                   )}
                 </div>
 
-                {/* Info grid */}
+                {/* Contact info */}
                 <div className="grid grid-cols-2 gap-3 text-sm">
+                  {detailReg.contactName && (
+                    <div>
+                      <p className="text-slate-500 text-xs mb-0.5">Contact</p>
+                      <p className="text-white">{detailReg.contactName}</p>
+                    </div>
+                  )}
                   <div>
                     <p className="text-slate-500 text-xs mb-0.5">Email</p>
                     <p className="text-white">{detailReg.email}</p>
@@ -412,21 +424,50 @@ export default function Registrations() {
                   {detailReg.website && (
                     <div className="col-span-2">
                       <p className="text-slate-500 text-xs mb-0.5">Website</p>
-                      <a
-                        href={detailReg.website}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-amber-400 hover:text-amber-300 flex items-center gap-1"
-                      >
-                        {detailReg.website}
-                        <ExternalLink className="w-3 h-3" />
+                      <a href={detailReg.website} target="_blank" rel="noopener noreferrer"
+                        className="text-amber-400 hover:text-amber-300 flex items-center gap-1">
+                        {detailReg.website}<ExternalLink className="w-3 h-3" />
                       </a>
                     </div>
                   )}
-                  {detailReg.description && (
-                    <div className="col-span-2">
-                      <p className="text-slate-500 text-xs mb-0.5">About</p>
-                      <p className="text-slate-300 text-sm">{detailReg.description}</p>
+                </div>
+
+                {/* Address */}
+                {(detailReg.address || detailReg.city) && (
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-white/4 border border-white/8 text-sm">
+                    <MapPin className="w-3.5 h-3.5 text-slate-400 mt-0.5 flex-shrink-0" />
+                    <div className="text-slate-300">
+                      {detailReg.address && <p>{detailReg.address}</p>}
+                      <p>{[detailReg.city, detailReg.state, detailReg.zip].filter(Boolean).join(", ")}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Products / offering */}
+                {detailReg.products && (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <Package className="w-3.5 h-3.5 text-slate-400" />
+                      <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">Products / Offering</p>
+                    </div>
+                    <p className="text-sm text-slate-300 bg-white/4 border border-white/8 rounded-lg p-3">{detailReg.products}</p>
+                  </div>
+                )}
+
+                {/* Notes */}
+                {detailReg.description && (
+                  <div>
+                    <p className="text-slate-500 text-xs mb-0.5">Notes</p>
+                    <p className="text-slate-300 text-sm">{detailReg.description}</p>
+                  </div>
+                )}
+
+                {/* Electricity + dates */}
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  {detailReg.needsElectricity && (
+                    <div className="col-span-2 flex items-center gap-2 p-2.5 rounded-lg bg-amber-500/8 border border-amber-500/20">
+                      <Zap className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                      <p className="text-xs text-amber-300 font-medium">Requests electrical access</p>
                     </div>
                   )}
                   <div>
@@ -447,32 +488,43 @@ export default function Registrations() {
                   )}
                 </div>
 
-                {/* Compliance documents */}
-                {(detailReg.servSafeUrl || detailReg.insuranceCertUrl) && (
+                {/* Compliance checklist */}
+                {detailReg.type === "vendor" && (
                   <div className="space-y-2">
                     <div className="flex items-center gap-2 pb-1 border-b border-white/8">
                       <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />
-                      <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Compliance Documents</p>
+                      <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Compliance</p>
                     </div>
-                    {detailReg.servSafeUrl && (
-                      <DocDownloadRow
-                        label="ServSafe Certificate"
-                        objectPath={detailReg.servSafeUrl}
-                      />
-                    )}
-                    {detailReg.insuranceCertUrl && (
-                      <DocDownloadRow
-                        label="Certificate of Insurance"
-                        objectPath={detailReg.insuranceCertUrl}
-                      />
-                    )}
-                  </div>
-                )}
 
-                {detailReg.type === "vendor" && !detailReg.servSafeUrl && !detailReg.insuranceCertUrl && (
-                  <div className="flex items-center gap-2 p-3 rounded-lg bg-yellow-500/8 border border-yellow-500/15">
-                    <AlertCircle className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0" />
-                    <p className="text-xs text-yellow-300">No compliance documents uploaded. You may want to request these before approving.</p>
+                    {/* COI — required for all vendors */}
+                    {detailReg.insuranceCertUrl ? (
+                      <DocDownloadRow label="Certificate of Insurance" objectPath={detailReg.insuranceCertUrl} />
+                    ) : (
+                      <div className="flex items-center gap-3 p-3 rounded-lg bg-red-500/8 border border-red-500/20">
+                        <XCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                        <p className="text-sm text-red-300 flex-1">Certificate of Insurance — not submitted</p>
+                      </div>
+                    )}
+
+                    {/* ServSafe — only for food vendors */}
+                    {detailReg.vendorType === "food" && (
+                      detailReg.servSafeUrl ? (
+                        <DocDownloadRow label="ServSafe Certificate" objectPath={detailReg.servSafeUrl} />
+                      ) : (
+                        <div className="flex items-center gap-3 p-3 rounded-lg bg-red-500/8 border border-red-500/20">
+                          <XCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                          <p className="text-sm text-red-300 flex-1">ServSafe Certificate — not submitted (required for food vendors)</p>
+                        </div>
+                      )
+                    )}
+
+                    {/* Non-food: ServSafe not required */}
+                    {detailReg.vendorType && detailReg.vendorType !== "food" && !detailReg.servSafeUrl && (
+                      <div className="flex items-center gap-3 p-3 rounded-lg bg-white/4 border border-white/8">
+                        <CheckCircle2 className="w-4 h-4 text-slate-500 flex-shrink-0" />
+                        <p className="text-sm text-slate-500 flex-1">ServSafe not required for this vendor type</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

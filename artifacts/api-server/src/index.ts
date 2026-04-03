@@ -35,6 +35,17 @@ async function runMigrations() {
   try {
     await db.execute(sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS show_on_public_site boolean DEFAULT true`);
     await db.execute(sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS featured_on_site boolean DEFAULT false`);
+
+    // Vendor registration extended fields
+    await db.execute(sql`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS contact_name text`);
+    await db.execute(sql`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS address text`);
+    await db.execute(sql`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS city text`);
+    await db.execute(sql`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS state varchar(50)`);
+    await db.execute(sql`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS zip varchar(20)`);
+    await db.execute(sql`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS products text`);
+    await db.execute(sql`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS needs_electricity boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS event_id varchar`);
+
     logger.info("Startup migrations complete");
   } catch (err) {
     logger.warn({ err }, "Startup migration warning — continuing");

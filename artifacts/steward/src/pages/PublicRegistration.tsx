@@ -2,13 +2,17 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "wouter";
 import {
   Building2, Star, ShoppingBag, CheckCircle2, AlertCircle, ChevronRight,
-  Loader2, UploadCloud, FileText, X, Image as ImageIcon,
+  Loader2, UploadCloud, FileText, X, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { format } from "date-fns";
+
+type OrgEvent = { id: string; name: string; startDate: string | null };
 
 type OrgInfo = {
   orgId: string;
@@ -17,35 +21,50 @@ type OrgInfo = {
   vendorFeeCents: number;
   sponsorFeeCents: number;
   acceptsPayments: boolean;
+  events: OrgEvent[];
 };
 
 const SPONSOR_TIERS = ["Presenting", "Gold", "Silver", "Bronze", "Community"];
+
 const VENDOR_TYPES = [
   { value: "food", label: "Food & Beverage" },
   { value: "merchandise", label: "Merchandise & Retail" },
+  { value: "crafts", label: "Arts & Crafts" },
   { value: "service", label: "Services" },
   { value: "entertainment", label: "Entertainment & Activities" },
+  { value: "nonprofit", label: "Non-Profit / Community" },
   { value: "other", label: "Other" },
+];
+
+const US_STATES = [
+  "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
+  "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+  "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+  "VA","WA","WV","WI","WY",
 ];
 
 function formatDollars(cents: number) {
   return cents === 0 ? "Free" : `$${(cents / 100).toFixed(0)}`;
 }
 
-// ─── Simple document uploader ────────────────────────────────────────────────
+// ─── Section header ───────────────────────────────────────────────────────────
+
+function SectionHeader({ title }: { title: string }) {
+  return (
+    <div className="flex items-center gap-3 pb-3 border-b border-white/8 mt-6 first:mt-0">
+      <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">{title}</p>
+    </div>
+  );
+}
+
+// ─── Document uploader ────────────────────────────────────────────────────────
 
 type DocUploadState = "idle" | "uploading" | "done" | "error";
 
 function DocUploadField({
-  label,
-  hint,
-  accept,
-  onUploaded,
-  required,
+  label, hint, accept, onUploaded, required,
 }: {
-  label: string;
-  hint?: string;
-  accept?: string;
+  label: string; hint?: string; accept?: string;
   onUploaded: (objectPath: string, fileName: string) => void;
   required?: boolean;
 }) {
@@ -56,48 +75,23 @@ function DocUploadField({
   const [err, setErr] = useState<string | null>(null);
 
   const handleFile = useCallback(async (file: File) => {
-    if (file.size > 10 * 1024 * 1024) {
-      setErr("File must be 10 MB or smaller.");
-      return;
-    }
+    if (file.size > 10 * 1024 * 1024) { setErr("File must be 10 MB or smaller."); return; }
     const type = file.type || "application/octet-stream";
     const allowed = ["application/pdf", "image/jpeg", "image/jpg", "image/png", "image/webp"];
-    if (!allowed.includes(type.toLowerCase())) {
-      setErr("Only PDF and image files are accepted.");
-      return;
-    }
-
-    setErr(null);
-    setState("uploading");
-    setProgress(10);
-    setFileName(file.name);
-
+    if (!allowed.includes(type.toLowerCase())) { setErr("Only PDF and image files are accepted."); return; }
+    setErr(null); setState("uploading"); setProgress(10); setFileName(file.name);
     try {
-      // Step 1: Get presigned URL
       const urlRes = await fetch("/api/public/registration-docs/upload-url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: file.name, size: file.size, contentType: type }),
       });
-      if (!urlRes.ok) {
-        const d = await urlRes.json();
-        throw new Error(d.error ?? "Could not get upload URL");
-      }
+      if (!urlRes.ok) { const d = await urlRes.json(); throw new Error(d.error ?? "Could not get upload URL"); }
       const { uploadURL, objectPath } = await urlRes.json() as { uploadURL: string; objectPath: string };
-
       setProgress(30);
-
-      // Step 2: Upload directly to GCS
-      const uploadRes = await fetch(uploadURL, {
-        method: "PUT",
-        body: file,
-        headers: { "Content-Type": type },
-      });
+      const uploadRes = await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": type } });
       if (!uploadRes.ok) throw new Error("Upload to storage failed");
-
-      setProgress(100);
-      setState("done");
-      onUploaded(objectPath, file.name);
+      setProgress(100); setState("done"); onUploaded(objectPath, file.name);
     } catch (e: unknown) {
       setState("error");
       setErr(e instanceof Error ? e.message : "Upload failed. Please try again.");
@@ -105,21 +99,13 @@ function DocUploadField({
   }, [onUploaded]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleFile(file);
+    const file = e.target.files?.[0]; if (file) handleFile(file);
   };
-
   const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files?.[0];
-    if (file) handleFile(file);
+    e.preventDefault(); const file = e.dataTransfer.files?.[0]; if (file) handleFile(file);
   };
-
   const clear = () => {
-    setState("idle");
-    setFileName(null);
-    setProgress(0);
-    setErr(null);
+    setState("idle"); setFileName(null); setProgress(0); setErr(null);
     if (inputRef.current) inputRef.current.value = "";
   };
 
@@ -129,7 +115,6 @@ function DocUploadField({
         {label}
         {required && <span className="text-red-400 ml-1">*</span>}
       </Label>
-
       {state === "done" && fileName ? (
         <div className="flex items-center gap-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/25">
           <FileText className="w-4 h-4 text-emerald-400 flex-shrink-0" />
@@ -140,56 +125,34 @@ function DocUploadField({
         </div>
       ) : (
         <div
-          onDrop={handleDrop}
-          onDragOver={e => e.preventDefault()}
+          onDrop={handleDrop} onDragOver={e => e.preventDefault()}
           onClick={() => inputRef.current?.click()}
           className={`relative cursor-pointer rounded-lg border-2 border-dashed p-5 text-center transition-colors ${
-            state === "uploading"
-              ? "border-amber-500/40 bg-amber-500/5"
-              : state === "error"
-              ? "border-red-500/40 bg-red-500/5 hover:bg-red-500/8"
-              : "border-white/15 bg-white/3 hover:border-white/30 hover:bg-white/6"
+            state === "uploading" ? "border-amber-500/40 bg-amber-500/5"
+            : state === "error" ? "border-red-500/40 bg-red-500/5 hover:bg-red-500/8"
+            : "border-white/15 bg-white/3 hover:border-white/30 hover:bg-white/6"
           }`}
         >
-          <input
-            ref={inputRef}
-            type="file"
-            accept={accept ?? ".pdf,.jpg,.jpeg,.png,.webp"}
-            onChange={handleChange}
-            className="sr-only"
-          />
+          <input ref={inputRef} type="file" accept={accept ?? ".pdf,.jpg,.jpeg,.png,.webp"} onChange={handleChange} className="sr-only" />
           {state === "uploading" ? (
             <div className="space-y-2">
               <Loader2 className="w-6 h-6 text-amber-400 animate-spin mx-auto" />
               <p className="text-xs text-slate-400">Uploading {fileName}…</p>
               <div className="h-1 bg-white/10 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-amber-500 rounded-full transition-all"
-                  style={{ width: `${progress}%` }}
-                />
+                <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${progress}%` }} />
               </div>
             </div>
           ) : (
             <div className="space-y-1.5">
               <UploadCloud className={`w-6 h-6 mx-auto ${state === "error" ? "text-red-400" : "text-slate-500"}`} />
-              <p className="text-xs text-slate-400">
-                Drop file here or <span className="text-amber-400">click to browse</span>
-              </p>
+              <p className="text-xs text-slate-400">Drop file here or <span className="text-amber-400">click to browse</span></p>
               <p className="text-[11px] text-slate-600">PDF, JPG, or PNG · max 10 MB</p>
             </div>
           )}
         </div>
       )}
-
-      {err && (
-        <div className="flex items-center gap-2">
-          <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
-          <p className="text-xs text-red-400">{err}</p>
-        </div>
-      )}
-      {hint && !err && (
-        <p className="text-[11px] text-slate-500">{hint}</p>
-      )}
+      {err && <div className="flex items-center gap-2"><AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" /><p className="text-xs text-red-400">{err}</p></div>}
+      {hint && !err && <p className="text-[11px] text-slate-500">{hint}</p>}
     </div>
   );
 }
@@ -206,21 +169,36 @@ export default function PublicRegistration() {
   const [step, setStep] = useState<"type" | "form" | "submitting" | "free_success">("type");
   const [regType, setRegType] = useState<"vendor" | "sponsor" | null>(null);
 
-  // Form fields
-  const [name, setName] = useState("");
+  // — Contact info —
+  const [contactName, setContactName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [website, setWebsite] = useState("");
-  const [logoUrl, setLogoUrl] = useState("");
-  const [description, setDescription] = useState("");
-  const [tier, setTier] = useState("");
-  const [vendorType, setVendorType] = useState("");
-  const [servSafeUrl, setServSafeUrl] = useState<string | null>(null);
-  const [servSafeName, setServSafeName] = useState<string | null>(null);
-  const [insuranceCertUrl, setInsuranceCertUrl] = useState<string | null>(null);
-  const [insuranceName, setInsuranceName] = useState<string | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
 
+  // — Business info —
+  const [businessName, setBusinessName] = useState("");
+  const [website, setWebsite] = useState("");
+
+  // — Address —
+  const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
+  const [zip, setZip] = useState("");
+
+  // — Vendor details —
+  const [vendorType, setVendorType] = useState("");
+  const [eventId, setEventId] = useState("");
+  const [products, setProducts] = useState("");
+  const [description, setDescription] = useState("");
+  const [needsElectricity, setNeedsElectricity] = useState(false);
+
+  // — Compliance docs —
+  const [servSafeUrl, setServSafeUrl] = useState<string | null>(null);
+  const [insuranceCertUrl, setInsuranceCertUrl] = useState<string | null>(null);
+
+  // — Sponsor fields —
+  const [tier, setTier] = useState("");
+
+  const [formError, setFormError] = useState<string | null>(null);
   const cancelled = new URLSearchParams(window.location.search).get("cancelled");
 
   useEffect(() => {
@@ -234,34 +212,55 @@ export default function PublicRegistration() {
       })
       .catch(() => setOrgError("Could not load organization info."))
       .finally(() => setLoadingOrg(false));
-  }, [orgSlug]);
+  }, [orgSlug, cancelled]);
+
+  const isFood = vendorType === "food";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
-    if (!name.trim()) { setFormError("Name is required."); return; }
+
+    if (!contactName.trim()) { setFormError("Contact name is required."); return; }
     if (!email.trim() || !/\S+@\S+\.\S+/.test(email)) { setFormError("A valid email is required."); return; }
+    if (!phone.trim()) { setFormError("Phone number is required."); return; }
+    if (regType === "vendor") {
+      if (!businessName.trim()) { setFormError("Business name is required."); return; }
+      if (!vendorType) { setFormError("Please select a vendor type."); return; }
+      if (!products.trim()) { setFormError("Please describe what you plan to sell or offer."); return; }
+    }
     if (regType === "sponsor" && !tier) { setFormError("Please select a sponsorship tier."); return; }
-    if (regType === "vendor" && !vendorType) { setFormError("Please select a vendor type."); return; }
 
     setStep("submitting");
     try {
+      const body: Record<string, unknown> = {
+        type: regType,
+        name: regType === "vendor" ? businessName.trim() : contactName.trim(),
+        contactName: contactName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        website: website.trim() || undefined,
+        description: description.trim() || undefined,
+      };
+      if (regType === "vendor") {
+        body.vendorType = vendorType;
+        body.products = products.trim();
+        body.needsElectricity = needsElectricity;
+        body.address = address.trim() || undefined;
+        body.city = city.trim() || undefined;
+        body.state = state || undefined;
+        body.zip = zip.trim() || undefined;
+        body.eventId = eventId || undefined;
+        body.servSafeUrl = servSafeUrl ?? undefined;
+        body.insuranceCertUrl = insuranceCertUrl ?? undefined;
+      }
+      if (regType === "sponsor") {
+        body.tier = tier;
+      }
+
       const res = await fetch(`/api/public/orgs/${orgSlug}/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: regType,
-          name: name.trim(),
-          email: email.trim(),
-          phone: phone.trim() || undefined,
-          website: website.trim() || undefined,
-          logoUrl: logoUrl.trim() || undefined,
-          description: description.trim() || undefined,
-          tier: regType === "sponsor" ? tier : undefined,
-          vendorType: regType === "vendor" ? vendorType : undefined,
-          servSafeUrl: servSafeUrl ?? undefined,
-          insuranceCertUrl: insuranceCertUrl ?? undefined,
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json() as { checkoutUrl?: string; free?: boolean; error?: string };
       if (!res.ok) { setStep("form"); setFormError(data.error ?? "Submission failed. Please try again."); return; }
@@ -283,7 +282,6 @@ export default function PublicRegistration() {
       </div>
     );
   }
-
   if (orgError) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center">
@@ -300,7 +298,8 @@ export default function PublicRegistration() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      <div className="max-w-lg mx-auto px-6 py-12">
+      <div className="max-w-xl mx-auto px-6 py-12">
+
         {/* Header */}
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-amber-500/10 border border-amber-500/30 mb-4">
@@ -310,6 +309,7 @@ export default function PublicRegistration() {
           <p className="text-slate-400 mt-1.5 text-sm">Vendor & Sponsor Registration</p>
         </div>
 
+        {/* Cancelled notice */}
         {cancelled && step === "type" && (
           <div className="mb-6 p-4 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center gap-3">
             <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
@@ -321,6 +321,23 @@ export default function PublicRegistration() {
         {step === "type" && (
           <div className="space-y-4">
             <p className="text-center text-slate-300 text-sm mb-6">Choose your registration type to get started.</p>
+
+            <button
+              onClick={() => { setRegType("vendor"); setStep("form"); }}
+              className="w-full p-5 rounded-xl border border-blue-500/30 bg-blue-500/5 hover:bg-blue-500/10 transition-colors text-left flex items-start gap-4 group"
+            >
+              <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+                <ShoppingBag className="w-5 h-5 text-blue-400" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <p className="font-semibold text-white">Register as a Vendor</p>
+                  <span className="text-sm font-semibold text-blue-400">{formatDollars(orgInfo!.vendorFeeCents)}</span>
+                </div>
+                <p className="text-slate-400 text-sm mt-1">Sell or exhibit at our events and connect with the community.</p>
+              </div>
+              <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-white transition-colors self-center flex-shrink-0" />
+            </button>
 
             <button
               onClick={() => { setRegType("sponsor"); setStep("form"); }}
@@ -338,30 +355,14 @@ export default function PublicRegistration() {
               </div>
               <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-white transition-colors self-center flex-shrink-0" />
             </button>
-
-            <button
-              onClick={() => { setRegType("vendor"); setStep("form"); }}
-              className="w-full p-5 rounded-xl border border-blue-500/30 bg-blue-500/5 hover:bg-blue-500/10 transition-colors text-left flex items-start gap-4 group"
-            >
-              <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0">
-                <ShoppingBag className="w-5 h-5 text-blue-400" />
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center justify-between">
-                  <p className="font-semibold text-white">Register as a Vendor</p>
-                  <span className="text-sm font-semibold text-blue-400">{formatDollars(orgInfo!.vendorFeeCents)}</span>
-                </div>
-                <p className="text-slate-400 text-sm mt-1">Sell at our events and connect directly with the community.</p>
-              </div>
-              <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-white transition-colors self-center flex-shrink-0" />
-            </button>
           </div>
         )}
 
         {/* Step: Form */}
         {step === "form" && (
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="flex items-center gap-2 mb-4">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Back + type label */}
+            <div className="flex items-center gap-2">
               <button type="button" onClick={() => setStep("type")} className="text-slate-400 hover:text-white text-sm">← Back</button>
               <span className="text-slate-600">|</span>
               <div className="flex items-center gap-1.5">
@@ -378,40 +379,119 @@ export default function PublicRegistration() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2 space-y-1.5">
-                <Label className="text-slate-300">Organization / Business Name <span className="text-red-400">*</span></Label>
-                <Input value={name} onChange={e => setName(e.target.value)} placeholder="Acme Corp"
-                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-600" required />
-              </div>
+            {/* ── Section 1: Contact Information ── */}
+            <div className="space-y-4">
+              <SectionHeader title="Contact Information" />
 
               <div className="space-y-1.5">
-                <Label className="text-slate-300">Contact Email <span className="text-red-400">*</span></Label>
-                <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com"
-                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-600" required />
+                <Label className="text-slate-300">Full Name <span className="text-red-400">*</span></Label>
+                <Input
+                  value={contactName} onChange={e => setContactName(e.target.value)}
+                  placeholder="Jane Smith"
+                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-600" required
+                />
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-slate-300">Phone</Label>
-                <Input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="(555) 000-0000"
-                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-600" />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">Email <span className="text-red-400">*</span></Label>
+                  <Input
+                    type="email" value={email} onChange={e => setEmail(e.target.value)}
+                    placeholder="jane@example.com"
+                    className="bg-white/5 border-white/10 text-white placeholder:text-slate-600" required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">Phone <span className="text-red-400">*</span></Label>
+                  <Input
+                    type="tel" value={phone} onChange={e => setPhone(e.target.value)}
+                    placeholder="(724) 555-0100"
+                    className="bg-white/5 border-white/10 text-white placeholder:text-slate-600" required
+                  />
+                </div>
               </div>
+            </div>
 
-              <div className="col-span-2 space-y-1.5">
-                <Label className="text-slate-300">Website</Label>
-                <Input type="url" value={website} onChange={e => setWebsite(e.target.value)} placeholder="https://yourcompany.com"
-                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-600" />
+            {/* ── Section 2: Business / Organization ── */}
+            {regType === "vendor" && (
+              <div className="space-y-4">
+                <SectionHeader title="Business Information" />
+
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">Business / Organization Name <span className="text-red-400">*</span></Label>
+                  <Input
+                    value={businessName} onChange={e => setBusinessName(e.target.value)}
+                    placeholder="Acme Foods LLC"
+                    className="bg-white/5 border-white/10 text-white placeholder:text-slate-600" required
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">Website</Label>
+                  <Input
+                    type="url" value={website} onChange={e => setWebsite(e.target.value)}
+                    placeholder="https://yourcompany.com"
+                    className="bg-white/5 border-white/10 text-white placeholder:text-slate-600"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">Street Address</Label>
+                  <Input
+                    value={address} onChange={e => setAddress(e.target.value)}
+                    placeholder="123 Main St"
+                    className="bg-white/5 border-white/10 text-white placeholder:text-slate-600"
+                  />
+                </div>
+
+                <div className="grid grid-cols-6 gap-3">
+                  <div className="col-span-3 space-y-1.5">
+                    <Label className="text-slate-300">City</Label>
+                    <Input
+                      value={city} onChange={e => setCity(e.target.value)}
+                      placeholder="Irwin"
+                      className="bg-white/5 border-white/10 text-white placeholder:text-slate-600"
+                    />
+                  </div>
+                  <div className="col-span-1 space-y-1.5">
+                    <Label className="text-slate-300">State</Label>
+                    <Select value={state} onValueChange={setState}>
+                      <SelectTrigger className="bg-white/5 border-white/10 text-white">
+                        <SelectValue placeholder="PA" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60">
+                        {US_STATES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="col-span-2 space-y-1.5">
+                    <Label className="text-slate-300">ZIP</Label>
+                    <Input
+                      value={zip} onChange={e => setZip(e.target.value)}
+                      placeholder="15642"
+                      className="bg-white/5 border-white/10 text-white placeholder:text-slate-600"
+                      maxLength={10}
+                    />
+                  </div>
+                </div>
               </div>
+            )}
 
-              <div className="col-span-2 space-y-1.5">
-                <Label className="text-slate-300">Logo URL</Label>
-                <Input type="url" value={logoUrl} onChange={e => setLogoUrl(e.target.value)} placeholder="https://yourcompany.com/logo.png"
-                  className="bg-white/5 border-white/10 text-white placeholder:text-slate-600" />
-                <p className="text-[11px] text-slate-500">Link to your logo (PNG, JPG, or SVG)</p>
-              </div>
+            {/* Sponsor: name + tier */}
+            {regType === "sponsor" && (
+              <div className="space-y-4">
+                <SectionHeader title="Sponsorship Details" />
 
-              {regType === "sponsor" && (
-                <div className="col-span-2 space-y-1.5">
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">Business / Organization Name <span className="text-red-400">*</span></Label>
+                  <Input
+                    value={businessName} onChange={e => setBusinessName(e.target.value)}
+                    placeholder="Acme Corp"
+                    className="bg-white/5 border-white/10 text-white placeholder:text-slate-600"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
                   <Label className="text-slate-300">Sponsorship Tier <span className="text-red-400">*</span></Label>
                   <Select value={tier} onValueChange={setTier}>
                     <SelectTrigger className="bg-white/5 border-white/10 text-white">
@@ -422,12 +502,46 @@ export default function PublicRegistration() {
                     </SelectContent>
                   </Select>
                 </div>
-              )}
 
-              {regType === "vendor" && (
-                <div className="col-span-2 space-y-1.5">
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">Website</Label>
+                  <Input
+                    type="url" value={website} onChange={e => setWebsite(e.target.value)}
+                    placeholder="https://yourcompany.com"
+                    className="bg-white/5 border-white/10 text-white placeholder:text-slate-600"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* ── Section 3: Vendor Details ── */}
+            {regType === "vendor" && (
+              <div className="space-y-4">
+                <SectionHeader title="Vendor Details" />
+
+                {/* Event selection */}
+                {orgInfo!.events.length > 0 && (
+                  <div className="space-y-1.5">
+                    <Label className="text-slate-300">Which event are you applying for?</Label>
+                    <Select value={eventId} onValueChange={setEventId}>
+                      <SelectTrigger className="bg-white/5 border-white/10 text-white">
+                        <SelectValue placeholder="Select an event" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {orgInfo!.events.map(ev => (
+                          <SelectItem key={ev.id} value={ev.id}>
+                            {ev.name}
+                            {ev.startDate && ` — ${format(new Date(ev.startDate + "T12:00:00"), "MMM d, yyyy")}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
                   <Label className="text-slate-300">Vendor Type <span className="text-red-400">*</span></Label>
-                  <Select value={vendorType} onValueChange={setVendorType}>
+                  <Select value={vendorType} onValueChange={(v) => { setVendorType(v); if (v !== "food") setServSafeUrl(null); }}>
                     <SelectTrigger className="bg-white/5 border-white/10 text-white">
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
@@ -436,46 +550,99 @@ export default function PublicRegistration() {
                     </SelectContent>
                   </Select>
                 </div>
-              )}
 
-              <div className="col-span-2 space-y-1.5">
-                <Label className="text-slate-300">Tell us about yourself</Label>
-                <Textarea value={description} onChange={e => setDescription(e.target.value)}
-                  placeholder={regType === "sponsor" ? "What does your company do? Why sponsor us?" : "What products or services do you offer?"}
-                  rows={3} className="bg-white/5 border-white/10 text-white placeholder:text-slate-600 resize-none" />
-              </div>
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">
+                    What will you be selling or offering? <span className="text-red-400">*</span>
+                  </Label>
+                  <Textarea
+                    value={products} onChange={e => setProducts(e.target.value)}
+                    placeholder="e.g. Homemade pierogies, kettle corn, pulled pork sandwiches…"
+                    rows={3}
+                    className="bg-white/5 border-white/10 text-white placeholder:text-slate-600 resize-none"
+                    required
+                  />
+                </div>
 
-              {/* Compliance documents — vendors only */}
-              {regType === "vendor" && (
-                <>
-                  <div className="col-span-2">
-                    <div className="flex items-center gap-2 mb-4 pb-3 border-b border-white/8">
-                      <FileText className="w-4 h-4 text-slate-400" />
-                      <h3 className="text-sm font-medium text-slate-300">Compliance Documents</h3>
-                      <span className="text-xs text-slate-500 ml-1">(optional — you may be asked to provide these before approval)</span>
-                    </div>
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">Additional Information</Label>
+                  <Textarea
+                    value={description} onChange={e => setDescription(e.target.value)}
+                    placeholder="Anything else you'd like us to know — booth size needs, special setup requirements, etc."
+                    rows={2}
+                    className="bg-white/5 border-white/10 text-white placeholder:text-slate-600 resize-none"
+                  />
+                </div>
+
+                {/* Electricity */}
+                <div className="flex items-start gap-3 p-4 rounded-lg bg-white/3 border border-white/8">
+                  <Checkbox
+                    id="electricity"
+                    checked={needsElectricity}
+                    onCheckedChange={v => setNeedsElectricity(v === true)}
+                    className="border-white/30 data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500 mt-0.5"
+                  />
+                  <div>
+                    <label htmlFor="electricity" className="text-sm text-white font-medium cursor-pointer flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-amber-400" />
+                      I need electrical access at my booth
+                    </label>
+                    <p className="text-xs text-slate-500 mt-0.5">Subject to availability. We'll be in touch to confirm.</p>
                   </div>
+                </div>
+              </div>
+            )}
 
-                  <div className="col-span-2">
+            {/* ── Section 4: Compliance Documents (vendors only) ── */}
+            {regType === "vendor" && (
+              <div className="space-y-4">
+                <SectionHeader title="Compliance Documents" />
+
+                {/* ServSafe — ONLY for food vendors */}
+                {isFood && (
+                  <div className="space-y-1.5">
                     <DocUploadField
                       label="ServSafe Certificate"
-                      hint="Upload your ServSafe food handler certification (PDF or image)"
-                      onUploaded={(path, fileName) => { setServSafeUrl(path); setServSafeName(fileName); }}
+                      hint="Required for all food vendors. Upload your current ServSafe food handler or manager certification."
+                      required
+                      onUploaded={(path) => setServSafeUrl(path)}
                     />
                   </div>
+                )}
 
-                  <div className="col-span-2">
-                    <DocUploadField
-                      label="Certificate of Insurance"
-                      hint="Upload your current Certificate of Insurance (COI) showing general liability coverage"
-                      onUploaded={(path, fileName) => { setInsuranceCertUrl(path); setInsuranceName(fileName); }}
-                    />
-                  </div>
-                </>
-              )}
-            </div>
+                {/* Insurance — all vendors */}
+                <DocUploadField
+                  label="Certificate of Insurance (COI)"
+                  hint="Upload your current COI showing general liability coverage. Required before final approval."
+                  onUploaded={(path) => setInsuranceCertUrl(path)}
+                />
 
-            <div className="pt-2 space-y-3">
+                {isFood && !servSafeUrl && (
+                  <p className="text-[11px] text-amber-500/80">
+                    ServSafe certificate is required for food vendors. You may submit now or email it to us after applying.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Sponsor: about */}
+            {regType === "sponsor" && (
+              <div className="space-y-4">
+                <SectionHeader title="About Your Organization" />
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">Tell us about your company</Label>
+                  <Textarea
+                    value={description} onChange={e => setDescription(e.target.value)}
+                    placeholder="What does your company do? Why sponsor us?"
+                    rows={3}
+                    className="bg-white/5 border-white/10 text-white placeholder:text-slate-600 resize-none"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Submit */}
+            <div className="space-y-3 pt-2">
               {fee != null && fee > 0 && (
                 <div className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/10">
                   <span className="text-sm text-slate-300">Registration fee</span>
@@ -497,7 +664,7 @@ export default function PublicRegistration() {
           <div className="text-center space-y-4 py-12">
             <Loader2 className="w-10 h-10 text-amber-400 animate-spin mx-auto" />
             <p className="text-white font-semibold">Submitting your application…</p>
-            <p className="text-slate-400 text-sm">Please don't close this window.</p>
+            <p className="text-slate-400 text-sm">Please don&apos;t close this window.</p>
           </div>
         )}
 
@@ -508,10 +675,18 @@ export default function PublicRegistration() {
             </div>
             <div>
               <h2 className="text-xl font-bold text-white">Application Submitted!</h2>
-              <p className="text-slate-400 mt-2 text-sm">
+              <p className="text-slate-400 mt-2 text-sm max-w-sm mx-auto">
                 Your application has been received by <span className="text-white">{orgInfo!.orgName}</span>.
-                They'll review it and be in touch soon.
+                They'll review it and be in touch soon at <span className="text-white">{email}</span>.
               </p>
+            </div>
+            <div className="p-4 rounded-lg bg-white/5 border border-white/10 text-left max-w-sm mx-auto">
+              <p className="text-xs text-slate-500 font-medium uppercase tracking-wide mb-2">What happens next</p>
+              <ul className="space-y-1.5 text-sm text-slate-300">
+                <li>1. Your application will be reviewed within a few days</li>
+                <li>2. You'll receive an approval or follow-up email</li>
+                {insuranceCertUrl == null && <li>3. You may be asked to submit a COI before final approval</li>}
+              </ul>
             </div>
           </div>
         )}
@@ -520,8 +695,9 @@ export default function PublicRegistration() {
   );
 }
 
+// ─── Payment success page (Stripe redirect) ───────────────────────────────────
+
 export function RegistrationSuccess() {
-  const { orgSlug } = useParams<{ orgSlug: string }>();
   return (
     <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center px-6">
       <div className="max-w-md w-full text-center space-y-5">

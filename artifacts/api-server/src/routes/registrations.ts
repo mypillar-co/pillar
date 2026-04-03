@@ -1,8 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import {
-  db, organizationsTable, registrationsTable, sponsorsTable, vendorsTable,
+  db, organizationsTable, registrationsTable, sponsorsTable, vendorsTable, eventsTable,
 } from "@workspace/db";
-import { eq, and, or, desc } from "drizzle-orm";
+import { eq, and, or, desc, asc } from "drizzle-orm";
 import { resolveFullOrg } from "../lib/resolveOrg";
 import { getUncachableStripeClient } from "../stripeClient";
 import { ObjectStorageService } from "../lib/objectStorage";
@@ -128,6 +128,19 @@ router.get("/public/orgs/:slug/register-info", async (req: Request, res: Respons
 
   if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
 
+  // Return published events so vendor can specify which event they're applying for
+  const events = await db
+    .select({ id: eventsTable.id, name: eventsTable.name, startDate: eventsTable.startDate })
+    .from(eventsTable)
+    .where(
+      and(
+        eq(eventsTable.orgId, org.id),
+        eq(eventsTable.status, "published"),
+        eq(eventsTable.isActive, true),
+      )
+    )
+    .orderBy(asc(eventsTable.startDate));
+
   res.json({
     orgId: org.id,
     orgName: org.name,
@@ -135,6 +148,7 @@ router.get("/public/orgs/:slug/register-info", async (req: Request, res: Respons
     vendorFeeCents: org.vendorFeeCents,
     sponsorFeeCents: org.sponsorFeeCents,
     acceptsPayments: !!org.stripeConnectOnboarded && !!org.stripeConnectAccountId,
+    events: events.map(e => ({ id: e.id, name: e.name, startDate: e.startDate })),
   });
 });
 
@@ -148,19 +162,22 @@ router.post("/public/orgs/:slug/register", async (req: Request, res: Response) =
   if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
 
   const {
-    type, name, email, phone, website, logoUrl, description, tier, vendorType,
-    servSafeUrl, insuranceCertUrl,
+    type, name, contactName, email, phone, website, logoUrl, description,
+    tier, vendorType, servSafeUrl, insuranceCertUrl,
+    address, city, state, zip, products, needsElectricity, eventId,
   } = req.body as {
-    type?: string; name?: string; email?: string; phone?: string;
+    type?: string; name?: string; contactName?: string; email?: string; phone?: string;
     website?: string; logoUrl?: string; description?: string;
     tier?: string; vendorType?: string;
     servSafeUrl?: string; insuranceCertUrl?: string;
+    address?: string; city?: string; state?: string; zip?: string;
+    products?: string; needsElectricity?: boolean; eventId?: string;
   };
 
   if (!type || !["vendor", "sponsor"].includes(type)) {
     res.status(400).json({ error: "type must be 'vendor' or 'sponsor'" }); return;
   }
-  if (!name?.trim()) { res.status(400).json({ error: "Name is required" }); return; }
+  if (!name?.trim()) { res.status(400).json({ error: "Business name is required" }); return; }
   if (!email?.trim()) { res.status(400).json({ error: "Email is required" }); return; }
 
   const feeAmount = type === "vendor" ? (org.vendorFeeCents ?? 0) : (org.sponsorFeeCents ?? 0);
@@ -173,11 +190,19 @@ router.post("/public/orgs/:slug/register", async (req: Request, res: Response) =
       type,
       status: requiresPayment ? "pending_payment" : "pending_approval",
       name: name.trim(),
+      contactName: contactName?.trim() ?? null,
       email: email.trim().toLowerCase(),
       phone: phone?.trim() ?? null,
       website: website?.trim() ?? null,
       logoUrl: logoUrl?.trim() ?? null,
       description: description?.trim() ?? null,
+      address: address?.trim() ?? null,
+      city: city?.trim() ?? null,
+      state: state?.trim() ?? null,
+      zip: zip?.trim() ?? null,
+      products: products?.trim() ?? null,
+      needsElectricity: needsElectricity === true,
+      eventId: eventId?.trim() ?? null,
       tier: type === "sponsor" ? (tier?.trim() ?? null) : null,
       vendorType: type === "vendor" ? (vendorType?.trim() ?? null) : null,
       feeAmount,
