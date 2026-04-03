@@ -124,6 +124,8 @@ const IDLE_LIMIT_MS = 30 * 60 * 1000; // 30 min
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [previewExpanded, setPreviewExpanded] = useState(false);
   const { user, isLoading: authLoading, logout } = useAuth();
   const { data: orgData, isLoading: orgLoading } = useGetOrganization();
   const org = orgData?.organization;
@@ -197,6 +199,14 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     if (!user) { setLocation("/"); return; }
     if (!org) setLocation("/onboard");
   }, [user, authLoading, org, orgLoading, setLocation]);
+
+  // Detect mobile and update on resize
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   if (authLoading || orgLoading) {
     return (
@@ -357,6 +367,56 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+
+      {/* Mobile site preview sheet — auto-shows on small screens, mimics Replit popup */}
+      {isMobile && (
+        <>
+          {/* Backdrop when expanded */}
+          {previewExpanded && (
+            <div
+              className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+              onClick={() => setPreviewExpanded(false)}
+            />
+          )}
+
+          {/* Sheet */}
+          <div
+            className={cn(
+              "fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-[hsl(224,40%,10%)] border-t border-white/10 shadow-2xl shadow-black/60",
+              "transition-[height] duration-300 ease-in-out"
+            )}
+            style={{ height: previewExpanded ? "88dvh" : "52px" }}
+          >
+            {/* Handle / collapsed bar */}
+            <button
+              className="flex items-center justify-between px-5 py-3.5 flex-shrink-0 w-full text-left"
+              onClick={() => setPreviewExpanded(v => !v)}
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-6 h-1 rounded-full bg-white/20 absolute left-1/2 -translate-x-1/2 top-2" />
+                <Smartphone className="w-4 h-4 text-amber-400" />
+                <span className="text-sm font-semibold text-white">Preview site</span>
+              </div>
+              <span className="text-[11px] text-slate-500 font-medium">
+                {previewExpanded ? "Close" : "Tap to open"}
+              </span>
+            </button>
+
+            {/* Preview iframe — only rendered when expanded */}
+            {previewExpanded && (
+              <div className="flex-1 overflow-hidden bg-white">
+                <iframe
+                  key="mobile-sheet-preview"
+                  src="/api/sites/preview-html"
+                  style={{ width: "100%", height: "100%", border: "none", display: "block" }}
+                  sandbox="allow-scripts allow-forms allow-popups"
+                  title="Mobile Site Preview"
+                />
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
