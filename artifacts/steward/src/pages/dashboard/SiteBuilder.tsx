@@ -1,10 +1,10 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   Send, Globe, Sparkles, Bot, User, Loader2, AlertCircle,
   Eye, CheckCircle2, ExternalLink, RefreshCw, EyeOff,
   Edit3, Play, Save, Trash2, Zap, ChevronRight,
   X, Check, ImagePlus, CalendarClock, Images, ShoppingBag,
-  Download, Link2,
+  Download, Link2, Monitor, Tablet, Smartphone,
 } from "lucide-react";
 import { uploadImage, ACCEPTED_IMAGE_TYPES, MAX_IMAGE_SIZE_MB } from "@/lib/uploadImage";
 import { useGetOrganization } from "@workspace/api-client-react";
@@ -222,24 +222,21 @@ export default function SiteBuilder() {
     }).catch(() => null).finally(() => setSiteLoading(false));
   }, []);
 
-  const loadHtmlIntoIframe = useCallback((html: string) => {
-    if (!iframeRef.current) return;
-    const blob = new Blob([html], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    iframeRef.current.src = url;
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-  }, []);
+  // ── Preview pane state ─────────────────────────────────────────────────────
+  const [previewViewport, setPreviewViewport] = useState<"desktop" | "tablet" | "mobile">("mobile");
+  const [previewSection, setPreviewSection] = useState<string>("");
+  const [previewKey, setPreviewKey] = useState(0);
 
-  useEffect(() => {
-    if (site?.generatedHtml && iframeRef.current && activeTab === "preview") {
-      loadHtmlIntoIframe(proposedHtml ?? site.generatedHtml);
+  const navigatePreviewTo = (hash: string) => {
+    setPreviewSection(hash);
+    if (iframeRef.current) {
+      iframeRef.current.src = `/api/sites/preview-html${hash}`;
     }
-  }, [site?.generatedHtml, proposedHtml, activeTab, loadHtmlIntoIframe]);
+  };
 
+  // Reload preview whenever the active tab switches to preview
   useEffect(() => {
-    if (activeTab === "preview" && site?.generatedHtml) {
-      loadHtmlIntoIframe(proposedHtml ?? site.generatedHtml);
-    }
+    if (activeTab === "preview") setPreviewKey(k => k + 1);
   }, [activeTab]);
 
   // Load saved embed code
@@ -431,7 +428,7 @@ export default function SiteBuilder() {
         const proposeData = await proposeRes.json() as { proposedHtml?: string };
         if (proposeData.proposedHtml) {
           setProposedHtml(proposeData.proposedHtml);
-          loadHtmlIntoIframe(proposeData.proposedHtml);
+          setPreviewKey(k => k + 1);
         }
       }
 
@@ -659,7 +656,7 @@ export default function SiteBuilder() {
         return;
       }
       setProposedHtml(previewData.proposedHtml);
-      loadHtmlIntoIframe(previewData.proposedHtml);
+      setPreviewKey(k => k + 1);
       setActiveTab("preview");
     } finally {
       clearTimeout(timeout);
@@ -680,6 +677,7 @@ export default function SiteBuilder() {
       setSite(data.site);
       setProposedHtml(null);
       setChangeInput("");
+      setPreviewKey(k => k + 1);
     } catch {
       setChangeError("Failed to apply change. Please try again.");
     }
@@ -689,7 +687,7 @@ export default function SiteBuilder() {
     setProposedHtml(null);
     // Clear server-side proposal
     csrfFetch("/api/sites/my/proposal", { method: "DELETE", credentials: "include" }).catch(() => {});
-    if (site?.generatedHtml) loadHtmlIntoIframe(site.generatedHtml);
+    setPreviewKey(k => k + 1);
   };
 
   const saveSchedule = async () => {
@@ -727,7 +725,7 @@ export default function SiteBuilder() {
       if (!res.ok) throw new Error("Failed");
       const data = await res.json() as { html: string; lastRunAt: string; nextRunAt: string | null };
       setSite(prev => prev ? { ...prev, generatedHtml: data.html, updatedAt: new Date().toISOString() } : null);
-      loadHtmlIntoIframe(data.html);
+      setPreviewKey(k => k + 1);
       setSchedule(prev => prev ? { ...prev, lastRunAt: data.lastRunAt, nextRunAt: data.nextRunAt } : null);
       setScheduleMessage("Site updated successfully.");
     } catch {
@@ -880,10 +878,96 @@ export default function SiteBuilder() {
           </div>
 
           {/* Tab content */}
-          <div className="flex-1 overflow-hidden">
-            {/* Preview tab */}
+          <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+            {/* Preview tab — real compiled site in isolated iframe */}
             {activeTab === "preview" && (
-              <iframe ref={iframeRef} className="w-full h-full border-0" title="Site Preview" sandbox="allow-same-origin allow-scripts" />
+              <div className="flex flex-col h-full min-h-0">
+                {/* Browser chrome toolbar */}
+                <div className="flex items-center gap-2 px-3 py-2 bg-[hsl(224,42%,7%)] border-b border-white/8 flex-shrink-0">
+                  {/* Viewport toggles */}
+                  <div className="flex items-center gap-0.5 bg-white/6 rounded-lg p-1 flex-shrink-0">
+                    {([
+                      { id: "mobile" as const, icon: Smartphone, label: "Mobile (390px)" },
+                      { id: "tablet" as const, icon: Tablet, label: "Tablet (768px)" },
+                      { id: "desktop" as const, icon: Monitor, label: "Desktop (full)" },
+                    ]).map(vp => (
+                      <button
+                        key={vp.id}
+                        onClick={() => setPreviewViewport(vp.id)}
+                        title={vp.label}
+                        className={`p-1.5 rounded-md transition-colors ${previewViewport === vp.id ? "bg-white/15 text-white" : "text-slate-500 hover:text-slate-200"}`}
+                      >
+                        <vp.icon className="w-3.5 h-3.5" />
+                      </button>
+                    ))}
+                  </div>
+                  {/* Address bar */}
+                  <div className="flex-1 flex items-center gap-2 bg-white/5 rounded-lg px-2.5 py-1.5 min-w-0 overflow-hidden">
+                    <Globe className="w-3 h-3 text-slate-500 flex-shrink-0" />
+                    <span className="text-[11px] text-slate-400 truncate font-mono">
+                      {site?.status === "published" && orgSlug
+                        ? `mypillar.co/sites/${orgSlug}`
+                        : "Preview · draft not yet published"}
+                    </span>
+                  </div>
+                  {/* Reload */}
+                  <button
+                    onClick={() => setPreviewKey(k => k + 1)}
+                    title="Reload preview"
+                    className="p-1.5 text-slate-500 hover:text-white transition-colors flex-shrink-0"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                  {/* Open live */}
+                  {site?.status === "published" && publicUrl && (
+                    <a
+                      href={publicUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Open live site"
+                      className="p-1.5 text-primary hover:text-primary/80 transition-colors flex-shrink-0"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+                </div>
+                {/* Section nav */}
+                <div className="flex items-center gap-0.5 px-2 py-1.5 bg-[hsl(224,42%,7%)] border-b border-white/6 overflow-x-auto flex-shrink-0">
+                  {[
+                    { label: "Home", hash: "" },
+                    { label: "About", hash: "#about" },
+                    { label: "Programs", hash: "#programs" },
+                    { label: "Events", hash: "#events" },
+                    { label: "Contact", hash: "#contact" },
+                  ].map(s => (
+                    <button
+                      key={s.hash}
+                      onClick={() => navigatePreviewTo(s.hash)}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${previewSection === s.hash ? "bg-white/10 text-white" : "text-slate-500 hover:text-slate-200"}`}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+                {/* Viewport frame + iframe */}
+                <div className="flex-1 min-h-0 overflow-auto bg-[#07070f] flex justify-center">
+                  <iframe
+                    key={previewKey}
+                    ref={iframeRef}
+                    src={`/api/sites/preview-html${previewSection}`}
+                    style={{
+                      width: previewViewport === "desktop" ? "100%" : previewViewport === "tablet" ? "768px" : "390px",
+                      minHeight: "100%",
+                      border: "none",
+                      flexShrink: 0,
+                      display: "block",
+                      background: "#fff",
+                    }}
+                    sandbox="allow-scripts allow-forms allow-popups"
+                    title="Site Preview"
+                  />
+                </div>
+              </div>
             )}
 
             {/* Edit tab */}

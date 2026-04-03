@@ -567,6 +567,37 @@ router.get("/builder/usage", async (req: Request, res: Response) => {
   res.json({ used, limit: monthlyLimit, remaining: monthlyLimit - used, tier: org.tier });
 });
 
+// ─── Authenticated preview — serves real compiled HTML for in-dashboard iframe ─
+router.get("/preview-html", async (req: Request, res: Response) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+  const [site] = await db.select().from(sitesTable).where(eq(sitesTable.orgId, org.id));
+  if (!site?.generatedHtml) {
+    res.status(404).send(`<!DOCTYPE html><html><head><style>
+      body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;
+      min-height:100vh;margin:0;background:#07070f;color:#94a3b8;text-align:center;}
+      .box{max-width:360px;padding:2rem;}.icon{font-size:3rem;margin-bottom:1rem;}
+      h2{color:#fff;font-size:1.2rem;margin-bottom:.5rem;}
+    </style></head><body><div class="box">
+      <div class="icon">🏗️</div>
+      <h2>No site generated yet</h2>
+      <p>Complete the site builder interview to generate your site preview.</p>
+    </div></body></html>`);
+    return;
+  }
+  // Proposed HTML takes priority (change request pending review)
+  const html = site.proposedHtml ?? site.generatedHtml;
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store, no-cache");
+  // Allow iframing from same origin (the dashboard)
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  // Permissive CSP for preview: allow inline scripts/styles, Google Fonts, all images
+  res.setHeader("Content-Security-Policy",
+    "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;"
+  );
+  res.send(html);
+});
+
 // ─── Get current site ─────────────────────────────────────────────────────────
 router.get("/my", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);

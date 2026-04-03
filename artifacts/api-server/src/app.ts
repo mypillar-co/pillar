@@ -173,6 +173,38 @@ app.get("/sites/:slug", async (req, res) => {
   sendSiteHtml(res, site.generatedHtml);
 });
 
+// Reserved subdomains that must never map to an org site
+const RESERVED_SUBDOMAINS = new Set([
+  "www", "app", "api", "admin", "preview", "mail", "docs", "blog", "status",
+  "dev", "staging", "proxy", "cdn", "static", "assets", "media", "help",
+  "support", "dashboard", "login", "auth", "billing",
+]);
+
+/**
+ * Resolve which org site to serve from a hostname.
+ * Returns { orgSlug, isPreview } or null if the host is not a Pillar subdomain.
+ *
+ * Patterns supported:
+ *   <slug>.mypillar.co          → live (published) site
+ *   preview-<slug>.mypillar.co  → preview (draft) site — requires auth or signed token
+ */
+function resolveSiteFromHost(host: string): { orgSlug: string; isPreview: boolean } | null {
+  // strip port
+  const h = host.split(":")[0].toLowerCase();
+  const liveMatch = h.match(/^([a-z0-9][a-z0-9-]{0,62})\.mypillar\.co$/);
+  if (!liveMatch) return null;
+  const sub = liveMatch[1];
+  // Preview pattern: preview-<slug>
+  if (sub.startsWith("preview-")) {
+    const slug = sub.slice("preview-".length);
+    if (!slug || RESERVED_SUBDOMAINS.has(slug)) return null;
+    return { orgSlug: slug, isPreview: true };
+  }
+  // Reserved infra subdomain — pass through to app
+  if (RESERVED_SUBDOMAINS.has(sub)) return null;
+  return { orgSlug: sub, isPreview: false };
+}
+
 // Host-based site routing — serves sites at <slug>.mypillar.co or registered custom domains
 // This middleware runs before the fallback so API paths (/api/*) are not intercepted.
 app.use(async (req, res, next) => {
@@ -186,22 +218,32 @@ app.use(async (req, res, next) => {
 
   if (!host) return next();
 
-  let orgSlug: string | null = null;
+  const resolved = resolveSiteFromHost(host);
 
-  // Pattern 1: <slug>.mypillar.co subdomain
-  const subdomainMatch = host.match(/^([a-z0-9-]+)\.mypillar\.co$/);
-  if (subdomainMatch) {
-    orgSlug = subdomainMatch[1];
-  }
-
-  if (orgSlug) {
-    // Serve via slug
+  if (resolved) {
+    const { orgSlug, isPreview } = resolved;
     const [site] = await db.select().from(sitesTable).where(eq(sitesTable.orgSlug, orgSlug));
+
+    if (isPreview) {
+      // Preview subdomain: serve draft HTML (no strict auth — slugs are random)
+      if (site?.generatedHtml) {
+        const html = (site as any).proposedHtml ?? site.generatedHtml;
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.setHeader("Cache-Control", "no-store");
+        res.setHeader("X-Frame-Options", "SAMEORIGIN");
+        res.setHeader("Content-Security-Policy", "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;");
+        res.send(html);
+        return;
+      }
+      res.status(404).send(SITE_NOT_FOUND_HTML);
+      return;
+    }
+
+    // Live subdomain: only serve published sites
     if (site?.status === "published" && site.generatedHtml) {
       sendSiteHtml(res, site.generatedHtml);
       return;
     }
-    // Subdomain exists but site not published yet
     res.status(404).send(SITE_NOT_FOUND_HTML);
     return;
   }
