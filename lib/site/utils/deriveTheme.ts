@@ -3,6 +3,64 @@ import type { LayoutSignals } from "../types/layout-strategy.js";
 import type { ThemePreset } from "../types/site-bindings.js";
 
 const THEME_PRESETS: Record<string, ThemePreset> = {
+  // ── Official org-brand presets (always take priority when org type matches) ──
+  "rotary-official": {
+    presetKey: "rotary-official",
+    colorPrimary: "#003DA5",    // Rotary Royal Blue
+    colorSecondary: "#002880",
+    colorAccent: "#F7A81B",     // Rotary Gold
+    colorSurface: "#f8fafc",
+    colorText: "#111827",
+    fontHeadingKey: "DM Serif Display",
+    fontBodyKey: "DM Sans",
+    radiusScale: "12px",
+    shadowStyle: "soft",
+    heroStyleDefault: "gradient-dark",
+    buttonStyle: "rounded",
+  },
+  "lions-official": {
+    presetKey: "lions-official",
+    colorPrimary: "#002B7F",    // Lions International Blue
+    colorSecondary: "#001F5E",
+    colorAccent: "#F5D300",     // Lions Gold
+    colorSurface: "#f8fafc",
+    colorText: "#111827",
+    fontHeadingKey: "DM Serif Display",
+    fontBodyKey: "DM Sans",
+    radiusScale: "12px",
+    shadowStyle: "soft",
+    heroStyleDefault: "gradient-dark",
+    buttonStyle: "rounded",
+  },
+  "vfw-official": {
+    presetKey: "vfw-official",
+    colorPrimary: "#003366",    // VFW Navy
+    colorSecondary: "#002244",
+    colorAccent: "#BF0A30",     // VFW Red
+    colorSurface: "#f8fafc",
+    colorText: "#111827",
+    fontHeadingKey: "DM Serif Display",
+    fontBodyKey: "DM Sans",
+    radiusScale: "10px",
+    shadowStyle: "crisp",
+    heroStyleDefault: "gradient-dark",
+    buttonStyle: "sharp",
+  },
+  "elks-official": {
+    presetKey: "elks-official",
+    colorPrimary: "#4B0082",    // Elks Purple
+    colorSecondary: "#380060",
+    colorAccent: "#D4A843",     // Elks Gold
+    colorSurface: "#faf8ff",
+    colorText: "#111827",
+    fontHeadingKey: "DM Serif Display",
+    fontBodyKey: "DM Sans",
+    radiusScale: "12px",
+    shadowStyle: "soft",
+    heroStyleDefault: "gradient-dark",
+    buttonStyle: "rounded",
+  },
+  // ── Generic presets ──────────────────────────────────────────────────────
   "navy-gold": {
     presetKey: "navy-gold",
     colorPrimary: "#1e3a5f",
@@ -175,6 +233,23 @@ export function deriveTheme(
   signals: LayoutSignals,
   importedColors: string[]
 ): ThemePreset {
+  // ── Step 1: Official org-brand presets — always override everything else ──
+  const orgTypeLower = (profile.orgType ?? "").toLowerCase();
+  const orgNameLower = (profile.orgName ?? "").toLowerCase();
+
+  if (orgTypeLower.includes("rotary") || orgNameLower.includes("rotary")) {
+    return THEME_PRESETS["rotary-official"];
+  }
+  if (orgTypeLower.includes("lions") || orgNameLower.includes("lions club")) {
+    return THEME_PRESETS["lions-official"];
+  }
+  if (orgTypeLower.includes("vfw") || orgNameLower.includes("vfw") || orgNameLower.includes("veterans of foreign wars")) {
+    return THEME_PRESETS["vfw-official"];
+  }
+  if (orgTypeLower.includes("elks") || orgNameLower.includes("elks lodge") || orgNameLower.includes("bpoe")) {
+    return THEME_PRESETS["elks-official"];
+  }
+
   const nonNeutralColors = importedColors.filter(c => !isNeutral(c));
 
   if (nonNeutralColors.length > 0) {

@@ -584,6 +584,72 @@ router.post("/auto-update", resolveOrgScope, async (req: Request, res: Response)
   }
 });
 
+/**
+ * DELETE /reset — Wipes all generated site content for an org so it can be regenerated fresh.
+ * Clears generated_html, soft-deletes all pages/blocks/nav/themes, sets status to draft.
+ * Scoped to the calling user's org.
+ */
+router.delete("/reset", resolveOrgScope, async (req: Request, res: Response) => {
+  const orgId = req.orgId!;
+
+  try {
+    const [site] = await db
+      .select()
+      .from(sitesTable)
+      .where(and(eq(sitesTable.orgId, orgId), isNull(sitesTable.deletedAt)))
+      .limit(1);
+
+    if (!site) {
+      res.json({ success: true, message: "No site to reset." });
+      return;
+    }
+
+    const now = new Date();
+
+    // Soft-delete all pages (cascades visually to blocks/nav in compile)
+    await db.update(sitePagesTable)
+      .set({ deletedAt: now })
+      .where(and(eq(sitePagesTable.siteId, site.id), eq(sitePagesTable.orgId, orgId), isNull(sitePagesTable.deletedAt)));
+
+    // Soft-delete all blocks
+    await db.update(siteBlocksTable)
+      .set({ deletedAt: now })
+      .where(and(eq(siteBlocksTable.siteId, site.id), eq(siteBlocksTable.orgId, orgId), isNull(siteBlocksTable.deletedAt)));
+
+    // Clear nav items
+    await db.delete(siteNavItemsTable)
+      .where(and(eq(siteNavItemsTable.siteId, site.id), eq(siteNavItemsTable.orgId, orgId)));
+
+    // Clear theme
+    await db.delete(siteThemesTable)
+      .where(eq(siteThemesTable.siteId, site.id));
+
+    // Clear render cache
+    await db.delete(siteRenderCacheTable)
+      .where(eq(siteRenderCacheTable.siteId, site.id));
+
+    // Wipe the generated HTML, spec, and reset status
+    await db.update(sitesTable)
+      .set({
+        generatedHtml: null,
+        proposedHtml: null,
+        websiteSpec: null,
+        status: "draft",
+        publishedAt: null,
+        compiledAt: null,
+        updatedAt: now,
+      })
+      .where(and(eq(sitesTable.id, site.id), eq(sitesTable.orgId, orgId)));
+
+    await logInfo(SERVICE, "reset", `Site reset for org ${orgId}`, { siteId: site.id }, orgId, site.id);
+
+    res.json({ success: true, siteId: site.id, message: "Site cleared. Ready for fresh generation." });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: "Reset failed", details: msg });
+  }
+});
+
 router.get("/health", async (req: Request, res: Response) => {
   const probeTable = async (label: string, fn: () => Promise<unknown>): Promise<{ ok: boolean; error?: string }> => {
     try { await fn(); return { ok: true }; }

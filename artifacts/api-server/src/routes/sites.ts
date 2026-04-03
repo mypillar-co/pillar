@@ -1486,11 +1486,11 @@ Rules:
     const day = dateObj ? String(dateObj.getDate()) : "";
     const month = dateObj ? dateObj.toLocaleDateString("en-US", { month: "short" }).toUpperCase() : "";
     const timeStr = e.startTime ? `${e.startTime}${e.endTime ? ` – ${e.endTime}` : ""}` : "";
-    const eventUrl = e.slug ? `https://${slug}.mypillar.co/events/${e.slug}/tickets` : null;
-    const registerBtn = e.hasRegistration && eventUrl
-      ? `<a href="${eventUrl}" target="_blank" rel="noopener noreferrer" class="btn-primary" style="margin-top:0.5rem;display:inline-block;padding:0.5rem 1.25rem;font-size:0.85rem">Register</a>`
+    const eventUrl = e.slug ? `https://${slug}.mypillar.co/events/${e.slug}` : null;
+    const registerBtn = eventUrl && e.hasRegistration
+      ? `<a href="${eventUrl}" target="_blank" rel="noopener noreferrer" class="btn-primary" style="margin-top:0.75rem;display:inline-flex;align-items:center;gap:6px;padding:0.5rem 1.25rem;font-size:0.85rem">Get Tickets →</a>`
       : eventUrl
-      ? `<a href="${eventUrl}" target="_blank" rel="noopener noreferrer" class="btn-ghost" style="margin-top:0.5rem;display:inline-block;padding:0.5rem 1.25rem;font-size:0.85rem;background:transparent;color:var(--text);border-color:var(--border)">Learn More</a>`
+      ? `<a href="${eventUrl}" target="_blank" rel="noopener noreferrer" class="btn-ghost" style="margin-top:0.75rem;display:inline-flex;align-items:center;gap:6px;padding:0.5rem 1.25rem;font-size:0.85rem;background:transparent;color:var(--text);border-color:var(--border)">View Details →</a>`
       : "";
     return `
     <div class="event-row reveal">
@@ -1980,24 +1980,23 @@ router.post("/sync-events", async (req: Request, res: Response) => {
     return base;
   }
 
-  // Build synthetic event rows from recurring templates (next 2 occurrences)
+  // Build synthetic event rows from recurring templates — ONE occurrence per template.
+  // Recurring series appear as a single card showing the next occurrence date.
+  // Showing every future occurrence creates clutter and looks unprofessional.
   type SyncEventRow = { name: string; startDate: string | null; startTime: string | null; endTime: string | null; location: string | null; description: string | null; slug: string | null; hasRegistration: boolean | null };
   const recurringRows: SyncEventRow[] = [];
   for (const tmpl of recurringTemplates) {
-    let occ = nextOccurrence(tmpl, todayDate);
-    for (let i = 0; i < 2; i++) {
-      recurringRows.push({
-        name: tmpl.name,
-        startDate: occ.toISOString().split("T")[0],
-        startTime: tmpl.startTime ?? null,
-        endTime: null,
-        location: tmpl.location ?? null,
-        description: tmpl.description ?? null,
-        slug: null,       // recurring templates have no ticket slug
-        hasRegistration: null,
-      });
-      occ = nextOccurrence(tmpl, occ);
-    }
+    const occ = nextOccurrence(tmpl, todayDate);
+    recurringRows.push({
+      name: tmpl.name,
+      startDate: occ.toISOString().split("T")[0],
+      startTime: tmpl.startTime ?? null,
+      endTime: null,
+      location: tmpl.location ?? null,
+      description: tmpl.description ?? null,
+      slug: null,       // recurring templates have no ticket slug
+      hasRegistration: null,
+    });
   }
 
   // Merge: future one-off events + recurring occurrences, sorted by date
@@ -2022,11 +2021,11 @@ router.post("/sync-events", async (req: Request, res: Response) => {
     const day = dateObj ? String(dateObj.getDate()) : "";
     const month = dateObj ? dateObj.toLocaleDateString("en-US", { month: "short" }).toUpperCase() : "";
     const timeStr = e.startTime ? `${e.startTime}${e.endTime ? ` – ${e.endTime}` : ""}` : "";
-    const eventUrl = e.slug ? `https://${org.slug}.mypillar.co/events/${e.slug}/tickets` : null;
-    const registerBtn = e.hasRegistration && eventUrl
-      ? `<a href="${eventUrl}" target="_blank" rel="noopener noreferrer" class="btn-primary" style="margin-top:0.5rem;display:inline-block;padding:0.5rem 1.25rem;font-size:0.85rem">Register</a>`
+    const eventUrl = e.slug ? `https://${org.slug}.mypillar.co/events/${e.slug}` : null;
+    const registerBtn = eventUrl && e.hasRegistration
+      ? `<a href="${eventUrl}" target="_blank" rel="noopener noreferrer" class="btn-primary" style="margin-top:0.75rem;display:inline-flex;align-items:center;gap:6px;padding:0.5rem 1.25rem;font-size:0.85rem">Get Tickets →</a>`
       : eventUrl
-      ? `<a href="${eventUrl}" target="_blank" rel="noopener noreferrer" class="btn-ghost" style="margin-top:0.5rem;display:inline-block;padding:0.5rem 1.25rem;font-size:0.85rem;background:transparent;color:var(--text);border-color:var(--border)">Learn More</a>`
+      ? `<a href="${eventUrl}" target="_blank" rel="noopener noreferrer" class="btn-ghost" style="margin-top:0.75rem;display:inline-flex;align-items:center;gap:6px;padding:0.5rem 1.25rem;font-size:0.85rem;background:transparent;color:var(--text);border-color:var(--border)">View Details →</a>`
       : "";
     return `
     <div class="event-row reveal">

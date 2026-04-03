@@ -643,6 +643,20 @@ export default function SiteBuilder() {
     }
   };
 
+  const resetSite = async () => {
+    if (!window.confirm("This will permanently delete your current website and reset it to a blank state. You'll need to regenerate a new site. Continue?")) return;
+    try {
+      const res = await csrfFetch("/api/site-engine/reset", { method: "DELETE" });
+      if (!res.ok) throw new Error("Reset failed");
+      setSite(null);
+      setMessages([]);
+      setMode("interview");
+      setActiveTab("chat");
+    } catch {
+      alert("Failed to reset site. Please try again.");
+    }
+  };
+
   const proposeChange = async () => {
     if (!changeInput.trim() || changePending) return;
     setChangePending(true);
@@ -1479,6 +1493,19 @@ export default function SiteBuilder() {
                           <p className="text-xs text-slate-500">Answer a few questions and generate a completely new version</p>
                         </div>
                         <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-slate-300 transition-colors flex-shrink-0" />
+                      </button>
+
+                      <button
+                        onClick={resetSite}
+                        className="w-full flex items-center gap-3 p-3.5 rounded-xl border border-red-500/20 bg-red-500/5 hover:bg-red-500/10 hover:border-red-500/30 transition-all text-left group"
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-red-500/10 flex items-center justify-center flex-shrink-0">
+                          <Trash2 className="w-4 h-4 text-red-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-red-300">Delete site & start over</p>
+                          <p className="text-xs text-red-500/70">Permanently removes the current site so you can build fresh</p>
+                        </div>
                       </button>
                     </div>
                   </>
