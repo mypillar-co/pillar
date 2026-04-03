@@ -1,0 +1,284 @@
+Here's how I'd architect an AI agent that autonomously builds and manages community event websites like this one:
+
+System Architecture: AI Event Site Agent
+Overview
+Three layers:
+
+Conversation Layer — AI agent that talks to the user, gathers requirements, makes decisions
+Site Engine — A templated but flexible full-stack app generator that the agent controls programmatically
+Management API — The agent's "hands" for ongoing operations (create events, toggle tickets, manage sponsors, sync dashboards)
+Layer 1: Conversation & Intent
+The agent needs to handle two modes:
+
+Mode A: Initial Site Build
+User answers a questionnaire or describes their organization. The agent extracts:
+
+interface SiteBuildIntent {
+  organizationName: string;          // "Irwin Business & Professional Association"
+  organizationType: string;          // "business association", "chamber of commerce", "festival org"
+  location: {
+    city: string;                    // "Irwin"
+    state: string;                   // "PA"
+    region?: string;                 // "Westmoreland County"
+  };
+  brandingPreferences: {
+    primaryColor?: string;
+    logo?: string;                   // URL or uploaded file
+    tagline?: string;
+    tone: string;                    // "professional", "casual", "festive"
+  };
+  features: {
+    events: boolean;
+    ticketing: boolean;
+    vendorRegistration: boolean;
+    sponsorManagement: boolean;
+    newsletter: boolean;
+    businessDirectory: boolean;
+    photoGallery: boolean;
+    contactForm: boolean;
+  };
+  paymentProvider: "square" | "stripe" | null;
+  emailProvider: "sendgrid" | "resend" | "ses" | null;
+  existingSiteUrl?: string;          // For analysis/migration
+  domain?: string;
+}
+Mode B: Ongoing Management
+Natural language commands that map to API operations:
+
+"Add a new event called Fall Festival on October 15th with $20 tickets, capacity 200"
+→ POST /api/management/events { title, date, isTicketed: true, ticketPrice: "20", ticketCapacity: 200 }
+"Turn off vendor registration for the car cruise"
+→ PATCH /api/management/events/car-cruise { registrationClosed: true }
+"Approve the S&T Bank sponsor for gold level"
+→ POST /api/management/sponsors/approve { candidateId: 12, decision: "approved" }
+"How many tickets have we sold for the dinner?"
+→ GET /api/management/events/meet-your-neighbor-dinner/tickets → "42 of 100 sold, 58 remaining"
+"Send the newsletter about next month's events"
+→ POST /api/management/newsletter/send { template: "upcoming_events", filter: "next_30_days" }
+Layer 2: Site Engine
+This is the hardest part. You need a system that can generate a complete, production-quality site from a configuration object. Two approaches:
+
+Approach A: Template-Based (Recommended)
+Build one really good base site (like what we built here), then make it fully configurable:
+
+interface SiteConfig {
+  // Identity
+  orgName: string;
+  shortName: string;           // "DI" for the nav logo
+  domain: string;
+  
+  // Theme
+  theme: {
+    primaryHue: number;        // HSL hue value
+    style: "modern" | "classic" | "festive";
+    darkMode: boolean;
+    fontFamily: string;
+  };
+  
+  // Content
+  pages: PageConfig[];         // Which pages exist and their content
+  navigation: NavConfig;       // Menu structure
+  footer: FooterConfig;
+  
+  // Features (each toggleable)
+  features: {
+    ticketing: {
+      enabled: boolean;
+      paymentProvider: "square" | "stripe";
+      credentials: { accessToken: string; locationId: string; webhookKey: string; };
+    };
+    vendorRegistration: {
+      enabled: boolean;
+      tiers: { name: string; price: number; }[];
+    };
+    sponsorManagement: {
+      enabled: boolean;
+      levels: string[];        // ["Presenting", "Gold", "Silver", "Supporting"]
+      pricing: Record<string, number>;
+    };
+    newsletter: {
+      enabled: boolean;
+      provider: "sendgrid" | "resend";
+      credentials: { apiKey: string; };
+    };
+    businessDirectory: { enabled: boolean; };
+    photoGallery: { enabled: boolean; };
+    contactForm: { enabled: boolean; };
+  };
+  
+  // Integrations
+  dashboardSync: {
+    enabled: boolean;
+    webhookUrl?: string;       // Google Apps Script URL
+    publicApiEnabled: boolean; // /api/event-tickets.json
+  };
+}
+The site engine reads this config and:
+
+Generates shared/schema.ts with only the needed tables
+Generates server/routes.ts with only the needed endpoints
+Generates React pages with only the needed sections
+Sets the color theme in index.css
+Pushes the schema to the database
+Configures payment provider credentials
+This is what I'd do because the code patterns are proven. You're not generating code from scratch each time — you're assembling tested modules.
+
+Approach B: Full AI Code Generation
+Have the AI write every file from scratch based on requirements. This is what you're doing now and why it's inconsistent. The problem: LLMs generate plausible-looking code but miss edge cases (webhook reliability, payment verification, race conditions on ticket capacity).
+
+Hybrid approach: Use the AI to generate the config object from the conversation, then use the template engine to build the site from the config. AI handles understanding, templates handle reliability.
+
+Layer 3: Management API
+This is the API the AI agent calls to manage the site after it's built. It's separate from the public-facing API.
+
+// Every management endpoint requires agent authentication
+// (API key or JWT issued to the agent)
+// EVENT MANAGEMENT
+POST   /api/management/events                    // Create event
+PATCH  /api/management/events/:slug              // Update event (toggle tickets, registration, etc.)
+DELETE /api/management/events/:slug              // Remove event
+GET    /api/management/events/:slug/analytics    // Sales, registrations, capacity
+// TICKET MANAGEMENT  
+GET    /api/management/events/:slug/purchases    // All ticket purchases
+POST   /api/management/events/:slug/refund/:id   // Refund a ticket
+PATCH  /api/management/events/:slug/capacity     // Change capacity
+// SPONSOR MANAGEMENT
+GET    /api/management/sponsors/pending           // Pending approvals
+POST   /api/management/sponsors/:id/approve       // Approve/reject
+POST   /api/management/sponsors                   // Manually add a sponsor
+DELETE /api/management/sponsors/:id               // Remove sponsor
+// VENDOR MANAGEMENT
+GET    /api/management/vendors?event=:slug        // List vendors
+PATCH  /api/management/events/:slug/registration  // Open/close registration
+// CONTENT MANAGEMENT
+PUT    /api/management/content/:key               // Update any site text
+POST   /api/management/gallery                    // Upload photos
+PUT    /api/management/theme                      // Change colors/branding
+// NEWSLETTER
+POST   /api/management/newsletter/send            // Send newsletter
+GET    /api/management/newsletter/subscribers      // List subscribers
+// DASHBOARD SYNC
+POST   /api/management/sync/dashboard             // Force sync to external dashboard
+GET    /api/management/sync/status                 // Last sync time, errors
+The AI agent uses these endpoints like tools. When a user says "turn off tickets for the dinner", the agent translates that to:
+
+await fetch("/api/management/events/meet-your-neighbor-dinner", {
+  method: "PATCH",
+  body: JSON.stringify({ isTicketed: false })
+});
+How the AI Agent Works Internally
+Tool Definitions
+The agent needs these tools registered:
+
+const tools = [
+  {
+    name: "create_event",
+    description: "Create a new event on the site",
+    parameters: {
+      title: "string",
+      slug: "string (auto-generated from title if not provided)",
+      date: "string (e.g. 'Saturday, October 15, 2026')",
+      time: "string",
+      location: "string",
+      description: "string",
+      category: "string",
+      isTicketed: "boolean",
+      ticketPrice: "string (e.g. '15')",
+      ticketCapacity: "integer or null",
+      hasRegistration: "boolean",
+      hasSponsorSection: "boolean",
+      imageUrl: "string or null"
+    }
+  },
+  {
+    name: "update_event",
+    description: "Update an existing event's settings",
+    parameters: { slug: "string", updates: "partial event object" }
+  },
+  {
+    name: "check_ticket_sales",
+    description: "Get current ticket sales for an event",
+    parameters: { slug: "string" },
+    returns: "{ sold, capacity, remaining, revenue, purchases[] }"
+  },
+  {
+    name: "approve_sponsor",
+    description: "Approve or reject a pending sponsor",
+    parameters: { candidateId: "number", decision: "'approved' | 'rejected'" }
+  },
+  {
+    name: "toggle_registration",
+    description: "Open or close vendor/sponsor registration for an event",
+    parameters: { slug: "string", type: "'vendor' | 'sponsor'", open: "boolean" }
+  },
+  {
+    name: "update_site_content",
+    description: "Update any text on the site",
+    parameters: { key: "string", value: "string" }
+  },
+  {
+    name: "send_newsletter",
+    description: "Send a newsletter to all subscribers",
+    parameters: { subject: "string", body: "string" }
+  },
+  {
+    name: "generate_report",
+    description: "Generate a summary report",
+    parameters: { type: "'ticket_sales' | 'sponsor_summary' | 'vendor_list' | 'full_event'" }
+  }
+];
+Agent Loop
+User: "Add a fall festival event with $25 tickets and 150 capacity"
+Agent thinks:
+  1. Parse: title="Fall Festival", ticketPrice="25", ticketCapacity=150, isTicketed=true
+  2. Need to generate: slug, date (ask user), location (use default or ask)
+  3. Missing: date — ask user
+Agent: "What date is the Fall Festival?"
+User: "October 18th"
+Agent thinks:
+  1. Now have all required fields
+  2. Call create_event tool
+  3. slug = "fall-festival" (auto-generated)
+  4. Confirm to user
+Agent calls: create_event({
+  title: "Fall Festival",
+  slug: "fall-festival", 
+  date: "Saturday, October 18, 2026",
+  isTicketed: true,
+  ticketPrice: "25",
+  ticketCapacity: 150,
+  category: "Festival",
+  location: "Main Street, Downtown Irwin"
+})
+Agent: "Done. Fall Festival is live at yoursite.com/events/fall-festival with $25 tickets and 150 capacity. Want me to enable vendor registration or sponsorship for this event too?"
+What Your Other Project Is Missing
+Based on what you described, here's likely why it's not performing well:
+
+No proven base code. It's generating everything from scratch each time, so it misses critical patterns like three-layer payment reliability, webhook signature verification, race condition handling on ticket capacity, and bot protection.
+No management API. The agent can build a site but can't operate it afterward. You need persistent API endpoints the agent can call to manage the site without regenerating code.
+No shared schema system. Without a single source of truth for types shared between frontend and backend, the AI generates inconsistent interfaces that break at runtime.
+No config-driven generation. Instead of generating arbitrary code, the agent should produce a structured config object, and a deterministic engine should build the site from that config.
+What I'd Build
+┌─────────────────────────────────────────────────┐
+│                  AI AGENT                        │
+│  (understands user intent, calls tools)          │
+└────────────┬───────────────┬────────────────────┘
+             │               │
+    ┌────────▼───────┐  ┌────▼──────────────────┐
+    │  SITE BUILDER  │  │  MANAGEMENT API       │
+    │  (one-time)    │  │  (ongoing operations) │
+    │                │  │                        │
+    │  questionnaire │  │  create/update events  │
+    │  → config obj  │  │  toggle features       │
+    │  → template    │  │  approve sponsors      │
+    │    engine      │  │  check ticket sales    │
+    │  → deploy      │  │  send newsletters      │
+    │                │  │  update content         │
+    └────────┬───────┘  └────┬──────────────────┘
+             │               │
+    ┌────────▼───────────────▼────────────────────┐
+    │           SITE ENGINE (runtime)              │
+    │  Express + React + PostgreSQL + Square/Stripe│
+    │  Built from proven, tested modules           │
+    └──────────────────────────────────────────────┘
+The key insight: separate site generation from site management. Build once from templates, manage forever through an API. The AI's job is understanding what the user wants and translating it to API calls — not writing code every time someone wants to add an event.
