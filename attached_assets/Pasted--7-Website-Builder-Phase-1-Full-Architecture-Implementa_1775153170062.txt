@@ -1,0 +1,504 @@
+#7 - Website Builder Phase 1 — Full Architecture Implementation
+
+What & Why
+
+Turn Pillar from a single-template HTML blob generator into a structured, dynamic website operating system. The system is built as seven distinct layers. The critical new addition over previous plans is the Site Data Integration Layer — a mandatory adapter contract between dashboard tables and the renderer. The renderer must never directly query dashboard tables (events, sponsors, vendors, contacts, etc.). All data flows through: dashboard tables → site adapters → site_data_sources → site_block_bindings → renderer.
+
+generated_html is kept as a compiled artifact for preview/publish compatibility only. It is never edited directly and never a source of truth.
+
+Non-negotiable principles
+
+Structured records are the source of truth
+generated_html is compiled output only — never edited directly
+Import must curate and map — not scrape and rewrite
+Site planning must happen before rendering
+AI assists extraction, planning, and drafting of structured content — it does not write HTML or CSS
+Event behavior must be explicit — not inferred ad hoc throughout the app
+Auto-update operates at the block/module level only
+Identity content (mission, about, history, programs) remains stable unless explicitly changed
+Dashboard data must never connect directly to the renderer
+All website data integrations must flow through the site data integration layer
+Done looks like
+
+Generated sites are composed from structured records in site_pages, site_blocks, site_nav_items, site_themes
+generated_html is compiled from those records by siteCompiler.ts
+Different org types produce different page plans (pages, section order, variants)
+Events render with correct CTA language, ticket links, and sold-out states based on explicit event fields
+Sponsor grid auto-updates from approved sponsors via the sponsor adapter
+The renderer has no direct queries to dashboard tables — all data comes through adapters and site_data_sources
+Stats are never fabricated — sections omit when data is absent
+Auto-update writes to site_change_log for every change and touches only auto_apply blocks
+Identity copy remains stable after generation
+Site import stores structured findings in site_import_runs and site_import_findings, with user review before application
+Out of scope for Phase 1
+
+Drag-and-drop visual block editor UI
+Full revision history UI beyond site_change_log
+Public-facing vendor/participant roster modules (data model and adapters are set up; rendering is Phase 2)
+Exhaustive multi-page crawler (Phase 1: homepage + up to 5 detected sub-pages)
+Complex visual design controls beyond theme presets
+Custom domain routing changes
+Approvals/board links on the public site (stays internal)
+Tasks
+
+1. Create lib/site/ package with exact folder structure
+
+Create this directory tree. All website system logic lives here — nothing goes in artifacts/api-server/src except the route handlers that call into these services.
+
+lib/site/
+  schema/
+    sites.ts
+    site-pages.ts
+    site-nav-items.ts
+    site-blocks.ts
+    site-data-sources.ts
+    site-block-bindings.ts
+    site-themes.ts
+    site-import-runs.ts
+    site-import-findings.ts
+    site-change-log.ts
+    site-media-assets.ts
+    event-public-metrics.ts
+    event-revenue-summary.ts
+  services/
+    siteProfileService.ts
+    siteImportService.ts
+    pagePlanner.ts
+    blockContentService.ts
+    blockRenderer.ts
+    siteCompiler.ts
+    siteAutoUpdateService.ts
+    eventBehaviorService.ts
+    siteDataIntegrationService.ts
+    eventSiteAdapter.ts
+    sponsorSiteAdapter.ts
+    vendorSiteAdapter.ts
+    contactSiteAdapter.ts
+    announcementSiteAdapter.ts
+    socialSiteAdapter.ts
+    paymentSiteAdapter.ts
+    organizationSiteAdapter.ts
+    eventMetricsService.ts
+  types/
+    site-profile.ts
+    page-plan.ts
+    block-types.ts
+    import-types.ts
+    event-behavior.ts
+    site-bindings.ts
+  utils/
+    classifyPage.ts
+    extractStructuredSignals.ts
+    filterImportNoise.ts
+    rankImages.ts
+    deriveTheme.ts
+    ctaHelpers.ts
+  index.ts
+Wire this package into the monorepo workspace. Export everything the API server needs from lib/site/index.ts.
+
+2. Write all schema files in lib/site/schema/
+
+Implement each table using Drizzle pgTable. Use text for enum-like columns (no pgEnum in Phase 1). All jsonb columns use .$type<...>(). All FK columns get Drizzle indexes.
+
+sites.ts Columns: id (varchar PK uuid), orgId (varchar not null unique), name, slug (unique), status (text default 'draft' — draft/published/archived), siteType (text default 'default' — civic/nonprofit/festival/hoa/default), primaryCtaType (text default 'contact' — join/donate/register/attend/contact/sponsor), homepagePageId (varchar FK), themeId (varchar FK), currentVersion (integer default 1), publishedVersion (integer), generatedHtml (text — compiled artifact only, never source of truth), generatedSpecJson (jsonb — last page plan snapshot for debugging/rebuild), importSourceUrl, autoUpdateEnabled (boolean default false), compiledAt (timestamp), publishedAt, createdAt, updatedAt.
+
+site-pages.ts Columns: id, siteId (FK cascade delete), title, slug, pageType (text — home/about/programs/events/membership/contact/faq/sponsors/vendors/join/donate/announcements/custom), seoTitle, seoDescription, isHomepage (boolean default false), isPublished (boolean default true), sortOrder (integer default 0), layoutKey, visibilityRulesJson (jsonb), createdAt, updatedAt. Unique index on (siteId, slug). Index on siteId.
+
+site-nav-items.ts Columns: id, siteId (FK cascade delete), label, pageId (FK set null on delete), externalUrl, navLocation (text default 'header' — header/footer/both), sortOrder (integer default 0), isVisible (boolean default true), createdAt, updatedAt. Index on siteId.
+
+site-blocks.ts Columns: id, siteId (FK cascade delete), pageId (FK cascade delete), blockType (text — hero/intro/about/stats/cards/events_list/featured_event/sponsor_grid/faq/contact/cta_band/announcements/gallery/join/volunteer/membership/board/custom_html), variantKey, title, sortOrder (integer default 0), isVisible (boolean default true), contentJson (jsonb default {} — copy and content only), settingsJson (jsonb default {} — presentation and behavior settings only), sourceMode (text default 'generated' — manual/generated/imported/dynamic/hybrid), lockLevel (text default 'editable' — editable/review_required/locked), createdAt, updatedAt. Indexes on pageId, siteId, (pageId, sortOrder). Do not store binding queries or audit history in either json column.
+
+site-data-sources.ts — This is the contract layer between dashboard modules and the website system. Columns: id, siteId (FK cascade delete), sourceType (text — organization/events/sponsors/vendors/contacts/announcements/social/payments), sourceTable (text — the actual db table name, for internal use by adapters only), orgId (varchar not null), refreshStrategy (text default 'realtime' — realtime/scheduled/manual), lastSyncedAt (timestamp), syncStatus (text default 'idle' — idle/syncing/error), createdAt, updatedAt. Index on siteId.
+
+site-block-bindings.ts — Refactored from previous plan: references dataSourceId instead of raw table names. Columns: id, blockId (FK cascade delete), dataSourceId (FK to site_data_sources), bindingType (text — events_list/featured_event/sponsors/announcements/vendors/contacts/payments/social/organization), queryConfigJson (jsonb default {} — e.g. {"featured": true, "limit": 3, "orderBy": "startDate"}), displayConfigJson (jsonb default {} — e.g. {"showPricing": true, "ctaStyle": "button", "groupByTier": true}), updatePolicy (text default 'auto_apply' — auto_apply/suggest_review/manual_only), createdAt, updatedAt. Index on blockId.
+
+site-themes.ts Columns: id, siteId (FK unique cascade delete), themePresetKey (text default 'pillar-default'), colorPrimary, colorSecondary, colorAccent, colorSurface, colorText, fontHeadingKey, fontBodyKey, radiusScale, shadowStyle, heroStyleDefault, buttonStyle, logoMode (text default 'image' — image/text/both), createdAt, updatedAt.
+
+site-import-runs.ts Columns: id, siteId (FK set null), sourceUrl, status (text default 'started' — started/completed/failed/reviewed/applied), detectedSiteType, rawSummaryJson (jsonb), recommendedStructureJson (jsonb), createdAt, completedAt. Index on siteId.
+
+site-import-findings.ts Columns: id, importRunId (FK cascade delete), findingType (text — page/contact/mission/program/event/image/logo/cta/nav_item/sponsor_ref/join_flow/donate_flow), sourceUrl, pageClassification, title, contentJson (jsonb default {}), qualityScore (integer default 0), preserveVerbatim (boolean default false), isSelected (boolean default true), createdAt. Indexes on importRunId and (importRunId, findingType). One row per finding — never flatten into a blob.
+
+site-change-log.ts Columns: id, siteId (FK cascade delete), pageId (FK set null), blockId (FK set null), changeType (text — auto_update/suggestion_created/manual_edit/import_applied/publish), sourceType (text — events/sponsors/announcements/admin/import/ai_generation), sourceReferenceId, summary (text not null), oldValueJson (jsonb), newValueJson (jsonb), confidenceScore (integer), actionStatus (text default 'applied' — applied/pending_review/dismissed), createdByUserId (varchar FK set null), createdAt. Indexes on siteId, blockId, createdAt. Do not store audit history in block settings json.
+
+site-media-assets.ts Columns: id, siteId (FK cascade delete), sourceType (text — uploaded/imported/generated_placeholder/stock), sourceUrl, localStorageKey, assetType (text — logo/hero/gallery/program_image/sponsor_logo/other), width (integer), height (integer), qualityScore (integer), altText, isSelected (boolean default true), createdAt. Indexes on siteId and (siteId, assetType).
+
+event-public-metrics.ts — Precomputed metrics. Renderer reads this table, never live payment joins. Columns: id, eventId (varchar unique FK), ticketsSold (integer default 0), ticketsRemaining (integer), revenueTotal (real default 0), lastCalculatedAt (timestamp), createdAt, updatedAt. Index on eventId.
+
+event-revenue-summary.ts — Revenue broken out by type for reporting and site display. Columns: id, eventId (varchar unique FK), ticketRevenue (real default 0), vendorRevenue (real default 0), sponsorRevenue (real default 0), donationRevenue (real default 0), lastUpdated (timestamp), createdAt. Index on eventId.
+
+Export all types and table references from lib/site/index.ts. Write a single Drizzle migration for all new tables above.
+
+3. Extend existing tables with site-facing columns
+
+Write one migration per table below, adding only the new columns. Do not remove or rename any existing columns.
+
+eventsTable — add all behavior and site-display fields:
+
+eventMode text default 'informational' — informational/registration/ticketed/fundraiser/vendor/participant/sponsor/hybrid
+revenueClassification text default 'none' — none/admin_fee/ticket_revenue/sponsor_revenue/donation/mixed
+showOnPublicSite boolean default true
+publicCtaMode text default 'learn_more' — learn_more/register/rsvp/buy_tickets/apply_vendor/apply_participant/sponsor/donate
+enableTicketSales boolean default false
+enableRegistration boolean default false
+enableVendorApplications boolean default false
+enableParticipantSignup boolean default false
+enableSponsorship boolean default false
+showPublicPricing boolean default false
+showPublicSoldCount boolean default false
+showPublicCapacity boolean default false
+eventStatus text default 'draft' — draft/published/registration_open/registration_closed/sold_out/completed/cancelled
+featuredOnSite boolean default false
+siteVisibilityPriority integer default 0
+siteDisplayVariant text default 'list' — card/hero/list/hidden
+publicFeaturedRank integer
+siteSummaryOverride text — if set, shown instead of AI-generated description on public site
+siteImageOverride text — if set, used as event image on public site instead of auto-selected
+sponsorsTable — add:
+
+tierRank integer default 0 — used for sponsor grid ordering
+siteDisplayPriority integer default 0
+siteVisible boolean default true
+vendorsTable — add:
+
+siteVisible boolean default false
+siteCategory text
+siteDisplayPriority integer default 0
+contactsTable — add:
+
+siteRole text — president/treasurer/secretary/board/volunteer/other
+siteVisible boolean default false
+siteBio text
+sitePhotoUrl text
+siteDisplayPriority integer default 0
+studioOutputsTable — add:
+
+siteEligible boolean default false
+siteBlockTarget text — announcement/news/featured/homepage
+siteStatus text default 'draft' — draft/approved/rejected
+sitePublishPriority integer default 0
+socialAccountsTable — add:
+
+siteVisible boolean default true
+siteDisplayOrder integer default 0
+siteLabelOverride text
+organizationsTable — add (these outrank interview-collected data per source-of-truth hierarchy):
+
+siteTagline text
+siteMissionOverride text — if set, used verbatim instead of interview mission
+sitePrimaryCtaOverride text — join/donate/register/contact
+siteContactEmail text
+siteContactPhone text
+sitePublicAddress text
+sitePublicHours text
+sitePublicDescription text
+registrationsTable — add:
+
+sitePublicStatus text — open/closed/coming_soon
+sitePublicMessage text
+4. Write lib/site/services/eventBehaviorService.ts
+
+Exports:
+
+inferLegacyEventBehavior(event): EventBehavior — maps existing fields to new explicit fields for backward compatibility. Rules: isTicketed === true → eventMode = 'ticketed'; title/description contains "fundraiser"/"gala"/"benefit" → eventMode = 'fundraiser'; revenueClassification = 'ticket_revenue'; hasRegistration === true && !isTicketed → eventMode = 'registration', publicCtaMode = 'register'; ticketPrice > 0 → showPublicPricing = true; featured === true → featuredOnSite = true. Default publicCtaMode by mode: ticketed/fundraiser → buy_tickets, registration → register, vendor → apply_vendor, informational → learn_more.
+getEventBehavior(event): EventBehavior — reads new explicit fields first; only calls inferLegacyEventBehavior when new fields are at unset defaults.
+isPubliclyVisible(event): boolean — checks showOnPublicSite, eventStatus, isActive.
+5. Write lib/site/services/eventMetricsService.ts
+
+Exports:
+
+recomputeEventMetrics(eventId: string): Promise<void> — queries ticketSalesTable for the event, computes ticketsSold, ticketsRemaining, revenueTotal, upserts event_public_metrics. Separately computes ticketRevenue, vendorRevenue (from vendor fees in registrations), sponsorRevenue, donationRevenue, upserts event_revenue_summary.
+getEventPublicMetrics(eventId: string): Promise<EventPublicMetrics> — reads from event_public_metrics. Never does live join calculations.
+Call recomputeEventMetrics from: ticket sale creation/update routes, registration approval, and the auto-update service. The renderer reads only from event_public_metrics.
+
+6. Write all adapter services
+
+Each adapter normalizes one dashboard data source into a clean, renderer-facing payload. The renderer calls adapters through siteDataIntegrationService.ts — it never imports from adapters directly.
+
+eventSiteAdapter.ts Function: getEventSiteData(orgId, queryConfig, metrics): SiteEventItem[] Queries eventsTable using queryConfig (filters: showOnPublicSite, eventStatus, featuredOnSite, etc.; limit; orderBy). For each event, calls getEventBehavior() to get explicit CTA mode. Reads event_public_metrics for capacity/sold data. Returns: { id, slug, name, date, time, location, description: siteSummaryOverride ?? description, imageUrl: siteImageOverride ?? imageUrl, ctaLabel, ctaUrl, eventMode, showPricing, price, isSoldOut, isRegistrationClosed, siteDisplayVariant, featuredOnSite }. Never exposes raw financial data — only the fields the renderer needs.
+
+sponsorSiteAdapter.ts Function: getSponsorSiteData(orgId, queryConfig): SiteSponsorItem[] Queries sponsorsTable where siteVisible = true and status = 'active'. Orders by tierRank asc then siteDisplayPriority asc. Returns: { id, name, logoUrl, website, tierRank }.
+
+vendorSiteAdapter.ts Function: getVendorSiteData(orgId, queryConfig): SiteVendorItem[] Queries vendorsTable where siteVisible = true. Returns: { id, name, siteCategory, siteDisplayPriority }. Phase 1: returns data but no public-facing block renderer is built yet — bindings are set up so Phase 2 can add the renderer without schema changes.
+
+contactSiteAdapter.ts Function: getContactSiteData(orgId, queryConfig): SiteContactItem[] Queries contactsTable where siteVisible = true. Orders by siteDisplayPriority. Returns: { id, firstName, lastName, siteRole, siteBio, sitePhotoUrl }. Phase 1: used for the contact block's details (email, phone, address come from organizationSiteAdapter first).
+
+announcementSiteAdapter.ts Function: getAnnouncementSiteData(orgId, queryConfig): SiteAnnouncementItem[] Queries studioOutputsTable where siteEligible = true and siteStatus = 'approved'. Orders by sitePublishPriority desc, then createdAt desc. Applies limit from queryConfig. Returns: { id, title, body, createdAt, siteBlockTarget }.
+
+socialSiteAdapter.ts Function: getSocialHandles(orgId): SiteSocialHandle[] Queries socialAccountsTable where siteVisible = true and isConnected = true. Orders by siteDisplayOrder. Returns: { platform, accountName, siteLabelOverride }.
+
+paymentSiteAdapter.ts Function: getEventPaymentSiteData(eventId): EventPublicMetrics Reads only from event_public_metrics — never joins ticketSalesTable directly. Returns precomputed metrics safe for public display.
+
+organizationSiteAdapter.ts Function: getOrgSiteProfile(orgId): OrgSiteProfile Reads from organizationsTable. Returns site-specific fields with priority: siteContactEmail ?? contactEmail, siteMissionOverride ?? description, siteTagline, sitePublicAddress, sitePublicHours, sitePublicDescription, logo. This is the highest-priority content source — it outranks interview data and import findings.
+
+7. Write lib/site/services/siteDataIntegrationService.ts
+
+This is the single gateway between the renderer and all dashboard data. The renderer imports only from this service — never from individual adapters.
+
+Exports:
+
+getSiteData(siteId: string, blockBindings: SiteBlockBinding[]): Promise<SiteDataMap> — for each binding, looks up its site_data_sources record to find the sourceType, then calls the appropriate adapter with the binding's queryConfigJson. Returns a map keyed by blockId to the adapter's normalized output.
+refreshDataSource(dataSourceId: string): Promise<void> — triggers the relevant adapter to re-fetch and can update the lastSyncedAt field.
+Rule: blockRenderer.ts receives pre-fetched SiteDataMap from this service. It never queries the database directly.
+
+8. Write lib/site/types/ files
+
+site-profile.ts — SiteProfile:
+
+{
+  orgType: string
+  mission: string | null
+  audience: string | null
+  tone: string
+  primaryCtaType: string
+  recurringPrograms: string[]
+  hasEvents: boolean
+  hasFeaturedEvent: boolean
+  hasSponsors: boolean
+  hasRealStats: boolean
+  hasLogo: boolean
+  hasPhotos: boolean
+  isEventFirstOrg: boolean
+  dynamicDataAvailable: string[]
+  staticIdentityContent: Record<string, string | null>
+  brandAssets: { logoUrl?: string; heroUrl?: string; photoUrls: string[] }
+  contactProfile: { email?: string; phone?: string; address?: string; hours?: string; social: SiteSocialHandle[] }
+  pageArchetypeRecommendation: string
+  preservedSourceCopy: Record<string, string>
+  missingFields: string[]
+}
+page-plan.ts — PlannedBlock, PlannedPage, PagePlan:
+
+type PlannedBlock = {
+  blockType: string
+  variantKey: string
+  sortOrder: number
+  lockLevel: 'editable' | 'review_required' | 'locked'
+  sourceMode: string
+  contentHints: Record<string, unknown>
+  bindingSpec?: {
+    bindingType: string
+    sourceType: string  // matches site_data_sources.source_type
+    queryConfigJson: Record<string, unknown>
+    displayConfigJson: Record<string, unknown>
+    updatePolicy: 'auto_apply' | 'suggest_review' | 'manual_only'
+  }
+}
+type PlannedPage = {
+  pageType: string; title: string; slug: string
+  layoutKey: string; isHomepage: boolean; sortOrder: number
+  blocks: PlannedBlock[]
+}
+type PagePlan = {
+  siteType: string; homepagePageType: string
+  pages: PlannedPage[]
+  navItems: { label: string; slug: string; navLocation: string; sortOrder: number }[]
+  includeStats: boolean
+  dynamicBindingsPlan: PlannedBlock['bindingSpec'][]
+}
+block-types.ts — union types for all valid BlockType and VariantKey strings.
+
+import-types.ts — ImportFinding, ImportRunSummary, RankedImage.
+
+event-behavior.ts — EventBehavior shape matching all new event columns.
+
+site-bindings.ts — SiteDataMap type (map of blockId to normalized adapter output).
+
+9. Write lib/site/utils/ files
+
+classifyPage.ts — classifyPageByUrl(url: string, navLabel: string): PageClassification — heuristics on URL slug + nav label text to return: home/about/programs/events/contact/join/sponsors/donate/faq/other.
+
+extractStructuredSignals.ts — extractSignals(html: string, pageClass: PageClassification, baseUrl: URL): ExtractedSignals — uses cheerio. Pulls: title, meta description, h1/h2 headings, body paragraphs over 80 chars, email/phone patterns, CTA button texts, nav link labels, image srcs with position hints, brand colors from meta[name="theme-color"].
+
+filterImportNoise.ts — filterNoise(lines: string[]): string[] — strips: repeated strings appearing 3+ times, lines under 20 chars, cookie/privacy patterns, "© year" patterns, all-caps strings under 30 chars, lines matching known footer boilerplate patterns.
+
+rankImages.ts — rankImages(images: RawImage[], baseUrl: URL): RankedImage[] — scoring: +2 if URL contains logo/brand/header; +2 if element is in <header> or above first <section>; +1 if URL contains large/full/banner/hero; -2 if URL contains icon/sprite/pixel/1x1/badge/button; -1 if width or height attribute < 200. Returns sorted by score descending with role hint: logo/hero/supporting/decorative.
+
+deriveTheme.ts — deriveTheme(profile: SiteProfile, importedColors: string[]): ThemePreset — maps org type + color hints to one of a fixed named preset library (navy-gold, forest-amber, slate-teal, warm-earth, midnight-indigo, autumn-civic, cool-professional, etc.). Never outputs arbitrary hex values — always selects from the preset library.
+
+ctaHelpers.ts — getCtaLabel(ctaMode: string): string; getCtaUrl(event: SiteEventItem): string (returns /events/:slug/tickets for ticketed, /events/:slug otherwise); getUpdatePolicyForBlockType(blockType: string): UpdatePolicy.
+
+10. Write lib/site/services/siteProfileService.ts
+
+Function: buildSiteProfile(inputs: SiteProfileInputs): SiteProfile
+
+SiteProfileInputs: org record (with new site-specific fields), interview conversation history, selected import findings (by importRunId), live events (from event adapter), live sponsors (from sponsor adapter), social handles (from social adapter), content strategy record.
+
+Rules:
+
+hasRealStats = true only if interview explicitly stated founding year OR member count
+isEventFirstOrg = true if org has 3+ published events OR siteType is festival/market
+preservedSourceCopy populated from findings where preserveVerbatim = true, keyed by findingType
+contactProfile reads from organizationSiteAdapter first — siteContactEmail, sitePublicAddress, etc. outrank interview answers
+mission reads org.siteMissionOverride first, then interview, then import findings
+tone reads contentStrategyTable.tone if set, else defaults to 'professional'
+missingFields lists gaps needed for generation (no invented fallbacks)
+This service is deterministic — no AI calls
+11. Write lib/site/services/pagePlanner.ts
+
+Function: buildPagePlan(profile: SiteProfile): PagePlan
+
+Org-type archetypes:
+
+civic (Rotary, Lions, VFW, lodge, chamber): Pages: Home, About, Programs, Events, Membership, Contact Home blocks: hero/hero-mission (lockLevel: review_required), about/about-split (locked), cards/cards-3up programs (locked), events_list/events-list-standard (editable, auto_apply binding), cta_band/cta-join (review_required), contact/contact-two-column (editable) Include stats/stats-strip only if profile.hasRealStats (locked).
+
+festival (festival, market, downtown): Pages: Home, Event Info, Vendors, Sponsors, FAQ, Contact Home blocks: hero/hero-event-featured (review_required), featured_event/featured-event-banner (editable, auto_apply binding), sponsor_grid/sponsor-grid-tiered (editable, auto_apply binding), faq/faq-simple (locked), contact/contact-simple (editable)
+
+nonprofit: Pages: Home, Mission, Programs, Events, Get Involved, Contact Home blocks: hero/hero-centered (review_required), about/about-centered (locked), cards/cards-3up (locked), events_list/events-list-standard (editable, auto_apply), cta_band/cta-donate (review_required), contact/contact-two-column (editable)
+
+hoa (HOA, community): Pages: Home, About, Events, Announcements, Contact Home blocks: hero/hero-centered (review_required), about/about-simple (locked), events_list/events-list-compact (editable, auto_apply), announcements/announcements-list (editable, auto_apply), contact/contact-simple (editable)
+
+default: Pages: Home, About, Events, Contact Home blocks: hero/hero-centered (review_required), about/about-split (locked), events_list/events-list-standard (editable, auto_apply), contact/contact-two-column (editable)
+
+For every events_list block: bindingSpec = { bindingType: 'events_list', sourceType: 'events', queryConfigJson: { showOnPublicSite: true, orderBy: 'startDate', limit: 6 }, updatePolicy: 'auto_apply' }.
+
+For every sponsor_grid block: bindingSpec = { bindingType: 'sponsors', sourceType: 'sponsors', queryConfigJson: { siteVisible: true, status: 'active' }, updatePolicy: 'auto_apply' }.
+
+If hasFeaturedEvent and org is festival/civic: include featured_event block bound to { featuredOnSite: true, limit: 1 } with auto_apply.
+
+If profile.hasSponsors and org is civic/nonprofit: include sponsor_grid/sponsor-grid-standard block.
+
+12. Write lib/site/services/blockContentService.ts
+
+Function: generateBlockContent(plan: PagePlan, profile: SiteProfile): Promise<BlockContentMap>
+
+BlockContentMap: map of blockId (by blockType + variantKey key) to contentJson object.
+
+This is the only service that calls the AI during generation. One AI call per generation run. The prompt receives the page plan structure, site profile, and preserved source copy. The prompt instructs:
+
+"Output a JSON object where each key is blockType:variantKey and the value is the contentJson for that block. Do not output HTML."
+"If founding year, member count, or event count was not explicitly stated in the interview, output null for those stat fields. Do not estimate."
+"If a field is in preservedSourceCopy, use it verbatim — do not rewrite it."
+"For program card descriptions, use the exact program names from the interview. Do not use phrases like 'brings community members together'."
+"If you lack sufficient information for a block, output null for that block's key. Do not fabricate content."
+Blocks that are entirely bound to live data (events_list, sponsor_grid, announcements, featured_event) receive an empty contentJson: {} — their content comes entirely from the binding at render time. Do not ask the AI to write content for those blocks.
+
+Block content schemas:
+
+hero: { headline, subheadline, ctaLabel, ctaUrl, ctaSecondaryLabel?, ctaSecondaryUrl?, eyebrow?, imageUrl? }
+about: { heading, body, imageUrl?, sectionLabel }
+stats: { stats: [{ value: string, label: string }] } — only included if profile.hasRealStats
+cards: { heading, sectionLabel, items: [{ icon, title, description }] }
+cta_band: { heading, body, ctaLabel, ctaUrl }
+contact: { heading, intro, email, phone, address, hours, socialLinks: SiteSocialHandle[], cardHeading, cardBody, cardCtaLabel, cardCtaUrl }
+faq: { heading, items: [{ question, answer }] }
+membership/join/volunteer: { heading, body, steps?: string[], ctaLabel, ctaUrl }
+13. Write lib/site/services/blockRenderer.ts
+
+Function: renderBlock(block: SiteBlock, theme: SiteTheme, siteData?: SiteDataMap): string
+
+Deterministic — same inputs always produce same output. Never calls AI. HTML is returned as a string. CSS is inlined per block using CSS custom properties from the theme record. All blocks are mobile-first responsive. Scroll-reveal classes are applied consistently. No Tailwind — plain <style> blocks, namespaced by block type.
+
+Hero variants:
+
+hero-centered: full-bleed background image or gradient, centered headline/subheadline/CTAs, eyebrow label
+hero-split: left text column (60%), right image (40%), strong typography hierarchy
+hero-mission: large display text only, no image, accent color treatment, org type label eyebrow
+hero-event-featured: featured event date prominent, event name as headline, CTA from event's publicCtaMode
+About variants: about-split (text left, image right), about-centered (centered text, image below), about-simple (text only)
+
+Stats variants: stats-strip (dark bar, animated counters), stats-cards (card grid). Render only when content has non-null stat values — return empty string otherwise.
+
+Cards variants: cards-2up, cards-3up, cards-icon (icon-forward), cards-image (image-forward)
+
+Events list variants — reads from siteData[block.id] (pre-fetched event adapter output):
+
+events-list-standard: date block + info row per event. For each event: uses ctaLabel from getCtaLabel(event.publicCtaMode), shows price if showPublicPricing, shows "Sold Out" badge if isSoldOut, shows "Registration Closed" if isRegistrationClosed, links to /events/:slug/tickets for ticketed/fundraiser events.
+events-list-featured-first: first event large card, remainder compact rows
+events-list-compact: minimal list with date and title only
+Featured event variants — reads from siteData[block.id]:
+
+featured-event-banner: full-width promotional strip with event date, name, CTA button
+featured-event-card: card layout with image, date, description excerpt, CTA
+Sponsor grid variants — reads from siteData[block.id]:
+
+sponsor-grid-standard: uniform logo grid, renders logoUrl as <img> or sponsor name text as fallback
+sponsor-grid-tiered: groups by tierRank, renders tier label header per group
+Announcements variants — reads from siteData[block.id]
+
+FAQ variants: faq-accordion (expand/collapse JS), faq-simple (plain Q&A)
+
+CTA band variants: cta-join, cta-donate, cta-register, cta-sponsor, cta-contact
+
+Contact variants: contact-two-column (details column + CTA card), contact-simple (centered)
+
+Gallery variants: gallery-grid, gallery-feature
+
+Membership/join/volunteer: renders based on primaryCtaType
+
+Nav and footer are rendered by siteCompiler.ts as shell wrappers — not individual blocks.
+
+14. Write lib/site/services/siteCompiler.ts
+
+Function: compileSite(siteId: string): Promise<string>
+
+Fetch all site records: sites, site_themes, site_nav_items, site_pages (ordered by sortOrder), site_blocks per page (ordered by sortOrder, filter isVisible = true), site_block_bindings with their site_data_sources
+Call siteDataIntegrationService.getSiteData(siteId, allBindings) → SiteDataMap (all live data pre-fetched via adapters)
+Render nav HTML from site_nav_items where navLocation = 'header' or 'both'
+For each visible page (starting with homepage), render each visible block by calling blockRenderer.renderBlock(block, theme, siteDataMap)
+Render footer HTML from site_nav_items where navLocation = 'footer' or 'both', plus org contact details from org adapter
+Wrap in shared CSS custom properties block derived from site_themes
+Concatenate into complete HTML document
+Write to sites.generatedHtml and update sites.compiledAt
+Return compiled HTML
+For Phase 1, compile the homepage only into generatedHtml for preview/publish compatibility. Store per-page compiled HTML in site_pages (a future compiledHtml column can be added in Phase 2 for multi-page navigation).
+
+15. Write lib/site/services/siteImportService.ts
+
+9-step pipeline. Reuses safeFetch from the existing route (extract it to a shared util file):
+
+Fetch homepage with SSRF protection
+Extract internal nav links, classify each with classifyPage.ts, select up to 5: about/programs/events/contact/join/sponsors/donate/faq
+Fetch selected sub-pages in parallel (8s timeout each, SSRF checks on each URL)
+For each page: run extractStructuredSignals() by page class, run filterImportNoise() on body text, run rankImages() on images
+One AI call with all classified content → array of ImportFinding objects. AI must not paraphrase preserveVerbatim candidates. One finding per discrete piece of content.
+Score each finding: mission over 80 chars with specific language → high score; generic boilerplate → low score → isSelected = false; mark preserveVerbatim = true for high-quality mission/about/program text
+Persist one site_import_runs record and one site_import_findings row per finding
+Build and return ImportRunSummary: { importRunId, status, pagesDetected, logoFound, logoUrl, contactFound, programsFound, eventsFound, imagesRanked, recommendedArchetype, issues }
+Return summary to client — findings are not applied until user confirms
+16. Write lib/site/services/siteAutoUpdateService.ts
+
+Function: runAutoUpdate(siteId: string): Promise<AutoUpdateResult>
+
+Fetch all site_blocks for the site. For each: check lockLevel and binding's updatePolicy.
+auto_apply + lockLevel = 'editable': fetch live data via siteDataIntegrationService, re-render block via blockRenderer, update site_blocks.contentJson, write site_change_log row with changeType = 'auto_update', actionStatus = 'applied'.
+suggest_review: generate proposed content, write site_change_log row with changeType = 'suggestion_created', actionStatus = 'pending_review'. Do NOT update the block.
+manual_only, lockLevel = 'locked', or lockLevel = 'review_required': skip.
+After all blocks processed, call compileSite() to recompile generatedHtml.
+Never regenerate whole pages for a single data change. Never touch mission, about, history, programs, or board blocks.
+
+17. Refactor POST /api/sites/generate route
+
+Replace the route's implementation with this 7-step pipeline using the new services:
+
+Gather inputs: org record, body (interview history, logoDataUrl, photoUrls, importRunId?), live events (via event adapter), live sponsors (via sponsor adapter), social handles (via social adapter), content strategy tone, selected import findings (if importRunId provided)
+Call siteProfileService.buildSiteProfile() → SiteProfile
+Call pagePlanner.buildPagePlan() → PagePlan
+Call blockContentService.generateBlockContent() → BlockContentMap
+Persist records in this order: upsert sites, upsert site_themes (via deriveTheme()), upsert site_pages (delete old pages first for clean rebuild), upsert site_blocks with contentJson from step 4, upsert site_data_sources (one per data source type the site uses), upsert site_block_bindings (from bindingSpec in plan, referencing dataSourceId), upsert site_nav_items, upsert site_media_assets
+Call siteCompiler.compileSite() → generatedHtml
+Return { siteId, generatedHtml, pages, blocks } — same response shape for UI compatibility
+Archive siteTemplate.ts — it is no longer used. The buildSiteFromTemplate function is fully replaced by the compiler + renderer pipeline.
+
+18. Refactor POST /api/sites/import-url route
+
+Replace with a call to siteImportService.run(url, orgId). Return the ImportRunSummary including importRunId. Client stores importRunId and passes it to /generate when user confirms. Findings are merged into the site profile at generation time via siteProfileService.
+
+19. Refactor auto-update route and scheduler
+
+Replace POST /api/sites/sync-events with a call to siteAutoUpdateService.runAutoUpdate(siteId). Update the scheduled job in siteSchedules to call the same service. Return the auto-update result summary to the client.
+
+20. Import review step in SiteBuilder.tsx
+
+After a successful import and before the interview starts, show a review panel with: pages detected, logo preview, top 3 ranked images with role labels, programs found, events detected, recommended archetype, and flagged issues. User chooses "Use this — start building" (passes importRunId to generation) or "Start fresh" (ignores import, proceeds to interview). Replace the current silent pre-fill behavior.
+
+21. Migration order and backfill for existing sites
+
+Implement migrations in this order:
+
+All new lib/site/schema/ tables
+Extensions to existing tables (events, sponsors, vendors, contacts, studioOutputs, socialAccounts, organizations, registrations)
+Backfill: for any org with existing generatedHtml, create a minimal sites record (if one doesn't exist under the new schema), one homepage site_pages record, two stub blocks (hero and contact, both lockLevel = 'locked', sourceMode = 'generated'), one site_themes record from existing theme jsonb, and set compiledAt = updatedAt. Existing generatedHtml remains intact until the next generation run recompiles it from blocks.
+22. Preserve existing preview and publish flow
+
+The iframe preview in SiteBuilder.tsx reads generatedHtml — unchanged. The public serving route (/sites/:slug) reads generatedHtml — unchanged. The publish endpoint writes publishedAt and publishedVersion — add publishedVersion to the update. All compilation now flows through siteCompiler.compileSite(), which writes the same generatedHtml field. No change to how the user previews or publishes.
+

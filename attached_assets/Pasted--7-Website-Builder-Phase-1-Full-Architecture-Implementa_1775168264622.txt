@@ -1,0 +1,518 @@
+#7 - Website Builder Phase 1 — Full Architecture Implementation
+
+What & Why
+
+Turn Pillar from a single-template HTML blob generator into a structured, dynamic website operating system built for production SaaS. Seven architectural layers, mandatory org isolation, event-driven job processing, block-level render caching, full observability, versioned publish history, and explicit failure safety. The renderer never queries dashboard tables directly. AI never rewrites identity content. One block failure never breaks a site.
+
+Architectural philosophy
+
+These four priorities govern every implementation decision in this task. When any tradeoff arises, the executor must apply them in order.
+
+1. Determinism over AI If a correct answer can be derived from structured data, it must be. AI is called only when structure runs out. The page planner, site profile builder, adapter layer, renderer, and compiler are all deterministic. AI touches only two things: structured contentJson payloads during initial generation, and structured ImportFinding extraction during import. It does not touch rendering, routing, schema logic, or any auto-update path.
+
+2. Structure over generation Sites are not generated — they are assembled from structured records. A site is a site_pages record + site_blocks records + site_themes record + site_nav_items records + site_block_bindings records. generated_html is a compiled artifact of those records, not their replacement. If the structured records are lost and only generated_html remains, the site cannot be edited, updated, or maintained — that outcome must be architecturally impossible.
+
+3. Data integrity over convenience Org isolation is not optional. Every query in the site system must carry WHERE org_id = ?. There are no global queries. No service infers orgId from context — it is passed explicitly as a required parameter. Financial data is sanitized at the adapter boundary — it never flows into the renderer. Identity content (mission, about, history, programs) is locked against AI modification after initial generation. Stats are omitted rather than estimated. A missing field produces a missing block — not a fabricated one.
+
+4. Separation of concerns over speed The dashboard modules do not connect to the renderer. The renderer does not query the database. The adapters do not render HTML. The page planner does not generate content. The content generator does not persist records. The compiler does not make AI calls. Each layer has one job. Violating this separation — even for a small convenience — creates the coupling that causes data leaks, AI drift, and debugging nightmares at scale.
+
+AI's role in this system: AI assists. Architecture controls. AI is a collaborator that proposes structured content payloads and extracts structured import signals. The architecture decides what gets built, how it renders, what gets updated, and what stays locked. If AI is ever asked to do something the architecture controls — write HTML, decide block order, update identity content, compute metrics — that is a bug, not a feature.
+
+Non-negotiable principles
+
+Structured records are the source of truth
+generated_html is compiled output only — never edited directly
+Import must curate and map — not scrape and rewrite
+Site planning must happen before rendering
+AI assists extraction, planning, and drafting of structured content — it does not write HTML or CSS
+Event behavior must be explicit — not inferred ad hoc throughout the app
+Auto-update operates at the block/module level only
+Identity content (mission, about, history, programs) is stable — AI may only touch it during initial generation, never during auto-update
+Dashboard data must never connect directly to the renderer
+All website integrations flow through the site data integration layer
+Every site service receives orgId as a required parameter — no global queries allowed
+One block render failure must never break the full site compile
+Adapters must sanitize financial data — renderer may never expose transaction IDs, payer emails, fees, refunds, or internal revenue data
+Done looks like
+
+Generated sites are composed from structured records in site_pages, site_blocks, site_nav_items, site_themes
+generated_html is compiled from those records by siteCompiler.ts using the appropriate compile mode
+Different org types produce different page plans (pages, section order, variants)
+Events render with correct CTA language, ticket links, and sold-out states based on explicit event fields
+Sponsor grid auto-updates from approved sponsors via the sponsor adapter
+The renderer has no direct queries to dashboard tables
+Stats are never fabricated — sections omit when data is absent
+Auto-update writes to site_change_log for every change and touches only auto_apply blocks
+AI may not overwrite mission, about, history, or programs during auto-update
+Site import stores structured findings with user review before application
+Every publish creates a site_versions record
+Block render failures return <!-- block failed: [type] --> and compilation continues
+All jobs are queued via job_queue — no polling logic inside services
+site_system_logs captures all generation, import, render, auto-update, and adapter failures
+site_render_cache prevents redundant block re-renders when data is unchanged
+org_activity_stream events trigger targeted jobs instead of full scans
+Out of scope for Phase 1
+
+Drag-and-drop visual block editor UI
+Full revision history UI beyond site_change_log and site_versions
+Public-facing vendor/participant roster modules (adapters and bindings set up; rendering is Phase 2)
+Exhaustive multi-page crawler (homepage + up to 5 detected sub-pages)
+Complex visual design controls beyond theme presets
+Custom domain routing changes
+Approvals/board links on the public site (stays internal)
+Rate limiting implementation (architecture is designed for it; enforcement is Phase 2)
+Production readiness requirements (must be complete before paying customers)
+
+These are enforced as acceptance criteria for this task:
+
+Org isolation enforcement (resolveOrgScope middleware on all site routes)
+Error logging (site_system_logs written by all services on failure)
+Job queue (job_queue table; all async work enqueued, not polled inline)
+Data adapters (all 8 adapters implemented, sanitized outputs only)
+Site versions (created on every publish)
+Block failure safety (renderer returns comment placeholder, continues)
+Metrics caching (site_render_cache and event_public_metrics)
+Stripe data sanitization (adapters strip all financial internals)
+Audit logs (site_change_log written on every auto-update and publish)
+Tasks
+
+1. Create lib/site/ package with exact folder structure
+
+lib/site/
+  schema/
+    sites.ts
+    site-pages.ts
+    site-nav-items.ts
+    site-blocks.ts
+    site-data-sources.ts
+    site-block-bindings.ts
+    site-themes.ts
+    site-import-runs.ts
+    site-import-findings.ts
+    site-change-log.ts
+    site-media-assets.ts
+    site-render-cache.ts
+    site-versions.ts
+    site-system-logs.ts
+    job-queue.ts
+    org-activity-stream.ts
+    event-public-metrics.ts
+    event-revenue-summary.ts
+  services/
+    siteProfileService.ts
+    siteImportService.ts
+    pagePlanner.ts
+    blockContentService.ts
+    blockRenderer.ts
+    siteCompiler.ts
+    siteAutoUpdateService.ts
+    eventBehaviorService.ts
+    siteDataIntegrationService.ts
+    eventSiteAdapter.ts
+    sponsorSiteAdapter.ts
+    vendorSiteAdapter.ts
+    contactSiteAdapter.ts
+    announcementSiteAdapter.ts
+    socialSiteAdapter.ts
+    paymentSiteAdapter.ts
+    organizationSiteAdapter.ts
+    eventMetricsService.ts
+    jobQueueService.ts
+    activityStreamService.ts
+    siteLogService.ts
+  types/
+    site-profile.ts
+    page-plan.ts
+    block-types.ts
+    import-types.ts
+    event-behavior.ts
+    site-bindings.ts
+    job-types.ts
+  utils/
+    classifyPage.ts
+    extractStructuredSignals.ts
+    filterImportNoise.ts
+    rankImages.ts
+    deriveTheme.ts
+    ctaHelpers.ts
+    dataHash.ts
+  index.ts
+Wire into monorepo workspace alongside lib/db. Export everything the API server needs from lib/site/index.ts.
+
+2. Write all new schema files in lib/site/schema/
+
+Use Drizzle pgTable. text for enum-like columns throughout (no pgEnum in Phase 1). All jsonb columns use .$type<...>(). All FK columns get indexes.
+
+sites.ts Columns: id (varchar PK uuid), orgId (varchar not null unique), name, slug (unique), status (text default 'draft' — draft/published/archived), siteType (text default 'default' — civic/nonprofit/festival/hoa/default), primaryCtaType (text default 'contact'), homepagePageId (varchar FK), themeId (varchar FK), currentVersion (integer default 1), publishedVersion (integer), generatedHtml (text — compiled artifact only), autoUpdateEnabled (boolean default false), compiledAt (timestamp), publishedAt, createdAt, updatedAt.
+
+Note: generatedSpecJson is removed from this table. The spec snapshot belongs in site_versions, not as a loose column on sites.
+
+site-pages.ts Columns: id, siteId (FK cascade delete), title, slug, pageType (home/about/programs/events/membership/contact/faq/sponsors/vendors/join/donate/announcements/custom), seoTitle, seoDescription, isHomepage (boolean default false), isPublished (boolean default true), sortOrder (integer default 0), layoutKey, visibilityRulesJson (jsonb), createdAt, updatedAt. Unique index on (siteId, slug). Index on siteId.
+
+site-nav-items.ts Columns: id, siteId (FK cascade delete), label, pageId (FK set null), externalUrl, navLocation (text default 'header' — header/footer/both), sortOrder (integer default 0), isVisible (boolean default true), createdAt, updatedAt. Index on siteId.
+
+site-blocks.ts Columns: id, siteId (FK cascade delete), pageId (FK cascade delete), blockType (hero/intro/about/stats/cards/events_list/featured_event/sponsor_grid/faq/contact/cta_band/announcements/gallery/join/volunteer/membership/board/custom_html), variantKey, title, sortOrder (integer default 0), isVisible (boolean default true), contentJson (jsonb default {} — copy and content only), settingsJson (jsonb default {} — presentation and behavior settings only), sourceMode (text default 'generated' — manual/generated/imported/dynamic/hybrid), lockLevel (text default 'editable' — editable/review_required/locked), editableByRoles (text array default ['owner', 'admin'] — roles permitted to edit this block: owner/admin/content/events/finance), createdAt, updatedAt. Indexes on pageId, siteId, (pageId, sortOrder).
+
+Rules: Do not store binding queries or audit history in either JSON column.
+
+site-data-sources.ts — The contract layer between dashboard modules and the website system. Columns: id, siteId (FK cascade delete), sourceType (text — organization/events/sponsors/vendors/contacts/announcements/social/payments), orgId (varchar not null), refreshStrategy (text default 'realtime' — realtime/scheduled/manual), lastSyncedAt (timestamp), syncStatus (text default 'idle' — idle/syncing/error), createdAt, updatedAt. Index on siteId.
+
+Note: sourceTable column is omitted. Adapters know which tables to query based on sourceType. Exposing table names here would leak DB internals.
+
+site-block-bindings.ts — References dataSourceId, not raw table names. Columns: id, blockId (FK cascade delete), dataSourceId (FK to site_data_sources), bindingType (events_list/featured_event/sponsors/announcements/vendors/contacts/payments/social/organization), queryConfigJson (jsonb default {}), displayConfigJson (jsonb default {}), updatePolicy (text default 'auto_apply' — auto_apply/suggest_review/manual_only), createdAt, updatedAt. Index on blockId.
+
+site-themes.ts Columns: id, siteId (FK unique cascade delete), themePresetKey (text default 'pillar-default'), colorPrimary, colorSecondary, colorAccent, colorSurface, colorText, fontHeadingKey, fontBodyKey, radiusScale, shadowStyle, heroStyleDefault, buttonStyle, logoMode (text default 'image' — image/text/both), createdAt, updatedAt.
+
+site-import-runs.ts Columns: id, siteId (FK set null), orgId (varchar not null), sourceUrl, status (text default 'started' — started/completed/failed/reviewed/applied), detectedSiteType, rawSummaryJson (jsonb), recommendedStructureJson (jsonb), createdAt, completedAt. Index on siteId.
+
+site-import-findings.ts Columns: id, importRunId (FK cascade delete), findingType (page/contact/mission/program/event/image/logo/cta/nav_item/sponsor_ref/join_flow/donate_flow), sourceUrl, pageClassification, title, contentJson (jsonb default {}), qualityScore (integer default 0), preserveVerbatim (boolean default false), isSelected (boolean default true), createdAt. Indexes on importRunId and (importRunId, findingType). One row per finding.
+
+site-change-log.ts Columns: id, siteId (FK cascade delete), pageId (FK set null), blockId (FK set null), changeType (auto_update/suggestion_created/manual_edit/import_applied/publish), sourceType (events/sponsors/announcements/admin/import/ai_generation), sourceReferenceId, summary (text not null), oldValueJson (jsonb), newValueJson (jsonb), confidenceScore (integer), actionStatus (text default 'applied' — applied/pending_review/dismissed), createdByUserId (varchar FK set null), createdAt. Indexes on siteId, blockId, createdAt.
+
+site-media-assets.ts Columns: id, siteId (FK cascade delete), sourceType (uploaded/imported/generated_placeholder/stock), sourceUrl, localStorageKey, assetType (logo/hero/gallery/program_image/sponsor_logo/other), width (integer), height (integer), qualityScore (integer), altText, isSelected (boolean default true), createdAt. Indexes on siteId and (siteId, assetType).
+
+site-render-cache.ts — Prevents redundant block re-renders. Columns: id, siteId (FK cascade delete), blockId (FK cascade delete, unique), renderedHtml (text not null), dataHash (varchar not null — SHA-256 hash of the input data that produced this render), renderedAt (timestamp not null), createdAt, updatedAt. Indexes on blockId, siteId.
+
+Rule: Before rendering a block, compute dataHash from block.contentJson + block.variantKey + block.settingsJson + serialized liveData for that block. If an entry exists in site_render_cache with matching blockId and dataHash, return cachedEntry.renderedHtml without calling blockRenderer. Only write a new cache entry when the hash changes.
+
+site-versions.ts — Investor-grade publish history. Created on every publish. Columns: id, siteId (FK cascade delete), orgId (varchar not null), versionNumber (integer not null), specJson (jsonb not null — full page plan snapshot at publish time), themeJson (jsonb not null — theme record snapshot), compiledHtml (text not null — compiled HTML at publish time), publishedByUserId (varchar FK set null), createdAt. Unique index on (siteId, versionNumber). Index on siteId.
+
+site-system-logs.ts — Operational observability. Not a user-facing audit log. Columns: id, orgId (varchar), siteId (varchar), service (text not null — e.g. siteCompiler, eventSiteAdapter, blockRenderer), operation (text not null — e.g. compileSite, getEventSiteData, renderBlock), severity (text not null default 'info' — info/warning/error), message (text not null), metadataJson (jsonb), createdAt. Indexes on orgId, siteId, (severity, createdAt).
+
+Log on: generation failures, adapter failures, render failures, auto-update failures, import failures, job queue failures. Info-level: generation start/complete, compile start/complete, publish.
+
+job-queue.ts — All async site work is enqueued here. Scheduler dequeues; services do not poll. Columns: id, jobType (text not null — compile_site/update_block/recompute_metrics/run_auto_update/import_site/generate_site), orgId (varchar not null), siteId (varchar), payloadJson (jsonb not null default {}), status (text not null default 'pending' — pending/processing/completed/failed), attempts (integer not null default 0), maxAttempts (integer not null default 3), scheduledAt (timestamp not null default now()), startedAt (timestamp), completedAt (timestamp), errorMessage (text), createdAt, updatedAt. Indexes on (status, scheduledAt), orgId, siteId.
+
+org-activity-stream.ts — Event-driven trigger source. Activity rows trigger targeted update jobs. Columns: id, orgId (varchar not null), activityType (text not null — event_created/event_updated/event_status_changed/ticket_sold/sponsor_added/sponsor_approved/vendor_added/announcement_posted/site_generated/site_published), referenceId (varchar — ID of the affected record), processed (boolean not null default false), processedAt (timestamp), createdAt. Indexes on (orgId, processed), activityType, createdAt.
+
+event-public-metrics.ts — Precomputed. Renderer reads this, never live payment joins. Columns: id, eventId (varchar unique FK), ticketsSold (integer default 0), ticketsRemaining (integer), revenueTotal (real default 0), lastCalculatedAt (timestamp), createdAt, updatedAt. Index on eventId.
+
+event-revenue-summary.ts — Internal revenue breakdown for admin reporting only. Never exposed to renderer. Columns: id, eventId (varchar unique FK), ticketRevenue (real default 0), vendorRevenue (real default 0), sponsorRevenue (real default 0), donationRevenue (real default 0), lastUpdated (timestamp), createdAt. Index on eventId.
+
+Write a single Drizzle migration covering all new tables. Export all types from lib/site/index.ts.
+
+3. Extend existing tables with site-facing columns
+
+One migration per table. Add only new columns — do not remove or rename anything.
+
+eventsTable:
+
+eventMode text default 'informational' — informational/registration/ticketed/fundraiser/vendor/participant/sponsor/hybrid
+revenueClassification text default 'none' — none/admin_fee/ticket_revenue/sponsor_revenue/donation/mixed
+showOnPublicSite boolean default true
+publicCtaMode text default 'learn_more' — learn_more/register/rsvp/buy_tickets/apply_vendor/apply_participant/sponsor/donate
+enableTicketSales boolean default false
+enableRegistration boolean default false
+enableVendorApplications boolean default false
+enableParticipantSignup boolean default false
+enableSponsorship boolean default false
+showPublicPricing boolean default false
+showPublicSoldCount boolean default false
+showPublicCapacity boolean default false
+eventStatus text default 'draft' — draft/published/registration_open/registration_closed/sold_out/completed/cancelled
+featuredOnSite boolean default false
+siteVisibilityPriority integer default 0
+siteDisplayVariant text default 'list' — card/hero/list/hidden
+publicFeaturedRank integer
+siteSummaryOverride text
+siteImageOverride text
+sponsorsTable: tierRank integer default 0, siteDisplayPriority integer default 0, siteVisible boolean default true
+
+vendorsTable: siteVisible boolean default false, siteCategory text, siteDisplayPriority integer default 0
+
+contactsTable: siteRole text, siteVisible boolean default false, siteBio text, sitePhotoUrl text, siteDisplayPriority integer default 0
+
+studioOutputsTable: siteEligible boolean default false, siteBlockTarget text, siteStatus text default 'draft', sitePublishPriority integer default 0
+
+socialAccountsTable: siteVisible boolean default true, siteDisplayOrder integer default 0, siteLabelOverride text
+
+organizationsTable: siteTagline text, siteMissionOverride text, sitePrimaryCtaOverride text, siteContactEmail text, siteContactPhone text, sitePublicAddress text, sitePublicHours text, sitePublicDescription text
+
+registrationsTable: sitePublicStatus text, sitePublicMessage text
+
+4. Add resolveOrgScope middleware and enforce org isolation
+
+Create artifacts/api-server/src/middleware/resolveOrgScope.ts. This middleware runs on all /api/sites/* routes and all site-adjacent routes (events, sponsors, etc. when called from site context).
+
+It injects into req: orgId (from session), siteId (looked up from sites where orgId = session.orgId), userRole (from session). It returns 403 if orgId is missing. It returns 404 if the requested siteId does not belong to session.orgId.
+
+Rule: Every service function in lib/site/services/ takes orgId: string as its first or second parameter. No service may query site data without an orgId filter. No query in the site system may be made without WHERE org_id = ? or equivalent Drizzle .where(eq(table.orgId, orgId)).
+
+5. Write lib/site/services/siteLogService.ts
+
+Wraps all writes to site_system_logs. Exports: logInfo(service, operation, message, meta?), logWarning(service, operation, message, meta?), logError(service, operation, message, meta?, error?). All service functions call these on failure. On success of major operations (generate, compile, publish), call logInfo. The metadataJson field receives the error stack and any relevant IDs. This service never throws — log failures are swallowed silently after a console.error.
+
+6. Write lib/site/services/jobQueueService.ts
+
+Exports:
+
+enqueueJob(jobType: JobType, orgId: string, payload: JobPayload, scheduledAt?: Date): Promise<string> — inserts into job_queue, returns jobId
+dequeueNextJob(): Promise<JobRow | null> — atomically selects the next pending job where scheduledAt <= now(), sets it to processing, returns it
+completeJob(jobId: string): Promise<void> — sets status = 'completed', completedAt = now()
+failJob(jobId: string, error: string): Promise<void> — increments attempts; if attempts >= maxAttempts sets status = 'failed', else sets status = 'pending' with scheduledAt = now() + exponential_backoff
+processJobs(): Promise<void> — dequeues and dispatches one job at a time, calling the appropriate service based on jobType, writing to site_system_logs on failure
+Job types and their handlers:
+
+compile_site → siteCompiler.compileSite(orgId, siteId, 'full_compile')
+update_block → siteAutoUpdateService.updateBlock(orgId, blockId)
+recompute_metrics → eventMetricsService.recomputeEventMetrics(eventId)
+run_auto_update → siteAutoUpdateService.runAutoUpdate(orgId, siteId)
+import_site → siteImportService.run(orgId, url, siteId)
+generate_site → generation pipeline
+The scheduler (siteSchedules) calls processJobs() on its interval instead of calling services directly.
+
+7. Write lib/site/services/activityStreamService.ts
+
+Exports:
+
+recordActivity(orgId: string, activityType: string, referenceId: string): Promise<void> — inserts into org_activity_stream
+processUnprocessedActivities(orgId: string): Promise<void> — queries org_activity_stream where processed = false for the org, maps each activityType to the appropriate job, enqueues via jobQueueService, marks rows as processed = true
+Activity-to-job mapping:
+
+event_created, event_updated, event_status_changed → enqueue run_auto_update for the org's site
+ticket_sold → enqueue recompute_metrics for the event
+sponsor_added, sponsor_approved → enqueue run_auto_update for the org's site
+announcement_posted → enqueue run_auto_update for the org's site
+site_generated, site_published → enqueue compile_site
+Call recordActivity from: ticket sale creation route, registration approval route, event status change route, sponsor approval route, studio output approve route.
+
+8. Write lib/site/services/eventBehaviorService.ts
+
+Exports:
+
+inferLegacyEventBehavior(event): EventBehavior — maps old fields to new explicit fields. isTicketed === true → eventMode = 'ticketed'; fundraiser keywords → eventMode = 'fundraiser'; hasRegistration === true && !isTicketed → eventMode = 'registration'; derive publicCtaMode and revenueClassification from mode.
+getEventBehavior(event): EventBehavior — reads new explicit fields first; calls inferLegacyEventBehavior only when fields are at unset defaults.
+isPubliclyVisible(event): boolean — checks showOnPublicSite, eventStatus !== 'cancelled', isActive.
+9. Write lib/site/services/eventMetricsService.ts
+
+Exports:
+
+recomputeEventMetrics(eventId: string): Promise<void> — queries ticketSalesTable for the event, computes all metrics, upserts event_public_metrics. Also upserts event_revenue_summary for internal reporting. Writes logInfo on completion.
+getEventPublicMetrics(eventId: string): Promise<EventPublicMetrics> — reads from event_public_metrics only. Never does live payment joins.
+10. Write all 8 adapter services
+
+Each adapter takes orgId as required first parameter. Each returns only sanitized, renderer-safe data — never internal IDs, payment internals, emails (except org contact email if explicitly configured for display), or raw financial figures.
+
+organizationSiteAdapter.ts — getOrgSiteProfile(orgId): OrgSiteProfile — reads organizationsTable. Returns site-specific fields with override priority: siteMissionOverride ?? description, siteTagline, siteContactEmail ?? email, siteContactPhone ?? phone, sitePublicAddress, sitePublicHours, sitePublicDescription, logoUrl. This is the highest-priority content source.
+
+eventSiteAdapter.ts — getEventSiteData(orgId, queryConfig, db): SiteEventItem[] — queries eventsTable filtered by orgId and queryConfig. Calls getEventBehavior() per event. Reads event_public_metrics for capacity/sold data. Returns: { id, slug, name, date, time, location, description (siteSummaryOverride ?? description), imageUrl (siteImageOverride ?? imageUrl), ctaLabel, ctaUrl, eventMode, showPricing, price, isSoldOut, isRegistrationClosed, siteDisplayVariant, featuredOnSite }. Never exposes ticket revenue, payer emails, or transaction IDs.
+
+sponsorSiteAdapter.ts — getSponsorSiteData(orgId, queryConfig, db): SiteSponsorItem[] — queries sponsorsTable where orgId matches, siteVisible = true, status = 'active'. Orders by tierRank asc, siteDisplayPriority asc. Returns: { id, name, logoUrl, website, tierRank }.
+
+vendorSiteAdapter.ts — getVendorSiteData(orgId, queryConfig, db): SiteVendorItem[] — queries vendorsTable where orgId matches, siteVisible = true. Returns: { id, name, siteCategory, siteDisplayPriority }.
+
+contactSiteAdapter.ts — getContactSiteData(orgId, queryConfig, db): SiteContactItem[] — queries contactsTable where orgId matches, siteVisible = true. Orders by siteDisplayPriority. Returns: { id, firstName, lastName, siteRole, siteBio, sitePhotoUrl }.
+
+announcementSiteAdapter.ts — getAnnouncementSiteData(orgId, queryConfig, db): SiteAnnouncementItem[] — queries studioOutputsTable where orgId matches, siteEligible = true, siteStatus = 'approved'. Orders by sitePublishPriority desc, createdAt desc. Returns: { id, title, body, createdAt, siteBlockTarget }.
+
+socialSiteAdapter.ts — getSocialHandles(orgId, db): SiteSocialHandle[] — queries socialAccountsTable where orgId matches, siteVisible = true, isConnected = true. Returns: { platform, accountName, siteLabelOverride }. Never returns accessToken or refreshToken.
+
+paymentSiteAdapter.ts — getEventPaymentSiteData(orgId, eventId, db): EventPublicMetrics — reads from event_public_metrics only. Returns: { ticketsSold, ticketsRemaining }. Does not return revenueTotal, transaction IDs, payer emails, fees, or refunds. The event_revenue_summary table is for internal admin reporting only and is never touched by this adapter.
+
+11. Write lib/site/services/siteDataIntegrationService.ts
+
+Single gateway — blockRenderer.ts imports only from this service, never from individual adapters.
+
+Exports:
+
+getSiteData(orgId: string, siteId: string, blockBindings: SiteBlockBinding[], db): Promise<SiteDataMap> — for each binding, looks up its site_data_sources record to find sourceType, calls the appropriate adapter with queryConfigJson, returns a map keyed by blockId. Writes logError on adapter failure and returns an empty result for that block rather than throwing.
+refreshDataSource(orgId: string, dataSourceId: string, db): Promise<void> — triggers the relevant adapter and updates lastSyncedAt.
+12. Write lib/site/types/ files
+
+site-profile.ts — SiteProfile type with all fields documented in the generation spec.
+
+page-plan.ts — PlannedBlock (with bindingSpec?: { bindingType, sourceType, queryConfigJson, displayConfigJson, updatePolicy }), PlannedPage, PagePlan.
+
+block-types.ts — Union type BlockType of all valid block type strings; union VariantKey per block.
+
+import-types.ts — ImportFinding, ImportRunSummary, RankedImage.
+
+event-behavior.ts — EventBehavior shape.
+
+site-bindings.ts — SiteDataMap (map of blockId → normalized adapter output).
+
+job-types.ts — JobType union, JobPayload types per job.
+
+13. Write lib/site/utils/ files
+
+dataHash.ts — computeDataHash(inputs: unknown[]): string — serializes inputs to deterministic JSON, returns SHA-256 hex string. Used by siteCompiler.ts to check site_render_cache before rendering.
+
+classifyPage.ts — heuristic URL slug + nav label → PageClassification.
+
+extractStructuredSignals.ts — cheerio-based signal extraction per page class.
+
+filterImportNoise.ts — strips cookie text, footer repetition, short lines, all-caps junk.
+
+rankImages.ts — scores images by URL patterns and DOM position, returns sorted RankedImage[] with role hints.
+
+deriveTheme.ts — maps org type + color hints to named preset. Never outputs arbitrary hex values.
+
+ctaHelpers.ts — getCtaLabel(ctaMode), getCtaUrl(event), getUpdatePolicyForBlockType(blockType).
+
+14. Write lib/site/services/siteProfileService.ts
+
+Function: buildSiteProfile(orgId: string, inputs: SiteProfileInputs, db): SiteProfile
+
+Deterministic normalization — no AI calls. Priority order for each field:
+
+Mission: org.siteMissionOverride → interview answer → import finding (preserveVerbatim = true)
+Contact: org.siteContactEmail/Phone/Address → interview → import findings
+Tone: contentStrategy.tone → 'professional'
+hasRealStats = true only if founding year or member count was explicitly stated
+isEventFirstOrg = true if org has 3+ published events or siteType = festival/market
+15. Write lib/site/services/pagePlanner.ts
+
+Function: buildPagePlan(orgId: string, profile: SiteProfile): PagePlan
+
+Five org-type archetypes with defined page lists, block sequences, variants, lockLevels, and bindingSpecs:
+
+civic: Home (hero-mission/review_required, about-split/locked, cards-3up/locked, events_list/editable+auto_apply, cta_band-join/review_required, contact-two-column/editable), About, Programs, Events, Membership, Contact. Stats block only if hasRealStats.
+
+festival: Home (hero-event-featured/review_required, featured_event-banner/editable+auto_apply, sponsor_grid-tiered/editable+auto_apply, faq-simple/locked, contact-simple/editable), Event Info, Vendors, Sponsors, FAQ, Contact.
+
+nonprofit: Home (hero-centered/review_required, about-centered/locked, cards-3up/locked, events_list-standard/editable+auto_apply, cta_band-donate/review_required, contact-two-column/editable), Mission, Programs, Events, Get Involved, Contact.
+
+hoa: Home (hero-centered/review_required, about-simple/locked, events_list-compact/editable+auto_apply, announcements-list/editable+auto_apply, contact-simple/editable), About, Events, Announcements, Contact.
+
+default: Home (hero-centered/review_required, about-split/locked, events_list-standard/editable+auto_apply, contact-two-column/editable), About, Events, Contact.
+
+Standard binding specs:
+
+events_list → { sourceType: 'events', queryConfigJson: { showOnPublicSite: true, orderBy: 'startDate', limit: 6 }, updatePolicy: 'auto_apply' }
+sponsor_grid → { sourceType: 'sponsors', queryConfigJson: { siteVisible: true, status: 'active' }, updatePolicy: 'auto_apply' }
+featured_event → { sourceType: 'events', queryConfigJson: { featuredOnSite: true, limit: 1 }, updatePolicy: 'auto_apply' }
+announcements → { sourceType: 'announcements', queryConfigJson: { siteStatus: 'approved', limit: 5 }, updatePolicy: 'auto_apply' }
+16. Write lib/site/services/blockContentService.ts
+
+Function: generateBlockContent(orgId: string, plan: PagePlan, profile: SiteProfile, db): Promise<BlockContentMap>
+
+Single AI call per generation run. AI receives: page plan structure, site profile, preserved source copy. AI outputs structured JSON per block — never HTML.
+
+AI safety constraint — must be included verbatim in the system prompt:
+
+"You may only generate identity content (mission, about, history, programs) during initial site generation when the admin has not provided this content. You must never generate replacement content for mission, about, history, or programs blocks during any auto-update operation. If preservedSourceCopy contains a value for a field, output it verbatim — do not rephrase it. If you lack information for a block, output null for that block's key — never fabricate."
+Blocks bound entirely to live data (events_list, sponsor_grid, announcements, featured_event) receive contentJson: {} — no AI involvement.
+
+17. Write lib/site/services/blockRenderer.ts
+
+Function: renderBlock(block: SiteBlock, theme: SiteTheme, liveData?: unknown): string
+
+Failure safety rule — mandatory: The top of every block renderer variant is wrapped in a try/catch. On any exception: call logError('blockRenderer', 'renderBlock', message, { blockId, blockType }) and return <!-- block failed: ${block.blockType}/${block.variantKey} -->. Never throw. Never break the compile.
+
+Deterministic — same inputs always produce same output. No AI calls. Inline CSS using CSS custom properties from theme. Mobile-first responsive. No Tailwind.
+
+Phase 1 block types and variants:
+
+hero — hero-centered, hero-split, hero-mission, hero-event-featured
+about — about-split, about-centered, about-simple
+stats — stats-strip, stats-cards (returns empty string when all stat values are null)
+cards — cards-2up, cards-3up, cards-icon, cards-image
+events_list — reads liveData (pre-fetched via adapter). events-list-standard, events-list-featured-first, events-list-compact. Per event: reads ctaLabel via getCtaLabel(event.publicCtaMode), reads ctaUrl via getCtaUrl(event), shows price only if showPublicPricing, shows "Sold Out" badge if isSoldOut, shows "Registration Closed" if isRegistrationClosed. Wraps each event in try/catch — one bad event record never breaks the list.
+featured_event — reads liveData. featured-event-banner, featured-event-card.
+sponsor_grid — reads liveData. sponsor-grid-standard, sponsor-grid-tiered (groups by tierRank). Renders logoUrl as <img> or sponsor name as text fallback.
+announcements — reads liveData. announcements-list, announcements-highlight.
+faq — faq-accordion (with inline JS expand/collapse), faq-simple
+cta_band — cta-join, cta-donate, cta-register, cta-sponsor, cta-contact
+contact — contact-two-column, contact-simple
+gallery — gallery-grid, gallery-feature
+membership/join/volunteer — renders based on primaryCtaType
+Nav and footer are rendered by siteCompiler.ts — not individual blocks.
+
+18. Write lib/site/services/siteCompiler.ts
+
+Function: compileSite(orgId: string, siteId: string, mode: CompileMode, db): Promise<string>
+
+CompileMode: 'full_compile' | 'block_compile' | 'page_compile'
+
+Mode rules:
+
+full_compile: triggered by generation, publish, theme change — renders all blocks from scratch, ignores cache
+block_compile: triggered by event/sponsor/announcement updates — renders only blocks whose dataHash has changed per site_render_cache; all other blocks read from cache
+page_compile: triggered by manual block edits — renders only blocks on the affected page
+Full compile flow:
+
+Assert orgId matches sites.orgId — reject if not (isolation check)
+Fetch all site records scoped to orgId
+Call siteDataIntegrationService.getSiteData(orgId, siteId, allBindings, db) → SiteDataMap
+Render nav HTML from header nav items
+For each visible page, for each visible block:
+Compute dataHash from block + its live data slice
+On full_compile: skip cache, render directly
+On block_compile/page_compile: check site_render_cache — return cached HTML if hash matches, else render and update cache
+Call blockRenderer.renderBlock(block, theme, liveData) — on failure it returns a comment placeholder and logs the error; compilation continues
+Render footer HTML from footer nav items + org contact info
+Wrap in CSS custom properties from site_themes
+Write generatedHtml and compiledAt to sites
+Write site_system_logs entry (info on success, error on failure)
+Return compiled HTML
+19. Write lib/site/services/siteImportService.ts
+
+9-step pipeline with SSRF-safe fetch:
+
+Fetch homepage
+Extract nav links, classify with classifyPage.ts, select up to 5
+Fetch sub-pages in parallel (8s timeout each, SSRF check each URL)
+Per page: extractStructuredSignals(), filterImportNoise(), rankImages()
+One AI call → array of ImportFinding objects. One finding per discrete piece of content. AI does not paraphrase preserveVerbatim candidates.
+Score and filter: qualityScore; preserveVerbatim = true for high-quality mission/about/program text
+Persist site_import_runs + one site_import_findings row per finding (scoped to orgId)
+Return ImportRunSummary to client
+Findings not applied until user confirms
+Write logError on fetch failures, AI failures, and parse failures. Failures in individual sub-page fetches do not abort the whole import.
+
+20. Write lib/site/services/siteAutoUpdateService.ts
+
+Function: runAutoUpdate(orgId: string, siteId: string, db): Promise<AutoUpdateResult>
+
+Assert orgId === site.orgId
+Fetch blocks scoped to orgId and siteId
+For each block, check lockLevel and updatePolicy:
+auto_apply + editable: fetch live data via siteDataIntegrationService, re-render block, update contentJson, write site_change_log row (actionStatus = 'applied'), update site_render_cache
+suggest_review: generate proposed content, write site_change_log row (actionStatus = 'pending_review'). Do NOT update the block.
+locked or review_required or manual_only: skip entirely
+Call compileSite(orgId, siteId, 'block_compile', db) after all block updates
+Write summary to site_system_logs
+AI safety rule: Auto-update must never call blockContentService.generateBlockContent() for blocks where blockType is about, hero (when content includes mission text), or any block with lockLevel !== 'editable'. The AI constraint in the content service prompt applies here too — mission, about, history, programs blocks are skip-listed by type and lock level.
+
+21. Refactor POST /api/sites/generate route
+
+7-step pipeline using new services:
+
+Run resolveOrgScope() middleware — confirm orgId from session
+Gather: org (via organizationSiteAdapter), interview body, importRunId?, live events, live sponsors, social handles, content strategy
+siteProfileService.buildSiteProfile(orgId, inputs, db) → SiteProfile
+pagePlanner.buildPagePlan(orgId, profile) → PagePlan
+blockContentService.generateBlockContent(orgId, plan, profile, db) → BlockContentMap
+Persist: upsert sites, site_themes (via deriveTheme()), site_pages, site_blocks (with content from step 5), site_data_sources (one per sourceType used), site_block_bindings (from plan bindingSpec, referencing dataSourceId), site_nav_items, site_media_assets
+siteCompiler.compileSite(orgId, siteId, 'full_compile', db) → generatedHtml
+Record site_generated in org_activity_stream
+Write site_system_logs info entry
+Return { siteId, generatedHtml, pages, blocks }
+Archive siteTemplate.ts and buildSiteFromTemplate — fully replaced.
+
+22. Refactor POST /api/sites/import-url route
+
+Run resolveOrgScope(). Enqueue import_site job via jobQueueService.enqueueJob(). Return { importRunId, status: 'queued' } immediately. The client polls the import run status. (For Phase 1, if synchronous behavior is needed for simplicity, call siteImportService.run() directly and return the summary — but the job queue path is preferred.)
+
+23. Refactor auto-update route and scheduler
+
+Replace POST /api/sites/sync-events with: enqueue run_auto_update job via jobQueueService. The scheduler dequeues via jobQueueService.processJobs() — it does not call services directly. Add recordActivity calls to the ticket sale, registration approval, event update, and sponsor approval routes so the activity stream drives targeted job enqueueing automatically.
+
+24. Publish route — create site_versions record
+
+On every successful publish (POST /api/sites/:siteId/publish): run resolveOrgScope(), compile site via compileSite(orgId, siteId, 'full_compile', db), then insert into site_versions: { siteId, orgId, versionNumber: site.currentVersion + 1, specJson: currentPagePlan, themeJson: currentTheme, compiledHtml: generatedHtml, publishedByUserId }. Update sites.publishedVersion, sites.publishedAt, sites.currentVersion. Record site_published in org_activity_stream. Write site_change_log row (changeType = 'publish').
+
+25. Import review step in SiteBuilder.tsx
+
+After import completes and before interview starts, show the import review panel: pages detected, logo preview, top 3 ranked images with role labels, programs found, events detected, recommended archetype, flagged issues. User chooses "Use this — start building" (passes importRunId to generation) or "Start fresh" (ignores import). Replace the current silent pre-fill behavior.
+
+26. Migration order and backfill for existing sites
+
+Migrations in order:
+
+All new lib/site/schema/ tables
+Extensions to existing tables
+Backfill: for any org with existing generatedHtml in sites, create minimal new-schema records: one homepage site_pages, two stub blocks (hero + contact, both lockLevel = 'locked', sourceMode = 'generated'), one site_themes from existing theme data. Set compiledAt = updatedAt. Existing generatedHtml remains intact until next generation recompiles from blocks.
+27. Preserve existing preview and publish flow
+
+Iframe preview reads sites.generatedHtml — unchanged. Public serving route (/sites/:slug) reads generatedHtml — unchanged. Compilation writes to that same field via siteCompiler.compileSite(). The only addition is that publish now also writes a site_versions record.

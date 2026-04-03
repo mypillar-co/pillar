@@ -1,0 +1,259 @@
+The last structural gaps (there are only ~6 left)
+These are the things a principal engineer or investor technical diligence would still flag.
+1 — You still need hard tenant isolation at DB level
+Right now you enforce org isolation in code.
+That is good.
+But real SaaS adds:
+REQUIRED:
+composite indexes with orgId
+Example:
+Instead of:
+INDEX(siteId)
+You want:
+INDEX(orgId, siteId)
+Apply to:
+site_pages
+site_blocks
+site_nav_items
+site_block_bindings
+site_data_sources
+site_change_log
+site_media_assets
+site_render_cache
+site_versions
+site_system_logs
+job_queue
+org_activity_stream
+Why:
+Prevents cross-tenant scan risk
+Improves performance
+Prevents accidental leaks
+Add rule:
+All site tables must include orgId index strategy.
+Even if FK already exists.
+2 — Missing soft delete strategy
+Right now:
+Deletes are dangerous.
+Example:
+Delete event → binding breaks.
+You need:
+REQUIRED:
+soft delete columns:
+Add to major tables:
+deleted_at timestamp
+Tables:
+sites
+site_pages
+site_blocks
+site_data_sources
+site_nav_items
+Rule:
+Never hard delete.
+Always:
+deleted_at = now()
+Compiler ignores deleted rows.
+This prevents:
+accidental site corruption
+data recovery issues
+audit failures
+3 — Missing concurrency protection
+Right now:
+Auto update
+Manual edit
+Compile
+Could conflict.
+You need:
+REQUIRED:
+optimistic locking
+Add:
+version integer
+To:
+site_blocks
+site_pages
+sites
+Rule:
+Update must include:
+WHERE version = X
+Then increment.
+Prevents:
+race conditions
+silent overwrites
+This is extremely important.
+4 — Missing rate limiting boundary
+You noted it as Phase 2.
+But one minimal rule must exist now:
+Add:
+REQUIRED:
+AI generation endpoints must be rate limited per org.
+Otherwise:
+One org can burn tokens.
+Add:
+org_usage_limits
+
+org_id
+ai_calls_today
+reset_at
+Simple protection.
+5 — Missing background retry safety
+Your job queue is good.
+But missing:
+dead letter handling.
+Add:
+REQUIRED:
+job_queue:
+failed_permanently boolean
+last_error_json
+Add rule:
+After maxAttempts:
+Move to:
+failed_permanently = true
+And create alert.
+Otherwise jobs silently die.
+6 — Missing feature flags (this WILL matter)
+You are about to experiment a lot.
+Add:
+REQUIRED:
+org_feature_flags
+
+org_id
+
+feature_key
+
+enabled
+
+created_at
+Example flags:
+ai_auto_update
+advanced_blocks
+multi_admin
+vendor_directory
+public_announcements
+site_import
+This lets you:
+turn features on/off
+test customers safely
+prevent breaking everyone
+Every real SaaS has this.
+The one architectural change I WOULD make
+Everything else is good.
+But this one change improves long term survival:
+Add "site modules" layer
+Right now:
+blocks represent UI.
+But behavior comes from:
+events
+sponsors
+announcements
+Instead create:
+site_modules
+Schema:
+site_modules
+
+id
+
+site_id
+org_id
+
+module_type
+// events
+// sponsors
+// announcements
+// vendors
+
+enabled
+
+settings_json
+
+created_at
+Then:
+Blocks reference modules.
+Not raw sources.
+This lets you:
+disable events module
+add marketplace module
+add directory module
+Without schema changes.
+This is a future-proofing move.
+One performance improvement I'd add
+Add:
+materialized site snapshot
+Add:
+site_compiled_snapshot
+
+site_id
+
+compiled_data_json
+
+compiled_at
+Store:
+resolved block data.
+Then:
+compile reads this first.
+Speeds rebuilds massively.
+One investor red flag still remaining
+This is subtle.
+You have:
+site_versions
+Good.
+But missing:
+rollback
+Add rule:
+System must support reverting to previous site_versions record.
+Add service:
+siteVersionService.restoreVersion()
+Without rollback:
+Versioning is incomplete.
+One operational gap
+Missing:
+health checks
+Add:
+/site/health endpoint
+Returns:
+adapter status
+queue depth
+failed jobs
+last compile
+This becomes:
+your operational dashboard.
+One security gap
+Add:
+CSP header requirement
+Add:
+Content-Security-Policy:
+default-src 'self';
+img-src https:;
+script-src 'self';
+style-src 'self' 'unsafe-inline';
+Without CSP:
+XSS risk exists even with sanitization.
+This is quick win security.
+One product correction I recommend
+Not technical.
+Strategic.
+Your architecture shows:
+You are NOT building:
+website builder.
+You are building:
+Organizational Operations Platform with Public Presence
+Your marketing should reflect that.
+Because:
+Website builders are crowded.
+Operations platforms are not.
+The final additions I would mandate in your spec
+Add this section:
+Production Safety Additions
+All tables must include orgId composite indexes.
+
+All deletions must use soft delete.
+
+All updates must use optimistic locking.
+
+All async work must have retry safety.
+
+AI endpoints must be rate limited per org.
+
+System must support version rollback.
+
+Feature flags must gate new functionality.
+
+Modules must be configurable per site.
