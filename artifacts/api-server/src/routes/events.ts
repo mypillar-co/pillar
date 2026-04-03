@@ -87,6 +87,294 @@ router.get("/metrics", async (req: Request, res: Response) => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────
+// POST /api/events/ai-manage  — natural-language event management
+// ─────────────────────────────────────────────────────────────────
+router.post("/ai-manage", async (req: Request, res: Response) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+
+  const { message, history = [] } = req.body as {
+    message: string;
+    history?: { role: "user" | "assistant"; content: string }[];
+  };
+
+  if (!message?.trim()) {
+    res.status(400).json({ error: "message is required" });
+    return;
+  }
+
+  const client = getOpenAIClient();
+  const today = new Date().toISOString().split("T")[0];
+
+  const tools: OpenAI.Chat.ChatCompletionTool[] = [
+    {
+      type: "function",
+      function: {
+        name: "create_event",
+        description: "Create a new event and publish it immediately to the public site. Auto-generates a unique slug from the name.",
+        parameters: {
+          type: "object",
+          required: ["name"],
+          properties: {
+            name: { type: "string", description: "Event name" },
+            startDate: { type: "string", description: "ISO date YYYY-MM-DD" },
+            endDate: { type: "string", description: "ISO date YYYY-MM-DD, only if multi-day" },
+            startTime: { type: "string", description: "24-hour HH:MM format" },
+            endTime: { type: "string", description: "24-hour HH:MM format" },
+            location: { type: "string" },
+            description: { type: "string" },
+            eventType: { type: "string", enum: ["festival", "mixer", "fundraiser", "meeting", "market", "conference", "workshop", "other"] },
+            isTicketed: { type: "boolean", description: "True if the event sells tickets" },
+            hasRegistration: { type: "boolean", description: "True if there is vendor/attendee registration" },
+            maxCapacity: { type: "number", description: "Overall event capacity (not per-ticket)" },
+            tickets: {
+              type: "array",
+              description: "Ticket types to create. Only provide if isTicketed is true.",
+              items: {
+                type: "object",
+                required: ["name", "price"],
+                properties: {
+                  name: { type: "string", description: "Ticket tier name, e.g. 'General Admission'" },
+                  price: { type: "number", description: "Price in USD. Use 0 for free." },
+                  quantity: { type: "number", description: "Max tickets available. Omit for unlimited." },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "list_events",
+        description: "List this organization's upcoming events with ticket stats.",
+        parameters: { type: "object", properties: {} },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "check_ticket_sales",
+        description: "Get ticket sales details for a specific event.",
+        parameters: {
+          type: "object",
+          required: ["eventId"],
+          properties: {
+            eventId: { type: "string" },
+          },
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "update_event",
+        description: "Update an existing event's settings or status.",
+        parameters: {
+          type: "object",
+          required: ["eventId"],
+          properties: {
+            eventId: { type: "string" },
+            name: { type: "string" },
+            status: { type: "string", enum: ["draft", "published", "cancelled"] },
+            isTicketed: { type: "boolean" },
+            hasRegistration: { type: "boolean" },
+            location: { type: "string" },
+            description: { type: "string" },
+            startDate: { type: "string" },
+            startTime: { type: "string" },
+            endTime: { type: "string" },
+            maxCapacity: { type: "number" },
+          },
+        },
+      },
+    },
+  ];
+
+  const systemPrompt = `You are an event management assistant for ${org.name}. Today is ${today}.
+You help manage events through conversation. When given a command like "add a fall festival with $25 tickets and 150 capacity", you call the appropriate tool with all the right parameters filled in.
+- Always infer the current year for dates unless told otherwise.
+- When creating a ticketed event, always create at least one ticket type (default: "General Admission" if no name is specified).
+- When creating events, set isTicketed: true if any ticket price is mentioned.
+- Confirm what was done clearly and include the public event URL in your reply.
+- For check_ticket_sales, first call list_events to find the event ID if you only have the name.`;
+
+  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt },
+    ...history,
+    { role: "user", content: message },
+  ];
+
+  // Tool execution helpers
+  async function execCreateEvent(args: Record<string, unknown>): Promise<string> {
+    const name = String(args.name ?? "");
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+    const uniqueSlug = `${slug}-${Date.now().toString(36)}`;
+
+    const [event] = await db
+      .insert(eventsTable)
+      .values({
+        orgId: org.id,
+        name,
+        slug: uniqueSlug,
+        description: args.description ? String(args.description) : undefined,
+        eventType: args.eventType ? String(args.eventType) : undefined,
+        startDate: args.startDate ? String(args.startDate) : undefined,
+        endDate: args.endDate ? String(args.endDate) : undefined,
+        startTime: args.startTime ? String(args.startTime) : undefined,
+        endTime: args.endTime ? String(args.endTime) : undefined,
+        location: args.location ? String(args.location) : undefined,
+        maxCapacity: args.maxCapacity ? Number(args.maxCapacity) : undefined,
+        isTicketed: args.isTicketed === true,
+        hasRegistration: args.hasRegistration === true,
+        status: "published",
+        isActive: true,
+        showOnPublicSite: true,
+      })
+      .returning();
+
+    const tickets = Array.isArray(args.tickets) ? args.tickets as { name: string; price: number; quantity?: number }[] : [];
+    for (const tt of tickets) {
+      await db.insert(ticketTypesTable).values({
+        eventId: event.id,
+        orgId: org.id,
+        name: String(tt.name ?? "General Admission"),
+        price: Number(tt.price ?? 0),
+        quantity: tt.quantity != null ? Number(tt.quantity) : undefined,
+        isActive: true,
+      });
+    }
+
+    scheduleSiteAutoUpdate(org.id).catch(() => {});
+
+    const publicUrl = `https://${org.slug}.mypillar.co/events/${uniqueSlug}/tickets`;
+    return JSON.stringify({
+      ok: true,
+      eventId: event.id,
+      slug: uniqueSlug,
+      publicUrl,
+      ticketTypesCreated: tickets.length,
+    });
+  }
+
+  async function execListEvents(): Promise<string> {
+    const today2 = new Date().toISOString().split("T")[0];
+    const rows = await db
+      .select({
+        id: eventsTable.id,
+        name: eventsTable.name,
+        startDate: eventsTable.startDate,
+        status: eventsTable.status,
+        isTicketed: eventsTable.isTicketed,
+        slug: eventsTable.slug,
+      })
+      .from(eventsTable)
+      .where(and(eq(eventsTable.orgId, org.id), eq(eventsTable.isActive, true), gte(eventsTable.startDate, today2)))
+      .orderBy(asc(eventsTable.startDate))
+      .limit(15);
+
+    const withSales = await Promise.all(
+      rows.map(async (e) => {
+        const sales = await db
+          .select({ qty: sum(ticketSalesTable.quantity), rev: sum(ticketSalesTable.amountPaid) })
+          .from(ticketSalesTable)
+          .where(and(eq(ticketSalesTable.eventId, e.id), eq(ticketSalesTable.paymentStatus, "paid")));
+        return { ...e, ticketsSold: Number(sales[0]?.qty ?? 0), revenue: Number(sales[0]?.rev ?? 0) };
+      }),
+    );
+
+    return JSON.stringify(withSales);
+  }
+
+  async function execCheckTicketSales(args: Record<string, unknown>): Promise<string> {
+    const eventId = String(args.eventId ?? "");
+    const [event] = await db
+      .select({ id: eventsTable.id, name: eventsTable.name })
+      .from(eventsTable)
+      .where(and(eq(eventsTable.id, eventId), eq(eventsTable.orgId, org.id)));
+    if (!event) return JSON.stringify({ error: "Event not found" });
+
+    const [types, sales] = await Promise.all([
+      db.select().from(ticketTypesTable).where(eq(ticketTypesTable.eventId, eventId)),
+      db.select().from(ticketSalesTable).where(and(eq(ticketSalesTable.eventId, eventId), eq(ticketSalesTable.paymentStatus, "paid"))),
+    ]);
+
+    return JSON.stringify({
+      eventName: event.name,
+      ticketTypes: types.map((tt) => ({
+        name: tt.name,
+        price: tt.price,
+        quantity: tt.quantity,
+        sold: tt.sold,
+        remaining: tt.quantity != null ? tt.quantity - tt.sold : "unlimited",
+      })),
+      totalSold: sales.reduce((s, r) => s + (r.quantity ?? 0), 0),
+      totalRevenue: sales.reduce((s, r) => s + (r.amountPaid ?? 0), 0),
+      attendees: sales.map((s) => ({ name: s.attendeeName, email: s.attendeeEmail, qty: s.quantity })),
+    });
+  }
+
+  async function execUpdateEvent(args: Record<string, unknown>): Promise<string> {
+    const { eventId, ...rest } = args;
+    const allowed = ["name", "status", "isTicketed", "hasRegistration", "location", "description", "startDate", "startTime", "endTime", "maxCapacity"];
+    const updates: Record<string, unknown> = {};
+    for (const k of allowed) {
+      if (k in rest) updates[k] = rest[k];
+    }
+    if (!Object.keys(updates).length) return JSON.stringify({ error: "No updates provided" });
+
+    const [updated] = await db
+      .update(eventsTable)
+      .set(updates)
+      .where(and(eq(eventsTable.id, String(eventId)), eq(eventsTable.orgId, org.id)))
+      .returning({ id: eventsTable.id, name: eventsTable.name, status: eventsTable.status });
+
+    if (!updated) return JSON.stringify({ error: "Event not found" });
+
+    scheduleSiteAutoUpdate(org.id).catch(() => {});
+    return JSON.stringify({ ok: true, updated });
+  }
+
+  // Tool-calling loop (max 3 rounds to handle multi-step)
+  for (let round = 0; round < 3; round++) {
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages,
+      tools,
+      tool_choice: "auto",
+    } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming);
+
+    const choice = completion.choices[0];
+    if (!choice) break;
+
+    messages.push(choice.message);
+
+    if (!choice.message.tool_calls?.length) {
+      res.json({ reply: choice.message.content ?? "" });
+      return;
+    }
+
+    for (const call of choice.message.tool_calls) {
+      let result = "";
+      try {
+        const args = JSON.parse(call.function.arguments ?? "{}") as Record<string, unknown>;
+        if (call.function.name === "create_event") result = await execCreateEvent(args);
+        else if (call.function.name === "list_events") result = await execListEvents();
+        else if (call.function.name === "check_ticket_sales") result = await execCheckTicketSales(args);
+        else if (call.function.name === "update_event") result = await execUpdateEvent(args);
+        else result = JSON.stringify({ error: "Unknown tool" });
+      } catch (err) {
+        result = JSON.stringify({ error: String(err) });
+      }
+      messages.push({ role: "tool", tool_call_id: call.id, content: result });
+    }
+  }
+
+  res.status(500).json({ error: "AI did not produce a final response" });
+});
+
 // GET /api/events/approvals/queue
 router.get("/approvals/queue", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);

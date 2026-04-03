@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plus, Calendar, MapPin, Search, ChevronRight, Loader2,
   Ticket, DollarSign, Clock, CheckCircle, Inbox, RefreshCw, Lock,
-  Link2, Copy, ExternalLink, CalendarPlus,
+  Link2, Copy, ExternalLink, CalendarPlus, Sparkles, Send, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -175,11 +175,17 @@ function CreateEventDialog({ open, onClose }: { open: boolean; onClose: () => vo
   );
 }
 
+type AiMessage = { role: "user" | "assistant"; content: string };
+
 export default function Events() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [creating, setCreating] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiInput, setAiInput] = useState("");
+  const [aiMessages, setAiMessages] = useState<AiMessage[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
   const { data: subscription } = useGetSubscription();
   const tier = subscription?.tierId;
   const isTier3 = tier === "tier3";
@@ -207,6 +213,8 @@ export default function Events() {
     enabled: tier === "tier2" || tier === "tier3",
   });
 
+  const qc = useQueryClient();
+
   const filtered = (events as EventItem[]).filter(e => {
     const matchSearch = e.name.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === "all" || e.status === statusFilter;
@@ -214,6 +222,35 @@ export default function Events() {
   });
 
   const m = metrics as EventMetrics | undefined;
+
+  async function askAI(e: React.FormEvent) {
+    e.preventDefault();
+    const msg = aiInput.trim();
+    if (!msg || aiLoading) return;
+    const newMessages: AiMessage[] = [...aiMessages, { role: "user", content: msg }];
+    setAiMessages(newMessages);
+    setAiInput("");
+    setAiLoading(true);
+    try {
+      const res = await fetch("/api/events/ai-manage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ message: msg, history: aiMessages }),
+      });
+      const data = await res.json() as { reply?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Request failed");
+      setAiMessages([...newMessages, { role: "assistant", content: data.reply ?? "" }]);
+      // Refresh event list and metrics after any management action
+      void qc.invalidateQueries({ queryKey: ["events"] });
+      void qc.invalidateQueries({ queryKey: ["event-metrics"] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "AI request failed");
+      setAiMessages(newMessages); // remove user msg on failure
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
@@ -245,12 +282,91 @@ export default function Events() {
             </Button>
           )}
           {hasEventAccess && (
+            <Button variant="outline" onClick={() => setAiOpen(v => !v)} className="border-primary/30 text-primary hover:bg-primary/10">
+              <Sparkles className="w-4 h-4 mr-2" /> Ask AI
+            </Button>
+          )}
+          {hasEventAccess && (
             <Button data-tour="new-event-btn" onClick={() => setCreating(true)}>
               <Plus className="w-4 h-4 mr-2" /> New Event
             </Button>
           )}
         </div>
       </div>
+
+      {/* AI management chat */}
+      {hasEventAccess && aiOpen && (
+        <div className="rounded-xl border border-primary/20 bg-primary/5 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-primary/15">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-primary" />
+              <p className="text-sm font-medium text-white">Event AI</p>
+              <p className="text-xs text-muted-foreground">— create or manage events with plain English</p>
+            </div>
+            <button onClick={() => setAiOpen(false)} className="text-muted-foreground hover:text-white transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {aiMessages.length > 0 && (
+            <div className="px-4 py-3 space-y-3 max-h-64 overflow-y-auto">
+              {aiMessages.map((msg, i) => (
+                <div key={i} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div className={`max-w-[85%] px-3 py-2 rounded-xl text-sm leading-relaxed whitespace-pre-wrap ${
+                    msg.role === "user"
+                      ? "bg-primary text-white rounded-br-sm"
+                      : "bg-white/8 text-slate-200 rounded-bl-sm border border-white/10"
+                  }`}>
+                    {msg.content}
+                  </div>
+                </div>
+              ))}
+              {aiLoading && (
+                <div className="flex gap-3 justify-start">
+                  <div className="px-3 py-2 rounded-xl bg-white/8 border border-white/10">
+                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {aiMessages.length === 0 && !aiLoading && (
+            <div className="px-4 py-3 flex flex-wrap gap-2">
+              {[
+                "What events do I have coming up?",
+                "Add a fall festival on Oct 18 with $25 tickets, 150 capacity",
+                "How many tickets sold for Chili Cookoff?",
+              ].map(suggestion => (
+                <button
+                  key={suggestion}
+                  onClick={() => setAiInput(suggestion)}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white transition-colors"
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <form onSubmit={askAI} className="flex items-center gap-2 px-4 py-3 border-t border-primary/15">
+            <input
+              value={aiInput}
+              onChange={e => setAiInput(e.target.value)}
+              placeholder='Try: "Add a spring gala on April 20 with $50 tickets"'
+              className="flex-1 bg-transparent text-sm text-white placeholder:text-slate-500 outline-none"
+              disabled={aiLoading}
+            />
+            <button
+              type="submit"
+              disabled={!aiInput.trim() || aiLoading}
+              className="flex-shrink-0 p-1.5 rounded-lg bg-primary text-white disabled:opacity-40 hover:bg-primary/90 transition-colors"
+            >
+              {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            </button>
+          </form>
+        </div>
+      )}
 
       {/* Tier gate — shown for Tier 1 / no-plan users */}
       {subscription !== undefined && !hasEventAccess && (

@@ -9,6 +9,8 @@ import {
   automationRulesTable,
   contentStrategyTable,
   organizationsTable,
+  ticketSalesTable,
+  ticketTypesTable,
 } from "@workspace/db";
 import {
   runCustomerSuccessAgent,
@@ -17,12 +19,13 @@ import {
   runOutreachAgent,
 } from "./agents";
 import { checkAndRenewDomains, checkSslProvisioning, pollDnsPropagation } from "./routes/domains";
-import { eq, lte, and, gte } from "drizzle-orm";
+import { eq, lte, and, gte, lt, isNotNull, sql } from "drizzle-orm";
 import { logger } from "./lib/logger";
 import { decryptToken } from "./lib/tokenCrypto";
 import { withSchedulerLock } from "./lib/schedulerLock";
 import sanitizeHtml from "sanitize-html";
 import OpenAI from "openai";
+import { getUncachableStripeClient } from "./stripeClient";
 
 const SITE_HTML_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: sanitizeHtml.defaults.allowedTags.concat([
@@ -770,6 +773,83 @@ const AGENT_CS_INTERVAL_MS = 30 * 60 * 1000;
 const AGENT_OPS_INTERVAL_MS = 60 * 60 * 1000;
 const AGENT_CONTENT_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const AGENT_OUTREACH_INTERVAL_MS = 60 * 60 * 1000;
+const RECONCILE_INTERVAL_MS = 30 * 60 * 1000;
+
+/**
+ * Three-layer payment reliability — Layer 3: background reconciler.
+ * Layers 1 & 2 are the webhook handler + order-ID fallback in webhookHandlers.ts.
+ * This job catches any pending ticket sales where the webhook was missed or
+ * failed. It looks up each Stripe checkout session directly and reconciles
+ * the payment_status so no sale stays stuck as "pending" indefinitely.
+ */
+async function reconcilePendingTicketSales(): Promise<void> {
+  const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000); // older than 2 hours
+
+  const pending = await db
+    .select({
+      id: ticketSalesTable.id,
+      stripeCheckoutSessionId: ticketSalesTable.stripeCheckoutSessionId,
+      ticketTypeId: ticketSalesTable.ticketTypeId,
+      quantity: ticketSalesTable.quantity,
+    })
+    .from(ticketSalesTable)
+    .where(
+      and(
+        eq(ticketSalesTable.paymentStatus, "pending"),
+        isNotNull(ticketSalesTable.stripeCheckoutSessionId),
+        lt(ticketSalesTable.createdAt, cutoff),
+      ),
+    )
+    .limit(50);
+
+  if (pending.length === 0) return;
+
+  logger.info({ count: pending.length }, "[reconciler] Checking stale pending ticket sales");
+
+  const stripe = await getUncachableStripeClient();
+
+  for (const sale of pending) {
+    if (!sale.stripeCheckoutSessionId) continue;
+    try {
+      const session = await stripe.checkout.sessions.retrieve(sale.stripeCheckoutSessionId);
+
+      if (session.payment_status === "paid") {
+        const paymentIntentId =
+          typeof session.payment_intent === "string"
+            ? session.payment_intent
+            : (session.payment_intent?.id ?? null);
+
+        await db
+          .update(ticketSalesTable)
+          .set({ paymentStatus: "paid", stripePaymentIntentId: paymentIntentId })
+          .where(
+            and(
+              eq(ticketSalesTable.id, sale.id),
+              sql`${ticketSalesTable.paymentStatus} != 'paid'`,
+            ),
+          );
+        logger.info({ saleId: sale.id }, "[reconciler] Recovered paid ticket sale");
+
+      } else if (session.status === "expired") {
+        await db
+          .update(ticketSalesTable)
+          .set({ paymentStatus: "expired" })
+          .where(eq(ticketSalesTable.id, sale.id));
+
+        if (sale.ticketTypeId) {
+          await db
+            .update(ticketTypesTable)
+            .set({ sold: sql`${ticketTypesTable.sold} - ${sale.quantity}` })
+            .where(eq(ticketTypesTable.id, sale.ticketTypeId));
+        }
+        logger.info({ saleId: sale.id }, "[reconciler] Marked expired ticket sale, inventory released");
+      }
+      // session.status === "open" means it may still complete — leave pending
+    } catch (err) {
+      logger.warn({ saleId: sale.id, err }, "[reconciler] Failed to retrieve Stripe session");
+    }
+  }
+}
 
 function locked(jobName: string, ttlMs: number, fn: () => Promise<void>): () => void {
   return () => {
@@ -794,6 +874,10 @@ export function startScheduler(): void {
 
   // Social post publishing every 5 minutes — locked to prevent duplicate publishes
   setInterval(locked("social-posts", SOCIAL_PUBLISH_INTERVAL_MS, runDueSocialPosts), SOCIAL_PUBLISH_INTERVAL_MS);
+
+  // Payment reconciler — catches missed webhooks, runs every 30 min
+  locked("ticket-reconciler", RECONCILE_INTERVAL_MS, reconcilePendingTicketSales)();
+  setInterval(locked("ticket-reconciler", RECONCILE_INTERVAL_MS, reconcilePendingTicketSales), RECONCILE_INTERVAL_MS);
 
   // Site updates, recurring events, and automation rules every 30 minutes
   setInterval(() => {
