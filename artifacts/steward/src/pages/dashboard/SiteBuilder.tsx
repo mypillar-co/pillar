@@ -1207,7 +1207,7 @@ export default function SiteBuilder() {
           {/* Chat messages */}
           <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
             {messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-center py-6 px-4 space-y-5 max-w-lg mx-auto w-full">
+              <div className={`flex flex-col items-center text-center px-4 space-y-5 max-w-lg mx-auto w-full ${importData ? "py-6" : "justify-center h-full py-6"}`}>
                 <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
                   <Globe className="w-8 h-8 text-primary" />
                 </div>
@@ -1235,7 +1235,7 @@ export default function SiteBuilder() {
                         <X className="w-4 h-4" />
                       </button>
                     </div>
-                    <div className="px-4 py-3 space-y-3 max-h-[380px] overflow-y-auto">
+                    <div className="px-4 py-3 space-y-3">
                       {([ 
                         { key: "name", label: "Organization name", multiline: false },
                         { key: "mission", label: "Mission / purpose", multiline: true },
