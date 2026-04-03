@@ -3,6 +3,8 @@ import { logger } from "./lib/logger";
 import { getStripeSync } from "./stripeClient";
 import { startScheduler } from "./scheduler";
 import { attachProcessErrorHandlers } from "./lib/errorAlert";
+import { sql } from "drizzle-orm";
+import { db } from "@workspace/db";
 
 const rawPort = process.env["PORT"];
 
@@ -29,7 +31,19 @@ function getWebhookUrl(): string | null {
 
 attachProcessErrorHandlers();
 
+async function runMigrations() {
+  try {
+    await db.execute(sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS show_on_public_site boolean DEFAULT true`);
+    await db.execute(sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS featured_on_site boolean DEFAULT false`);
+    logger.info("Startup migrations complete");
+  } catch (err) {
+    logger.warn({ err }, "Startup migration warning — continuing");
+  }
+}
+
 async function main() {
+  await runMigrations();
+
   // Initialize Stripe sync (webhooks → postgres stripe schema)
   try {
     const sync = await getStripeSync();
