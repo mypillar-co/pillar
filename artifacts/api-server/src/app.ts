@@ -9,8 +9,9 @@ import { sendErrorAlert } from "./lib/errorAlert";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { WebhookHandlers } from "./webhookHandlers";
-import { db, sitesTable, domainsTable, organizationsTable } from "@workspace/db";
-import { eq, or } from "drizzle-orm";
+import { db, sitesTable, domainsTable, organizationsTable, eventsTable, ticketTypesTable } from "@workspace/db";
+import { eq, or, and } from "drizzle-orm";
+import { buildEventPage, buildEventSuccessPage, buildEventNotFoundPage } from "./eventPage";
 
 const app: Express = express();
 
@@ -231,6 +232,91 @@ app.use(async (req, res, next) => {
 
   if (resolved) {
     const { orgSlug, isPreview } = resolved;
+
+    // ── Event pages: <orgSlug>.mypillar.co/events/:eventSlug/tickets[/success] ──
+    const eventTicketsMatch = req.path.match(/^\/events\/([^/]+)\/tickets(\/success)?$/);
+    if (eventTicketsMatch && !isPreview) {
+      const eventSlug = eventTicketsMatch[1];
+      const isSuccess = !!eventTicketsMatch[2];
+
+      const [org] = await db
+        .select({
+          name: organizationsTable.name,
+          slug: organizationsTable.slug,
+          stripeConnectAccountId: organizationsTable.stripeConnectAccountId,
+          stripeConnectOnboarded: organizationsTable.stripeConnectOnboarded,
+        })
+        .from(organizationsTable)
+        .where(eq(organizationsTable.slug, orgSlug));
+
+      const [site] = await db
+        .select({ generatedHtml: sitesTable.generatedHtml })
+        .from(sitesTable)
+        .where(eq(sitesTable.orgSlug, orgSlug));
+
+      const siteHtml = site?.generatedHtml ?? null;
+      const orgName = org?.name ?? orgSlug;
+
+      const [event] = await db
+        .select()
+        .from(eventsTable)
+        .where(
+          and(
+            eq(eventsTable.slug, eventSlug),
+            eq(eventsTable.status, "published"),
+            eq(eventsTable.isActive, true),
+          ),
+        );
+
+      if (!event) {
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.status(404).send(buildEventNotFoundPage(orgName, siteHtml));
+        return;
+      }
+
+      if (isSuccess) {
+        const html = buildEventSuccessPage({
+          event,
+          org: { name: orgName, slug: orgSlug, stripeConnectAccountId: org?.stripeConnectAccountId ?? null, stripeConnectOnboarded: org?.stripeConnectOnboarded ?? null },
+          siteHtml,
+        });
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.setHeader("Cache-Control", "no-store");
+        res.send(html);
+        return;
+      }
+
+      const ticketTypes = await db
+        .select()
+        .from(ticketTypesTable)
+        .where(and(eq(ticketTypesTable.eventId, event.id), eq(ticketTypesTable.isActive, true)));
+
+      const html = buildEventPage({
+        event,
+        ticketTypes: ticketTypes.map((tt) => ({
+          id: tt.id,
+          name: tt.name,
+          description: tt.description,
+          price: tt.price,
+          quantity: tt.quantity,
+          sold: tt.sold,
+        })),
+        org: {
+          name: orgName,
+          slug: orgSlug,
+          stripeConnectAccountId: org?.stripeConnectAccountId ?? null,
+          stripeConnectOnboarded: org?.stripeConnectOnboarded ?? null,
+        },
+        siteHtml,
+        cancelled: req.query.cancelled === "true",
+      });
+
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store, no-cache");
+      res.send(html);
+      return;
+    }
+
     const [site] = await db.select().from(sitesTable).where(eq(sitesTable.orgSlug, orgSlug));
 
     if (isPreview) {
