@@ -1758,16 +1758,12 @@ router.post("/sync-events", async (req: Request, res: Response) => {
   const [existing] = await db.select().from(sitesTable).where(eq(sitesTable.orgId, org.id));
   if (!existing?.generatedHtml) { res.status(404).json({ error: "No published site found. Generate your site first." }); return; }
 
-  const usageInfo = await checkAndResetUsage(org, res);
-  if (!usageInfo) return;
-  const { used, limit: monthlyLimit } = usageInfo;
-
-  // Fetch events from DB
+  // Fetch events from DB (no AI needed — build HTML directly from template)
   const today = new Date().toISOString().split("T")[0];
   const allEventsFromDb = await db
-    .select({ name: eventsTable.name, startDate: eventsTable.startDate, startTime: eventsTable.startTime, endTime: eventsTable.endTime, location: eventsTable.location, description: eventsTable.description })
+    .select({ name: eventsTable.name, startDate: eventsTable.startDate, startTime: eventsTable.startTime, endTime: eventsTable.endTime, location: eventsTable.location, description: eventsTable.description, slug: eventsTable.slug, hasRegistration: eventsTable.hasRegistration, status: eventsTable.status })
     .from(eventsTable)
-    .where(eq(eventsTable.orgId, org.id))
+    .where(and(eq(eventsTable.orgId, org.id), sql`${eventsTable.status} != 'draft'`))
     .limit(15);
   const futureEvents = allEventsFromDb.filter(e => !e.startDate || e.startDate >= today);
   const eventsToShow = futureEvents.length > 0 ? futureEvents : allEventsFromDb.slice(0, 5);
@@ -1777,69 +1773,67 @@ router.post("/sync-events", async (req: Request, res: Response) => {
     return;
   }
 
-  const eventsText = eventsToShow.map(e => {
-    const parts = [e.name];
-    if (e.startDate) parts.push(new Date(e.startDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }));
-    if (e.startTime) parts.push(`${e.startTime}${e.endTime ? `–${e.endTime}` : ""}`);
-    if (e.location) parts.push(e.location);
-    if (e.description) parts.push(e.description);
-    return parts.join(" | ");
-  }).join("\n");
+  const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-  // Fetch website spec for additional context (improves accuracy of updates)
-  const [websiteSpec] = await db.select().from(websiteSpecsTable).where(eq(websiteSpecsTable.orgId, org.id));
-  const specContext = websiteSpec
-    ? `Site: ${websiteSpec.orgName ?? org.name} | Colors: ${websiteSpec.colors ?? "navy and gold"} | Mission: ${websiteSpec.mission ?? ""}`
-    : `Site: ${org.name}`;
+  const buildRow = (e: typeof eventsToShow[0]) => {
+    const dateObj = e.startDate ? new Date(e.startDate + "T00:00:00") : null;
+    const day = dateObj ? String(dateObj.getDate()) : "";
+    const month = dateObj ? dateObj.toLocaleDateString("en-US", { month: "short" }).toUpperCase() : "";
+    const timeStr = e.startTime ? `${e.startTime}${e.endTime ? ` – ${e.endTime}` : ""}` : "";
+    const eventUrl = e.slug ? `https://mypillar.co/events/${e.slug}/tickets` : null;
+    const registerBtn = e.hasRegistration && eventUrl
+      ? `<a href="${eventUrl}" target="_blank" rel="noopener noreferrer" class="btn-primary" style="margin-top:0.5rem;display:inline-block;padding:0.5rem 1.25rem;font-size:0.85rem">Register</a>`
+      : eventUrl
+      ? `<a href="${eventUrl}" target="_blank" rel="noopener noreferrer" class="btn-ghost" style="margin-top:0.5rem;display:inline-block;padding:0.5rem 1.25rem;font-size:0.85rem;background:transparent;color:var(--text);border-color:var(--border)">Learn More</a>`
+      : "";
+    return `
+    <div class="event-row reveal">
+      <div class="event-date-block">
+        ${day ? `<span class="event-day">${day}</span><span class="event-month">${month}</span>` : `<span class="event-day" style="font-size:0.8rem">TBD</span>`}
+      </div>
+      <div class="event-info">
+        <h4>${esc(e.name)}</h4>
+        ${e.description ? `<p>${esc(e.description)}</p>` : ""}
+        <div class="event-meta">
+          ${timeStr ? `<span class="event-meta-item">${esc(timeStr)}</span>` : ""}
+          ${e.location ? `<span class="event-meta-item">${esc(e.location)}</span>` : ""}
+        </div>
+        ${registerBtn}
+      </div>
+    </div>`;
+  };
 
-  try {
-    const client = getOpenAIClient();
-    const systemMsg = `You are an expert web developer. You will receive an existing HTML website and a list of upcoming events.
-Your task: Update the events section of the HTML to show exactly the provided events. If no events section exists, add one before the contact or footer section.
-Each event should display: name (bold/prominent), date, time (if available), and location (if available) in a visually appealing card or list-item style that matches the existing site's CSS design language.
-CRITICAL: Output the COMPLETE updated HTML document. Do not truncate or abbreviate any part. Start with <!DOCTYPE html>. No markdown, no code fences, no explanation.`;
+  const newEventsSectionHtml = `
+  <section class="events" id="events">
+    <div class="container">
+      <div class="section-header reveal">
+        <span class="eyebrow">Upcoming Events</span>
+        <h2>What&#8217;s Happening</h2>
+      </div>
+      <div class="events-list">
+        ${eventsToShow.map(buildRow).join("\n")}
+      </div>
+    </div>
+  </section>`;
 
-    const userMsg = `${specContext}
-
-Here is the current website HTML:
-
-${existing.generatedHtml}
-
-Please update the events section to show these upcoming events:
-${eventsText}
-
-Return the complete updated HTML document.`;
-
-    const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "system", content: systemMsg }, { role: "user", content: userMsg }],
-      max_tokens: MAX_CHANGE_TOKENS,
-    });
-
-    let raw = completion.choices[0]?.message?.content ?? "";
-    const start = raw.indexOf("<!DOCTYPE");
-    const altStart = raw.indexOf("<html");
-    const htmlStart = start !== -1 ? start : altStart;
-    if (htmlStart !== -1) raw = raw.substring(htmlStart);
-    const endTag = raw.lastIndexOf("</html>");
-    let cleanedHtml = endTag !== -1 ? raw.substring(0, endTag + 7) : raw;
-
-    if (!cleanedHtml.includes("<html") && !cleanedHtml.includes("<!DOCTYPE")) {
-      res.status(500).json({ error: "AI returned invalid HTML. Please try again." });
-      return;
-    }
-
-    // Sanitize before save — removes script injection, event handlers, javascript: URIs
-    cleanedHtml = sanitizeAiSiteHtml(cleanedHtml, SITE_SCRIPT_BLOCK);
-
-    await db.update(sitesTable).set({ proposedHtml: cleanedHtml }).where(eq(sitesTable.orgId, org.id));
-    await db.update(organizationsTable).set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` }).where(eq(organizationsTable.id, org.id));
-    const newUsed = used + 1;
-
-    res.json({ proposalReady: true, eventCount: eventsToShow.length, used: newUsed, limit: monthlyLimit, remaining: monthlyLimit - newUsed });
-  } catch {
-    res.status(500).json({ error: "Failed to sync events. Please try again." });
+  // Replace the existing events section — or insert before contact section if missing
+  let updatedHtml = existing.generatedHtml;
+  const eventsSecRe = /<section[^>]*\bid="events"[^>]*>[\s\S]*?<\/section>/;
+  if (eventsSecRe.test(updatedHtml)) {
+    updatedHtml = updatedHtml.replace(eventsSecRe, newEventsSectionHtml.trim());
+  } else {
+    // Insert before contact section
+    updatedHtml = updatedHtml.replace(/<section[^>]*\bid="contact"/, `${newEventsSectionHtml}\n  <section id="contact"`);
   }
+
+  await db.update(sitesTable).set({ proposedHtml: updatedHtml }).where(eq(sitesTable.orgId, org.id));
+
+  // Read current usage for response (no AI tokens consumed)
+  const [orgRow] = await db.select({ aiMessagesUsed: organizationsTable.aiMessagesUsed, aiMessageLimit: organizationsTable.aiMessageLimit }).from(organizationsTable).where(eq(organizationsTable.id, org.id));
+  const used = orgRow?.aiMessagesUsed ?? 0;
+  const monthlyLimit = orgRow?.aiMessageLimit ?? 50;
+
+  res.json({ proposalReady: true, eventCount: eventsToShow.length, used, limit: monthlyLimit, remaining: Math.max(0, monthlyLimit - used) });
 });
 
 // ─── Schedule CRUD (Tier 1a+) ─────────────────────────────────────────────────
