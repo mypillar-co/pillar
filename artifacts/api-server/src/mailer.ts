@@ -384,6 +384,82 @@ export async function sendOrgEmail(
 }
 
 
+// ─── Ticket Confirmation ──────────────────────────────────────────────────────
+
+export async function sendTicketConfirmation(opts: {
+  to: string;
+  attendeeName: string;
+  eventName: string;
+  eventDate: string;
+  eventTime: string;
+  eventLocation: string;
+  quantity: number;
+  amountPaidCents: number;
+  confirmationId: string;
+  orgName: string;
+  accentColor?: string;
+}): Promise<MailResult> {
+  const {
+    to, attendeeName, eventName, eventDate, eventTime, eventLocation,
+    quantity, amountPaidCents, confirmationId, orgName,
+  } = opts;
+  const accent = opts.accentColor ?? "#f59e0b";
+  const shortId = confirmationId.toUpperCase().slice(-8);
+  const subject = `Your ${eventName} Tickets — Confirmation #${shortId}`;
+  const totalDollars = (amountPaidCents / 100).toFixed(2);
+  const perTicket = quantity > 0 ? (amountPaidCents / quantity / 100).toFixed(2) : "0.00";
+  const isFree = amountPaidCents === 0;
+
+  const metaRow = (label: string, value: string) =>
+    value ? `<tr>
+      <td style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);width:120px;font-size:13px;color:rgba(255,255,255,0.45);vertical-align:top;">${label}</td>
+      <td style="padding:8px 0 8px 16px;border-bottom:1px solid rgba(255,255,255,0.05);font-size:13px;color:rgba(255,255,255,0.85);vertical-align:top;">${value}</td>
+    </tr>` : "";
+
+  const body = `
+    <p style="margin:0 0 6px;font-size:13px;font-weight:600;color:${accent};letter-spacing:1px;text-transform:uppercase;">Booking confirmed</p>
+    <h1 style="margin:0 0 20px;font-size:26px;font-weight:800;color:#ffffff;line-height:1.25;letter-spacing:-0.5px;">You're going to ${eventName}.</h1>
+
+    <p style="margin:0 0 20px;font-size:15px;color:rgba(255,255,255,0.75);line-height:1.7;">
+      Hi ${attendeeName}, your ${quantity === 1 ? "ticket is" : `${quantity} tickets are`} confirmed. See you there!
+    </p>
+
+    <!-- Confirmation number block -->
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 28px;">
+      <tr>
+        <td style="background-color:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-left:4px solid ${accent};border-radius:10px;padding:20px 24px;">
+          <p style="margin:0 0 4px;font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:rgba(255,255,255,0.4);">Confirmation number</p>
+          <p style="margin:0;font-size:28px;font-weight:800;color:${accent};letter-spacing:2px;font-family:monospace;">#${shortId}</p>
+          <p style="margin:6px 0 0;font-size:12px;color:rgba(255,255,255,0.35);">Show this email at check-in.</p>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Event details table -->
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 28px;">
+      ${metaRow("Event", eventName)}
+      ${metaRow("Date", eventDate)}
+      ${metaRow("Time", eventTime)}
+      ${metaRow("Location", eventLocation)}
+      ${metaRow("Tickets", String(quantity))}
+      ${isFree ? metaRow("Total", "Free") : metaRow("Total", `$${totalDollars}${quantity > 1 ? ` ($${perTicket} each)` : ""}`)}
+    </table>
+
+    ${divider()}
+
+    <p style="margin:0 0 6px;font-size:13px;color:rgba(255,255,255,0.35);line-height:1.7;">
+      Not seeing this email in your inbox? Check your <strong style="color:rgba(255,255,255,0.5);">spam or junk folder</strong>.
+    </p>
+    <p style="margin:0;font-size:13px;color:rgba(255,255,255,0.35);line-height:1.7;">
+      Questions? Contact ${orgName} directly or reply to this email.
+    </p>
+  `;
+
+  const text = `Hi ${attendeeName},\n\nYou're confirmed for ${eventName}.\n\nConfirmation: #${shortId}\n\nEvent: ${eventName}\nDate: ${eventDate}\nTime: ${eventTime}\nLocation: ${eventLocation}\nTickets: ${quantity}\nTotal: ${isFree ? "Free" : `$${totalDollars}`}\n\nShow this email at check-in.\n\nNot in your inbox? Check spam/junk.\n\n${orgName}`;
+
+  return send(to, subject, wrap(body, accent), text);
+}
+
 // ─── Generic transactional email ─────────────────────────────────────────────
 
 export async function sendEmail(opts: {

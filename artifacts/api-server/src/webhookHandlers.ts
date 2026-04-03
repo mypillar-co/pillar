@@ -1,8 +1,11 @@
-import { db, organizationsTable, subscriptionsTable, ticketSalesTable, ticketTypesTable, registrationsTable } from "@workspace/db";
+import { db, organizationsTable, subscriptionsTable, ticketSalesTable, ticketTypesTable, registrationsTable, eventsTable } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
-import { getStripeSync } from "./stripeClient";
+import { getStripeSync, getUncachableStripeClient } from "./stripeClient";
 import { logger } from "./lib/logger";
+import { sendTicketConfirmation } from "./mailer";
 import type Stripe from "stripe";
+
+const STRIPE_VERIFY_TIMEOUT_MS = 8_000;
 
 /**
  * Upsert a row in the subscriptions table from a Stripe Subscription object.
@@ -101,9 +104,38 @@ async function cancelSubscription(
 }
 
 async function handleTicketPaymentCompleted(session: Stripe.Checkout.Session): Promise<void> {
-  const paymentIntentId = typeof session.payment_intent === "string"
-    ? session.payment_intent
-    : session.payment_intent?.id ?? null;
+  // Principle: never trust the webhook payload — verify the session state directly with Stripe
+  // before committing anything to the database. Use an 8-second timeout so a slow Stripe
+  // response can't block the webhook handler indefinitely.
+  let verifiedSession: Stripe.Checkout.Session;
+  try {
+    const stripe = await getUncachableStripeClient();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), STRIPE_VERIFY_TIMEOUT_MS);
+    try {
+      verifiedSession = await stripe.checkout.sessions.retrieve(
+        session.id,
+        {},
+        { signal: controller.signal as AbortSignal },
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (err) {
+    // If verification fails (timeout, network error, etc.) log and bail out —
+    // the background reconciler will catch this sale within 30 minutes.
+    logger.warn({ sessionId: session.id, err }, "Stripe session verification failed — will retry via reconciler");
+    return;
+  }
+
+  if (verifiedSession.payment_status !== "paid") {
+    logger.info({ sessionId: session.id, paymentStatus: verifiedSession.payment_status }, "Session not yet paid — skipping");
+    return;
+  }
+
+  const paymentIntentId = typeof verifiedSession.payment_intent === "string"
+    ? verifiedSession.payment_intent
+    : verifiedSession.payment_intent?.id ?? null;
 
   const updated = await db
     .update(ticketSalesTable)
@@ -117,14 +149,65 @@ async function handleTicketPaymentCompleted(session: Stripe.Checkout.Session): P
         sql`${ticketSalesTable.paymentStatus} != 'paid'`
       )
     )
-    .returning({ id: ticketSalesTable.id });
+    .returning({
+      id: ticketSalesTable.id,
+      eventId: ticketSalesTable.eventId,
+      attendeeName: ticketSalesTable.attendeeName,
+      attendeeEmail: ticketSalesTable.attendeeEmail,
+      quantity: ticketSalesTable.quantity,
+      amountPaid: ticketSalesTable.amountPaid,
+    });
 
   if (updated.length === 0) {
     logger.info({ sessionId: session.id }, "Ticket payment already processed or not found (idempotent skip)");
     return;
   }
 
-  logger.info({ sessionId: session.id, paymentIntentId }, "Ticket payment completed");
+  logger.info({ sessionId: session.id, paymentIntentId }, "Ticket payment verified and completed");
+
+  // Send confirmation email if we have an email address
+  const sale = updated[0];
+  if (sale.attendeeEmail) {
+    try {
+      const [event] = await db
+        .select({
+          name: eventsTable.name,
+          startDate: eventsTable.startDate,
+          startTime: eventsTable.startTime,
+          endTime: eventsTable.endTime,
+          location: eventsTable.location,
+        })
+        .from(eventsTable)
+        .where(eq(eventsTable.id, sale.eventId));
+
+      if (event) {
+        const dateLabel = event.startDate
+          ? new Date(event.startDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })
+          : "";
+        const timeLabel = event.startTime
+          ? `${event.startTime}${event.endTime ? ` – ${event.endTime}` : ""}`
+          : "";
+
+        await sendTicketConfirmation({
+          to: sale.attendeeEmail,
+          attendeeName: sale.attendeeName,
+          eventName: event.name,
+          eventDate: dateLabel,
+          eventTime: timeLabel,
+          eventLocation: event.location ?? "",
+          quantity: sale.quantity,
+          amountPaidCents: Math.round((sale.amountPaid ?? 0) * 100),
+          confirmationId: sale.id,
+          orgName: "",
+        });
+
+        logger.info({ saleId: sale.id, to: sale.attendeeEmail }, "Ticket confirmation email sent");
+      }
+    } catch (err) {
+      // Don't fail the webhook if email fails — sale is already marked paid
+      logger.warn({ saleId: sale.id, err }, "Failed to send ticket confirmation email");
+    }
+  }
 }
 
 async function handleCheckoutExpired(session: Stripe.Checkout.Session): Promise<void> {

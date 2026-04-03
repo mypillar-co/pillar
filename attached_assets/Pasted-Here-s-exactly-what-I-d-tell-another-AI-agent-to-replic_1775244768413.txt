@@ -1,0 +1,160 @@
+Here's exactly what I'd tell another AI agent to replicate what I did:
+
+How to Build a Community Event Website From Scratch
+Phase 1: Understand Before You Build
+Before writing a single line of code, extract these from the user:
+
+Who is the organization? Name, location, what they do. This determines the tone, color palette, and content structure.
+What events do they run? Get a complete list. For each event: name, date, time, location, description, whether it sells tickets, whether it has vendors, whether it has sponsors.
+What do they need to manage? Tickets? Vendor sign-ups? Sponsor approvals? Newsletter? Photo gallery? Business directory?
+What payment provider? Square or Stripe. Get credentials early — you'll need them to test.
+What email provider? SendGrid, Resend, etc. Get the API key.
+Do they have an existing site? If yes, crawl it. Extract every piece of content, every image URL, every event. Don't make them re-type things.
+Don't start building until you have at least #1, #2, and #3. Everything else you can add later.
+
+Phase 2: Data Model First, Always
+This is the most important step. Get this wrong and everything downstream breaks.
+
+Design the database schema before writing any UI or API code. Think about it as: what are the nouns in this system?
+
+Events → the central entity
+TicketPurchases → belongs to an event
+Sponsors → belongs to an event (by slug)
+SponsorCandidates → pending sponsors awaiting approval
+VendorRegistrations → belongs to an event
+SiteContent → key-value pairs for all editable text
+Businesses → local business directory entries
+GalleryPhotos → photo gallery
+NewsletterSubscribers → email list
+ContactMessages → contact form submissions
+Critical design rules:
+
+Store money in cents as integers. Never use floats for money. $15.00 = 1500. Always.
+Use text fields for human-readable dates. You might think timestamps are better, but community organizations write dates like "Saturday, October 18, 2026" and that's what they want displayed. Store it as text. Parse it when you need to sort.
+Use slugs as the connective tissue. Events have slugs (meet-your-neighbor-dinner). Sponsors link to events by eventType which matches the slug. URLs use the slug. The slug is the universal key across the system.
+Put feature flags on the event. Don't build separate "ticketed event" and "non-ticketed event" models. Build one event model with boolean flags: isTicketed, hasRegistration, hasSponsorSection, registrationClosed, registrationForceOpen. One component renders all events — the flags control what sections appear.
+Use a key-value store for all site text. Every tagline, every paragraph on the about page, every social media link — store it as a key-value pair. Keys like home_tagline, about_description, social_facebook. This means the admin can change any text without you touching code. When you build the site initially, seed these with sensible defaults.
+Schema definitions are the single source of truth. Define tables in one file. Generate Zod validation schemas from the table definitions using drizzle-zod. Export TypeScript types from those same definitions. Frontend imports these types. Backend validates against these schemas. One file controls everything.
+Phase 3: Storage Layer
+Never let API routes touch the database directly.
+
+Create an interface that lists every database operation:
+
+interface IStorage {
+  getEvents(): Promise<Event[]>;
+  getEventBySlug(slug: string): Promise<Event | undefined>;
+  createEvent(data: InsertEvent): Promise<Event>;
+  updateEvent(id: number, data: Partial<Event>): Promise<Event>;
+  
+  createTicketPurchase(data: InsertTicketPurchase): Promise<TicketPurchase>;
+  getTicketPurchasesByEvent(eventId: number): Promise<TicketPurchase[]>;
+  getTicketsSoldForEvent(eventId: number): Promise<number>;
+  updateTicketPurchase(id: number, data: Partial<TicketPurchase>): Promise<TicketPurchase>;
+  
+  // ... every operation for every entity
+}
+Then implement it once with actual database queries. Routes call storage.getEventBySlug(slug), never db.select().from(events).where(...).
+
+Why: Routes stay thin and readable. You can swap the database without touching routes. You can test routes with a mock storage. You avoid duplicating query logic.
+
+Phase 4: API Routes
+Keep routes stupid thin. A route should:
+
+Parse and validate the request
+Call one or two storage methods
+Return the result
+app.get("/api/events/slug/:slug", async (req, res) => {
+  const event = await storage.getEventBySlug(req.params.slug);
+  if (!event) return res.status(404).json({ error: "Not found" });
+  res.json(event);
+});
+That's it. No business logic in routes. If the logic is more than 5 lines, it belongs in a helper function or the storage layer.
+
+For the ticket purchase flow specifically, here is the exact sequence you must implement:
+
+Checkout Initiation (POST /api/events/:slug/ticket-checkout)
+1. Receive: { buyerName, buyerEmail, quantity }
+2. Validate all fields with Zod
+3. Fetch event by slug — verify it exists and isTicketed === true
+4. Parse ticketPrice, compute totalAmount = price × quantity × 100 (CENTS, SERVER-SIDE, NEVER TRUST THE CLIENT)
+5. If ticketCapacity exists, call getTicketsSoldForEvent() and check remaining >= quantity
+6. Generate confirmationNumber (format: PREFIX-XXXXXX, alphanumeric)
+7. Create a PENDING ticket purchase in the database (status = "pending")
+8. Call payment provider API to create a checkout/payment link:
+   - Set reference_id to the purchase record's database ID (this is how you match it later)
+   - Set redirect URL to your success page with the purchase ID as a query param
+9. Save the payment provider's order ID on the purchase record (squareOrderId)
+10. Return { checkoutUrl } to the frontend
+11. If the payment provider API call fails, DELETE the orphaned pending record. Don't leave garbage.
+Webhook Handler (POST /api/square/webhook)
+1. Verify the webhook signature (HMAC-SHA256). Reject if invalid.
+2. Only process these event types: payment.completed, payment.updated, order.fulfillment.updated
+   IGNORE everything else. Square sends dozens of event types.
+3. Extract reference_id from the payload. Square puts it in different places depending on the event type:
+   - data.object.order.reference_id
+   - data.object.payment.order_id → then look up the order
+   Check multiple locations.
+4. Find the matching purchase record by reference_id (which is your DB purchase ID)
+5. If no match by reference_id, fall back to matching by squareOrderId
+6. CRITICAL: Do NOT trust the webhook payload. Call the payment provider's API to verify the order state is actually COMPLETED.
+   Set an 8-second timeout on this API call so it doesn't hang forever.
+7. Only if verified: update purchase status to "completed"
+8. Send confirmation email
+9. Sync to dashboard if configured
+10. Return 200 OK quickly (webhooks time out)
+Background Reconciler
+Run every 5 minutes:
+1. Query all purchases where status = "pending" AND created more than 10 minutes ago AND squareOrderId is not null
+2. For each one, call the payment provider API to check the order status
+3. If COMPLETED, mark as completed, send email, sync dashboard
+4. If not completed after 24 hours, consider it abandoned (optional cleanup)
+This three-layer system (webhook + order lookup fallback + background reconciler) is what makes payment processing actually reliable. Most implementations only do the webhook and silently lose 2-5% of sales.
+
+Phase 5: Frontend
+One shell, one router, dynamic pages.
+
+The frontend is a single-page React application. The server sends the same index.html for every URL. React's router reads the URL and renders the right component. The component fetches data from the API and renders it.
+
+Key frontend rules:
+
+Use a data fetching library with caching. TanStack Query is the right choice. Configure a default fetcher so components just declare queryKey: ["/api/events"] and the data appears. Always invalidate the cache after mutations.
+Show loading states. Every query has an isLoading state. Show skeleton placeholders, not blank screens. Users on slow phones will see the skeleton for a second or two.
+One component for all event detail pages. Don't create separate components for different event types. One EventDetail component that conditionally renders sections based on flags:
+if (event.isTicketed) → render ticket purchase form
+if (event.hasSponsorSection) → render sponsor logos
+if (event.hasRegistration) → render vendor registration
+Ticket purchase form UX:
+Fields: buyer name (required), buyer email (required), quantity (dropdown, 1-10)
+Show price per ticket and computed total
+Show remaining tickets if capacity is set
+On submit: POST to checkout endpoint, receive URL, redirect to payment provider's hosted checkout
+Never collect card numbers on your site. Always redirect to the provider's hosted checkout.
+Payment success page:
+User lands here after paying, with ?purchaseId=X in the URL
+Poll GET /api/ticket-purchases/:id/status every 2 seconds
+Show "Processing your payment..." until status = completed
+Then show confirmation number, event details, "check your email"
+Tell them to check spam/junk folder
+Sort events by date, soonest first. Parse the text date, sort by timestamp, put dateless events at the end. Do this everywhere events are listed — the main events page, the navigation dropdown, the homepage.
+Mobile-first navigation. Hamburger menu with a slide-out sheet on mobile. Full horizontal nav bar on desktop. Make sure the event list in the mobile menu scrolls (overflow-y-auto) because the list can get long.
+Phase 6: Styling
+Don't overthink this. Use a design system.
+
+Pick a component library (shadcn/ui). It gives you buttons, cards, forms, dialogs, tabs, badges that all look consistent.
+Pick a CSS framework (Tailwind). It makes spacing, colors, and responsive design consistent without writing custom CSS.
+Define your color palette as HSL CSS variables. One primary color, then derive everything else (backgrounds, borders, muted text) from it.
+Use consistent spacing: px-4 py-3 for compact elements, px-6 py-8 for sections, max-w-7xl mx-auto for page content width.
+Cards for listing items (events, businesses, sponsors). Each card has: optional image on top, then padding with title, description, metadata.
+Group sponsors by tier level visually. Presenting sponsors get the biggest logos, gold next, silver smaller, supporting smallest. Use CSS grid with different column counts per tier.
+Phase 7: Email
+Keep it simple. HTML emails with inline styles:
+
+Subject: Your [Event Name] Tickets - Confirmation #XXXX-XXXXXX
+Body:
+- Confirmation number (big, prominent)
+- Event name, date, time, location
+- Quantity and total paid
+- "Show this email at check-in"
+- Organization contact info
+Send the email only AFTER verifying payment with the provider's API. Never send on webhook receipt alone — verify first, then email.
+

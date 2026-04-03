@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { db, organizationsTable, sitesTable, siteUpdateSchedulesTable, websiteSpecsTable, eventsTable, recurringEventTemplatesTable } from "@workspace/db";
-import { eq, sql, and } from "drizzle-orm";
+import { eq, sql, and, asc } from "drizzle-orm";
 import { resolveFullOrg } from "../lib/resolveOrg";
 import OpenAI from "openai";
 import { buildSiteFromTemplate, SITE_SCRIPT_BLOCK, type SiteContent } from "../siteTemplate";
@@ -1274,6 +1274,7 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
     .select({ name: eventsTable.name, startDate: eventsTable.startDate, startTime: eventsTable.startTime, endTime: eventsTable.endTime, location: eventsTable.location, description: eventsTable.description, slug: eventsTable.slug, hasRegistration: eventsTable.hasRegistration, status: eventsTable.status })
     .from(eventsTable)
     .where(eq(eventsTable.orgId, org.id))
+    .orderBy(asc(eventsTable.startDate))
     .limit(10);
   const futureEvents = upcomingEvents.filter(e => !e.startDate || e.startDate >= today);
   const allEvents = futureEvents.length > 0 ? futureEvents : upcomingEvents.slice(0, 5);
@@ -1342,10 +1343,21 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
 
 Output ONLY a valid JSON object — no explanation, no markdown fences.
 
+COLOR SELECTION RULES — pick ONE primary color based on org type, then derive the accent:
+- Rotary / Lions / civic service clubs → warm navy (#1e3a5f) or deep teal (#1b4f5a). Accent: gold (#c9a84c).
+- Community association / neighborhood org → warm earth: deep green (#2d5016) or slate blue (#2c4a6e). Accent: warm amber (#d4822a).
+- Festival / entertainment → rich, warm: deep burgundy (#6b1f2e) or warm navy. Accent: amber or warm gold.
+- Business association / chamber → professional: forest green (#1a3a2a) or navy. Accent: gold or copper (#b87333).
+- Arts / cultural → muted jewel tones: deep teal (#1e4d5a) or burgundy (#5c1a2e). Accent: warm gold.
+- Children / family → warm bright primary: deep sky blue (#1a5276) or forest green. Accent: warm yellow (#f0c040).
+- If explicit brand colors are provided, match them and derive the accent to complement.
+- NEVER: neon colors, pure RGB primaries (#ff0000, #0000ff), more than one accent color, low-contrast pairs.
+- Color system uses HSL CSS variables — all site colors are derived from primaryHex. Pick with care.
+
 Required JSON structure:
 {
-  "primaryHex": "#hex derived from: "${colorHints}". Navy=#1e3a5f, Gold=#c9a84c, Green=#2d6a4f, Red=#9b2226, Blue=#0077b6, Purple=#5e2d91. If brand colors available, match them.",
-  "accentHex": "#hex complementary accent — gold/amber (#c9a84c) pairs with dark primaries; navy pairs with warm tones",
+  "primaryHex": "#hex — use the color selection rules above, informed by: org type = ${type}, color hints = "${colorHints}".",
+  "accentHex": "#hex — warm gold/amber pairs with all dark primaries. Never use the same hue as primary.",
   "primaryRgb": "r,g,b of primaryHex e.g. 30,58,95",
   "heroUnsplashId": "${hasImportedImages ? '"" (leave empty — real site images will be used instead of Unsplash)' : `"one ID from: ${HERO_IDS.join(",")}`}",
   "aboutUnsplashId": "${hasImportedImages ? '"" (leave empty — real site images will be used instead of Unsplash)' : `"different ID from: ${ABOUT_IDS.join(",")}`}",
@@ -1365,7 +1377,14 @@ Required JSON structure:
   "contactCardHeading": "action-oriented CTA e.g. 'Become a Member' or 'Attend a Meeting'",
   "contactCardText": "2 sentences with the most useful info — when/where they meet, what to expect"
 }
-Rules: Use REAL content only — never lorem ipsum. Make programs specific to this org (not generic). If stat values unknown, infer plausible ones based on org age/type. No emojis anywhere in the output.`,
+Rules:
+- Use REAL content only — never lorem ipsum or placeholder text. Every sentence must be specific to this organization.
+- Programs must be this org's actual initiatives (not generic examples). If only 2 are mentioned, output 2 — do not invent a third.
+- Stats: use actual known values. If founding year is unknown, omit stat1 entirely (leave value empty). Never fabricate member counts or event numbers.
+- Contact section must include when/where they meet and the most direct way to reach them.
+- aboutHeading must name the org or location specifically — "Serving Norwin Since 1952" not "Serving Our Community."
+- missionExpanded must include the human story: who they serve, what specifically changes in the community because of this org, what someone would gain by joining or attending.
+- No emojis anywhere in the output.`,
       },
       {
         role: "user",
