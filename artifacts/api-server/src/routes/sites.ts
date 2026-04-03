@@ -2039,13 +2039,18 @@ router.post("/sync-events", async (req: Request, res: Response) => {
     </div>
   </section>`;
 
-  // Replace the existing events section — or insert before contact section if missing
+  // Replace the existing events section — or insert before contact section if missing.
+  // Matches id="events" (template standard) OR id="events-section" (legacy AI-generated variant).
   let updatedHtml = existing.generatedHtml;
-  const eventsSecRe = /<section[^>]*\bid="events"[^>]*>[\s\S]*?<\/section>/;
+  const eventsSecRe = /<section[^>]*\bid="events(?:-section)?"[^>]*>[\s\S]*?<\/section>/i;
   if (eventsSecRe.test(updatedHtml)) {
     updatedHtml = updatedHtml.replace(eventsSecRe, newEventsSectionHtml.trim());
   } else {
-    updatedHtml = updatedHtml.replace(/<section[^>]*\bid="contact"/, `${newEventsSectionHtml}\n  <section id="contact"`);
+    // Insert before contact — use capture group $1 so the contact opening tag (including class) is preserved
+    updatedHtml = updatedHtml.replace(
+      /(<section[^>]*\bid="contact"[^>]*>)/,
+      `${newEventsSectionHtml}\n$1`,
+    );
   }
 
   // Ensure "Events" nav link is present — simple targeted insertion before "Contact"
