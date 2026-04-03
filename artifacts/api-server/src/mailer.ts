@@ -384,6 +384,102 @@ export async function sendOrgEmail(
 }
 
 
+// ─── Pre-event Reminder (to ticket holder) ───────────────────────────────────
+
+export async function sendEventReminderToAttendee(opts: {
+  to: string;
+  attendeeName: string;
+  eventName: string;
+  eventDate: string;
+  eventTime: string;
+  eventLocation: string;
+  daysAway: number;
+  orgName: string;
+  accentColor?: string;
+}): Promise<MailResult> {
+  const { to, attendeeName, eventName, eventDate, eventTime, eventLocation, daysAway, orgName } = opts;
+  const accent = opts.accentColor ?? "#f59e0b";
+  const subject = `Reminder: ${eventName} is ${daysAway === 1 ? "tomorrow" : `in ${daysAway} days`}`;
+
+  const metaRow = (label: string, value: string) =>
+    value ? `<tr>
+      <td style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);width:120px;font-size:13px;color:rgba(255,255,255,0.45);vertical-align:top;">${label}</td>
+      <td style="padding:8px 0 8px 16px;border-bottom:1px solid rgba(255,255,255,0.05);font-size:13px;color:rgba(255,255,255,0.85);vertical-align:top;">${value}</td>
+    </tr>` : "";
+
+  const body = `
+    <p style="margin:0 0 6px;font-size:13px;font-weight:600;color:${accent};letter-spacing:1px;text-transform:uppercase;">${daysAway === 1 ? "Tomorrow" : `${daysAway} days away`}</p>
+    <h1 style="margin:0 0 20px;font-size:26px;font-weight:800;color:#ffffff;line-height:1.25;letter-spacing:-0.5px;">${eventName} is almost here.</h1>
+
+    <p style="margin:0 0 20px;font-size:15px;color:rgba(255,255,255,0.75);line-height:1.7;">
+      Hi ${attendeeName}, just a reminder that <strong style="color:#ffffff;">${eventName}</strong> is ${daysAway === 1 ? "tomorrow" : `in ${daysAway} days`}. We can't wait to see you there!
+    </p>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 28px;">
+      ${metaRow("Event", eventName)}
+      ${metaRow("Date", eventDate)}
+      ${metaRow("Time", eventTime)}
+      ${metaRow("Location", eventLocation)}
+    </table>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 28px;">
+      <tr>
+        <td style="background-color:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-left:4px solid ${accent};border-radius:10px;padding:16px 20px;">
+          <p style="margin:0;font-size:13px;color:rgba(255,255,255,0.6);line-height:1.6;">Your original booking confirmation has your confirmation number. Bring it to check-in or have it ready on your phone.</p>
+        </td>
+      </tr>
+    </table>
+
+    ${divider()}
+
+    <p style="margin:0;font-size:13px;color:rgba(255,255,255,0.35);line-height:1.7;">
+      Questions? Contact ${orgName} or reply to this email.
+    </p>
+  `;
+
+  const text = `Hi ${attendeeName},\n\n${eventName} is ${daysAway === 1 ? "tomorrow" : `in ${daysAway} days`}.\n\nDate: ${eventDate}\nTime: ${eventTime}\nLocation: ${eventLocation}\n\nBring your confirmation email to check-in.\n\n${orgName}`;
+  return send(to, subject, wrap(body, accent), text);
+}
+
+// ─── Pre-event Admin Alert ─────────────────────────────────────────────────
+
+export async function sendEventAdminAlert(opts: {
+  to: string;
+  adminName: string;
+  eventName: string;
+  eventDate: string;
+  eventTime: string;
+  eventLocation: string;
+  ticketsSold: number;
+  daysAway: number;
+  orgSlug: string;
+}): Promise<MailResult> {
+  const { to, adminName, eventName, eventDate, daysAway, ticketsSold, orgSlug } = opts;
+  const subject = `${eventName} is in ${daysAway} days — ${ticketsSold} ticket${ticketsSold !== 1 ? "s" : ""} sold`;
+
+  const body = `
+    <p style="margin:0 0 6px;font-size:13px;font-weight:600;color:#f59e0b;letter-spacing:1px;text-transform:uppercase;">Event coming up</p>
+    <h1 style="margin:0 0 20px;font-size:24px;font-weight:800;color:#ffffff;line-height:1.3;letter-spacing:-0.5px;">${eventName} is in ${daysAway} days.</h1>
+
+    <p style="margin:0 0 20px;font-size:15px;color:rgba(255,255,255,0.75);line-height:1.7;">
+      Hi ${adminName || "there"}, here's a quick heads-up for ${eventName} on ${eventDate}.
+    </p>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 28px;">
+      <tr><td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05);color:rgba(255,255,255,0.45);font-size:13px;width:140px;">Tickets sold</td><td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05);font-size:15px;font-weight:700;color:#f59e0b;">${ticketsSold}</td></tr>
+      <tr><td style="padding:10px 0;color:rgba(255,255,255,0.45);font-size:13px;">Date</td><td style="padding:10px 0;font-size:13px;color:rgba(255,255,255,0.85);">${eventDate}</td></tr>
+    </table>
+
+    ${goldBtn(`https://mypillar.co/dashboard/events`, "View event dashboard")}
+
+    ${divider()}
+    <p style="margin:0;font-size:13px;color:rgba(255,255,255,0.35);line-height:1.7;">Pillar sent this automatically because you have an upcoming event. Ticket holder reminder emails have already been sent.</p>
+  `;
+
+  const text = `Hi ${adminName || "there"},\n\n${eventName} is in ${daysAway} days.\n\nTickets sold: ${ticketsSold}\nDate: ${eventDate}\n\nView dashboard: https://mypillar.co/dashboard/events?org=${orgSlug}`;
+  return send(to, subject, wrap(body), text);
+}
+
 // ─── Ticket Confirmation ──────────────────────────────────────────────────────
 
 export async function sendTicketConfirmation(opts: {

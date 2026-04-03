@@ -1,0 +1,145 @@
+if you were an AI agent in charge of this dashboard and wanted hands off users explain to me how an AI agent could make this dashboard work and integrate with the website itself. Spare no detail
+Great question. Here's a detailed breakdown of how an AI agent could fully manage this dashboard and its integration with the Discover Irwin website, with minimal human involvement.
+
+1. Event Lifecycle Management
+What it handles: Creating, updating, archiving, and reactivating events.
+
+How it works:
+
+The AI agent monitors a source of truth — either the Dashboard_Events Google Sheet tab or incoming requests from the website at discoverirwin.com.
+When a new event is created on the website (via the admin panel there), the website calls POST /api/sync-event with the event details (name, slug, date, category, ticketed status, etc.).
+The agent's server receives that, calls the Apps Script syncEvent action, which finds or creates the event row in the Dashboard_Events sheet, sets it active, and handles date-change archiving automatically.
+Deactivation: When an event is canceled or its date passes + 30 days, the agent marks it inactive via the same syncEvent action with active: false. The dashboard moves it to the "Inactive Events" sidebar section automatically.
+Reactivation: If a past event is brought back, the website sends another sync with active: true and a new date. The agent handles the rest.
+What makes it hands-off: The website is the single trigger point. The agent never needs a human to manually add events to the sheet — the sync endpoint does everything. If the website goes down, the existing sheet data persists and the dashboard keeps serving what it has.
+
+2. Vendor Management Pipeline
+What it handles: Receiving vendor applications, routing them to the correct event, tracking approvals, document compliance, and automated reminders.
+
+How the full flow works:
+
+Application intake: A vendor fills out a shared JotForm. The form includes a hidden field for the event slug (set by the link they clicked on the website). The JotForm submission lands in the Vendor Registration Google Sheet.
+Event routing: When the dashboard fetches vendor data, the normalizeEventId() function on the server reads the event field from each row and maps it to the correct event. It handles legacy names ("Downtown Irwin Car Cruise" → "icc"), slug formats ("meet-your-neighbor-dinner"), and full names ("Meet Your Neighbor Dinner"). This is entirely data-driven from the Dashboard_Events sheet — no hardcoding needed for new events.
+Approval workflow: The admin (or an AI agent with write access) reviews vendors in the dashboard's Vendors tab. Clicking "Approve" sends a setVendorApproval action to Apps Script, which writes "Yes" to the "Approved?" column (Column C) in the sheet. Clicking "Reject" triggers a setVendorApproval with "No" and optionally sends a rejection email via SendGrid with a customizable reason.
+Document compliance tracking: Each vendor needs ServSafe certification (Column J) and Insurance (Column K). The dashboard shows "Missing" badges for incomplete documents. The agent runs automated reminder emails:
+Normal cadence: Every 7 days if a document is missing.
+Urgent cadence: Every 1 day when the event is within 7 days.
+Startup delay: 6 hours after server boot before sending any reminders (to avoid spam on restarts).
+Manual override: If an admin clicks the "Missing" badge, it calls setVendorDocStatus via Apps Script to mark that document as received, and reminders stop for that vendor/document pair.
+How an AI agent would automate this further: The agent could auto-approve vendors that meet all criteria (submitted all docs, paid their fee via Square) and only flag exceptions for human review. It would monitor the sheet for new submissions on a polling interval (currently 5-minute cache), compare against approval rules, and take action without any human clicking buttons.
+3. Sponsor Management & Logo Pipeline
+What it handles: Sponsor sign-ups, logo collection, approval, and publishing to the website.
+
+The complete data flow:
+
+Sponsor signs up: They fill out a JotForm (one per tier: Presenting, Gold, Silver). The form collects their company name, email, logo upload, and has a hidden sponsoringEvent field set by the Square payment link they came from.
+Data lands in three sheets: Presenting Sponsor Logos, Gold Sponsor Logos, Silver Sponsor Logos. Each has:
+Column A: Company Name
+Column B: Logo upload URL (JotForm hosted)
+Column G: "Sponsoring Event" (legacy, text)
+Column H: "SponsoringEvent" (slug, from hidden field)
+Column J: "Approved" (Yes/No)
+Logo source resolution: The dashboard's fetchSponsorCandidates() function merges two sources:
+Google Drive folder scan: Looks in a shared Drive folder for subfolders named by company. Each subfolder contains a logo file. The thumbnail URL from Drive is used.
+Sheet-only candidates: Companies that appear in the sheet but NOT in the Drive folder. Their logo comes from the JotForm upload URL in Column B.
+Permanent logo storage: JotForm URLs break when their auth changes. So the server now permanently downloads JotForm logos to public/sponsor-logos/ the first time they're requested. The file is named by MD5 hash of the original URL. Once downloaded, it's served as a static file forever — no dependency on JotForm remaining accessible.
+Approval: Admin clicks "Approve" in the dashboard. This sends setSponsorApproval to Apps Script with the company name and sponsoring event. Apps Script writes "Yes" to Column J.
+Publishing to the website:
+ICC sponsors: The website at discoverirwin.com calls GET /api/sponsors.json. This endpoint calls Apps Script's getApprovedSponsors action, then cross-references with the candidate list to filter out non-ICC sponsors and add any ICC sponsors that only exist in sheets (not Drive). Returns { presenting: [...], gold: [...], silver: [...] } with logo URLs.
+All other events: The website calls GET /api/event-sponsors.json?event=<slug>. This filters candidates by event slug matching, returns only approved sponsors with absolute logo URLs. The website renders these directly.
+How an AI agent automates this: The agent could monitor for new sheet rows (new sponsor submissions), automatically verify the logo is valid (downloads successfully, is an actual image, meets size requirements), auto-approve if payment is confirmed in Square, and immediately make the sponsor visible on the website — all without human intervention. The only human touchpoint would be overriding an auto-decision.
+4. Payment Tracking & Attribution
+What it handles: Matching Square transactions to events, categorizing by type (participant, vendor, sponsor), and tracking revenue.
+
+How it works:
+
+Data source: Square transaction data lives in a Google Sheet, accessed via Google Sheets API v4. Each row has transaction details including a "notes" field.
+Event attribution: The server parses the notes field for event-specific tags. For example, a note containing "icc" or "car cruise" maps to the ICC event. A note with "mynd" or "meet-your-neighbor" maps to that event. The mapping is slug-based and follows the same normalizeEventId logic.
+Transaction categorization:
+Participant payments: Registration fees, identified by specific note patterns.
+Vendor payments: Vendor booth fees, identified by "vendor" in notes.
+Sponsor payments: Sponsorship payments, identified by tier keywords.
+Ticket payments: When an event is ticketed, ticket purchases from Square are matched and shown in a dedicated "Tickets" revenue card.
+Check receipts: Manual check payments (especially for sponsors) can be entered through the dashboard. These are tracked separately and added to the revenue total.
+Failed payments: Transactions marked as failed are noted in the data but excluded from revenue calculations.
+What an AI agent adds: Automated reconciliation. The agent could compare Square's transaction log against expected payments (every approved vendor should have a payment, every sponsor should have a payment matching their tier amount) and flag discrepancies — "Vendor X was approved but hasn't paid" or "Sponsor Y's payment amount doesn't match Gold tier pricing."
+5. Ticket Sales Integration
+What it handles: Real-time ticket tracking for ticketed events.
+
+The complete flow:
+
+Ticket sales happen on discoverirwin.com. When someone buys a ticket, the website calls POST /api/sync-ticket-sale on the dashboard with the purchase details (buyer name, email, quantity, amount, confirmation number, status).
+Dashboard stores and displays: The server maintains ticket data in memory. The event panel shows a "Tickets Sold" stat card (e.g., "24/100") when isTicketed is true for that event.
+Ticket data API: GET /api/event-tickets?event=<slug> proxies to https://discoverirwin.com/api/event-tickets.json with 5-minute caching. The API returns full purchaser details. The server normalizes the fields (e.g., totalAmount in cents → amount in dollars).
+Capacity overrides: The TICKET_CAPACITY map on the server can override the capacity returned by the API. Useful when the website's capacity setting doesn't match the actual venue limit.
+Revenue integration: Ticket revenue appears in a dedicated card in the Payments tab and rolls into Total Revenue. Purchaser deduplication merges API data with Square payment overrides.
+Status filtering: All ticket statuses are included except FAILED, CANCELED, and REFUNDED.
+Payment overrides: There's a PAYMENT_OVERRIDES map with hardcoded Square payment IDs (8 entries for MYND) that map specific transactions to ticket purchases, handling cases where the payment came through Square but the ticket was issued manually.
+Communication: Ticket buyers appear in the Communication tab as "Ticket" type contacts with their own filter button, so you can email all ticket holders for a specific event.
+6. Communication System
+What it handles: Sending emails to any contact associated with an event.
+
+How it works:
+
+Contact aggregation: The Communication tab pulls contacts from multiple sources for each event:
+Registered participants (from registration sheets)
+Approved vendors (from vendor sheet)
+Payment contacts (from Square transactions)
+Ticket purchasers (from ticket API)
+Filtering: Each contact type has a filter button. You can select "Vendors only" or "Tickets only" etc.
+Email sending: Uses SendGrid API. Supports:
+Individual emails to selected contacts
+Custom subject and body
+File attachments up to 10 MB (sent as base64 via SendGrid)
+AI agent automation potential: The agent could send automated pre-event reminders ("Your event is in 3 days — here's what you need to know"), post-event thank-you emails, and targeted communications ("All vendors: reminder to bring your ServSafe certificate").
+7. Website ↔ Dashboard Integration Points
+Here's every touchpoint between the dashboard and the website:
+
+Direction	Endpoint	Purpose
+Website → Dashboard	POST /api/sync-event	Create/update/deactivate events
+Website → Dashboard	POST /api/sync-ticket-sale	Real-time ticket sale notifications
+Website → Dashboard	GET /api/sponsors.json	Fetch approved ICC sponsors for display
+Website → Dashboard	GET /api/event-sponsors.json?event=<slug>	Fetch approved sponsors for any other event
+Dashboard → Website	GET discoverirwin.com/api/event-tickets.json	Fetch ticket purchase data
+Both → Google Sheets	Apps Script / Sheets API v4	Shared data layer for all event data
+Authentication between systems:
+
+The POST /api/sync-event endpoint uses a DASHBOARD_SYNC_TOKEN — the website must send this token to prove it's authorized.
+The POST /api/sync-ticket-sale uses the same token.
+The GET endpoints for sponsors are public (no auth required) — they serve approved, public-facing data.
+The ticket API proxy doesn't require auth from the dashboard side; it just fetches public data from the website.
+8. How a Fully Autonomous AI Agent Would Run This
+If I were the AI agent managing this entire system hands-off:
+
+Continuous monitoring (polling loop every 5 minutes):
+
+Check Google Sheets for new vendor submissions → auto-route to correct event
+Check Square payments sheet for new transactions → auto-categorize and attribute
+Check sponsor sheets for new submissions → validate logo, queue for approval
+Check ticket API for new purchases → update stats
+Automated decisions:
+
+Auto-approve vendors who have: paid their fee, submitted ServSafe, submitted Insurance
+Auto-approve sponsors who have: paid their tier fee, uploaded a valid logo
+Auto-reject vendors 48 hours before event if documents are still missing (with email notification)
+Auto-archive events 30 days after their date
+Automated communications:
+
+Welcome email when a vendor is approved
+Reminder emails on a schedule for missing documents
+Pre-event info blast 7 days before
+Post-event survey 2 days after
+Error handling:
+
+If Apps Script is down, serve from cache and retry
+If a sponsor logo fails to download, log it and retry next cycle
+If the website can't reach the dashboard, the website shows cached sponsor data
+The only human touchpoints would be:
+
+Setting up a new event on the website (which triggers the sync automatically)
+Overriding an auto-approval/rejection decision
+Composing custom email content for special communications
+Entering manual check payments
+Everything else — the data flow, the approvals, the reminders, the website integration, the logo management — would run completely autonomously.
+
+That's the full picture. The system is already 80% of the way there architecturally. The remaining 20% to make it fully autonomous would be adding decision-making logic for auto-approvals and a scheduling loop for proactive communications, rather than waiting for a human to click buttons in the dashboard.

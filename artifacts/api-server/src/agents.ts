@@ -3,7 +3,7 @@
  * Four autonomous agents that handle operations while the founder is busy.
  *
  * Agent 1: Customer Success — welcome emails, nudges, trial reminders, support auto-response
- * Agent 2: Operations      — weekly founder digest, payment failure emails
+ * Agent 2: Operations      — weekly founder digest, payment failure emails, pre-event reminders
  * Agent 3: Content         — generates Pillar marketing content drafts
  * Agent 4: Outreach        — drafts and sends cold outreach to prospects
  */
@@ -18,6 +18,8 @@ import {
   agentLogsTable,
   contentQueueTable,
   outreachProspectsTable,
+  eventsTable,
+  ticketSalesTable,
 } from "@workspace/db";
 import {
   eq, and, gte, lte, lt, isNull, isNotNull, sql, ne, desc,
@@ -33,6 +35,8 @@ import {
   sendSupportTicketResponse,
   sendOutreachEmail,
   sendFounderDigest,
+  sendEventReminderToAttendee,
+  sendEventAdminAlert,
 } from "./mailer";
 
 const FOUNDER_EMAIL = process.env.FOUNDER_EMAIL ?? "steward.ai.app@gmail.com";
@@ -390,6 +394,158 @@ export async function runOperationsAgent() {
       targetEmail: user.email,
       details: result.simulated ? "simulated" : result.error,
     });
+  }
+
+  // 3. Pre-event reminders — 7 days before
+  //    a) Email every paid ticket holder for each event happening in 7 days
+  //    b) Notify the org admin once per event
+  {
+    const sevenDaysOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const targetDate = sevenDaysOut.toISOString().split("T")[0]; // "YYYY-MM-DD"
+
+    const upcoming = await db
+      .select({
+        id: eventsTable.id,
+        name: eventsTable.name,
+        orgId: eventsTable.orgId,
+        startDate: eventsTable.startDate,
+        startTime: eventsTable.startTime,
+        endTime: eventsTable.endTime,
+        location: eventsTable.location,
+        isTicketed: eventsTable.isTicketed,
+        status: eventsTable.status,
+      })
+      .from(eventsTable)
+      .where(
+        and(
+          eq(eventsTable.startDate, targetDate),
+          eq(eventsTable.status, "published"),
+          eq(eventsTable.isActive, true),
+        )
+      );
+
+    for (const event of upcoming) {
+      // — a) Ticket holder reminders ———————————————————————————————————————
+      if (event.isTicketed) {
+        const sales = await db
+          .select({
+            id: ticketSalesTable.id,
+            attendeeName: ticketSalesTable.attendeeName,
+            attendeeEmail: ticketSalesTable.attendeeEmail,
+            quantity: ticketSalesTable.quantity,
+          })
+          .from(ticketSalesTable)
+          .where(
+            and(
+              eq(ticketSalesTable.eventId, event.id),
+              eq(ticketSalesTable.paymentStatus, "paid"),
+            )
+          );
+
+        // Fetch org name once per event
+        const orgRows = await db
+          .select({ name: organizationsTable.name })
+          .from(organizationsTable)
+          .where(eq(organizationsTable.id, event.orgId))
+          .limit(1);
+        const orgName = orgRows[0]?.name ?? "the organizer";
+
+        for (const sale of sales) {
+          if (!sale.attendeeEmail) continue;
+          const targetId = `preEvent7_ticket_${sale.id}`;
+          if (await alreadyDid("operations", "pre_event_reminder", targetId)) continue;
+
+          try {
+            const result = await sendEventReminderToAttendee({
+              to: sale.attendeeEmail,
+              attendeeName: sale.attendeeName ?? "there",
+              eventName: event.name,
+              eventDate: event.startDate ?? targetDate,
+              eventTime: event.startTime ?? "",
+              eventLocation: event.location ?? "",
+              daysAway: 7,
+              orgName,
+            });
+            await logAction("operations", "pre_event_reminder", result.sent || result.simulated ? "success" : "error", {
+              targetId,
+              targetEmail: sale.attendeeEmail,
+              details: result.simulated ? "simulated" : (result.error ?? undefined),
+            });
+          } catch (err) {
+            await logAction("operations", "pre_event_reminder", "error", {
+              targetId,
+              details: String(err),
+            });
+          }
+        }
+      }
+
+      // — b) Admin alert ——————————————————————————————————————————————————
+      const adminTargetId = `preEvent7_admin_${event.id}`;
+      if (!(await alreadyDid("operations", "pre_event_admin_alert", adminTargetId))) {
+        try {
+          // Find org admin: user who owns an active subscription for this org
+          const subRows = await db
+            .select({ userId: subscriptionsTable.userId })
+            .from(subscriptionsTable)
+            .where(eq(subscriptionsTable.organizationId, event.orgId))
+            .limit(1);
+          const adminUserId = subRows[0]?.userId;
+
+          if (adminUserId) {
+            const adminRows = await db
+              .select({ email: usersTable.email, firstName: usersTable.firstName })
+              .from(usersTable)
+              .where(eq(usersTable.id, adminUserId))
+              .limit(1);
+            const admin = adminRows[0];
+
+            if (admin?.email) {
+              // Count paid tickets for summary
+              const soldRows = await db
+                .select({ count: sql<number>`sum(${ticketSalesTable.quantity})` })
+                .from(ticketSalesTable)
+                .where(
+                  and(
+                    eq(ticketSalesTable.eventId, event.id),
+                    eq(ticketSalesTable.paymentStatus, "paid"),
+                  )
+                );
+              const ticketsSold = Number(soldRows[0]?.count ?? 0);
+
+              const orgRows2 = await db
+                .select({ slug: organizationsTable.slug })
+                .from(organizationsTable)
+                .where(eq(organizationsTable.id, event.orgId))
+                .limit(1);
+              const orgSlug = orgRows2[0]?.slug ?? "";
+
+              const result = await sendEventAdminAlert({
+                to: admin.email,
+                adminName: admin.firstName ?? "",
+                eventName: event.name,
+                eventDate: event.startDate ?? targetDate,
+                eventTime: event.startTime ?? "",
+                eventLocation: event.location ?? "",
+                ticketsSold,
+                daysAway: 7,
+                orgSlug,
+              });
+              await logAction("operations", "pre_event_admin_alert", result.sent || result.simulated ? "success" : "error", {
+                targetId: adminTargetId,
+                targetEmail: admin.email,
+                details: result.simulated ? "simulated" : (result.error ?? undefined),
+              });
+            }
+          }
+        } catch (err) {
+          await logAction("operations", "pre_event_admin_alert", "error", {
+            targetId: adminTargetId,
+            details: String(err),
+          });
+        }
+      }
+    }
   }
 
   logger.info("[operations] Agent run complete");
