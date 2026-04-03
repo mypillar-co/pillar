@@ -644,7 +644,266 @@ router.delete("/my/proposal", async (req: Request, res: Response) => {
   res.json({ success: true });
 });
 
-// ─── Generate site from interview history ─────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// DESIGN ALGORITHM — classifier, scorer, planner (no AI, fully deterministic)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+type AssetClass =
+  | "logo" | "hero_photo" | "supporting_photo"
+  | "decorative_graphic" | "sponsor_logo" | "icon_mark" | "unknown";
+
+/**
+ * Classify an image URL as a hero photo or a logo/graphic that must never
+ * be used as a hero background.  Confidence is conservative — when in doubt
+ * we return "unknown", which is treated the same as non-hero.
+ */
+function classifyAsset(url: string, knownLogoUrl: string | null): AssetClass {
+  if (!url) return "unknown";
+  const u = url.toLowerCase();
+
+  // Known logo → always logo
+  if (knownLogoUrl && url === knownLogoUrl) return "logo";
+
+  // URL-name signals (strongest indicator)
+  if (/logo|icon|badge|mark|symbol|seal|emblem|favicon|crest|brand|watermark/.test(u)) return "logo";
+
+  // File-type signals — SVG/ICO are virtually always logos or decorative
+  if (u.endsWith(".svg") || u.endsWith(".ico")) return "decorative_graphic";
+
+  // Unsplash stock images are always real photos
+  if (u.includes("unsplash.com")) return "hero_photo";
+
+  // Explicit photo signals
+  if (/photo|banner|hero|cover|background|landscape|outdoor|aerial|scene/.test(u)) return "hero_photo";
+
+  // Thumbnail / avatar signals → supporting at best
+  if (/thumb|thumbnail|avatar|profile|headshot|small|crop|sq/.test(u)) return "supporting_photo";
+
+  // Generic HTTPS image (imported from external site) — use as supporting, not hero
+  if (u.startsWith("https://") && /\.(jpg|jpeg|png|webp)/.test(u)) return "supporting_photo";
+
+  return "unknown";
+}
+
+/** Only hero_photo class qualifies as a hero background */
+function isHeroQualified(cls: AssetClass): boolean {
+  return cls === "hero_photo";
+}
+
+// ─── Event CTA inference ──────────────────────────────────────────────────────
+
+type EventCtaMode =
+  | "learn_more" | "register" | "rsvp" | "buy_tickets"
+  | "apply_vendor" | "apply_participant" | "sponsor" | "donate";
+
+function inferEventCta(name: string, description = ""): { mode: EventCtaMode; label: string } {
+  const t = `${name} ${description}`.toLowerCase();
+  if (/ticket|seat|admission|purchase|paid|price|\$\d/.test(t)) return { mode: "buy_tickets",        label: "Buy Tickets" };
+  if (/fundrais|donate|donation|fund|charity|pledge/.test(t))   return { mode: "donate",             label: "Donate Now" };
+  if (/vendor|booth|exhibitor|craft fair|table/.test(t))         return { mode: "apply_vendor",       label: "Apply as Vendor" };
+  if (/\b(5k|10k|race|run|walk|cycle|swim|participant)\b/.test(t)) return { mode: "apply_participant", label: "Sign Up" };
+  if (/sponsor(?:ship)?/.test(t))                                return { mode: "sponsor",            label: "Become a Sponsor" };
+  if (/rsvp|reserve a seat/.test(t))                             return { mode: "rsvp",               label: "RSVP Now" };
+  if (/register|enroll|sign.?up/.test(t))                        return { mode: "register",           label: "Register Now" };
+  return { mode: "learn_more", label: "Learn More" };
+}
+
+// ─── Content quality scoring ──────────────────────────────────────────────────
+
+type QScore = 0 | 1 | 2 | 3;
+type ContentScores = {
+  mission: QScore; events: QScore; programs: QScore;
+  membership: QScore; contact: QScore; images: QScore; stats: QScore;
+};
+
+function scoreContent(p: {
+  mission: string; services: string[]; eventCount: number;
+  contactEmail: string; contactPhone: string; location: string;
+  extras: string; audience: string;
+  uploadedPhotoCount: number;
+  importedHeroIsActualPhoto: boolean;
+  importedImageCount: number;
+  hasLogo: boolean;
+  // AI-provided stats — only score if plausibly real
+  stat1Value: string; stat2Value: string; stat3Value: string;
+}): ContentScores {
+  const { mission, services, eventCount, contactEmail, contactPhone, location, extras, audience,
+          uploadedPhotoCount, importedHeroIsActualPhoto, importedImageCount, hasLogo } = p;
+  const fullText = `${mission} ${extras} ${audience}`.toLowerCase();
+
+  // Mission
+  const missionScore: QScore =
+    mission.length > 120 && /communit|serv|member|program|help|impact|vision|purpos/.test(fullText) ? 3 :
+    mission.length > 40 ? 2 :
+    mission.length > 10 ? 1 : 0;
+
+  // Events
+  const eventsScore: QScore = eventCount >= 4 ? 3 : eventCount >= 2 ? 2 : eventCount === 1 ? 1 : 0;
+
+  // Programs
+  const programsScore: QScore =
+    services.filter(Boolean).length >= 3 ? 3 :
+    services.filter(Boolean).length === 2 ? 2 :
+    services.filter(Boolean).length === 1 ? 1 : 0;
+
+  // Membership
+  const memberKeywords = (fullText.match(/member|join|belong|fellowship|club|benefit|volunteer|community|get involved/g) ?? []).length;
+  const membershipScore: QScore = memberKeywords >= 4 ? 3 : memberKeywords >= 2 ? 2 : memberKeywords >= 1 ? 1 : 0;
+
+  // Contact
+  const contactFields = [contactEmail, contactPhone, location].filter(Boolean).length;
+  const contactScore: QScore = contactFields >= 3 ? 3 : contactFields === 2 ? 2 : contactFields === 1 ? 1 : 0;
+
+  // Images — only real photographic assets qualify
+  const photographic = uploadedPhotoCount + (importedHeroIsActualPhoto ? 1 : 0) + Math.min(importedImageCount, 2);
+  const imagesScore: QScore = photographic >= 3 ? 3 : photographic >= 2 ? 2 : photographic >= 1 ? 1 : 0;
+
+  // Stats — only real if NOT matching obvious placeholder defaults
+  const fakeDefaults = new Set(["1985", "200+", "20+", "100+", "50+"]);
+  const realStatCount = [p.stat1Value, p.stat2Value, p.stat3Value]
+    .filter(v => v && !fakeDefaults.has(v)).length;
+  const statsScore: QScore = realStatCount >= 3 ? 3 : realStatCount >= 2 ? 2 : realStatCount >= 1 ? 1 : 0;
+
+  return { mission: missionScore, events: eventsScore, programs: programsScore,
+           membership: membershipScore, contact: contactScore, images: imagesScore, stats: statsScore };
+}
+
+// ─── Layout planner ───────────────────────────────────────────────────────────
+
+type LayoutStrategy = "event-led" | "membership-led" | "program-led" | "contact-led" | "minimal";
+type PrimaryJob = "event_conversion" | "membership_conversion" | "program_explanation" | "contact_capture";
+type HeroType = "featured-event" | "mission" | "photo" | "clean-text" | "logo-badge";
+
+type LayoutPlan = {
+  strategy: LayoutStrategy;
+  primaryJob: PrimaryJob;
+  heroType: HeroType;
+  showStats: boolean;
+  showFeaturedEvent: boolean;
+  showEventList: boolean;
+  showPrograms: boolean;
+};
+
+function planLayout(scores: ContentScores, hasActualHeroPhoto: boolean, hasLogo: boolean): LayoutPlan {
+  // Primary job
+  let primaryJob: PrimaryJob;
+  if (scores.events >= 2) primaryJob = "event_conversion";
+  else if (scores.mission >= 2 && scores.membership >= 2) primaryJob = "membership_conversion";
+  else if (scores.programs >= 2) primaryJob = "program_explanation";
+  else primaryJob = "contact_capture";
+
+  // Strategy
+  let strategy: LayoutStrategy;
+  const isContentThin = scores.mission <= 1 && scores.programs <= 1 && scores.events <= 1;
+  if (isContentThin) strategy = "minimal";
+  else if (primaryJob === "event_conversion") strategy = "event-led";
+  else if (primaryJob === "membership_conversion") strategy = "membership-led";
+  else if (primaryJob === "program_explanation") strategy = "program-led";
+  else strategy = "contact-led";
+
+  // Hero type — conservative
+  let heroType: HeroType;
+  if (strategy === "event-led" && scores.events >= 2) heroType = "featured-event";
+  else if (hasActualHeroPhoto && scores.images >= 2) heroType = "photo";
+  else if (scores.mission >= 2) heroType = "mission";
+  else if (hasLogo) heroType = "logo-badge";
+  else heroType = "clean-text";
+
+  return {
+    strategy,
+    primaryJob,
+    heroType,
+    showStats: scores.stats >= 2,
+    showFeaturedEvent: (strategy === "event-led") && scores.events >= 2,
+    showEventList: scores.events >= 1,
+    showPrograms: scores.programs >= 1,
+  };
+}
+
+// ─── Section builders ─────────────────────────────────────────────────────────
+
+type EventRow = {
+  name: string; startDate: string | null; startTime: string | null;
+  endTime: string | null; location: string | null; description: string | null;
+};
+
+function buildFeaturedEventSection(
+  event: EventRow,
+  esc: (s: string) => string,
+  accentHex: string,
+): string {
+  const dateObj = event.startDate ? new Date(event.startDate + "T00:00:00") : null;
+  const day = dateObj ? String(dateObj.getDate()) : "";
+  const month = dateObj ? dateObj.toLocaleDateString("en-US", { month: "short" }).toUpperCase() : "";
+  const year = dateObj ? String(dateObj.getFullYear()) : "";
+  const timeStr = event.startTime
+    ? `🕐 ${esc(event.startTime)}${event.endTime ? ` – ${esc(event.endTime)}` : ""}`
+    : "";
+  const { label: ctaLabel } = inferEventCta(event.name, event.description ?? "");
+
+  return `
+  <section class="featured-event" id="featured-event">
+    <div class="container">
+      <div class="section-header reveal" style="margin-bottom:40px">
+        <span class="eyebrow">Featured Event</span>
+      </div>
+      <div class="featured-event-card reveal">
+        ${day ? `
+        <div class="fe-date-block">
+          <span class="fe-day">${day}</span>
+          <span class="fe-month">${month}</span>
+          ${year ? `<span class="fe-year">${year}</span>` : ""}
+        </div>` : ""}
+        <div class="fe-body">
+          <h2>${esc(event.name)}</h2>
+          ${(timeStr || event.location) ? `
+          <p class="fe-meta">
+            ${timeStr ? `<span>${timeStr}</span>` : ""}
+            ${event.location ? `<span>📍 ${esc(event.location)}</span>` : ""}
+          </p>` : ""}
+          ${event.description ? `<p>${esc(event.description)}</p>` : ""}
+          <div class="fe-cta-row">
+            <a href="#contact" class="btn-primary">${esc(ctaLabel)}</a>
+            <a href="#events" class="btn-ghost" style="background:transparent;color:var(--text);border-color:var(--border)">View All Events</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>`;
+}
+
+function buildSponsorStrip(sponsors: string[], esc: (s: string) => string): string {
+  if (!sponsors.length) return "";
+  const items = sponsors.slice(0, 6).map(name => `
+    <div class="sponsor-logo-item reveal-child">
+      <span class="sponsor-name">${esc(name)}</span>
+    </div>`).join("\n");
+  return `
+  <section class="sponsor-strip">
+    <div class="container">
+      <p class="sponsor-label">Partners &amp; Sponsors</p>
+      <div class="sponsor-logos">
+        ${items}
+      </div>
+    </div>
+  </section>`;
+}
+
+function buildStatsSection(statsBlock: string): string {
+  if (!statsBlock.trim()) return "";
+  return `
+  <section class="stats-strip">
+    <div class="container">
+      <div class="stats-grid">
+        ${statsBlock}
+      </div>
+    </div>
+  </section>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Generate site from interview history
+// ═══════════════════════════════════════════════════════════════════════════════
 router.post("/generate", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
@@ -814,9 +1073,10 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
   };
 
   const colorHints = s.colors || "navy and gold";
-  // Only count actual photos as "imported images" — never treat a logo as a hero photo
-  const importedHeroIsActualPhoto = !!(importedHeroUrl && importedHeroUrl !== importedLogoUrl);
-  const hasImportedImages = photoUrls.length > 0 || importedHeroIsActualPhoto;
+  // Rough check for AI prompt: has the user provided any photographic material?
+  // (Full asset classification runs after AI call in step 5)
+  const hasImportedImages = photoUrls.length > 0
+    || (importedHeroUrl !== null && importedHeroUrl !== importedLogoUrl);
   const originalSiteContext = originalSiteUrl
     ? `\nOriginal site: ${originalSiteUrl} — you are creating a dramatically improved version of this site.`
     : "";
@@ -872,14 +1132,62 @@ Rules: Use REAL content only — never lorem ipsum. Make programs specific to th
     // Use defaults
   }
 
-  // Step 5: Build all HTML blocks server-side from real data
-  // Image priority: user-uploaded > imported real photo (never a logo) > Unsplash stock
-  // Always ensure valid Unsplash IDs — fall back to curated list if AI returned empty
+  // Step 5: Design algorithm — classify, score, plan, then build HTML blocks
+
+  // ── Asset classification ──────────────────────────────────────────────────
+  const importedLogoEffective = importedLogoUrl ?? null;
+  // Classify each candidate image
+  const uploadedHeroClass  = photoUrls[0] ? classifyAsset(photoUrls[0], importedLogoEffective) : "unknown";
+  const importedHeroClass  = importedHeroUrl ? classifyAsset(importedHeroUrl, importedLogoEffective) : "unknown";
+  // Uploaded user photo takes precedence if it's a real photo; else imported hero if it's a real photo
+  const hasActualHeroPhoto = isHeroQualified(uploadedHeroClass) || isHeroQualified(importedHeroClass);
+  // Imported hero qualifies if it's a real photo AND distinct from logo (existing guard + classifier)
+  const importedHeroIsActualPhoto = importedHeroUrl !== null
+    && importedHeroUrl !== importedLogoUrl
+    && isHeroQualified(importedHeroClass);
+
+  // ── Content quality scoring ───────────────────────────────────────────────
+  const scores = scoreContent({
+    mission: s.mission || contentData.missionExpanded,
+    services: s.services,
+    eventCount: allEvents.length,
+    contactEmail: s.contactEmail,
+    contactPhone: s.contactPhone,
+    location: s.location,
+    extras: s.extras,
+    audience: s.audience,
+    uploadedPhotoCount: photoUrls.length,
+    importedHeroIsActualPhoto,
+    importedImageCount: importedImageUrls.length,
+    hasLogo: !!(logoDataUrl ?? importedLogoUrl),
+    stat1Value: contentData.stat1Value,
+    stat2Value: contentData.stat2Value,
+    stat3Value: contentData.stat3Value,
+  });
+
+  // ── Layout planning ───────────────────────────────────────────────────────
+  const plan = planLayout(scores, hasActualHeroPhoto, !!(logoDataUrl ?? importedLogoUrl));
+
+  // ── Hero image selection — only use hero-qualified images ─────────────────
   const safeHeroId = contentData.heroUnsplashId || HERO_IDS[Math.floor(Math.random() * HERO_IDS.length)];
   const safeAboutId = contentData.aboutUnsplashId || ABOUT_IDS[Math.floor(Math.random() * ABOUT_IDS.length)];
-  const heroPhoto = photoUrls.length > 0 ? photoUrls[0]
+
+  // Hero photo: uploaded real photo > imported real photo > Unsplash (only for photo hero)
+  const heroPhoto = isHeroQualified(uploadedHeroClass) ? photoUrls[0]
     : (importedHeroIsActualPhoto ? importedHeroUrl : null);
-  const heroImageUrl = heroPhoto ?? `https://images.unsplash.com/photo-${safeHeroId}?auto=format&fit=crop&w=1920&q=80`;
+
+  // For gradient hero: no image tag at all (clean gradient from CSS)
+  // For photo hero: real photo required
+  const usePhotoHero = plan.heroType === "photo" || (plan.heroType === "featured-event" && heroPhoto !== null);
+  const heroImageUrl = usePhotoHero && heroPhoto
+    ? heroPhoto
+    : usePhotoHero
+      ? `https://images.unsplash.com/photo-${safeHeroId}?auto=format&fit=crop&w=1920&q=80`
+      : ""; // gradient hero — no image
+
+  const heroModifierClass = heroImageUrl ? "hero--photo" : "hero--gradient";
+
+  // About image: second uploaded photo > first imported extra > imported hero if photo
   const aboutPhoto = photoUrls.length > 1 ? photoUrls[1]
     : (importedImageUrls[0] ?? (importedHeroIsActualPhoto ? importedHeroUrl : null));
   const aboutImageUrl = aboutPhoto ?? `https://images.unsplash.com/photo-${safeAboutId}?auto=format&fit=crop&w=900&q=80`;
@@ -1002,6 +1310,49 @@ Rules: Use REAL content only — never lorem ipsum. Make programs specific to th
     ...(s.location ? { address: { "@type": "PostalAddress", streetAddress: s.location } } : {}),
   });
 
+  // ── Hero CTAs — strategy-aware, max 2 per section ────────────────────────
+  const heroPrimaryCta = (() => {
+    if (plan.strategy === "event-led")       return `<a href="#events" class="btn-primary">View Events</a>`;
+    if (plan.strategy === "membership-led")  return `<a href="#contact" class="btn-primary">Get Involved</a>`;
+    return `<a href="#about" class="btn-primary">Learn More</a>`;
+  })();
+  const heroSecondaryCta = `<a href="#contact" class="btn-ghost">Get in Touch</a>`;
+
+  // ── Featured event — pick best candidate ─────────────────────────────────
+  const featuredEventCandidate = allEvents.find(e => (e as any).featuredOnSite === true)
+    ?? allEvents.find(e => {
+      const t = `${e.name} ${e.description ?? ""}`.toLowerCase();
+      return /ticket|fundrais|gala|donate|\$\d/.test(t);
+    })
+    ?? allEvents[0]
+    ?? null;
+
+  const featuredEventSection = plan.showFeaturedEvent && featuredEventCandidate
+    ? buildFeaturedEventSection(featuredEventCandidate, esc, contentData.accentHex || "#c9a84c")
+    : "";
+
+  // ── Sponsor strip — parse from extras text ────────────────────────────────
+  const sponsorNames: string[] = [];
+  const extrasLower = (s.extras || "").toLowerCase();
+  if (/sponsor|partner/.test(extrasLower)) {
+    const matches = (s.extras || "").match(/(?:sponsors?|partners?)[:–\-\s]+([^\n.]+)/gi);
+    if (matches) {
+      matches.forEach(m => {
+        const names = m.replace(/^(sponsors?|partners?)[:–\-\s]+/i, "").split(/[,;]/);
+        names.forEach(n => { const t = n.trim(); if (t.length > 2 && t.length < 60) sponsorNames.push(t); });
+      });
+    }
+  }
+  const sponsorStrip = sponsorNames.length >= 2 ? buildSponsorStrip(sponsorNames, esc) : "";
+
+  // ── Stats section — gated by quality score ────────────────────────────────
+  const rawStatsBlock = [
+    `<div class="stat-item"><div class="stat-value">${esc(contentData.stat1Value)}</div><div class="stat-label">${esc(contentData.stat1Label)}</div></div>`,
+    `<div class="stat-item"><div class="stat-value">${esc(contentData.stat2Value)}</div><div class="stat-label">${esc(contentData.stat2Label)}</div></div>`,
+    `<div class="stat-item"><div class="stat-value">${esc(contentData.stat3Value)}</div><div class="stat-label">${esc(contentData.stat3Label)}</div></div>`,
+  ].join("\n");
+  const statsSection = plan.showStats ? buildStatsSection(rawStatsBlock) : "";
+
   const siteContent: SiteContent = {
     orgName: safeOrgName,
     orgTagline: esc(s.tagline || contentData.orgTypeLabel),
@@ -1016,13 +1367,16 @@ Rules: Use REAL content only — never lorem ipsum. Make programs specific to th
     stat1Value: esc(contentData.stat1Value), stat1Label: esc(contentData.stat1Label),
     stat2Value: esc(contentData.stat2Value), stat2Label: esc(contentData.stat2Label),
     stat3Value: esc(contentData.stat3Value), stat3Label: esc(contentData.stat3Label),
-    statsBlock,
-    programsBlock,
-    eventsSection: eventsSectionHtml,
+    statsBlock: rawStatsBlock,
+    statsSection,
+    programsBlock: plan.showPrograms ? programsBlock : "",
+    eventsSection: plan.showEventList ? eventsSectionHtml : "",
     shopSection: shopSectionHtml,
-    navEventsLink,
-    mobileEventsLink,
-    footerEventsLink,
+    featuredEventSection,
+    sponsorStrip,
+    navEventsLink: plan.showEventList && allEvents.length > 0 ? '<a href="#events">Events</a>' : "",
+    mobileEventsLink: plan.showEventList && allEvents.length > 0 ? '<a href="#events" class="mobile-link">Events</a>' : "",
+    footerEventsLink: plan.showEventList && allEvents.length > 0 ? '<li><a href="#events">Events</a></li>' : "",
     contactHeading: esc(contentData.contactHeading),
     contactIntro: esc(contentData.contactIntro),
     contactCardHeading: esc(contentData.contactCardHeading),
@@ -1039,6 +1393,9 @@ Rules: Use REAL content only — never lorem ipsum. Make programs specific to th
     canonicalUrl: `https://mypillar.co/sites/${slug}`,
     schemaJson,
     currentYear: String(new Date().getFullYear()),
+    heroModifierClass,
+    heroPrimaryCta,
+    heroSecondaryCta,
   };
 
   try {

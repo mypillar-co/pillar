@@ -22,24 +22,58 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
   <style>
     :root {
+      /* ── Brand ── */
       --primary: %%PRIMARY_HEX%%;
       --primary-rgb: %%PRIMARY_RGB%%;
       --accent: %%ACCENT_HEX%%;
+
+      /* ── Colour system ── */
       --text: #111827;
       --text-muted: #6b7280;
+      --text-subtle: #9ca3af;
       --bg: #ffffff;
       --bg-subtle: #f9fafb;
       --bg-dark: #0f0f0f;
       --border: #e5e7eb;
-      --radius: 14px;
-      --radius-lg: 22px;
-      --shadow: 0 4px 24px rgba(0,0,0,0.07), 0 1px 4px rgba(0,0,0,0.04);
-      --shadow-lg: 0 20px 60px rgba(0,0,0,0.13), 0 6px 20px rgba(0,0,0,0.06);
+      --border-subtle: #f3f4f6;
+
+      /* ── Radius / shadow ── */
+      --radius: 12px;
+      --radius-lg: 20px;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+      --shadow: 0 4px 16px rgba(0,0,0,0.07), 0 1px 4px rgba(0,0,0,0.04);
+      --shadow-lg: 0 16px 48px rgba(0,0,0,0.12), 0 4px 16px rgba(0,0,0,0.06);
+
+      /* ── Fonts ── */
       --font-body: 'DM Sans', system-ui, sans-serif;
       --font-display: 'DM Serif Display', Georgia, serif;
+
+      /* ── Typography scale ── */
+      --t-hero:    clamp(2rem, 5.5vw, 4rem);       /* 32–64px */
+      --t-h2:      clamp(1.375rem, 2.8vw, 2.25rem); /* 22–36px */
+      --t-h3:      clamp(1.125rem, 1.6vw, 1.375rem);/* 18–22px */
+      --t-body:    clamp(0.9375rem, 1.1vw, 1.0625rem); /* 15–17px */
+      --t-small:   0.875rem;                         /* 14px */
+      --t-meta:    0.8125rem;                        /* 13px */
+      --t-label:   0.72rem;                          /* eyebrow labels */
+
+      /* ── Spacing scale (8px base) ── */
+      --sp-1: 8px;
+      --sp-2: 16px;
+      --sp-3: 24px;
+      --sp-4: 32px;
+      --sp-5: 48px;
+      --sp-6: 64px;
+      --sp-7: 80px;
+      --sp-8: 96px;
+
+      /* ── Layout ── */
       --max-w: 1200px;
-      --gutter: clamp(20px, 5vw, 48px);
-      --section-pad: clamp(72px, 9vw, 120px);
+      --content-max: 900px;
+      --gutter: clamp(16px, 5vw, 48px);
+      --section-pad: clamp(var(--sp-5), 8vw, var(--sp-7));
+      --card-gap: 24px;
+      --card-pad: 22px 24px;
     }
 
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -162,11 +196,21 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
     .hero {
       position: relative;
       height: 100vh;
-      min-height: 640px;
+      min-height: 600px;
+      max-height: 900px;
       display: flex;
       align-items: center;
       overflow: hidden;
     }
+    /* Gradient hero — used when no strong photo exists */
+    .hero--gradient .hero-bg {
+      background: linear-gradient(135deg,
+        rgba(var(--primary-rgb), 1) 0%,
+        color-mix(in srgb, rgb(var(--primary-rgb)) 55%, #000) 55%,
+        #06080f 100%);
+    }
+    /* Photo hero — real photographic image */
+    .hero--photo .hero-bg { background: var(--bg-dark); }
     /* Org logo shown as emblem in hero content — never as background */
     .hero-logo-badge {
       margin-bottom: 20px;
@@ -181,10 +225,7 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
     .hero-bg {
       position: absolute;
       inset: 0;
-      background: linear-gradient(135deg,
-        rgba(var(--primary-rgb), 1) 0%,
-        color-mix(in srgb, rgb(var(--primary-rgb)) 60%, #000) 60%,
-        #0a0a14 100%);
+      background: #0a0a14; /* default bg; overridden by hero--gradient or hero--photo */
     }
     .hero-img {
       width: 100%; height: 100%;
@@ -238,23 +279,23 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
     }
     .hero-content h1 {
       font-family: var(--font-display);
-      font-size: clamp(2.8rem, 6.5vw, 5.2rem);
+      font-size: var(--t-hero);
       font-weight: 400;
       background: linear-gradient(138deg, #ffffff 0%, #ffffff 52%, rgba(var(--primary-rgb), 0.92) 100%);
       -webkit-background-clip: text;
       background-clip: text;
       -webkit-text-fill-color: transparent;
-      line-height: 1.08;
+      line-height: 1.1;
       letter-spacing: -0.025em;
-      max-width: 15ch;
-      margin-bottom: 22px;
+      max-width: 16ch;
+      margin-bottom: var(--sp-3);
     }
     .hero-tagline {
-      font-size: clamp(1rem, 1.8vw, 1.18rem);
-      color: rgba(255,255,255,0.70);
-      max-width: 460px;
-      line-height: 1.72;
-      margin-bottom: 40px;
+      font-size: var(--t-body);
+      color: rgba(255,255,255,0.72);
+      max-width: 480px;
+      line-height: 1.75;
+      margin-bottom: var(--sp-5);
       font-weight: 400;
     }
     .hero-actions {
@@ -367,7 +408,7 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
     .about-text { }
     .about-text h2 {
       font-family: var(--font-display);
-      font-size: clamp(1.9rem, 3.5vw, 2.9rem);
+      font-size: var(--t-h2);
       font-weight: 400;
       color: var(--text);
       letter-spacing: -0.02em;
@@ -431,7 +472,7 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
     }
     .section-header h2 {
       font-family: var(--font-display);
-      font-size: clamp(1.9rem, 3.5vw, 2.9rem);
+      font-size: var(--t-h2);
       font-weight: 400;
       color: var(--text);
       letter-spacing: -0.02em;
@@ -440,13 +481,15 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
     }
     .cards-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 24px;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: var(--card-gap);
     }
+    .cards-grid--2 { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+    .cards-grid--4 { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
     .card {
       background: var(--bg);
       border-radius: var(--radius-lg);
-      padding: 32px 28px 28px;
+      padding: var(--card-pad);
       box-shadow: var(--shadow);
       border-top: 4px solid var(--primary);
       transition: transform 0.3s ease, box-shadow 0.3s ease;
@@ -470,15 +513,15 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
     .card-icon { font-size: 2rem; margin-bottom: 18px; display: block; line-height: 1; }
     .card h3 {
       font-family: var(--font-display);
-      font-size: 1.25rem;
+      font-size: var(--t-h3);
       font-weight: 400;
       color: var(--text);
-      margin-bottom: 12px;
+      margin-bottom: var(--sp-1);
       letter-spacing: -0.01em;
-      line-height: 1.25;
+      line-height: 1.3;
     }
     .card p {
-      font-size: 0.88rem;
+      font-size: var(--t-small);
       line-height: 1.78;
       color: var(--text-muted);
     }
@@ -583,7 +626,7 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
     }
     .contact-text h2 {
       font-family: var(--font-display);
-      font-size: clamp(1.9rem, 3.5vw, 2.9rem);
+      font-size: var(--t-h2);
       font-weight: 400;
       color: var(--text);
       letter-spacing: -0.02em;
@@ -700,6 +743,130 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
       letter-spacing: 0.04em;
     }
 
+    /* ─── FEATURED EVENT ─── */
+    .featured-event {
+      padding: var(--section-pad) 0;
+      background: var(--bg);
+    }
+    .featured-event-card {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: var(--sp-6);
+      align-items: center;
+      background: var(--bg-subtle);
+      border-radius: var(--radius-lg);
+      padding: var(--sp-5) var(--sp-6);
+      border-left: 5px solid var(--accent);
+      box-shadow: var(--shadow);
+    }
+    .fe-date-block {
+      text-align: center;
+      min-width: 80px;
+      background: var(--primary);
+      color: white;
+      border-radius: var(--radius);
+      padding: var(--sp-2) var(--sp-2);
+    }
+    .fe-day {
+      font-family: var(--font-display);
+      font-size: 2.8rem;
+      line-height: 1;
+      font-weight: 400;
+      display: block;
+    }
+    .fe-month {
+      font-size: var(--t-meta);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      opacity: 0.85;
+      display: block;
+      margin-top: 4px;
+    }
+    .fe-year {
+      font-size: var(--t-meta);
+      opacity: 0.65;
+      display: block;
+    }
+    .fe-body .eyebrow { margin-bottom: var(--sp-2); }
+    .fe-body h2 {
+      font-family: var(--font-display);
+      font-size: var(--t-h2);
+      font-weight: 400;
+      color: var(--text);
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: var(--sp-2);
+    }
+    .fe-meta {
+      font-size: var(--t-small);
+      color: var(--text-muted);
+      margin-bottom: var(--sp-2);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .fe-meta span { display: flex; align-items: center; gap: 5px; }
+    .fe-body > p {
+      font-size: var(--t-body);
+      color: var(--text-muted);
+      line-height: 1.75;
+      margin-bottom: var(--sp-4);
+      max-width: 60ch;
+    }
+    .fe-cta-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .fe-image {
+      width: 240px;
+      height: 180px;
+      border-radius: var(--radius);
+      object-fit: cover;
+      flex-shrink: 0;
+    }
+
+    /* ─── SPONSOR STRIP ─── */
+    .sponsor-strip {
+      padding: var(--sp-6) 0;
+      background: var(--bg-subtle);
+      border-top: 1px solid var(--border-subtle);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .sponsor-label {
+      text-align: center;
+      font-size: var(--t-label);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--text-subtle);
+      margin-bottom: var(--sp-4);
+    }
+    .sponsor-logos {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: var(--sp-5) var(--sp-6);
+    }
+    .sponsor-logo-item {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.55;
+      transition: opacity 0.25s;
+      filter: grayscale(1);
+    }
+    .sponsor-logo-item:hover { opacity: 0.85; filter: grayscale(0); }
+    .sponsor-logo-item img { height: 40px; width: auto; max-width: 120px; object-fit: contain; }
+    .sponsor-name {
+      font-size: var(--t-small);
+      font-weight: 600;
+      color: var(--text-muted);
+      letter-spacing: 0.04em;
+    }
+
     /* ─── SCROLL REVEAL ─── */
     .reveal, .reveal-left, .reveal-right, .reveal-hero {
       opacity: 0;
@@ -741,19 +908,23 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
       .about-grid { grid-template-columns: 1fr; gap: 48px; }
       .about-media { order: -1; }
       .about-img-wrap { aspect-ratio: 16/9; }
-      .cards-grid { grid-template-columns: repeat(2, 1fr); }
       .contact-grid { grid-template-columns: 1fr; gap: 40px; }
       .footer-grid { grid-template-columns: 1fr 1fr; gap: 40px; }
+      .featured-event-card { grid-template-columns: 1fr; gap: var(--sp-4); }
+      .fe-date-block { display: flex; gap: 12px; align-items: baseline; min-width: unset; padding: var(--sp-2) var(--sp-3); }
+      .fe-day { font-size: 1.6rem; }
+      .fe-image { display: none; }
     }
     @media (max-width: 640px) {
       .nav-links { display: none; }
       .hamburger { display: flex; }
-      .cards-grid { grid-template-columns: 1fr; }
       .stats-grid { grid-template-columns: 1fr; }
       .event-row { grid-template-columns: 60px 1fr; gap: 14px; }
       .footer-grid { grid-template-columns: 1fr; gap: 32px; }
       .footer-bar { flex-direction: column; gap: 8px; text-align: center; }
       .hero-content h1 { max-width: 100%; }
+      .featured-event-card { padding: var(--sp-4); }
+      .sponsor-logos { gap: var(--sp-3) var(--sp-4); }
     }
   </style>
 </head>
@@ -784,7 +955,7 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
   </div>
 
   <!-- HERO -->
-  <section class="hero" id="home">
+  <section class="hero %%HERO_MODIFIER_CLASS%%" id="home">
     <div class="hero-bg">
       %%HERO_IMG_TAG%%
       <div class="hero-overlay"></div>
@@ -801,8 +972,8 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
         <h1 style="animation-delay:0.1s">%%ORG_NAME%%</h1>
         <p class="hero-tagline" style="animation-delay:0.25s">%%ORG_TAGLINE%%</p>
         <div class="hero-actions" style="animation-delay:0.4s">
-          <a href="#about" class="btn-primary">Learn More</a>
-          <a href="#contact" class="btn-ghost">Get in Touch</a>
+          %%HERO_PRIMARY_CTA%%
+          %%HERO_SECONDARY_CTA%%
         </div>
       </div>
     </div>
@@ -812,14 +983,11 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
     </div>
   </section>
 
-  <!-- STATS -->
-  <section class="stats-strip">
-    <div class="container">
-      <div class="stats-grid">
-        %%STATS_BLOCK%%
-      </div>
-    </div>
-  </section>
+  <!-- FEATURED EVENT (injected only when event-driven and a featured event exists) -->
+  %%FEATURED_EVENT_SECTION%%
+
+  <!-- STATS (omitted when quality gate fails) -->
+  %%STATS_SECTION%%
 
   <!-- ABOUT -->
   <section class="about" id="about">
@@ -856,6 +1024,9 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
 
   <!-- SHOP (injected only when embed code is set) -->
   %%SHOP_SECTION%%
+
+  <!-- SPONSOR STRIP (injected only when real sponsors exist) -->
+  %%SPONSOR_STRIP%%
 
   <!-- CONTACT -->
   <section class="contact" id="contact">
@@ -1149,7 +1320,8 @@ export type SiteContent = {
   stat1Value: string; stat1Label: string;
   stat2Value: string; stat2Label: string;
   stat3Value: string; stat3Label: string;
-  statsBlock: string;
+  statsBlock: string;       // empty string → stats-strip section is still rendered but empty; caller controls visibility via statsSection
+  statsSection: string;     // full <section> HTML or "" to omit stats entirely
   programsBlock: string;
   eventsSection: string;
   shopSection: string;
@@ -1170,6 +1342,12 @@ export type SiteContent = {
   canonicalUrl: string;
   schemaJson: string;
   currentYear: string;
+  // Design system additions
+  heroModifierClass: string;     // "hero--photo" | "hero--gradient"
+  heroPrimaryCta: string;        // full <a> HTML for primary CTA
+  heroSecondaryCta: string;      // full <a> HTML for secondary CTA, or ""
+  featuredEventSection: string;  // full section HTML or ""
+  sponsorStrip: string;          // full section HTML or ""
 };
 
 export function buildSiteFromTemplate(content: SiteContent): string {
@@ -1182,6 +1360,9 @@ export function buildSiteFromTemplate(content: SiteContent): string {
     PRIMARY_HEX: content.primaryHex,
     ACCENT_HEX: content.accentHex,
     PRIMARY_RGB: content.primaryRgb,
+    HERO_MODIFIER_CLASS: content.heroModifierClass,
+    HERO_PRIMARY_CTA: content.heroPrimaryCta,
+    HERO_SECONDARY_CTA: content.heroSecondaryCta,
     HERO_IMG_TAG: content.heroImageUrl
       ? `<img id="heroImg" class="hero-img" src="${content.heroImageUrl}" alt="${content.orgName}" loading="eager" onerror="this.style.display='none'">`
       : "",
@@ -1193,10 +1374,12 @@ export function buildSiteFromTemplate(content: SiteContent): string {
     STAT_1_VALUE: content.stat1Value, STAT_1_LABEL: content.stat1Label,
     STAT_2_VALUE: content.stat2Value, STAT_2_LABEL: content.stat2Label,
     STAT_3_VALUE: content.stat3Value, STAT_3_LABEL: content.stat3Label,
-    STATS_BLOCK: content.statsBlock,
+    STATS_SECTION: content.statsSection,
     PROGRAMS_BLOCK: content.programsBlock,
     EVENTS_SECTION: content.eventsSection,
     SHOP_SECTION: content.shopSection,
+    FEATURED_EVENT_SECTION: content.featuredEventSection,
+    SPONSOR_STRIP: content.sponsorStrip,
     NAV_EVENTS_LINK: content.navEventsLink,
     MOBILE_EVENTS_LINK: content.mobileEventsLink,
     FOOTER_EVENTS_LINK: content.footerEventsLink,

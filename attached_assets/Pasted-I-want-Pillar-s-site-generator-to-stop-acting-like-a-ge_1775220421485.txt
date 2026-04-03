@@ -1,0 +1,371 @@
+I want Pillar’s site generator to stop acting like a generic AI website builder and start acting like a disciplined design system with event intelligence.
+
+Do not invent layouts freely.
+Do not use images randomly.
+Do not render weak or fake sections just to fill space.
+
+From now on, the generator and renderer must follow these rules.
+
+==================================================
+PART 1 — VISUAL DESIGN RULES
+==================================================
+
+1. NEVER USE LOGOS AS HERO BACKGROUNDS
+- Logos, icons, vector graphics, sponsor marks, transparent PNGs, and square graphics are NOT hero background images.
+- Only real wide photographic images may be used as hero backgrounds.
+- If there is no strong photographic image, use a clean gradient or solid-color hero instead.
+- Logo-like assets should be used only as:
+  - nav logo
+  - hero badge
+  - about-section logo
+  - sponsor/logo treatment
+- A weak image should never create a bad hero.
+
+2. HEROES MUST FOLLOW A STRICT COMPOSITION
+Every hero must use this structure:
+
+hero container
+  background layer (photo OR gradient/color)
+  overlay layer (if image used)
+  content container
+    logo badge (optional)
+    headline
+    supporting text
+    CTA row
+
+Rules:
+- max-width content container around 900–1100px
+- predictable alignment (centered or left-aligned)
+- controlled hero height
+- text must remain readable
+- CTA row must sit inside the content container
+- no giant random graphics behind text
+- if the image is weak, default to a clean no-image hero
+
+3. USE A STRICT TYPOGRAPHY SCALE
+Do not use random font sizes.
+
+Use:
+- Hero title: 48–64px desktop / 32–40px mobile
+- Section title: 28–36px desktop / 22–28px mobile
+- Card title: 18–22px
+- Body: 15–18px
+- Small/meta text: 13–14px
+
+Maintain:
+- clear hierarchy
+- consistent line length
+- clean spacing between title, text, and CTA
+
+4. USE A CONSISTENT SPACING SCALE
+Use a strict spacing system, e.g.:
+8 / 16 / 24 / 32 / 48 / 64 / 80
+
+Rules:
+- section padding: generous and consistent
+- card padding: 20–24px
+- spacing between sections: 64–96px desktop
+- mobile spacing reduced but still consistent
+- avoid cramped stacking
+
+5. LIMIT CONTENT WIDTH
+Do not stretch text edge-to-edge.
+Use centered page containers with a max width around 1100–1280px and inner padding.
+
+6. LIMIT CTAS
+No section should have more than 2 CTAs.
+Use:
+- primary filled button
+- secondary outline/text button
+
+Never clutter a section with too many actions.
+
+7. HIDE WEAK CONTENT
+If there is no strong content for a section, remove it.
+Examples:
+- no strong image → use simple hero
+- no sponsors → remove sponsor strip
+- no events → remove event section
+- no real stats → do not render stats
+
+Do not fabricate content or filler sections.
+
+8. LIMIT CARDS PER ROW
+- max 3 cards per row for most content sections
+- max 4 only when visually simple
+- 2 on tablet
+- 1 on mobile
+
+9. EVERY HERO MUST HAVE ONE FOCAL POINT
+A hero may focus on:
+- the mission
+- the featured event
+- the main CTA
+- a strong photo
+
+Never all of them equally.
+Choose one focal point and make everything else support it.
+
+10. WHEN IN DOUBT, CHOOSE SIMPLE
+If asset quality or content quality is weak:
+- use simpler layout
+- use cleaner hero
+- use fewer sections
+- use restrained styling
+
+Simple is always better than ugly complexity.
+
+==================================================
+PART 2 — EVENT INTELLIGENCE RULES
+==================================================
+
+The website must understand how event flows work and render the correct public behavior automatically.
+
+The site should not treat every event as the same.
+
+Every event must be understood as one of these types:
+- informational
+- RSVP / attendance
+- free registration
+- paid ticket sales
+- fundraiser
+- vendor application
+- participant signup
+- sponsorship opportunity
+- hybrid
+
+The public site must render different UI depending on the event behavior.
+
+1. EVENT MODES
+Each event should map to a public mode:
+- informational
+- registration
+- ticketed
+- fundraiser
+- vendor
+- participant
+- sponsor
+- hybrid
+
+2. PUBLIC CTA MODE
+Each event must have a clear public CTA mode:
+- learn_more
+- register
+- rsvp
+- buy_tickets
+- apply_vendor
+- apply_participant
+- sponsor
+- donate
+
+The website must never guess loosely if the explicit event mode/CTA exists.
+
+3. TOGGLEABLE EVENT FEATURES
+Each event must support turning on/off:
+- show on public site
+- featured on site
+- enable ticket sales
+- enable registration
+- enable vendor applications
+- enable participant signup
+- enable sponsorship
+- show public pricing
+- show public sold count
+- show public capacity
+
+4. EVENT TYPE SHOULD CHANGE THE UI
+Examples:
+
+Informational event:
+- CTA = Learn More
+- no pricing emphasis
+- no registration metrics
+
+Registration event:
+- CTA = Register / RSVP / Sign Up
+- focus on attendance and participation
+- do not emphasize revenue
+
+Ticketed/fundraiser event:
+- CTA = Buy Tickets / Reserve Seats
+- may show price
+- may show sold out or remaining capacity
+- stronger event-focused layout
+
+Vendor application event:
+- CTA = Apply as Vendor
+- show deadline if available
+- no ticket-sales framing
+
+Participant signup event:
+- CTA = Sign Up / Participate
+- no ticket-sales framing
+
+Sponsor opportunity:
+- CTA = Become a Sponsor / Sponsor This Event
+
+5. EVENT BLOCKS MUST BE DYNAMIC
+The following blocks must use live event data:
+- featured_event
+- events_list
+- event card grids
+- sold out state
+- registration closed state
+- sponsor/event-related CTA blocks where applicable
+
+6. FEATURED EVENT FALLBACK LOGIC
+If no event is explicitly marked featured:
+- use the next ticketed/fundraiser event
+- else use the next public upcoming event
+- else hide the featured event block
+
+Do not leave the featured hero empty or broken.
+
+7. EVENT VISUAL HIERARCHY
+For event-driven sites:
+- featured event should appear high on the homepage
+- upcoming events should be visually clear
+- dates should be easy to scan
+- CTA labels must match event type
+- sold out / registration closed states should be visually obvious
+- event listings must not look like generic blog cards
+
+8. EVENT-DRIVEN LAYOUT RULES
+If an org is event-driven, homepage should prioritize:
+- hero
+- featured event
+- event list
+- register/buy CTA
+- sponsors
+- about/contact after that
+
+9. MEMBERSHIP-DRIVEN LAYOUT RULES
+If an org is membership-driven:
+- mission hero first
+- benefits/join section second
+- events present but secondary
+- contact/join path obvious
+
+10. IMPORTED SITES MUST INFLUENCE EVENT STRATEGY
+If imported site content shows:
+- event listings
+- ticket links
+- registration links
+- sponsor sections
+- event-heavy structure
+
+Then those findings must influence:
+- eventCount
+- CTA priority
+- layout strategy
+- hero choice
+- featured event usage
+
+==================================================
+PART 3 — ASSET CLASSIFICATION RULES
+==================================================
+
+Before using any image, classify it as:
+- logo
+- hero_photo
+- supporting_photo
+- decorative_graphic
+- sponsor_logo
+- unknown
+
+Rules:
+- only hero_photo can be used as hero background
+- logos and decorative graphics cannot be hero backgrounds
+- sponsor logos must only appear in sponsor contexts
+- unknown images should be used conservatively
+- if confidence is low, do not use as hero
+
+==================================================
+PART 4 — GENERATOR / PLANNER RULES
+==================================================
+
+The generator must act like a design system, not random AI.
+
+AI may:
+- fill structured content
+- suggest content signals
+- help summarize imported content
+
+AI may NOT:
+- invent arbitrary layouts
+- write HTML/CSS
+- use weak images aggressively
+- override deterministic design rules
+
+The planner must choose layout based on:
+- eventCount
+- sponsorCount
+- programCount
+- imageRichness
+- missionStrength
+- membershipPresence
+- CTA type
+- import findings
+
+Layout strategy must drive:
+- section order
+- hero type
+- CTA band type
+- dynamic block priority
+
+==================================================
+PART 5 — REQUIRED OUTCOME
+==================================================
+
+I want 3 flows to become genuinely good:
+
+1. Event-driven org
+- featured event hero
+- clean event listing
+- sponsor strip
+- correct buy/register logic
+- public site reflects dashboard updates
+
+2. Membership-driven org
+- strong mission hero
+- benefits/join section
+- events secondary
+- obvious join/contact flow
+- warm, trustworthy design
+
+3. Import existing site
+- preserve logo
+- preserve strong mission text
+- infer real structure
+- produce a site that looks better than the source
+- do not scramble or genericize it
+
+==================================================
+PART 6 — DO NOT DO THESE THINGS
+==================================================
+
+- do not add more architecture unless directly required
+- do not add more speculative abstractions
+- do not invent more random strategies
+- do not use logos as giant hero backgrounds
+- do not force weak images into strong positions
+- do not render fake stats
+- do not fill weak sites with generic fluff sections
+- do not create ugly complexity when a simple layout would look better
+
+==================================================
+PART 7 — WHAT I WANT BACK
+==================================================
+
+After implementing this pass, show me before/after for:
+1. event-driven org
+2. membership-driven org
+3. imported-site rebuild
+
+For each one, tell me:
+- which strategy was chosen
+- which hero type was chosen
+- which image was classified as what
+- which event flow behavior was used
+- what changed visually
+- why the new version is better
