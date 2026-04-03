@@ -223,7 +223,14 @@ export default function SiteBuilder() {
   }, []);
 
   // ── Preview pane state ─────────────────────────────────────────────────────
-  const [previewViewport, setPreviewViewport] = useState<"desktop" | "tablet" | "mobile">("mobile");
+  // Default viewport matches the user's actual screen size
+  const [previewViewport, setPreviewViewport] = useState<"desktop" | "tablet" | "mobile">(() => {
+    if (typeof window !== "undefined") {
+      if (window.innerWidth >= 1024) return "desktop";
+      if (window.innerWidth >= 640) return "tablet";
+    }
+    return "mobile";
+  });
   const [previewSection, setPreviewSection] = useState<string>("");
   const [previewKey, setPreviewKey] = useState(0);
 
@@ -881,91 +888,179 @@ export default function SiteBuilder() {
           <div className="flex-1 overflow-hidden flex flex-col min-h-0">
             {/* Preview tab — real compiled site in isolated iframe */}
             {activeTab === "preview" && (
-              <div className="flex flex-col h-full min-h-0">
-                {/* Browser chrome toolbar */}
-                <div className="flex items-center gap-2 px-3 py-2 bg-[hsl(224,42%,7%)] border-b border-white/8 flex-shrink-0">
-                  {/* Viewport toggles */}
-                  <div className="flex items-center gap-0.5 bg-white/6 rounded-lg p-1 flex-shrink-0">
-                    {([
-                      { id: "mobile" as const, icon: Smartphone, label: "Mobile (390px)" },
-                      { id: "tablet" as const, icon: Tablet, label: "Tablet (768px)" },
-                      { id: "desktop" as const, icon: Monitor, label: "Desktop (full)" },
-                    ]).map(vp => (
-                      <button
-                        key={vp.id}
-                        onClick={() => setPreviewViewport(vp.id)}
-                        title={vp.label}
-                        className={`p-1.5 rounded-md transition-colors ${previewViewport === vp.id ? "bg-white/15 text-white" : "text-slate-500 hover:text-slate-200"}`}
+              <div className="flex flex-col h-full min-h-0 bg-[#080c18]">
+
+                {/* ── Browser chrome ───────────────────────────────────────── */}
+                <div className="flex-shrink-0 bg-[#0d1525] border-b border-white/[0.07]">
+                  {/* Top row: window dots + address bar + viewport + actions */}
+                  <div className="flex items-center gap-3 px-4 py-2.5">
+                    {/* macOS-style window dots */}
+                    <div className="hidden sm:flex items-center gap-1.5 flex-shrink-0">
+                      <div className="w-3 h-3 rounded-full bg-[#ff5f57]" />
+                      <div className="w-3 h-3 rounded-full bg-[#febc2e]" />
+                      <div className="w-3 h-3 rounded-full bg-[#28c840]" />
+                    </div>
+
+                    {/* Address bar */}
+                    <div className="flex-1 flex items-center gap-2 bg-white/[0.06] hover:bg-white/[0.09] transition-colors rounded-lg px-3 py-1.5 min-w-0 cursor-default border border-white/[0.06]">
+                      <svg className="w-3 h-3 flex-shrink-0 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                      </svg>
+                      <span className="text-[11.5px] font-medium tracking-tight truncate" style={{ color: "#c8d0e0" }}>
+                        {site?.status === "published" && orgSlug
+                          ? `mypillar.co/sites/${orgSlug}`
+                          : "preview.mypillar.co — draft"}
+                      </span>
+                      {site?.status === "published"
+                        ? <span className="ml-auto flex-shrink-0 text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded-full">Live</span>
+                        : <span className="ml-auto flex-shrink-0 text-[10px] font-semibold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-full">Draft</span>
+                      }
+                    </div>
+
+                    {/* Viewport segmented control */}
+                    <div className="flex items-center bg-white/[0.06] rounded-lg p-0.5 border border-white/[0.06] flex-shrink-0">
+                      {([
+                        { id: "mobile" as const, icon: Smartphone, w: "390px" },
+                        { id: "tablet" as const, icon: Tablet, w: "768px" },
+                        { id: "desktop" as const, icon: Monitor, w: "full" },
+                      ]).map(vp => (
+                        <button
+                          key={vp.id}
+                          onClick={() => setPreviewViewport(vp.id)}
+                          title={`${vp.id.charAt(0).toUpperCase() + vp.id.slice(1)} (${vp.w})`}
+                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-all ${
+                            previewViewport === vp.id
+                              ? "bg-primary text-white shadow-sm"
+                              : "text-slate-500 hover:text-slate-300"
+                          }`}
+                        >
+                          <vp.icon className="w-3.5 h-3.5" />
+                          <span className="hidden lg:inline capitalize">{vp.id}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Reload */}
+                    <button
+                      onClick={() => setPreviewKey(k => k + 1)}
+                      title="Reload preview"
+                      className="p-1.5 rounded-md text-slate-500 hover:text-white hover:bg-white/8 transition-all flex-shrink-0"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    </button>
+
+                    {/* Open live */}
+                    {site?.status === "published" && publicUrl && (
+                      <a
+                        href={publicUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Open live site"
+                        className="p-1.5 rounded-md text-primary hover:text-primary/80 hover:bg-primary/10 transition-all flex-shrink-0"
                       >
-                        <vp.icon className="w-3.5 h-3.5" />
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    )}
+                  </div>
+
+                  {/* Section nav — underline tabs */}
+                  <div className="flex items-center gap-1 px-4 overflow-x-auto">
+                    {[
+                      { label: "Home", hash: "" },
+                      { label: "About", hash: "#about" },
+                      { label: "Programs", hash: "#programs" },
+                      { label: "Events", hash: "#events" },
+                      { label: "Contact", hash: "#contact" },
+                    ].map(s => (
+                      <button
+                        key={s.hash}
+                        onClick={() => navigatePreviewTo(s.hash)}
+                        className={`relative px-3 py-2 text-[11.5px] font-medium transition-colors whitespace-nowrap ${
+                          previewSection === s.hash
+                            ? "text-white"
+                            : "text-slate-500 hover:text-slate-300"
+                        }`}
+                      >
+                        {s.label}
+                        {previewSection === s.hash && (
+                          <span className="absolute bottom-0 left-3 right-3 h-[2px] bg-primary rounded-full" />
+                        )}
                       </button>
                     ))}
                   </div>
-                  {/* Address bar */}
-                  <div className="flex-1 flex items-center gap-2 bg-white/5 rounded-lg px-2.5 py-1.5 min-w-0 overflow-hidden">
-                    <Globe className="w-3 h-3 text-slate-500 flex-shrink-0" />
-                    <span className="text-[11px] text-slate-400 truncate font-mono">
-                      {site?.status === "published" && orgSlug
-                        ? `mypillar.co/sites/${orgSlug}`
-                        : "Preview · draft not yet published"}
-                    </span>
-                  </div>
-                  {/* Reload */}
-                  <button
-                    onClick={() => setPreviewKey(k => k + 1)}
-                    title="Reload preview"
-                    className="p-1.5 text-slate-500 hover:text-white transition-colors flex-shrink-0"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                  </button>
-                  {/* Open live */}
-                  {site?.status === "published" && publicUrl && (
-                    <a
-                      href={publicUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="Open live site"
-                      className="p-1.5 text-primary hover:text-primary/80 transition-colors flex-shrink-0"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
+                </div>
+
+                {/* ── Viewport stage ───────────────────────────────────────── */}
+                <div className="flex-1 min-h-0 overflow-auto flex justify-center items-start py-5 px-4"
+                  style={{ background: "radial-gradient(ellipse at 50% 0%, #111827 0%, #080c18 70%)" }}
+                >
+                  {previewViewport === "desktop" ? (
+                    /* Desktop — full width, simple shadow */
+                    <div className="w-full h-full min-h-[600px] rounded-t-lg overflow-hidden shadow-2xl shadow-black/60 border border-white/[0.07]">
+                      <iframe
+                        key={previewKey}
+                        ref={iframeRef}
+                        src={`/api/sites/preview-html${previewSection}`}
+                        style={{ width: "100%", height: "100%", border: "none", display: "block", background: "#fff", minHeight: "600px" }}
+                        sandbox="allow-scripts allow-forms allow-popups"
+                        title="Site Preview"
+                      />
+                    </div>
+                  ) : previewViewport === "tablet" ? (
+                    /* Tablet — centered with device frame */
+                    <div className="flex flex-col items-center gap-0 flex-shrink-0" style={{ width: 800 }}>
+                      <div className="w-full rounded-[16px] overflow-hidden shadow-2xl shadow-black/70 border-[6px] border-[#1e2a3a]"
+                        style={{ width: 784 }}>
+                        <iframe
+                          key={previewKey}
+                          ref={iframeRef}
+                          src={`/api/sites/preview-html${previewSection}`}
+                          style={{ width: "100%", minHeight: "580px", height: "70vh", border: "none", display: "block", background: "#fff" }}
+                          sandbox="allow-scripts allow-forms allow-popups"
+                          title="Site Preview"
+                        />
+                      </div>
+                      <div className="mt-3 text-[10px] text-slate-600 font-medium tracking-widest uppercase">Tablet · 768px</div>
+                    </div>
+                  ) : (
+                    /* Mobile — phone frame */
+                    <div className="flex flex-col items-center gap-0 flex-shrink-0">
+                      {/* Phone shell */}
+                      <div className="relative rounded-[36px] border-[8px] border-[#1a2035] shadow-2xl shadow-black/80 overflow-hidden bg-white"
+                        style={{ width: 390 }}>
+                        {/* Notch bar */}
+                        <div className="flex items-center justify-between px-6 py-2 bg-white border-b border-gray-100">
+                          <span className="text-[10px] font-semibold text-gray-400">9:41</span>
+                          <div className="flex items-center gap-1">
+                            <div className="w-3.5 h-3.5 rounded-full bg-[#1a2035]" />
+                            <div className="w-7 h-3.5 rounded-sm bg-[#1a2035]" />
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <div className="w-1 h-2.5 rounded-sm bg-gray-400" />
+                            <div className="w-1 h-2.5 rounded-sm bg-gray-400" />
+                            <div className="w-1 h-2.5 rounded-sm bg-gray-400" />
+                            <div className="w-4 h-2.5 rounded-sm border border-gray-400 ml-0.5">
+                              <div className="w-3 h-full bg-gray-400 rounded-sm" />
+                            </div>
+                          </div>
+                        </div>
+                        <iframe
+                          key={previewKey}
+                          ref={iframeRef}
+                          src={`/api/sites/preview-html${previewSection}`}
+                          style={{ width: "100%", minHeight: "680px", border: "none", display: "block", background: "#fff" }}
+                          sandbox="allow-scripts allow-forms allow-popups"
+                          title="Site Preview"
+                        />
+                        {/* Home bar */}
+                        <div className="flex items-center justify-center py-2 bg-white border-t border-gray-100">
+                          <div className="w-24 h-1 rounded-full bg-gray-300" />
+                        </div>
+                      </div>
+                      <div className="mt-3 text-[10px] text-slate-600 font-medium tracking-widest uppercase">Mobile · 390px</div>
+                    </div>
                   )}
-                </div>
-                {/* Section nav */}
-                <div className="flex items-center gap-0.5 px-2 py-1.5 bg-[hsl(224,42%,7%)] border-b border-white/6 overflow-x-auto flex-shrink-0">
-                  {[
-                    { label: "Home", hash: "" },
-                    { label: "About", hash: "#about" },
-                    { label: "Programs", hash: "#programs" },
-                    { label: "Events", hash: "#events" },
-                    { label: "Contact", hash: "#contact" },
-                  ].map(s => (
-                    <button
-                      key={s.hash}
-                      onClick={() => navigatePreviewTo(s.hash)}
-                      className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${previewSection === s.hash ? "bg-white/10 text-white" : "text-slate-500 hover:text-slate-200"}`}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-                {/* Viewport frame + iframe */}
-                <div className="flex-1 min-h-0 overflow-auto bg-[#07070f] flex justify-center">
-                  <iframe
-                    key={previewKey}
-                    ref={iframeRef}
-                    src={`/api/sites/preview-html${previewSection}`}
-                    style={{
-                      width: previewViewport === "desktop" ? "100%" : previewViewport === "tablet" ? "768px" : "390px",
-                      minHeight: "100%",
-                      border: "none",
-                      flexShrink: 0,
-                      display: "block",
-                      background: "#fff",
-                    }}
-                    sandbox="allow-scripts allow-forms allow-popups"
-                    title="Site Preview"
-                  />
                 </div>
               </div>
             )}
