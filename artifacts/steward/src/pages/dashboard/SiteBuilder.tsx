@@ -275,7 +275,7 @@ export default function SiteBuilder() {
   const aiSignaledCompletion = !!(lastAiMsg?.content?.toLowerCase().includes("i have everything i need") || lastAiMsg?.content?.toLowerCase().includes("generate my site"));
   const canGenerate = (userMsgCount >= 8 || aiSignaledCompletion) && !generating;
   const interviewProgress = Math.min(Math.max(0, userMsgCount - 1), 8);
-  const publicUrl = orgSlug ? `/sites/${orgSlug}` : null;
+  const publicUrl = orgSlug ? `https://mypillar.co/sites/${orgSlug}` : null;
 
   const usagePercent = usage ? Math.round((usage.used / usage.limit) * 100) : 0;
   const usageColor = usagePercent >= 90 ? "text-red-400" : usagePercent >= 70 ? "text-amber-400" : "text-emerald-400";
@@ -883,7 +883,7 @@ export default function SiteBuilder() {
           <div className="flex-1 overflow-hidden">
             {/* Preview tab */}
             {activeTab === "preview" && (
-              <iframe ref={iframeRef} className="w-full h-full border-0" title="Site Preview" sandbox="allow-same-origin" />
+              <iframe ref={iframeRef} className="w-full h-full border-0" title="Site Preview" sandbox="allow-same-origin allow-scripts" />
             )}
 
             {/* Edit tab */}

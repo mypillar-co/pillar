@@ -1005,7 +1005,7 @@ Rules: Use REAL content only — never lorem ipsum. Make programs specific to th
       : "",
     footerLogo: footerLogoHtml,
     metaDescription: esc((s.mission || contentData.missionExpanded).substring(0, 155)),
-    canonicalUrl: `https://${slug}.mypillar.co`,
+    canonicalUrl: `https://mypillar.co/sites/${slug}`,
     schemaJson,
     currentYear: String(new Date().getFullYear()),
   };
