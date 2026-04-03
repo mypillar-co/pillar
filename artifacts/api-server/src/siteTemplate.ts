@@ -162,10 +162,21 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
     .hero {
       position: relative;
       height: 100vh;
-      min-height: 620px;
+      min-height: 640px;
       display: flex;
       align-items: center;
       overflow: hidden;
+    }
+    /* Org logo shown as emblem in hero content — never as background */
+    .hero-logo-badge {
+      margin-bottom: 20px;
+    }
+    .hero-logo-badge img {
+      height: 64px;
+      width: auto;
+      max-width: 180px;
+      object-fit: contain;
+      filter: drop-shadow(0 4px 16px rgba(0,0,0,0.5)) brightness(1.05);
     }
     .hero-bg {
       position: absolute;
@@ -785,6 +796,7 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
     </div>
     <div class="hero-content">
       <div class="reveal-hero">
+        %%HERO_LOGO_BADGE%%
         <div class="eyebrow" style="animation-delay:0s">%%ORG_TYPE_LABEL%%</div>
         <h1 style="animation-delay:0.1s">%%ORG_NAME%%</h1>
         <p class="hero-tagline" style="animation-delay:0.25s">%%ORG_TAGLINE%%</p>
@@ -1152,6 +1164,7 @@ export type SiteContent = {
   contactDetails: string;
   footerContact: string;
   navLogo: string;
+  heroLogoBadge: string;
   footerLogo: string;
   metaDescription: string;
   canonicalUrl: string;
@@ -1195,6 +1208,7 @@ export function buildSiteFromTemplate(content: SiteContent): string {
     CONTACT_DETAILS: content.contactDetails,
     FOOTER_CONTACT: content.footerContact,
     NAV_LOGO: content.navLogo,
+    HERO_LOGO_BADGE: content.heroLogoBadge,
     FOOTER_LOGO: content.footerLogo,
     META_DESCRIPTION: content.metaDescription,
     CANONICAL_URL: content.canonicalUrl,

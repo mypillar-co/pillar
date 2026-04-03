@@ -783,7 +783,9 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
   };
 
   const colorHints = s.colors || "navy and gold";
-  const hasImportedImages = !!(importedHeroUrl || importedLogoUrl);
+  // Only count actual photos as "imported images" — never treat a logo as a hero photo
+  const importedHeroIsActualPhoto = !!(importedHeroUrl && importedHeroUrl !== importedLogoUrl);
+  const hasImportedImages = photoUrls.length > 0 || importedHeroIsActualPhoto;
   const originalSiteContext = originalSiteUrl
     ? `\nOriginal site: ${originalSiteUrl} — you are creating a dramatically improved version of this site.`
     : "";
@@ -840,13 +842,16 @@ Rules: Use REAL content only — never lorem ipsum. Make programs specific to th
   }
 
   // Step 5: Build all HTML blocks server-side from real data
-  // Image priority: user-uploaded > imported from crawl > Unsplash stock
-  const heroImageUrl = photoUrls.length > 0
-    ? photoUrls[0]
-    : importedHeroUrl ?? `https://images.unsplash.com/photo-${contentData.heroUnsplashId}?auto=format&fit=crop&w=1920&q=80`;
-  const aboutImageUrl = photoUrls.length > 1
-    ? photoUrls[1]
-    : (importedImageUrls[0] ?? importedHeroUrl ?? `https://images.unsplash.com/photo-${contentData.aboutUnsplashId}?auto=format&fit=crop&w=900&q=80`);
+  // Image priority: user-uploaded > imported real photo (never a logo) > Unsplash stock
+  // Always ensure valid Unsplash IDs — fall back to curated list if AI returned empty
+  const safeHeroId = contentData.heroUnsplashId || HERO_IDS[Math.floor(Math.random() * HERO_IDS.length)];
+  const safeAboutId = contentData.aboutUnsplashId || ABOUT_IDS[Math.floor(Math.random() * ABOUT_IDS.length)];
+  const heroPhoto = photoUrls.length > 0 ? photoUrls[0]
+    : (importedHeroIsActualPhoto ? importedHeroUrl : null);
+  const heroImageUrl = heroPhoto ?? `https://images.unsplash.com/photo-${safeHeroId}?auto=format&fit=crop&w=1920&q=80`;
+  const aboutPhoto = photoUrls.length > 1 ? photoUrls[1]
+    : (importedImageUrls[0] ?? (importedHeroIsActualPhoto ? importedHeroUrl : null));
+  const aboutImageUrl = aboutPhoto ?? `https://images.unsplash.com/photo-${safeAboutId}?auto=format&fit=crop&w=900&q=80`;
 
   // Logo priority: user-uploaded data URL > imported logo URL > org name text
   const effectiveLogoSrc = logoDataUrl ?? importedLogoUrl;
@@ -995,6 +1000,9 @@ Rules: Use REAL content only — never lorem ipsum. Make programs specific to th
     contactDetails,
     footerContact,
     navLogo: navLogoHtml,
+    heroLogoBadge: effectiveLogoSrc
+      ? `<div class="hero-logo-badge"><img src="${effectiveLogoSrc}" alt="${safeOrgName} logo"></div>`
+      : "",
     footerLogo: footerLogoHtml,
     metaDescription: esc((s.mission || contentData.missionExpanded).substring(0, 155)),
     canonicalUrl: `https://${slug}.mypillar.co`,
