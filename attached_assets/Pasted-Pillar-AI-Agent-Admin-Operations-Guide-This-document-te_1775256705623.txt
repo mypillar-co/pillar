@@ -1,0 +1,434 @@
+Pillar: AI Agent Admin Operations Guide
+
+This document teaches the AI agent how to manage ANY Pillar-generated site after it's built. The agent uses the Management API to perform these operations. This is the generic version — it applies to all org types.
+
+HOW THE AGENT OPERATES A SITE
+
+The agent doesn't click through an admin UI. It calls API endpoints. Every admin action maps to an API call. When a user says something in natural language, the agent translates it to the correct API operation.
+
+OPERATION 1: EVENT MANAGEMENT
+
+Creating an Event
+
+User says: "Add a chili cookoff on April 9th at Main Street, tickets are $10, capacity 100"
+
+Agent does:
+
+POST /api/management/events
+{
+  "title": "Chili Cookoff",
+  "slug": "chili-cookoff",                    ← auto-generate from title (lowercase, hyphens, no special chars)
+  "date": "Wednesday, April 9, 2026",         ← include day of week, always
+  "time": null,                                ← ask if not provided
+  "location": "Main Street",
+  "category": "Community",                     ← infer from event type
+  "description": null,                         ← ask if not provided, or generate a one-liner
+  "isActive": true,
+  "showInNav": true,
+  "featured": false,
+  "isTicketed": true,
+  "ticketPrice": "10",                         ← string, no dollar sign, no decimals unless needed
+  "ticketCapacity": 100,
+  "hasRegistration": false,                    ← ask if vendors will register
+  "hasSponsorSection": false                   ← ask if sponsors are involved
+}
+Required fields: title, date (or ask for it) Auto-generated: slug (from title), isActive (default true), showInNav (default true) Inferred: category (from event name/description) Ask if missing: date, time, location, ticket price (if "tickets" mentioned but no price)
+
+Slug Generation Rules
+
+"Chili Cookoff" → "chili-cookoff"
+"34th Annual Car Cruise" → "34th-annual-car-cruise"
+"Ladies Night 2026" → "ladies-night-2026"
+"St. Patrick's Day Fun Fest" → "st-patricks-day-fun-fest"
+Rules:
+1. Lowercase everything
+2. Replace spaces with hyphens
+3. Remove special characters except hyphens and numbers
+4. Remove consecutive hyphens
+5. Trim leading/trailing hyphens
+Editing an Event
+
+User says: "Change the chili cookoff to April 12th"
+
+Agent does:
+
+PATCH /api/management/events/chili-cookoff
+{
+  "date": "Saturday, April 12, 2026"
+}
+Only send the fields that changed. Don't resend the entire event.
+
+Common Event Updates (Natural Language → API)
+
+User says	API call
+"Change the date to May 5th"	PATCH { date: "Monday, May 5, 2026" }
+"Update the time to 6-9pm"	PATCH { time: "6:00 - 9:00 PM" }
+"Move it to the community center"	PATCH { location: "Community Center" }
+"Make it a featured event"	PATCH { featured: true }
+"Hide this event from the site"	PATCH { isActive: false }
+"Remove it from the nav menu"	PATCH { showInNav: false }
+"Add ticket sales, $15 each"	PATCH { isTicketed: true, ticketPrice: "15" }
+"Set capacity to 200"	PATCH { ticketCapacity: 200 }
+"Remove the ticket limit"	PATCH { ticketCapacity: null }
+"Turn off ticket sales"	PATCH { isTicketed: false }
+"Enable vendor registration"	PATCH { hasRegistration: true }
+"Close vendor registration"	PATCH { registrationClosed: true }
+"Reopen vendor registration"	PATCH { registrationClosed: false }
+"Force open registration early"	PATCH { registrationForceOpen: true }
+"Add a sponsor section"	PATCH { hasSponsorSection: true }
+Deleting an Event
+
+User says: "Remove the chili cookoff"
+
+Agent does:
+
+DELETE /api/management/events/chili-cookoff
+Always confirm with the user before deleting. "Are you sure you want to remove the Chili Cookoff? This will also remove any ticket purchase records."
+
+OPERATION 2: TICKET SALES MONITORING
+
+Checking Sales
+
+User says: "How many tickets have we sold for the cookoff?"
+
+Agent does:
+
+GET /api/management/events/chili-cookoff/sales
+Response:
+
+{
+  "event": "Chili Cookoff",
+  "sold": 42,
+  "capacity": 100,
+  "remaining": 58,
+  "revenue": 42000,
+  "purchases": [
+    { "name": "John Doe", "email": "john@example.com", "quantity": 2, "amount": 2000, "status": "completed", "confirmation": "CC-A1B2C3" },
+    ...
+  ]
+}
+Agent responds: "42 of 100 tickets sold for the Chili Cookoff. 58 remaining. $420 in revenue so far."
+
+Format the revenue by dividing cents by 100. Always show sold/capacity/remaining.
+
+Ticket Sales Reporting
+
+User says: "Give me a summary of all ticket sales"
+
+Agent does: Call sales endpoint for each ticketed event, aggregate results.
+
+Agent responds:
+
+Ticket Sales Summary:
+- Chili Cookoff: 42/100 sold ($420)
+- Meet Your Neighbor Dinner: 85/100 sold ($1,275)
+Total: 127 tickets, $1,695 revenue
+OPERATION 3: REGISTRATION CONTROLS
+
+Automatic Window (Default Behavior)
+
+If an event has a set date, registration automatically:
+
+Opens 90 days before the event
+Closes 7 days before the event
+The agent should explain this when asked: "Registration opens automatically 90 days before and closes 7 days before the event date."
+
+Manual Overrides
+
+User says	What it means	API call
+"Open registration now"	Force open before the 90-day window	PATCH { registrationForceOpen: true }
+"Close registration"	Close before the 7-day auto-close	PATCH { registrationClosed: true }
+"Let registration run normally"	Remove manual overrides	PATCH { registrationForceOpen: false, registrationClosed: false }
+"Turn on ticket sales"	Enable ticket purchasing	PATCH { isTicketed: true }
+"Turn off ticket sales"	Disable ticket purchasing	PATCH { isTicketed: false }
+Registration Types Per Event
+
+Each event can independently control:
+
+Vendor registration — businesses signing up for booth space
+Sponsor registration — companies signing up for sponsorship tiers
+Ticket sales — public ticket purchases
+Each has its own open/closed/force-open flags.
+
+OPERATION 4: SPONSOR MANAGEMENT
+
+Reviewing Pending Sponsors
+
+User says: "Any new sponsor applications?"
+
+Agent does:
+
+GET /api/management/sponsors/pending
+Agent responds: "You have 2 pending sponsor applications:
+
+S&T Bank — Gold level for the Chili Cookoff
+ABC Plumbing — Silver level for the Car Cruise"
+Approving/Rejecting
+
+User says: "Approve S&T Bank"
+
+Agent does:
+
+POST /api/management/sponsors/15/decide
+{ "decision": "approved" }
+On approval, the system automatically:
+
+Creates a sponsor record linked to the event
+The sponsor logo appears on the event page immediately
+No site rebuild or deploy needed
+User says: "Reject ABC Plumbing"
+
+POST /api/management/sponsors/16/decide
+{ "decision": "rejected" }
+Manually Adding a Sponsor
+
+User says: "Add First National Bank as a presenting sponsor for the gala, here's their logo [url]"
+
+Agent does:
+
+POST /api/management/sponsors
+{
+  "name": "First National Bank",
+  "level": "Presenting",
+  "logoUrl": "https://...",
+  "websiteUrl": "https://fnb.com",
+  "eventType": "annual-gala"
+}
+OPERATION 5: SITE CONTENT MANAGEMENT
+
+How Site Content Works
+
+All editable text on the site is stored as key-value pairs. The agent can change any text without modifying code or templates.
+
+Updating Content
+
+User says: "Change the homepage tagline to 'Building Community Together'"
+
+Agent does:
+
+PUT /api/management/content/home_tagline
+{ "value": "Building Community Together" }
+Common Content Keys
+
+Key	Where it appears	Example value
+home_tagline	Homepage hero title	"Discover Downtown Irwin, PA"
+home_subtitle	Homepage hero subtitle	"Community events year-round"
+about_description	About page main text	"Founded in 1985..."
+about_mission	About page mission statement	"Our mission is to..."
+social_facebook	Nav + footer Facebook link	"https://facebook.com/..."
+social_instagram	Nav + footer Instagram link	"https://instagram.com/..."
+contact_email	Contact page	"info@example.org"
+contact_phone	Contact page	"(555) 123-4567"
+contact_address	Contact page + footer	"123 Main St, Anytown, PA"
+meeting_schedule	About/contact page	"Tuesdays 12-1pm at City Hall"
+newsletter_cta	Newsletter signup text	"Stay updated on events"
+footer_copyright	Footer	"© 2026 Org Name"
+Listing All Content
+
+User says: "What text can I change on the site?"
+
+Agent does:
+
+GET /api/management/content
+Returns all key-value pairs. Agent can list them in a readable format.
+
+OPERATION 6: BUSINESS DIRECTORY
+
+Adding a Business
+
+User says: "Add Joe's Pizza to the directory — Italian restaurant at 45 Main St, (412) 555-1234"
+
+Agent does:
+
+POST /api/management/businesses
+{
+  "name": "Joe's Pizza",
+  "category": "Dining",
+  "description": "Italian restaurant",
+  "address": "45 Main St",
+  "phone": "(412) 555-1234",
+  "website": null
+}
+Business Categories
+
+Infer category from the business description:
+
+Restaurant, cafe, bakery → "Dining"
+Shop, store, boutique → "Retail"
+Salon, spa, barber → "Services"
+Bar, brewery, winery → "Entertainment"
+Bank, insurance, lawyer → "Professional Services"
+Gym, studio, fitness → "Health & Wellness"
+Other → "General"
+OPERATION 7: PHOTO GALLERY
+
+Creating an Album
+
+User says: "Create a photo album for the 2025 Car Cruise"
+
+Agent does:
+
+POST /api/management/albums
+{
+  "title": "Car Cruise 2025",
+  "description": "Photos from the 34th Annual Downtown Irwin Car Cruise",
+  "eventSlug": "car-cruise"
+}
+Uploading Photos
+
+User says: "Add these photos to the Car Cruise album" [with attachments]
+
+Agent does:
+
+POST /api/management/albums/{albumId}/photos
+[multipart form data with image files]
+Setting Cover Photo
+
+PATCH /api/management/albums/{albumId}
+{ "coverPhotoId": 42 }
+OPERATION 8: NEWSLETTER
+
+Creating and Sending
+
+User says: "Send a newsletter about next month's events"
+
+Agent does:
+
+Fetch upcoming events for the next 30 days
+Compose newsletter content with event names, dates, and links
+Send:
+POST /api/management/newsletter/send
+{
+  "subject": "Upcoming Events — April 2026",
+  "blocks": [
+    { "type": "heading", "content": "What's Coming Up" },
+    { "type": "text", "content": "Here's what's happening in Downtown Irwin this month:" },
+    { "type": "text", "content": "Chili Cookoff — April 9th at Main Street" },
+    { "type": "button", "text": "Buy Tickets", "url": "https://..." },
+    { "type": "divider" },
+    { "type": "text", "content": "Weekly Meetings — Every Tuesday, 12-1pm" }
+  ]
+}
+Checking Subscriber Count
+
+GET /api/management/newsletter/subscribers
+OPERATION 9: CONTACT MESSAGES
+
+Checking Messages
+
+User says: "Any new contact form messages?"
+
+Agent does:
+
+GET /api/management/messages
+Agent responds: "You have 3 new messages:
+
+Jane Smith (jane@email.com) — asking about vendor registration for the car cruise
+Bob Johnson (bob@email.com) — wants to sponsor the dinner
+Mary Williams (mary@email.com) — general question about the organization"
+OPERATION 10: ANALYTICS / REPORTING
+
+Overview Report
+
+User says: "How's the site doing?" or "Give me a summary"
+
+Agent does:
+
+GET /api/management/analytics/overview
+Agent responds with a natural summary: "Here's your site overview:
+
+8 active events listed
+127 tickets sold across 2 ticketed events ($1,695 revenue)
+5 approved sponsors
+2 pending sponsor applications
+45 newsletter subscribers
+3 unread contact messages"
+Event-Specific Report
+
+User says: "How's the dinner event going?"
+
+Agent compiles:
+
+Ticket sales (sold/capacity/remaining/revenue)
+Number of sponsors
+Number of vendor registrations
+Days until the event
+NATURAL LANGUAGE UNDERSTANDING PATTERNS
+
+The agent must handle variations of the same intent:
+
+"Turn things on/off"
+
+"turn on tickets" = "enable ticket sales" = "start selling tickets" = "open ticket sales"
+→ PATCH { isTicketed: true }
+"turn off tickets" = "stop selling tickets" = "close ticket sales" = "disable tickets"
+→ PATCH { isTicketed: false }
+"open registration" = "turn on registration" = "enable vendor signups" = "let vendors register"
+→ PATCH { hasRegistration: true, registrationClosed: false }
+"close registration" = "shut down registration" = "no more vendors" = "stop registrations"
+→ PATCH { registrationClosed: true }
+"How many / how much"
+
+"how many tickets" = "ticket count" = "how are sales" = "how many sold"
+→ GET /api/management/events/{slug}/sales
+"how many subscribers" = "newsletter list size"
+→ GET /api/management/newsletter/subscribers → return count
+"how much money" = "total revenue" = "what have we made"
+→ GET sales for all ticketed events → sum revenue → format as dollars
+"Add / Create / New"
+
+"add an event" = "create a new event" = "new event" = "put up an event"
+→ POST /api/management/events (gather required fields first)
+"add a sponsor" = "new sponsor" = "put [company] as a sponsor"
+→ POST /api/management/sponsors
+"add a business" = "list a new business" = "put [name] in the directory"
+→ POST /api/management/businesses
+"Change / Update / Edit"
+
+"change the date" = "move it to" = "reschedule" = "update the date"
+→ PATCH /api/management/events/{slug} { date: "..." }
+"change the tagline" = "update the homepage text" = "the tagline should say"
+→ PUT /api/management/content/home_tagline { value: "..." }
+"Remove / Delete / Take down"
+
+"remove the event" = "delete it" = "take it down" = "get rid of"
+→ DELETE /api/management/events/{slug} (CONFIRM FIRST)
+"remove the sponsor" = "take their logo off"
+→ DELETE /api/management/sponsors/{id}
+ERROR HANDLING
+
+When the user asks for something the site doesn't support:
+
+"I'd like to add a members-only login area." → "That feature isn't currently available on your site. Would you like me to add member authentication? That would be a new feature build."
+
+When the user gives incomplete info:
+
+"Add a new event called Fall Fest." → "Got it — Fall Fest. What date is it? And where will it be held?"
+
+When an operation fails:
+
+→ Don't show error codes. Say what happened in plain language. → "I wasn't able to update the event. The date format might be wrong — can you confirm the date?"
+
+When the user asks about something that doesn't exist:
+
+"How are ticket sales for the summer picnic?" → "I don't see a 'summer picnic' event on the site. Did you mean [closest match]? Or would you like me to create a new event?"
+
+PROACTIVE AGENT BEHAVIORS
+
+The agent should proactively suggest actions based on context:
+
+Event is soon but tickets aren't on: "The Chili Cookoff is in 2 weeks. Do you want to enable ticket sales?"
+Event is past its date: "The Meet Your Neighbor Dinner was on March 30th. Want me to mark it inactive so it's removed from the events page?"
+Pending sponsors waiting: "You have 2 sponsor applications waiting for approval. Want to review them?"
+Low ticket sales: "Only 12 of 100 tickets sold for the dinner and it's in 10 days. Want to send a newsletter push?"
+Unread messages: "You have 3 new contact form messages. Want me to summarize them?"
+Missing event info: "The Fall Festival doesn't have a time set yet. Want to add one?"
+MULTI-SITE MANAGEMENT
+
+When the agent manages multiple sites (different orgs):
+
+Always confirm which site/org the user is talking about if ambiguous
+Keep context of the current active site in the conversation
+"You're currently managing Norwin Rotary. Want to switch to Discover Irwin?"
+Each site has its own independent database, events, sponsors, content
+API endpoints are the same structure, just different base URLs per site
