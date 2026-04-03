@@ -21,7 +21,8 @@ const router = Router();
 
 const PILLAR_CNAME_TARGET = "proxy.mypillar.co";
 // Pillar's ingress IP address — used for A-record verification and BYOD instructions
-const PILLAR_PROXY_IP = process.env.PILLAR_PROXY_IP ?? "76.76.21.21";
+// 34.111.179.208 = Replit autoscale deployment IP (also reachable via Cloudflare proxy)
+const PILLAR_PROXY_IP = process.env.PILLAR_PROXY_IP ?? "34.111.179.208";
 
 function normalizeDomain(raw: string): string {
   return raw.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];

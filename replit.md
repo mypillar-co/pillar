@@ -87,3 +87,4 @@ The project is organized as a monorepo containing several distinct packages:
 - **Replit Auth**: Authentication service for user login and management.
 - **OpenAI**: AI models (`gpt-5-mini`, `gpt-4o-mini`) used for site generation, interviews, event descriptions, and content strategy.
 - **Porkbun**: Domain registrar API for domain availability checks, registration, and management.
+- **Cloudflare**: DNS proxy for `mypillar.co`. Provides wildcard SSL (`*.mypillar.co`) on the free plan. DNS records: `A @ → 34.111.179.208` (Replit deployment IP, proxied), `CNAME www → mypillar.co` (proxied), `CNAME * → mypillar.co` (proxied — enables all org subdomains). Nameservers must be changed from Porkbun's defaults to Cloudflare's assigned nameservers. `PILLAR_PROXY_IP=34.111.179.208` is the Replit deployment IP used for customer domain verification.
