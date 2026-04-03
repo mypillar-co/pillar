@@ -243,6 +243,7 @@ export default function SiteBuilder() {
   });
   const [previewSection, setPreviewSection] = useState<string>("");
   const [previewKey, setPreviewKey] = useState(0);
+  const [mobilePanel, setMobilePanel] = useState<"chat" | "preview">("preview");
 
   const navigatePreviewTo = (hash: string) => {
     setPreviewSection(hash);
@@ -967,10 +968,26 @@ export default function SiteBuilder() {
 
       {/* ── Preview mode — two-panel layout ── */}
       {mode === "preview" && site?.generatedHtml && (
-        <div className="flex flex-row flex-1 min-h-0 overflow-hidden">
+        <div className="flex flex-col flex-1 min-h-0 overflow-hidden sm:flex-row">
+
+          {/* ── Mobile panel toggle (chat vs preview) ── */}
+          <div className="sm:hidden flex-shrink-0 flex border-b border-white/8 bg-[hsl(224,40%,9%)]">
+            <button
+              onClick={() => setMobilePanel("preview")}
+              className={`flex-1 py-2.5 text-xs font-medium transition-colors border-b-2 ${mobilePanel === "preview" ? "border-primary text-white" : "border-transparent text-slate-400"}`}
+            >
+              Preview
+            </button>
+            <button
+              onClick={() => setMobilePanel("chat")}
+              className={`flex-1 py-2.5 text-xs font-medium transition-colors border-b-2 ${mobilePanel === "chat" ? "border-primary text-white" : "border-transparent text-slate-400"}`}
+            >
+              Edit &amp; Chat
+            </button>
+          </div>
 
           {/* ── LEFT: Site chat panel ── */}
-          <div className="w-72 flex-shrink-0 border-r border-white/8 flex flex-col min-h-0 bg-[hsl(224,40%,9%)]">
+          <div className={`${mobilePanel === "chat" ? "flex" : "hidden"} sm:flex w-full sm:w-72 flex-shrink-0 border-r border-white/8 flex-col min-h-0 bg-[hsl(224,40%,9%)]`}>
             {/* Messages */}
             <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0">
               {messages.map(msg => (
@@ -1076,7 +1093,7 @@ export default function SiteBuilder() {
           </div>
 
           {/* ── RIGHT: Site preview ── */}
-          <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+          <div className={`${mobilePanel === "preview" ? "flex" : "hidden"} sm:flex flex-1 overflow-hidden flex-col min-h-0`}>
 
           {/* Status bar */}
           <div className="px-4 py-2 border-b border-white/8 bg-[hsl(224,40%,9%)] flex items-center justify-between flex-shrink-0">
