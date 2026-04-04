@@ -1030,7 +1030,7 @@ router.post("/chat", async (req: Request, res: Response) => {
   // ── 11. Self-test ──────────────────────────────────────────────────────
 
   async function execRunSelfTest(): Promise<string> {
-    // Admin-only guard — check both ADMIN_EMAILS and ADMIN_USER_IDS
+    // ── Admin-only guard ────────────────────────────────────────────────────
     const adminEmailSet = new Set(
       (process.env.ADMIN_EMAILS ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
     );
@@ -1041,6 +1041,42 @@ router.post("/chat", async (req: Request, res: Response) => {
     const callerId = req.user?.id ?? "";
     if (!adminEmailSet.has(callerEmail) && !adminIdSet.has(callerId)) {
       return JSON.stringify({ error: "Self-test is restricted to admin accounts.", forbidden: true });
+    }
+
+    // ── Internal HTTP fetch helper ──────────────────────────────────────────
+    // Routes through the same Express server using loopback + Host header.
+    // This is equivalent to a real browser request — no DNS, no CDN, direct.
+    const port = process.env.PORT ?? "3000";
+    const hostHeader = `${org.slug}.mypillar.co`;
+    const internalBase = `http://127.0.0.1:${port}`;
+
+    async function getPage(path: string): Promise<{ ok: boolean; status: number; html: string; error?: string }> {
+      try {
+        const resp = await fetch(`${internalBase}${path}`, {
+          headers: { Host: hostHeader, Accept: "text/html" },
+          signal: AbortSignal.timeout(20000),
+        });
+        const html = await resp.text();
+        return { ok: resp.ok, status: resp.status, html };
+      } catch (err) {
+        return { ok: false, status: 0, html: "", error: String(err) };
+      }
+    }
+
+    async function postJson(path: string, body: Record<string, unknown>): Promise<{ ok: boolean; status: number; data: unknown; error?: string }> {
+      try {
+        const resp = await fetch(`${internalBase}${path}`, {
+          method: "POST",
+          headers: { Host: hostHeader, "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(20000),
+        });
+        let data: unknown;
+        try { data = await resp.json(); } catch { data = null; }
+        return { ok: resp.ok, status: resp.status, data };
+      } catch (err) {
+        return { ok: false, status: 0, data: null, error: String(err) };
+      }
     }
 
     const SELF_TEST_PREFIX = "selftest-";
@@ -1198,130 +1234,197 @@ router.post("/chat", async (req: Request, res: Response) => {
 
     // ── Step 2: Force site recompile ────────────────────────────────────────
     await forceSiteRecompile(org.id);
-    // Give compileSite time to finish (it's sync inside the call but may need I/O)
-    await new Promise<void>((r) => setTimeout(r, 4000));
+    await new Promise<void>((r) => setTimeout(r, 5000));
 
-    // ── Step 3: Fetch compiled HTML ─────────────────────────────────────────
-    const [siteRow] = await db
-      .select({ generatedHtml: sitesTable.generatedHtml })
-      .from(sitesTable)
-      .where(and(eq(sitesTable.orgId, org.id), isNull(sitesTable.deletedAt)))
-      .limit(1);
-
-    const html = siteRow?.generatedHtml ?? "";
-    const htmlLower = html.toLowerCase();
-
-    // ── Step 4: Validation checks ───────────────────────────────────────────
-    type Check = { id: string; name: string; pass: boolean; detail?: string };
-    const checks: Check[] = [];
-
-    function chk(id: string, name: string, pass: boolean, detail?: string) {
-      checks.push({ id, name, pass, detail });
-    }
-
-    // ── HTML was generated ──────────────────────────────────────────────────
-    chk("C01", "Site HTML generated", html.length > 1000, `HTML length: ${html.length} chars`);
-
-    // ── Hero / brand identity ───────────────────────────────────────────────
-    chk("C02", "Hero: org name in page", html.includes(org.name) || htmlLower.includes(org.name.toLowerCase()));
-    chk("C03", "Brand: Rotary blue (#003366) present", /003366/i.test(html), "Rotary parent org requires #003366");
-    chk("C04", "Brand: Gold accent (#F7A81B or #ffb700) present", /F7A81B|f7a81b|FFB700|ffb700|F7A800/i.test(html), "Rotary gold required");
-    chk("C05", "No default gray hero", !(/#e5e7eb|#d1d5db|bg-gray-200|bg-gray-300/i.test(html) && /hero|banner/i.test(html)), "Hero should use brand color, not default gray");
-
-    // ── Events ─────────────────────────────────────────────────────────────
-    chk("C06", "Golf Outing event present", /golf\s*outing/i.test(html));
-    chk("C07", "Backpack Program event present", /backpack/i.test(html));
-    chk("C08", "Chili Cookoff event present", /chili/i.test(html));
-    chk("C09", "Weekly Meetings / recurring event present", /weekly\s*meeting|every\s*tuesday/i.test(html));
-
-    // ── Ticket pricing ──────────────────────────────────────────────────────
-    chk("C10", "Golf Outing $125 price displayed", /\$125|125.*golfer|125.*ticket/i.test(html));
-    chk("C11", "Chili Cookoff $10 price displayed", /\$10\b|10.*taster|10.*ticket/i.test(html));
-    chk("C12", "Free event has no price badge (Backpack)", !(/backpack[\s\S]{0,400}\$\d/i.test(html) && /\$\d[\s\S]{0,400}backpack/i.test(html)));
-
-    // ── DB: event records ───────────────────────────────────────────────────
+    // ── Step 3: DB record verification ──────────────────────────────────────
     const allTestEvents = await db
-      .select({ slug: eventsTable.slug, isTicketed: eventsTable.isTicketed, ticketPrice: eventsTable.ticketPrice, featured: eventsTable.featured, hasSponsorSection: eventsTable.hasSponsorSection, hasRegistration: eventsTable.hasRegistration })
+      .select({
+        slug: eventsTable.slug,
+        isTicketed: eventsTable.isTicketed,
+        ticketPrice: eventsTable.ticketPrice,
+        featured: eventsTable.featured,
+        hasSponsorSection: eventsTable.hasSponsorSection,
+        hasRegistration: eventsTable.hasRegistration,
+      })
       .from(eventsTable)
       .where(and(eq(eventsTable.orgId, org.id), like(eventsTable.slug, `${SELF_TEST_PREFIX}%`)));
 
-    const golfEvent = allTestEvents.find(e => e.slug.includes("golf"));
+    const golfEvent   = allTestEvents.find(e => e.slug.includes("golf"));
     const backpackEvent = allTestEvents.find(e => e.slug.includes("backpack"));
-    const chiliEvent = allTestEvents.find(e => e.slug.includes("chili"));
+    const chiliEvent  = allTestEvents.find(e => e.slug.includes("chili"));
     const meetingEvent = allTestEvents.find(e => e.slug.includes("weekly"));
 
-    chk("C13", "DB: Golf Outing record exists", !!golfEvent);
-    chk("C14", "DB: Golf Outing isTicketed=true, price=$125", golfEvent?.isTicketed === true && Number(golfEvent?.ticketPrice) === 125, `isTicketed=${golfEvent?.isTicketed}, price=${golfEvent?.ticketPrice}`);
-    chk("C15", "DB: Golf Outing featured=true", golfEvent?.featured === true);
-    chk("C16", "DB: Golf Outing hasSponsorSection=true", golfEvent?.hasSponsorSection === true);
-    chk("C17", "DB: Backpack record exists", !!backpackEvent);
-    chk("C18", "DB: Backpack isTicketed=false (free event)", backpackEvent?.isTicketed === false || backpackEvent?.isTicketed == null);
-    chk("C19", "DB: Chili Cookoff record exists", !!chiliEvent);
-    chk("C20", "DB: Chili Cookoff isTicketed=true, price=$10", chiliEvent?.isTicketed === true && Number(chiliEvent?.ticketPrice) === 10, `isTicketed=${chiliEvent?.isTicketed}, price=${chiliEvent?.ticketPrice}`);
-    chk("C21", "DB: Chili Cookoff hasRegistration=true (vendor reg)", chiliEvent?.hasRegistration === true);
-    chk("C22", "DB: Weekly Meetings record exists", !!meetingEvent);
-
-    // ── Ticket types in DB ──────────────────────────────────────────────────
+    // Ticket type for golf
+    let golfTicketType: { price: number; quantity: number | null } | undefined;
     if (golfEvent) {
-      const [golfEventFull] = await db
+      const [golfFull] = await db
         .select({ id: eventsTable.id })
         .from(eventsTable)
         .where(and(eq(eventsTable.orgId, org.id), eq(eventsTable.slug, golfEvent.slug)))
         .limit(1);
-      if (golfEventFull) {
+      if (golfFull) {
         const [tt] = await db
           .select({ price: ticketTypesTable.price, quantity: ticketTypesTable.quantity })
           .from(ticketTypesTable)
-          .where(and(eq(ticketTypesTable.eventId, golfEventFull.id), eq(ticketTypesTable.isActive, true)))
+          .where(and(eq(ticketTypesTable.eventId, golfFull.id), eq(ticketTypesTable.isActive, true)))
           .limit(1);
-        chk("C23", "DB: Golf ticket type price=$125, capacity=144", tt?.price === 125 && tt?.quantity === 144, `price=${tt?.price}, qty=${tt?.quantity}`);
-      } else {
-        chk("C23", "DB: Golf ticket type price=$125, capacity=144", false, "Golf event not found by ID");
+        if (tt) golfTicketType = { price: tt.price, quantity: tt.quantity ?? null };
       }
-    } else {
-      chk("C23", "DB: Golf ticket type price=$125, capacity=144", false, "Golf event not found");
     }
 
-    // ── Content quality ─────────────────────────────────────────────────────
-    const fillerPhrases = [
-      "scroll to explore",
-      "making a meaningful impact",
-      "bringing people together",
-      "lasting connection",
-      "vite app",
-      "lorem ipsum",
-    ];
-    for (const filler of fillerPhrases) {
-      chk(`FILLER-${filler.substring(0, 10)}`, `No filler: "${filler}"`, !htmlLower.includes(filler.toLowerCase()));
+    // ── Step 4: Fetch real pages via internal HTTP ───────────────────────────
+    // Routes through the Express app using loopback + Host header — identical
+    // to a real browser request. This validates actual rendered output, not
+    // just stored DB content.
+    const [homePage, eventsPage, golfPage, chiliPage, backpackPage] = await Promise.all([
+      getPage("/"),
+      getPage("/events"),
+      golfEvent  ? getPage(`/events/${golfEvent.slug}`)    : Promise.resolve({ ok: false, status: 0, html: "", error: "no slug" }),
+      chiliEvent ? getPage(`/events/${chiliEvent.slug}`)   : Promise.resolve({ ok: false, status: 0, html: "", error: "no slug" }),
+      backpackEvent ? getPage(`/events/${backpackEvent.slug}`) : Promise.resolve({ ok: false, status: 0, html: "", error: "no slug" }),
+    ]);
+
+    // ── Step 5: Ticket checkout endpoint test ────────────────────────────────
+    // POST to the checkout API exactly as the browser form does.
+    let checkoutResult: { ok: boolean; status: number; data: unknown; error?: string } = { ok: false, status: 0, data: null };
+    if (golfEvent) {
+      checkoutResult = await postJson(`/api/public/events/${golfEvent.slug}/checkout`, {
+        name: "Test User",
+        email: "test@selftest.pillar.invalid",
+        quantity: 2,
+        orgSlug: org.slug,
+      });
     }
 
-    // ── Footer / affiliation ────────────────────────────────────────────────
-    chk("C24", "Footer: Rotary International affiliation mentioned", /rotary\s*international|member\s*of\s*rotary/i.test(html));
-    chk("C25", "Footer: Powered by Pillar", /powered\s*by\s*pillar/i.test(html));
-    chk("C26", "Footer is dark (navy/black bg)", /footer[\s\S]{0,500}(#1[a-f0-9]{5}|#0{6}|#003|bg-navy|bg-dark|navy|#00003|dark.*footer)/i.test(html) || /#003366[\s\S]{0,800}footer/i.test(html));
+    // ── Step 6: Run validation checks ───────────────────────────────────────
+    type Check = { id: string; name: string; pass: boolean; detail?: string };
+    const checks: Check[] = [];
+    function chk(id: string, name: string, pass: boolean, detail?: string) {
+      checks.push({ id, name, pass, detail });
+    }
 
-    // ── Programs / about ────────────────────────────────────────────────────
-    chk("C27", "Programs: Backpack Program listed", /backpack\s*program/i.test(html));
-    chk("C28", "Programs: Scholarship Fund listed", /scholarship/i.test(html));
-    chk("C29", "About: org description present", /service\s*club|rotary|irwin|norwin/i.test(html));
+    // -- DB records --
+    chk("DB-01", "DB: 4 test events seeded", allTestEvents.length >= 4, `found ${allTestEvents.length}`);
+    chk("DB-02", "DB: Golf Outing — isTicketed=true, price=$125",
+      golfEvent?.isTicketed === true && Number(golfEvent?.ticketPrice) === 125,
+      `isTicketed=${golfEvent?.isTicketed}, price=${golfEvent?.ticketPrice}`);
+    chk("DB-03", "DB: Golf Outing — featured=true", golfEvent?.featured === true);
+    chk("DB-04", "DB: Golf Outing — hasSponsorSection=true", golfEvent?.hasSponsorSection === true);
+    chk("DB-05", "DB: Golf ticket type — price=$125, capacity=144",
+      golfTicketType?.price === 125 && golfTicketType?.quantity === 144,
+      `price=${golfTicketType?.price}, qty=${golfTicketType?.quantity}`);
+    chk("DB-06", "DB: Backpack — isTicketed=false",
+      backpackEvent?.isTicketed === false || backpackEvent?.isTicketed == null);
+    chk("DB-07", "DB: Chili Cookoff — isTicketed=true, price=$10",
+      chiliEvent?.isTicketed === true && Number(chiliEvent?.ticketPrice) === 10,
+      `isTicketed=${chiliEvent?.isTicketed}, price=${chiliEvent?.ticketPrice}`);
+    chk("DB-08", "DB: Chili Cookoff — hasRegistration=true (vendor reg)", chiliEvent?.hasRegistration === true);
+    chk("DB-09", "DB: Weekly Meetings — record exists", !!meetingEvent);
 
-    // ── Contact / metadata ──────────────────────────────────────────────────
-    chk("C30", "Contact: address or location present", /irwin|PA\s*15642|main\s*st/i.test(html));
-    chk("C31", "No raw placeholder text", !/(TODO|PLACEHOLDER|INSERT.*HERE|your.*email.*here)/i.test(html));
+    // -- Homepage (real rendered page) --
+    const hp = homePage.html;
+    const hpL = hp.toLowerCase();
+    chk("HP-01", "Homepage: HTTP 200", homePage.ok && homePage.status === 200,
+      `status=${homePage.status}${homePage.error ? ` error=${homePage.error}` : ""}`);
+    chk("HP-02", "Homepage: has content (>5KB)", hp.length > 5000, `length=${hp.length}`);
+    chk("HP-03", "Homepage: org name present", hp.includes(org.name) || hpL.includes(org.name.toLowerCase()),
+      `org.name="${org.name}"`);
+    chk("HP-04", "Homepage: Rotary blue (#003366) in CSS/styles", /003366/i.test(hp));
+    chk("HP-05", "Homepage: gold accent (#F7A81B) in CSS/styles", /F7A81B|f7a81b|ffb700/i.test(hp));
+    chk("HP-06", "Homepage: no default-gray hero (no #e5e7eb hero bg)", !(/#e5e7eb[\s\S]{0,200}hero/i.test(hp) || /hero[\s\S]{0,200}#e5e7eb/i.test(hp)));
+    chk("HP-07", "Homepage: Golf Outing event card present", /golf\s*outing/i.test(hp));
+    chk("HP-08", "Homepage: Backpack event card present", /backpack/i.test(hp));
+    chk("HP-09", "Homepage: Chili Cookoff event card present", /chili/i.test(hp));
+    chk("HP-10", "Homepage: Golf shows $125 price", /\$\s*125|\$125/i.test(hp));
+    chk("HP-11", "Homepage: Chili shows $10 price", /\$\s*10\b|\$10/i.test(hp));
+    chk("HP-12", "Homepage: Scholarship Fund program listed", /scholarship/i.test(hp));
+    chk("HP-13", "Homepage: Backpack Program listed in programs", /backpack\s*program/i.test(hp));
+    chk("HP-14", "Homepage: contact info present (Irwin or phone)", /irwin|724|555.*014/i.test(hp));
+    chk("HP-15", "Homepage: Rotary International affiliation in footer", /rotary\s*international|member\s*of\s*rotary/i.test(hp));
+    chk("HP-16", "Homepage: Powered by Pillar in footer", /powered\s*by\s*pillar/i.test(hp));
+    chk("HP-17", "Homepage: no 'Scroll to explore' filler", !/scroll\s*to\s*explore/i.test(hp));
+    chk("HP-18", "Homepage: no 'making a meaningful impact' filler", !/making\s*a\s*meaningful\s*impact/i.test(hp));
+    chk("HP-19", "Homepage: no placeholder text", !/(TODO|PLACEHOLDER|lorem\s*ipsum)/i.test(hp));
 
-    // ── Step 5: Summarize ───────────────────────────────────────────────────
+    // -- Events listing page (real rendered page) --
+    const ep = eventsPage.html;
+    chk("EV-01", "Events page: HTTP 200", eventsPage.ok && eventsPage.status === 200,
+      `status=${eventsPage.status}${eventsPage.error ? ` error=${eventsPage.error}` : ""}`);
+    chk("EV-02", "Events page: Golf Outing listed", /golf\s*outing/i.test(ep));
+    chk("EV-03", "Events page: Backpack Program listed", /backpack/i.test(ep));
+    chk("EV-04", "Events page: Chili Cookoff listed", /chili/i.test(ep));
+    chk("EV-05", "Events page: Weekly Meetings shown (not 52 entries)", /weekly\s*meeting|every\s*tuesday/i.test(ep));
+    chk("EV-06", "Events page: $125 price badge for Golf", /\$\s*125|\$125/i.test(ep));
+    chk("EV-07", "Events page: $10 price badge for Chili", /\$\s*10\b|\$10/i.test(ep));
+    chk("EV-08", "Events page: Buy Tickets for ticketed events", /buy\s*tickets/i.test(ep));
+    chk("EV-09", "Events page: Learn More for free events", /learn\s*more/i.test(ep));
+
+    // -- Golf Outing detail page (real rendered page) --
+    const gp = golfPage.html;
+    chk("GF-01", "Golf detail page: HTTP 200", golfPage.ok && golfPage.status === 200,
+      `status=${golfPage.status}${golfPage.error ? ` error=${golfPage.error}` : ""}`);
+    chk("GF-02", "Golf detail page: $125 price shown", /\$\s*125|\$125/i.test(gp));
+    chk("GF-03", "Golf detail page: capacity / spots available", /144|spots\s*available|tickets\s*remaining|capacity/i.test(gp));
+    chk("GF-04", "Golf detail page: ticket form present (name + email + quantity)", /type=.text.|type=.email.|quantity/i.test(gp) || /ticket.*form|form.*ticket/i.test(gp));
+    chk("GF-05", "Golf detail page: Buy Tickets CTA present", /buy\s*tickets/i.test(gp));
+    chk("GF-06", "Golf detail page: sponsor section exists", /sponsor/i.test(gp));
+    chk("GF-07", "Golf detail page: no vendor registration (not a vendor event)", !/vendor\s*registration/i.test(gp) || golfEvent?.hasRegistration === false);
+
+    // -- Chili Cookoff detail page (real rendered page) --
+    const cp = chiliPage.html;
+    chk("CH-01", "Chili detail page: HTTP 200", chiliPage.ok && chiliPage.status === 200,
+      `status=${chiliPage.status}${chiliPage.error ? ` error=${chiliPage.error}` : ""}`);
+    chk("CH-02", "Chili detail page: $10 price shown", /\$\s*10\b|\$10/i.test(cp));
+    chk("CH-03", "Chili detail page: 300 capacity shown", /300/i.test(cp));
+    chk("CH-04", "Chili detail page: ticket form present", /type=.text.|type=.email.|quantity/i.test(cp) || /ticket.*form|form.*ticket/i.test(cp));
+    chk("CH-05", "Chili detail page: vendor registration section visible", /vendor\s*registration|team\s*registration|register.*team/i.test(cp));
+
+    // -- Backpack detail page (real rendered page) --
+    const bp2 = backpackPage.html;
+    chk("BP-01", "Backpack detail page: HTTP 200", backpackPage.ok && backpackPage.status === 200,
+      `status=${backpackPage.status}${backpackPage.error ? ` error=${backpackPage.error}` : ""}`);
+    chk("BP-02", "Backpack detail page: NO ticket form (it's free)", !/buy\s*tickets|ticket\s*price|\$\d+\s*per/i.test(bp2));
+    chk("BP-03", "Backpack detail page: description present", /meal\s*bags|food.insecure|volunteers/i.test(bp2));
+
+    // -- Ticket checkout endpoint (real API call) --
+    const checkoutData = checkoutResult.data as Record<string, unknown> | null;
+    chk("TC-01", "Ticket checkout: endpoint responds (not 500)", checkoutResult.status !== 500 && checkoutResult.status !== 0,
+      `status=${checkoutResult.status}${checkoutResult.error ? ` error=${checkoutResult.error}` : ""}`);
+    chk("TC-02", "Ticket checkout: returns JSON (not HTML error page)",
+      checkoutResult.data !== null && typeof checkoutResult.data === "object");
+    chk("TC-03", "Ticket checkout: no crash / no unhandled error",
+      !(checkoutData && typeof checkoutData["error"] === "string" && /uncaught|unhandled|crash|undefined is not/i.test(String(checkoutData["error"]))));
+    chk("TC-04", "Ticket checkout: graceful response (checkoutUrl or clear error)",
+      checkoutData != null && (("checkoutUrl" in checkoutData) || ("error" in checkoutData) || ("free" in checkoutData)),
+      `response keys: ${checkoutData ? Object.keys(checkoutData).join(", ") : "null"}`);
+
+    // ── Step 7: Summarize ────────────────────────────────────────────────────
     const passed = checks.filter(c => c.pass);
     const failed = checks.filter(c => !c.pass);
+
+    const siteUrl   = `https://${org.slug}.mypillar.co`;
+    const eventsUrl = `https://${org.slug}.mypillar.co/events`;
 
     const report = {
       ok: failed.length === 0,
       summary: `${passed.length}/${checks.length} checks passed`,
+      siteUrl,
+      eventsUrl,
+      golfDetailUrl:     golfEvent    ? `${siteUrl}/events/${golfEvent.slug}`     : null,
+      chiliDetailUrl:    chiliEvent   ? `${siteUrl}/events/${chiliEvent.slug}`    : null,
+      backpackDetailUrl: backpackEvent ? `${siteUrl}/events/${backpackEvent.slug}` : null,
       eventsCreated,
       eventsReused,
       seededSlugs,
-      siteUrl: `https://${org.slug}.mypillar.co`,
-      eventsUrl: `https://${org.slug}.mypillar.co/events`,
-      htmlLength: html.length,
+      pageStatuses: {
+        homepage:        homePage.status,
+        eventsListing:   eventsPage.status,
+        golfDetail:      golfPage.status,
+        chiliDetail:     chiliPage.status,
+        backpackDetail:  backpackPage.status,
+        ticketCheckout:  checkoutResult.status,
+      },
+      homePageLength:  hp.length,
       failed: failed.map(c => ({ id: c.id, name: c.name, detail: c.detail })),
       passed: passed.map(c => c.id),
       allChecks: checks.map(c => ({ id: c.id, name: c.name, pass: c.pass, detail: c.detail })),
@@ -1383,7 +1486,7 @@ If event info reveals something actionable, mention it naturally:
 Trigger phrases: "run the self-test", "test the build engine", "build a demo site and verify it", "show me it works", "prove the specs work", "test the platform", "run a test", "validate the site".
 This tool is ADMIN-ONLY. Non-admin users who ask for it will receive an error from the tool.
 Action: call run_self_test immediately — NO questions beforehand. The tool knows all the scenario data.
-Wait time: The tool takes ~5–10 seconds (it seeds events + recompiles the site). Tell the user it's running.
+Wait time: The tool takes 30–60 seconds — it seeds 4 real events into the DB, recompiles the site, then actually HTTP-fetches the homepage, events listing, 3 event detail pages, and POSTs to the ticket checkout endpoint. Tell the user "Running self-test — this loads real pages and takes about 30–60 seconds…" before calling the tool.
 After receiving results, format as a MARKDOWN report using this structure:
 
 ## Self-Test Results: [org name]
