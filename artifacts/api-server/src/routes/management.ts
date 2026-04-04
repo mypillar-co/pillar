@@ -1030,6 +1030,19 @@ router.post("/chat", async (req: Request, res: Response) => {
   // ── 11. Self-test ──────────────────────────────────────────────────────
 
   async function execRunSelfTest(): Promise<string> {
+    // Admin-only guard — check both ADMIN_EMAILS and ADMIN_USER_IDS
+    const adminEmailSet = new Set(
+      (process.env.ADMIN_EMAILS ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
+    );
+    const adminIdSet = new Set(
+      (process.env.ADMIN_USER_IDS ?? "").split(",").map((s) => s.trim()).filter(Boolean)
+    );
+    const callerEmail = (req.user?.email ?? "").toLowerCase();
+    const callerId = req.user?.id ?? "";
+    if (!adminEmailSet.has(callerEmail) && !adminIdSet.has(callerId)) {
+      return JSON.stringify({ error: "Self-test is restricted to admin accounts.", forbidden: true });
+    }
+
     const SELF_TEST_PREFIX = "selftest-";
 
     // ── Demo events (Norwin Rotary scenario from spec) ──────────────────────
@@ -1368,6 +1381,7 @@ If event info reveals something actionable, mention it naturally:
 
 === SELF-TEST ===
 Trigger phrases: "run the self-test", "test the build engine", "build a demo site and verify it", "show me it works", "prove the specs work", "test the platform", "run a test", "validate the site".
+This tool is ADMIN-ONLY. Non-admin users who ask for it will receive an error from the tool.
 Action: call run_self_test immediately — NO questions beforehand. The tool knows all the scenario data.
 Wait time: The tool takes ~5–10 seconds (it seeds events + recompiles the site). Tell the user it's running.
 After receiving results, format as a MARKDOWN report using this structure:
