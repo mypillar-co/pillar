@@ -59,6 +59,8 @@ type ImportedSiteData = {
   schedule: string;
   events: string;
   contact: string;
+  social: string;
+  leadership: string;
   audience: string;
   style: string;
   extra: string;
@@ -418,11 +420,13 @@ export default function SiteBuilder() {
     const qa: { q: string; a: string }[] = [
       { q: `Let's build ${orgName}'s website! What is your mission or main purpose?`, a: d.mission || `We are ${orgName}.` },
       { q: "What programs, services, or activities do you offer?", a: d.services || "Various community programs and services." },
-      { q: "Where are you located? Include address and regular schedule.", a: [d.location, d.schedule].filter(Boolean).join(". ") || "Location and schedule available upon request." },
-      { q: "Tell me about your events — any recurring gatherings or fundraisers?", a: d.events || "We host regular community events throughout the year." },
-      { q: "How should visitors reach you? Share email, phone, and social media.", a: d.contact || "Contact information available on our website." },
+      { q: "Where are you located? Include address and regular meeting schedule.", a: [d.location, d.schedule].filter(Boolean).join(". ") || "Location and schedule available upon request." },
+      { q: "Tell me about your upcoming events — any recurring gatherings or fundraisers? (Future events only)", a: d.events || "We host regular community events throughout the year." },
+      { q: "How should visitors reach you? Share email and phone number.", a: d.contact || "Contact information available on our website." },
+      { q: "What are your social media accounts?", a: d.social || "No social media listed." },
+      { q: "Who are your current officers or board members? List names and titles.", a: d.leadership || "Leadership information available upon request." },
       { q: "Who are you trying to reach?", a: d.audience || "Community members, volunteers, and supporters." },
-      { q: "Any color or style preferences for your site?", a: d.style || "Keep it consistent with our existing branding." },
+      { q: "Any color, style preferences, or parent organization branding to follow?", a: d.style || "Keep it consistent with our existing branding." },
       { q: "Anything else to highlight? Founding history, announcements, calls to action?", a: (d.extra ? d.extra + " " : "") + `Content imported from ${importedFromUrl ?? "existing website"}.` },
     ];
     const syntheticMessages: Message[] = [];
@@ -1728,16 +1732,18 @@ export default function SiteBuilder() {
                       </button>
                     </div>
                     <div className="px-4 py-3 space-y-3">
-                      {([ 
+                      {([
                         { key: "name", label: "Organization name", multiline: false },
                         { key: "mission", label: "Mission / purpose", multiline: true },
                         { key: "services", label: "Programs & services", multiline: true },
                         { key: "location", label: "Location", multiline: false },
                         { key: "schedule", label: "Meeting schedule", multiline: false },
-                        { key: "events", label: "Events", multiline: true },
-                        { key: "contact", label: "Contact info", multiline: false },
+                        { key: "events", label: "Upcoming events (future only)", multiline: true },
+                        { key: "contact", label: "Contact info (email & phone)", multiline: false },
+                        { key: "social", label: "Social media links", multiline: true },
+                        { key: "leadership", label: "Leadership / board members", multiline: true },
                         { key: "audience", label: "Audience", multiline: false },
-                        { key: "style", label: "Visual style", multiline: false },
+                        { key: "style", label: "Visual style & colors", multiline: false },
                         { key: "extra", label: "Other highlights", multiline: true },
                       ] as { key: keyof ImportedSiteData; label: string; multiline: boolean }[]).map(field => (
                         <div key={field.key} className="space-y-1">

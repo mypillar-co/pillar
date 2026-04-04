@@ -1,0 +1,529 @@
+# Pillar: Site Crawl & Import Specification (STRICT)
+
+**THIS IS NOT A SUGGESTION. THIS IS A BUILD REQUIREMENT.**
+
+When a user provides an existing website URL during onboarding (e.g., "we already have a site at norwinrotary.org"), the build engine MUST crawl that site and extract every piece of usable content before building the new site. The crawl is not decorative — it replaces the interview for content gathering. If the crawl finds real data, that data MUST appear on the new site. Period.
+
+---
+
+## WHEN CRAWL HAPPENS
+
+The crawl triggers when:
+1. User provides a URL during the interview ("our current site is norwinrotary.org")
+2. User says "pull info from our existing site"
+3. User pastes a URL and says "use this" or "build from this"
+4. Autopilot identifies a likely existing site for the org (e.g., finds it via web search)
+
+**The crawl MUST happen BEFORE the site is built.** Crawled data feeds into the build. Do not build first and then crawl — that produces a generic site that ignores everything the org already has.
+
+---
+
+## WHAT TO CRAWL
+
+The engine MUST attempt to extract ALL of the following from the existing site. For each item, the extraction method is specified.
+
+### 1. ORGANIZATION NAME
+
+**Where to find it:**
+- `<title>` tag (strip " | Home", " - Welcome", etc.)
+- `<h1>` on the homepage
+- Open Graph `og:title` meta tag
+- Logo alt text
+
+**Rules:**
+- Use the EXACT name as it appears on the site, including capitalization
+- "Norwin Rotary Club" not "norwin rotary club" or "NORWIN ROTARY CLUB"
+- If the site shows a formal name and a short name, store both (formal for footer/about, short for nav/header)
+
+**FAILURE MODE:** If crawl can't find the org name, the crawl has FAILED. Ask the user.
+
+---
+
+### 2. LOGO
+
+**Where to find it:**
+- `<img>` inside `<header>` or `<nav>` — this is almost always the logo
+- `<img>` with alt text containing "logo"
+- `<link rel="icon">` or `<link rel="apple-touch-icon">` (favicon, last resort)
+- CSS `background-image` on header elements
+- Open Graph `og:image` (sometimes the logo)
+
+**Extraction rules:**
+```
+1. Find the logo <img> element
+2. Get the `src` attribute — resolve to absolute URL if relative
+3. Download the image file (GET request, follow redirects)
+4. Verify the response is actually an image:
+   - Content-Type MUST be image/png, image/jpeg, image/svg+xml, image/webp, or image/gif
+   - If Content-Type is text/html → the URL is broken or behind auth → SKIP, do not use
+   - If response is 404 → SKIP
+   - If response is a redirect to a login page → SKIP
+5. Save the image to object storage / site assets
+6. Reference the SAVED copy in the new site — NEVER hotlink the original URL
+```
+
+**CRITICAL: NEVER hotlink images from the old site.** The old site might go down, change URLs, or block hotlinking. Always download and re-host.
+
+**CRITICAL: Verify the downloaded file is actually an image.** Many old sites have broken image URLs that return HTML error pages. If you embed an HTML response as an `<img>` src, it shows a broken image icon. Test every downloaded file.
+
+**Logo sizing rules:**
+- In the header/nav: constrain to `h-8` to `h-12`, `w-auto` (maintain aspect ratio)
+- In the hero (if used as hero background): full width with object-cover
+- In the footer: `h-8`, `w-auto`, with reduced opacity (80%)
+- NEVER stretch, crop, or distort the logo
+
+**FAILURE MODE:** If no logo can be found or downloaded, use the org name as text in the header. Do NOT use a placeholder image. Do NOT use a generic icon. Text-only header is fine.
+
+---
+
+### 3. IMAGES (HERO, GALLERY, EVENT PHOTOS)
+
+**Where to find them:**
+- Hero/banner: Large `<img>` in the first section, or CSS `background-image` on hero `<div>`
+- Gallery: Any page with "gallery", "photos", or "images" in the URL or navigation
+- Event photos: Images on event detail pages
+- About page: Team photos, building photos
+- `<img>` tags throughout the site with meaningful content (not icons, not spacer GIFs)
+
+**Extraction rules:**
+```
+For each image found:
+1. Get absolute URL
+2. Filter OUT:
+   - Images smaller than 100x100px (icons, spacers, bullets)
+   - Images from ad networks (doubleclick, googlesyndication, etc.)
+   - Social media share icons
+   - Payment method icons (visa, mastercard, etc.)
+   - WordPress theme decoration images
+   - Stock photo watermarked images
+3. Download the image (GET, follow redirects)
+4. Verify Content-Type is image/* (not text/html)
+5. Verify file size > 5KB (smaller is likely a tracking pixel or icon)
+6. Save to object storage with descriptive filename:
+   - hero-banner.jpg (not img_2847.jpg)
+   - event-chili-cookoff-2025.jpg (not DSC_0001.jpg)
+   - gallery-01.jpg, gallery-02.jpg, etc.
+7. Record which page/section the image was found on (for placement in new site)
+```
+
+**Image placement rules for the new site:**
+- Hero image → new site hero section background (with dark overlay + white text)
+- Gallery images → new site gallery section or page
+- Event images → associated event cards and detail pages
+- Building/venue photos → about section or contact section
+- Team/board photos → about section or leadership section
+
+**FAILURE MODE:** If images can't be downloaded (404, auth-walled, HTML response), do NOT use them. Build the section without images — use colored backgrounds instead. A section with a solid primary-color background looks intentional. A section with a broken image icon looks incompetent.
+
+---
+
+### 4. EVENTS
+
+**Where to find them:**
+- Page with "events", "calendar", or "upcoming" in URL or nav link
+- `<table>` or `<ul>` with dates and event names
+- Calendar widgets (Google Calendar embeds, etc.)
+- Individual event pages linked from events list
+- Facebook Events widget/embed
+
+**Extraction rules for each event:**
+```
+Extract:
+- Title: the event name (h2, h3, link text, or first prominent text)
+- Date: any date string — parse to standardized format
+- Time: start time and end time if available
+- Location: venue/address if listed
+- Description: paragraph text about the event
+- Image: event-specific image if present
+- Price: ticket price if mentioned ("$15", "Free", "$25/person")
+- Link: URL to event detail page for further crawling
+
+Date parsing:
+- "April 12, 2026" → "Saturday, April 12, 2026"
+- "4/12/26" → "Saturday, April 12, 2026"
+- "Apr 12" → "Saturday, April 12, 2026" (assume current/next year)
+- "Every Tuesday" → recurring event, not individual entries
+- "TBD" → store as-is
+
+Price parsing:
+- "$15" → ticketed, price = "15"
+- "$15/person" → ticketed, price = "15"
+- "Free" → not ticketed
+- "Donation" → not ticketed (or ticketed with suggested amount — ask user)
+- No price mentioned → not ticketed (default)
+- "$25 members / $35 non-members" → ask user which to use as ticket price
+```
+
+**CRITICAL: Only import FUTURE events.** If an event's date has passed, DO NOT import it. Past events clutter the site and confuse visitors. If the crawled site only has past events, note this and ask the user about upcoming events.
+
+**CRITICAL: Detect recurring events.** If the crawled calendar shows:
+```
+April 8: Board Meeting
+April 15: Board Meeting  
+April 22: Board Meeting
+```
+Import as ONE recurring event: "Board Meeting — Every Tuesday" — NOT three separate events.
+
+**FAILURE MODE:** If no events are found on the crawled site, that's fine — many old sites have outdated or no event listings. Ask the user: "I didn't find any upcoming events on your current site. Do you have events you'd like to add?"
+
+---
+
+### 5. CONTACT INFORMATION
+
+**Where to find it:**
+- Contact page (linked from nav as "Contact", "Contact Us", "Get in Touch")
+- Footer (almost always has address, phone, email)
+- About page
+- Sidebar widgets
+- Google Maps embed (extract address from iframe src)
+- Schema.org structured data (`<script type="application/ld+json">`)
+
+**Extraction rules:**
+```
+Extract:
+- Address: full street address, city, state, zip
+- Phone: phone number(s) — format as (XXX) XXX-XXXX
+- Email: email address(es)
+- Hours: operating hours, office hours, meeting times
+- Social links: Facebook, Instagram, Twitter/X, YouTube URLs
+
+Phone detection regex: \(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}
+Email detection regex: [a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}
+Social detection: URLs containing facebook.com, instagram.com, twitter.com, x.com, youtube.com, linkedin.com
+
+Deduplication:
+- If the same phone number appears in the footer AND the contact page, store it ONCE
+- If a general email and a specific contact email exist, store both with labels
+```
+
+**MANDATORY: Each piece of contact info appears on the new site ONCE.** The crawl may find the same address in 3 places on the old site. Store it once, display it once (in the contact section), and optionally repeat in the footer.
+
+**FAILURE MODE:** If no contact info found, ask the user. A site without contact info is useless.
+
+---
+
+### 6. ABOUT / MISSION / DESCRIPTION
+
+**Where to find it:**
+- About page (linked from nav as "About", "About Us", "Our Mission", "Who We Are")
+- Homepage hero subtitle or intro paragraph
+- Meta description tag
+- Open Graph `og:description`
+- Schema.org description
+
+**Extraction rules:**
+```
+1. Find the about page
+2. Extract the main content paragraphs (skip nav, sidebar, footer text)
+3. Use the FIRST 2-3 paragraphs as the org description
+4. Look for mission statement keywords: "our mission", "we are dedicated", "our purpose"
+5. If the about text is mostly AI filler (generic, could apply to any org), DISCARD it
+6. If the about text contains specific, real information (founding year, member count, 
+   specific programs), KEEP it
+```
+
+**Quality check for crawled about text:**
+
+KEEP (specific, real):
+```
+"Founded in 1985, the Norwin Rotary Club has 42 active members who meet every 
+Tuesday at noon at the Irwin Fire Hall."
+```
+
+DISCARD (generic AI filler):
+```
+"We are a dedicated group of community members who come together to make a 
+meaningful impact through service and fellowship."
+```
+
+**If the crawled about text is generic filler, DO NOT use it.** Better to have a short, factual line ("Norwin Rotary Club — Irwin, PA") than two paragraphs of nothing.
+
+---
+
+### 7. PROGRAMS / SERVICES / WHAT WE DO
+
+**Where to find it:**
+- Pages linked from nav as "Programs", "Services", "What We Do", "Our Work", "Activities"
+- Sections on the about page listing programs
+- Sidebar or homepage feature blocks
+
+**Extraction rules:**
+```
+For each program/service:
+- Name: the heading or title
+- Description: the paragraph(s) below it (if real, not filler)
+- Image: associated image (if present and downloadable)
+- Link: if the program has its own page, crawl that page too
+
+Store as structured data:
+{
+  name: "Backpack Program",
+  description: "Provides weekend meals to food-insecure students at Norwin schools.",
+  image: "programs/backpack-program.jpg" (if downloaded)
+}
+```
+
+**Same quality check as about text.** If a program description is generic filler, store only the program name. A card with just "Backpack Program" and an icon is honest. A card with AI filler is dishonest.
+
+---
+
+### 8. LEADERSHIP / BOARD / OFFICERS
+
+**Where to find it:**
+- Pages linked from nav as "Leadership", "Board", "Officers", "Our Team", "Staff"
+- About page section listing board members
+- Sidebar or footer officer listings
+
+**Extraction rules:**
+```
+For each person:
+- Name: full name as displayed
+- Title/Role: "President", "Worshipful Master", "Chair", etc.
+- Photo: headshot if available (download and re-host)
+- Email: if listed
+- Bio: if listed (keep it short — 1-2 sentences max)
+
+IMPORTANT for fraternal orgs: 
+- Preserve ceremonial titles EXACTLY ("Worshipful Master", not "President")
+- Preserve title order (they have specific hierarchy)
+```
+
+---
+
+### 9. COLORS / BRAND
+
+**Where to find it:**
+- CSS stylesheets (look for primary colors used on header, buttons, links)
+- Inline styles on key elements
+- Logo colors (if logo is downloadable, sample dominant colors)
+- Parent org branding (Rotary blue, Lions purple, etc.)
+
+**Extraction rules:**
+```
+1. Fetch the main CSS file(s)
+2. Look for colors applied to:
+   - <header> or <nav> background → this is likely the primary color
+   - <a> and <button> elements → this is likely the accent color
+   - <footer> background → this is likely the dark primary variant
+3. If colors are generic defaults (Bootstrap blue #007bff, etc.), IGNORE them
+   and apply org-type colors from the visual design spec instead
+4. If colors are clearly custom/branded, USE them on the new site
+5. If a parent org exists (Rotary, Lions, etc.), parent org colors OVERRIDE
+   whatever the old site used — parent org branding is standardized
+```
+
+---
+
+### 10. DOCUMENTS / FILES
+
+**Where to find it:**
+- Links to PDFs, DOCs, spreadsheets
+- "Resources", "Documents", "Downloads" pages
+- Meeting minutes, bylaws, newsletters, forms
+
+**Extraction rules:**
+```
+1. Find all links to downloadable files (<a href="*.pdf">, <a href="*.doc">, etc.)
+2. Download each file
+3. Verify it's actually a file (not a 404 HTML page saved as .pdf)
+4. Save to object storage
+5. Create a "Documents" or "Resources" section on the new site with download links
+6. Organize by category if possible (Meeting Minutes, Forms, Newsletters)
+```
+
+**FAILURE MODE:** If documents can't be downloaded (auth-walled, broken links), skip them. Note which ones failed so the user can provide them manually.
+
+---
+
+## CRAWL EXECUTION ORDER
+
+The crawl MUST follow this order:
+
+```
+Step 1: Fetch homepage
+  → Extract: org name, logo, hero image, nav links, contact info in footer,
+     social links, meta tags, structured data
+
+Step 2: Identify internal pages from navigation
+  → Build list of pages to crawl: About, Events, Contact, Programs, 
+     Leadership, Gallery, Resources, etc.
+
+Step 3: Crawl each identified page
+  → Extract page-specific content per rules above
+
+Step 4: Download all images and files
+  → Verify each download is valid (correct Content-Type, not HTML error page)
+  → Save to object storage with descriptive filenames
+
+Step 5: Deduplicate
+  → Remove duplicate contact info, duplicate images, duplicate text blocks
+
+Step 6: Assemble crawl results
+  → Structured data object with all extracted content, ready for build engine
+
+Step 7: Present crawl summary to user for verification
+  → "I found: org name, logo, 4 events, 12 images, contact info, 3 programs,
+     5 board members. Does this look right?"
+```
+
+---
+
+## CRAWL RESULT STRUCTURE
+
+After crawling, the engine produces a structured data object:
+
+```json
+{
+  "source_url": "https://norwinrotary.org",
+  "org": {
+    "name": "Norwin Rotary Club",
+    "shortName": "Norwin Rotary",
+    "tagline": "Service Above Self",
+    "description": "Founded in 1985...",
+    "parentOrg": "Rotary International",
+    "type": "rotary"
+  },
+  "brand": {
+    "logo": "assets/norwin-rotary-logo.png",
+    "primaryColor": "#003366",
+    "accentColor": "#F7A81B",
+    "usedParentOrgColors": true
+  },
+  "contact": {
+    "address": "123 Main St, Irwin, PA 15642",
+    "phone": "(724) 555-1234",
+    "email": "info@norwinrotary.org",
+    "meetingSchedule": "Every Tuesday, 12:00 PM at Irwin Fire Hall",
+    "social": {
+      "facebook": "https://facebook.com/norwinrotary",
+      "instagram": null
+    }
+  },
+  "events": [
+    {
+      "title": "Annual Golf Outing",
+      "date": "Saturday, June 14, 2026",
+      "time": "8:00 AM Shotgun Start",
+      "location": "Youghiogheny Country Club",
+      "description": "18-hole scramble format...",
+      "image": "assets/events/golf-outing.jpg",
+      "isTicketed": true,
+      "ticketPrice": "125",
+      "isRecurring": false
+    }
+  ],
+  "programs": [
+    {
+      "name": "Backpack Program",
+      "description": "Provides weekend meals to food-insecure students.",
+      "image": null
+    }
+  ],
+  "leadership": [
+    {
+      "name": "Jane Smith",
+      "title": "President",
+      "photo": "assets/leadership/jane-smith.jpg",
+      "email": "jane@norwinrotary.org"
+    }
+  ],
+  "images": {
+    "hero": "assets/hero-banner.jpg",
+    "gallery": ["assets/gallery/01.jpg", "assets/gallery/02.jpg"],
+    "misc": []
+  },
+  "documents": [
+    {
+      "name": "2025-2026 Meeting Schedule",
+      "url": "assets/documents/meeting-schedule-2025-2026.pdf",
+      "category": "Schedules"
+    }
+  ],
+  "crawlMeta": {
+    "pagesScanned": 8,
+    "imagesDownloaded": 15,
+    "imagesFailed": 2,
+    "documentsDownloaded": 3,
+    "documentsFailed": 0,
+    "warnings": [
+      "Could not download image: /wp-content/uploads/old-photo.jpg (404)",
+      "Skipped 12 past events from 2024"
+    ]
+  }
+}
+```
+
+**This structured result is what the build engine uses to construct the site.** Every field in this object maps to a section, element, or configuration on the new site. If a field is populated, the corresponding section MUST appear. If a field is null/empty, the corresponding section MUST be hidden.
+
+---
+
+## COMMON CRAWL FAILURES AND HOW TO HANDLE THEM
+
+### Old WordPress sites with broken images
+**Problem:** Half the image URLs return 404 or redirect to wp-login.php.
+**Solution:** Download and verify every image. Discard broken ones. Build sections without images (use colored backgrounds instead). Tell the user: "Some images from your old site weren't accessible. You can upload replacements in the dashboard."
+
+### Sites behind authentication
+**Problem:** Pages return login forms instead of content.
+**Solution:** Crawl what's publicly accessible. Tell the user: "Some pages on your site require a login. I could only pull content from the public pages. Can you provide the content from [page names] directly?"
+
+### Single-page sites with no internal pages
+**Problem:** Everything is on one page, no separate About/Events/Contact pages.
+**Solution:** Parse the single page's sections. Look for anchor links (#about, #events) as section markers. Extract content from each section.
+
+### Sites with only Facebook pages
+**Problem:** User says "our site is our Facebook page."
+**Solution:** Crawl the Facebook page for:
+- Page name → org name
+- Profile picture → logo
+- Cover photo → hero image
+- About section → description
+- Events tab → events list
+- Posts with images → gallery
+Note: Facebook may block scraping. If so, ask the user to provide the info directly.
+
+### Sites with expired domains or DNS issues
+**Problem:** URL doesn't resolve.
+**Solution:** Try with and without www. Try http and https. If all fail, tell the user: "I couldn't reach [url]. Is this the correct address? It may be expired." Fall back to interview-based content gathering.
+
+### JotForm/Google Forms URLs that expire
+**Problem:** URLs to form submissions, uploaded images, or temporary links that expire.
+**Solution:** Download immediately during crawl. NEVER store the original URL as the permanent reference — it WILL break. Always re-host on object storage.
+
+---
+
+## POST-CRAWL VERIFICATION
+
+After crawling and before building, verify:
+
+```
+[ ] Org name extracted and matches what user expects
+[ ] Logo downloaded and is a valid image file (not HTML)
+[ ] Hero image downloaded and is a valid image (if found)
+[ ] All event images are valid image files
+[ ] No broken image files (HTML saved as .jpg, etc.)
+[ ] No duplicate contact info in the crawl results
+[ ] Recurring events collapsed into single entries
+[ ] Past events excluded
+[ ] Colors identified or org-type defaults applied
+[ ] Leadership names and titles preserved exactly
+[ ] Social media links are valid URLs
+[ ] All files re-hosted (no hotlinks to old site)
+```
+
+**Only proceed to build after this verification passes.**
+
+---
+
+## THE ABSOLUTE RULES
+
+1. **NEVER hotlink images from the old site.** Download and re-host everything.
+2. **NEVER use a broken image.** Verify every download. Discard failures.
+3. **NEVER import past events.** Only future events.
+4. **NEVER duplicate content.** Deduplicate before building.
+5. **NEVER use crawled text that is generic AI filler.** Discard it.
+6. **NEVER skip the crawl when a URL is provided.** The user gave you a URL for a reason.
+7. **ALWAYS verify downloads are actually the file type they claim to be.** An HTML page saved as logo.png is not a logo.
+8. **ALWAYS present crawl results to the user before building.** Let them confirm or correct.
+9. **ALWAYS re-host files on object storage.** External URLs expire, get blocked, or change.
+10. **ALWAYS use the crawled data in the build.** If you crawled it and it's valid, it MUST appear on the new site. Crawling and then ignoring the results is the same as not crawling at all.

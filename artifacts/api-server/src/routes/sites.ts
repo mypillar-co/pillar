@@ -148,27 +148,33 @@ router.post("/builder", async (req: Request, res: Response) => {
 
   const systemPrompt = `You are a friendly, professional website consultant for Pillar — an AI platform that builds websites for civic organizations, nonprofits, clubs, and community groups.
 
-You're helping ${name} (a ${type}) build their public website. Ask ONE question at a time. Be warm, conversational, and brief.
+You're helping ${name} (a ${type}) build their public website. Ask ONE question at a time. Be warm, conversational, and brief. If a user's answer already answers a future question, skip that question.
 
-Interview sequence — follow this order exactly, asking each question word-for-word:
+Interview sequence — follow this order, but skip any question the user already answered:
 
-1. "Let's build ${name}'s website! To start — finish this sentence for me: '${name} is a ${type} that ___.' Give me the one or two lines you'd say to a neighbor who'd never heard of you. Include how long you've been around if you know it."
+BLOCK 1 — Identity:
+1. "Let's build ${name}'s website! In one sentence — what does ${name} do? The kind of thing you'd say to a neighbor who'd never heard of you. Include how long you've been around if you know it."
 
-2. "Great. Now — what's the single most important thing you want a visitor to do when they land on your site? For example: join as a member, attend an upcoming event, make a donation, volunteer, or just get in touch."
+2. "Do you have an existing website? If so, share the URL and I'll pull your content from it automatically — events, programs, photos, contact info, the works. If not, just say 'no existing site' and we'll build from scratch."
+   → If they give a URL: say "Got it — I'll import from [url]. Use the 'Import from existing site' button below to pull in your content, then confirm what I find and click 'Generate My Site'."
+   → If no existing site: continue to question 3.
 
-3. "What are your top 3 to 5 programs, activities, or ways you serve the community? Just name them and give a sentence on each — these become the highlight cards on your homepage."
+3. "What are your top programs, services, or activities? Name them and give a sentence on each — these become the highlight cards on your site. List as many as you have."
 
-4. "Do you have any signature annual events, fundraisers, or regular community gatherings? Give me the names, roughly when they happen, and what makes them special."
+BLOCK 2 — Events (most important — be thorough):
+4. "Now for events — this is the heart of your site. List every event you have: name, approximate date, and whether it's annual or one-time. Include regular meetings too (e.g. 'Weekly Tuesday lunch meetings')."
 
-5. "How does someone become a member — and what do they get out of it? Mention any dues, requirements, or standout benefits. If membership isn't relevant, tell me the main way people get involved."
+5. "For your ticketed events: what are the prices? Is there a capacity limit? Do vendors pay to set up booths? Do you have sponsors, and if so, what are the sponsorship levels and prices? (e.g. Gold $500, Silver $250)"
 
-6. "Where do you meet and when? Include the full address or venue, your regular meeting schedule, and the best way for someone to reach you — email, phone, Facebook page, whatever you use most."
+BLOCK 3 — Contact & Social:
+6. "Where are you located? Include your address, regular meeting venue, and meeting schedule. Also share your email, phone, and any social media accounts (Facebook, Instagram, etc.)."
 
-7. "Last one — how would you describe your organization's personality? Pick any that fit: Traditional, Modern, Warm & Friendly, Bold, Professional, Community-focused. Any color preferences? If you have a logo or existing colors, mention them and I'll match."
+BLOCK 4 — Design (last, mostly inferred):
+7. "Last one — do you have a logo or brand colors? If not, I'll match your org type's standard colors automatically. Any websites whose look you like? (Optional — I can infer everything from your org type if you skip this.)"
 
-After each answer, acknowledge in ONE sentence that shows you actually heard it, then ask the next question.
-After collecting all 7 answers, say EXACTLY: "I have everything I need! Click **Generate My Site** to build your website."
-Keep every response under 65 words. Stay conversational and encouraging. Never suggest edits or improvements — just collect information.`;
+After each answer, acknowledge in ONE sentence that shows you heard it, then ask the next question.
+After collecting answers to all 4 blocks (adjusting for skips), say EXACTLY: "I have everything I need! Click **Generate My Site** to build your website."
+Keep every response under 65 words. Stay conversational. Never suggest edits — just collect info. NEVER make up events, programs, or descriptions the user didn't provide.`;
 
   const messages: OpenAI.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
@@ -484,6 +490,8 @@ type ImportedSiteData = {
   schedule: string;
   events: string;
   contact: string;
+  social: string;
+  leadership: string;
   audience: string;
   style: string;
   extra: string;
@@ -627,29 +635,36 @@ router.post("/import-url", async (req: Request, res: Response) => {
     pageContent.ogDescription || pageContent.metaDescription ? `Meta description: ${pageContent.ogDescription || pageContent.metaDescription}` : "",
   ].filter(Boolean).join("\n");
 
-  const extractPrompt = `You are a data extraction assistant helping build a new, professional website for a civic organization. Analyze the content scraped from their existing website (homepage + sub-pages) and extract key information to use as source material.
+  // Today's date so AI can determine which events are future vs past
+  const todayStr = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
 
-IMPORTANT RULES:
-- Use the page title and meta description as the most authoritative source for the organization's name and mission
-- Ignore any raw JSON, code snippets, or technical strings in the content
-- Write mission/services in clean, readable prose — never output raw data or code
-- Extract ALL programs, services, and activities you can find — be thorough
-- Extract ALL events and recurring activities mentioned
-- If a field is genuinely not found, use ""
+  const extractPrompt = `You are a data extraction assistant helping build a new website for a civic organization. Today's date is ${todayStr}. Analyze the content scraped from their existing website and extract key information following STRICT rules below.
 
-Return a JSON object with EXACTLY these keys:
-- name: the organization's name (from title/headings, not JSON)
-- mission: their mission or purpose in 1-2 clear, human-readable sentences
-- services: ALL programs, services, and activities they offer (clean prose or comma-separated list)
-- location: physical address or meeting place
-- schedule: regular meeting schedule, hours, or calendar info
-- events: upcoming or recurring events and fundraisers — be thorough
-- contact: email addresses, phone numbers, website links found
-- audience: who they serve (members, community, volunteers, youth, etc.)
-- style: any branding colors, design style, or visual identity cues
-- extra: history, awards, recent news, leadership, calls to action, anything else notable
+===  ABSOLUTE RULES (violations ruin the site) ===
+1. FUTURE EVENTS ONLY — If an event's date has already passed (before ${todayStr}), DO NOT include it. Only extract events that haven't happened yet.
+2. RECURRING EVENTS COLLAPSED — If you see the same event repeating (e.g. "Board Meeting Apr 8, Apr 15, Apr 22"), extract it ONCE as a recurring event: "Board Meeting — Every Tuesday". Not 3 separate entries.
+3. NO AI FILLER TEXT — If a description is generic and could apply to ANY organization (e.g. "We are dedicated community members making a meaningful impact through service"), DISCARD it. Leave the field blank. Only keep specific, factual text.
+4. CONTACT INFO — Extract address, phone, and email SEPARATELY. Do not smash them together.
+5. SOCIAL MEDIA — Extract Facebook, Instagram, Twitter/X, YouTube, LinkedIn URLs SEPARATELY from contact.
+6. LEADERSHIP — Extract board members, officers, and their titles in a formatted list. Preserve exact ceremonial titles (e.g. "Worshipful Master", not "President").
+7. PARENT ORG DETECTION — If this is a Rotary club, Lions club, Kiwanis, Elks, VFW, American Legion, or other parent-org franchise, identify the parent org and note it. Parent org colors override the old site's colors.
 
-Return ONLY valid JSON, no markdown, no explanation.
+=== FIELD RULES ===
+- name: Exact org name from title/h1/og:title. Preserve capitalization.
+- mission: 1-2 sentences from their about page. Must be SPECIFIC — founding year, member count, location, what they actually do. If you find only generic filler, leave blank.
+- services: ALL programs, services, and community activities they run — comma-separated or brief list. Be thorough. Only real program names, no filler descriptions.
+- location: Full street address + city + state + zip if available, OR meeting venue name. Never duplicate phone/email here.
+- schedule: Regular meeting schedule ONLY (e.g. "Every Tuesday, 12:00 PM at Irwin Fire Hall"). Leave blank if not found.
+- events: FUTURE events only (after ${todayStr}). Each event on its own line: "Event Name | Date | Location (if known) | Price (if ticketed)". Recurring events listed once with frequency. If no future events found, leave blank.
+- contact: Email address(es) and phone number(s) ONLY. Format phone as (XXX) XXX-XXXX.
+- social: Social media URLs only (Facebook, Instagram, Twitter/X, YouTube, LinkedIn). One per line with platform label. E.g. "Facebook: https://facebook.com/example"
+- leadership: Board members and officers. One per line: "Name — Title". Preserve exact titles.
+- audience: Who they serve — be specific (e.g. "Members, Norwin area community, youth 5-18"). Not generic phrases like "everyone in the community".
+- style: Branding colors found (hex codes if possible), parent org name if detected, any clear visual style cues.
+- extra: History, founding year, notable achievements, awards, recent news, calls to action. Only specific real facts — no filler.
+
+Return a JSON object with EXACTLY these keys: name, mission, services, location, schedule, events, contact, social, leadership, audience, style, extra
+Return ONLY valid JSON, no markdown, no explanation. Use "" for fields not found.
 
 ${metaBlock ? `=== HIGH-PRIORITY METADATA (most reliable) ===\n${metaBlock}\n\n` : ""}=== WEBSITE CONTENT ===
 ${plainText}`;
@@ -677,6 +692,8 @@ ${plainText}`;
       schedule: safeStr(obj.schedule),
       events: safeStr(obj.events),
       contact: safeStr(obj.contact),
+      social: safeStr(obj.social),
+      leadership: safeStr(obj.leadership),
       audience: safeStr(obj.audience),
       style: safeStr(obj.style),
       extra: safeStr(obj.extra),

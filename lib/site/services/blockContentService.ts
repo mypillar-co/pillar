@@ -11,6 +11,10 @@ export interface ImportBlockData {
   contactPhone?: string;
   contactAddress?: string;
   missionText?: string;
+  /** Social media links extracted from crawl (e.g. "Facebook: https://...") */
+  socialLinks?: string;
+  /** Leadership/board extracted from crawl (e.g. "Jane Smith — President\nBob Jones — VP") */
+  leadershipText?: string;
 }
 
 /**
@@ -201,51 +205,59 @@ export async function generateBlockContent(
     schema: BLOCK_FIELD_SCHEMAS[b.blockType] ?? "{ /* generate appropriate content */ }",
   }));
 
-  // Build import context to inform AI of pre-existing data
-  const importContext = importData ? `
-Pre-existing data from imported site (USE VERBATIM where marked):
-- heroImageUrl: ${importData.heroImageUrl ?? "none"}
-- contactEmail: ${importData.contactEmail ?? "none"}
-- contactPhone: ${importData.contactPhone ?? "none"}
-- contactAddress: ${importData.contactAddress ?? "none"}
-- missionText (USE VERBATIM): ${importData.missionText ? `"${importData.missionText.slice(0, 500)}"` : "none"}
-
-CRITICAL: If missionText is provided, use it verbatim in the about block body and hero subheadline.
-If heroImageUrl is provided, set it as imageUrl in the hero block.
-If contact data is provided, populate the contact block fields exactly.` : "";
 
   const strategy = contentContext?.strategy ?? "balanced";
   const ctaType = contentContext?.ctaType ?? profile.primaryCtaType;
+
+  // Build import context hints for the AI
+  const importHints = importData ? [
+    importData.contactEmail ? `importContactEmail: ${importData.contactEmail}` : "",
+    importData.contactPhone ? `importContactPhone: ${importData.contactPhone}` : "",
+    importData.contactAddress ? `importContactAddress: ${importData.contactAddress}` : "",
+    importData.missionText ? `importMissionText: ${importData.missionText}` : "",
+    importData.socialLinks ? `importSocialLinks:\n${importData.socialLinks}` : "",
+    importData.leadershipText ? `importLeadership:\n${importData.leadershipText}` : "",
+    importData.heroImageUrl ? `importHeroImageUrl: ${importData.heroImageUrl}` : "",
+  ].filter(Boolean).join("\n") : "";
 
   const systemPrompt = `You are a professional website content writer for civic and community organizations. Generate structured JSON content for website blocks.
 
 CONTENT SAFETY RULES (non-negotiable):
 - Output ONLY valid JSON
 - NEVER fabricate statistics, founding years, or membership numbers unless the org explicitly provided them
-- NEVER output filler phrases like "dedicated to excellence", "serving our community with pride", "making a difference", "building a better tomorrow", "committed to serving", or any other generic platitudes
+- NEVER output filler phrases like "dedicated to excellence", "serving our community with pride", "making a difference", "building a better tomorrow", "committed to serving", "brings people together", "meaningful impact", "lasting connection", or any other generic platitudes
 - NEVER invent programs, initiatives, or benefits the org didn't mention
 - Identity blocks (about, hero) use the org's actual mission and description only
 - If you lack information for a field, use "" (empty string) — do NOT guess or invent
 - Never generate content for blocks with hasDynamicData=true (they get live data)
 - Each block follows its exact schema — do not add or remove fields
 
+PARENT ORG / AFFILIATION RULES:
+- If the org is a Rotary club → primary color #003366 (Rotary blue), accent #F7A81B (gold). Use these EXACTLY.
+- If the org is a Lions club → primary color #4D2177 (Lions purple), accent #F4B400 (gold).
+- If the org is a Kiwanis club → primary color #002B5C (navy), accent #FBBF24 (gold).
+- If the org is VFW or American Legion → primary color #1B2A4A (navy), accent #C41E3A (red).
+- If the org is Elks lodge → primary color #1B3A6B (royal blue), accent #C9A227 (gold).
+- If no parent org: use the org type color rules (community orgs lean teal/blue, festivals lean orange/gold, arts lean burgundy/teal).
+
 QUALITY RULES:
-- Hero headline: org name OR event-type tagline. Short, punchy, specific to this org. NO generic taglines.
+- Hero headline: org name OR a short, specific tagline for this org. Max 8 words. NO generic taglines.
 - Hero: populate secondaryCtaText with a secondary action (e.g. "Learn More", "Our Mission", "Join Us") and secondaryCtaUrl with "#about". Always include both CTAs.
 - Hero: if the org has a type label (e.g. "Rotary Club", "Service Organization", "Veterans Post"), populate orgTypeLabel for the badge above the headline.
-- About body: use the org's actual mission text verbatim if provided. If not provided, use only org name + type + location if known. Do NOT pad with filler sentences.
+- About body: use the org's actual mission text verbatim if provided (see importMissionText). If not provided, use only org name + type + location if known. Do NOT pad with filler sentences.
 - Cards: only generate if you have real, specific information about programs or benefits. Use concrete details, not vague abstractions.
   - GOOD: "Monthly dinner meetings every 2nd Tuesday", "Annual $5,000 scholarship for local students", "Chili Cook-Off fundraiser every winter"
   - BAD: "Community Connection", "Serving with Pride", "Dedicated Members"
 - CTA: use action verbs specific to what the org actually offers.
-- Contact: populate with any provided contact data. Leave empty string if unknown.
+- Contact: populate with any provided contact data (see importContactEmail/Phone/Address). Leave empty string if unknown.
 - Stats block: ONLY include stats the org explicitly provided. If none, skip all three stat fields entirely.
+- Leadership names and titles: use EXACTLY as provided in importLeadership — preserve ceremonial titles ("Worshipful Master", not "President").
+- Social links: if importSocialLinks is provided, use those exact URLs for Facebook/Instagram/etc fields.
 
 RULE: When in doubt, less is more. A sparse block with accurate content is better than a padded block with invented content.
+${importHints ? `\n=== IMPORTED DATA FROM EXISTING SITE (use these values exactly) ===\n${importHints}` : ""}
 
 ${getStrategyInstructions(strategy, ctaType)}
-
-${importContext}
 
 Organization Context:
 - Name: ${profile.orgName}
@@ -338,6 +350,18 @@ For each block, output ONLY the fields listed in its schema. Skip blocks with ha
             if (!content.heading) content.heading = "About Us";
             parsed.blocks[block.id] = content;
           }
+        }
+
+        // Wire social links into contact block (append to address/hours if present)
+        if (block.blockType === "contact" && importData.socialLinks) {
+          if (!content.socialLinks) content.socialLinks = importData.socialLinks;
+          parsed.blocks[block.id] = content;
+        }
+
+        // Wire leadership into any leadership/team block
+        if (block.blockType === "leadership" && importData.leadershipText) {
+          if (!content.members) content.members = importData.leadershipText;
+          parsed.blocks[block.id] = content;
         }
       }
     }
