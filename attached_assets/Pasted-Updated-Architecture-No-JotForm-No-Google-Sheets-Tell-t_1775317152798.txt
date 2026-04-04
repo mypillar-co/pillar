@@ -1,0 +1,591 @@
+Updated Architecture (No JotForm, No Google Sheets)
+Tell the other project:
+
+Read the full reference architecture first:
+
+GET https://dashboard.irwincarcruise.org/api/architecture.md
+
+That shows how we handle everything with external services. Below is how you replicate it with everything built-in.
+
+Forms Live On Your Website
+Instead of JotForm webhooks landing in a Google Sheet, your website handles submissions directly.
+
+Vendor Application:
+
+Your website renders the vendor application form at /events/<slug>/vendor-apply
+On submit, POST /api/vendors with the form data + event slug
+Inserts directly into your vendors table with approved = 'pending'
+No webhook, no JotForm, no sheet — it's one database insert
+Sponsor Signup:
+
+Your website renders the sponsor form at /events/<slug>/sponsor-signup
+Form collects: company name, email, website, tier selection, and logo file upload
+On submit, POST /api/sponsors — the server saves the uploaded logo file to public/sponsor-logos/<hash>.<ext> immediately and inserts the sponsor row with logo_local_path set
+Logo is permanent from the moment of submission — no proxy, no third-party URL to break
+Ticket Purchase:
+
+Your website renders the ticket purchase flow at /events/<slug>/tickets
+Payment goes through Stripe Checkout or Stripe Elements
+On success (via Stripe webhook payment_intent.succeeded), insert into tickets table using the metadata you attached to the Stripe session:
+{
+  "metadata": {
+    "event_slug": "street-market",
+    "category": "ticket",
+    "buyer_name": "Jane Smith",
+    "buyer_email": "jane@example.com",
+    "quantity": "2"
+  }
+}
+
+Participant Registration:
+
+Same pattern — form on your site at /events/<slug>/register
+POST /api/registrations inserts into a registrations table
+Payment through Stripe with category: "participant" in metadata
+The Entire Data Flow (Simplified)
+Website Form Submit
+       ↓
+  Your API endpoint (POST /api/vendors, /api/sponsors, etc.)
+       ↓
+  Database insert (vendors, sponsors, tickets, registrations tables)
+       ↓
+  Dashboard reads from same database (GET /api/vendors?event=<slug>)
+       ↓
+  Admin approves/rejects (PATCH /api/vendors/:id)
+       ↓
+  Public website queries approved data (GET /api/event-sponsors.json?event=<slug>)
+
+No Google Sheets in the middle. No JotForm. No Apps Script. One database, one server, direct reads and writes.
+
+What Changes From Our Architecture
+Our System	Your System
+JotForm collects vendor/sponsor data	Your own forms on the website
+Google Sheets stores everything	PostgreSQL (or whatever DB you use)
+Apps Script handles sheet writes	Direct database queries
+Google Drive stores sponsor logos	Local file storage on your server
+Square payments exported to a sheet, then parsed	Stripe webhooks write directly to DB with structured metadata
+JotForm logo URLs need proxy/download	Logo uploaded directly to your server — permanent from day one
+Event sync between two separate systems	One system, one database — no sync needed
+What Stays The Same
+Vendor approval flow: Pending → Approved/Rejected, with automated document reminders via SendGrid
+Sponsor approval flow: Pending → Approved, then served to public website via API
+Permanent logo storage: Save logo files locally with hash-based filenames
+Stripe metadata for attribution: Every payment carries event_slug and category — no note-parsing
+Public sponsor API: GET /api/event-sponsors.json?event=<slug> returns approved sponsors with absolute logo URLs for the website to render
+Revenue tracking: Aggregate payments by category per event, exclude failed/refunded
+Ticket stats: Sold vs. capacity, with status filtering (include completed + pending, exclude failed/canceled/refunded)
+Communication tab: Query all contacts (vendors, sponsors, ticket buyers, registrants) by event, filter by type, send via SendGrid
+Automated reminders: Background job checks for missing vendor documents, sends on 7-day or 1-day intervals based on proximity to event date
+Key Advantage You Have Over Us
+Since your forms, database, and dashboard are all one system, you eliminate every integration pain point we deal with:
+
+No data sync delays — we cache Google Sheets data for 5 minutes. You read from the database in real time.
+No URL breakage — we had to build a permanent download system because JotForm changed their auth. Your logos are local from submission.
+No note parsing — we parse free-text Square transaction notes to figure out event attribution. Your Stripe metadata is structured.
+No multi-system auth — we manage Google OAuth, JotForm API keys, Apps Script keys, and session auth. You just need session auth and Stripe keys.
+No event sync endpoint — we need POST /api/sync-event because the website and dashboard are separate. If yours are one system, events exist in one place.
+The reference architecture at the endpoint above shows you all the edge cases and business logic we handle. Use it as your map for what needs to exist — just build it cleaner since you don't have the external service constraints.
+give me all the stuff yuio gave me before but just that the forms are on the site. I liked all the tech detail and also add in the GET instructions
+2 minutes ago
+Here's the complete technical reference for the other project — all the detail from before, with forms on the site and the GET instruction at the top:
+
+Architecture Reference for Autonomous Event & Website Platform
+Step 1: Fetch the Reference Architecture
+Before building anything, fetch the full blueprint from the system this is based on:
+
+GET https://dashboard.irwincarcruise.org/api/architecture.md
+
+No authentication required
+Returns: 500+ lines of markdown covering every API endpoint, data model, integration pattern, and business logic rule
+Content-Type: text/markdown
+CORS enabled — call it from any origin
+This is strictly read-only. Do not attempt to POST, PUT, PATCH, or DELETE anything on that domain. There are no write endpoints available to you. Treat the entire system as a reference you can read from but never modify.
+That document describes how the original system works using Google Sheets, JotForm, Google Drive, and Square. Below is how you replicate all of it with a proper database, built-in forms, and Stripe — no external form services, no spreadsheets.
+
+Database Schema
+events
+id (primary key, auto-increment)
+name (text) — "Irwin Car Cruise"
+slug (text, unique) — "irwin-car-cruise"
+abbreviation (text) — "ICC"
+date (date)
+month (text) — "July"
+active (boolean, default true)
+is_ticketed (boolean, default false)
+ticket_capacity (integer, nullable)
+borough_shared (boolean, default false)
+created_at (timestamp)
+updated_at (timestamp)
+
+vendors
+id (primary key, auto-increment)
+event_id (foreign key → events)
+business_name (text)
+contact_name (text)
+email (text)
+phone (text)
+approved (enum: pending / yes / no, default 'pending')
+rejection_reason (text, nullable)
+servsafe_received (boolean, default false)
+insurance_received (boolean, default false)
+last_servsafe_reminder (timestamp, nullable)
+last_insurance_reminder (timestamp, nullable)
+created_at (timestamp)
+updated_at (timestamp)
+
+sponsors
+id (primary key, auto-increment)
+event_id (foreign key → events)
+company_name (text)
+email (text)
+website (text, nullable)
+tier (enum: presenting / gold / silver / supporting / trophy)
+approved (enum: pending / yes / no, default 'pending')
+logo_original_url (text, nullable) — if submitted as URL
+logo_local_path (text, nullable) — permanent local file after upload/download
+created_at (timestamp)
+updated_at (timestamp)
+
+payments
+id (primary key, auto-increment)
+event_id (foreign key → events)
+stripe_payment_id (text, unique) — Stripe payment intent ID
+amount_cents (integer)
+category (enum: participant / vendor / sponsor / ticket)
+payer_name (text)
+payer_email (text)
+status (enum: succeeded / failed / refunded / pending)
+notes (text, nullable)
+payment_method (enum: stripe / check)
+created_at (timestamp)
+
+tickets
+id (primary key, auto-increment)
+event_id (foreign key → events)
+buyer_name (text)
+buyer_email (text)
+quantity (integer)
+amount_cents (integer)
+confirmation_number (text)
+status (enum: completed / pending / failed / canceled / refunded)
+stripe_payment_id (text, nullable)
+purchased_at (timestamp)
+
+registrations
+id (primary key, auto-increment)
+event_id (foreign key → events)
+name (text)
+email (text)
+phone (text, nullable)
+vehicle_info (text, nullable) — for car cruise type events
+stripe_payment_id (text, nullable)
+created_at (timestamp)
+
+email_log
+id (primary key, auto-increment)
+event_id (foreign key → events)
+recipient_email (text)
+recipient_name (text)
+subject (text)
+type (enum: reminder / rejection / bulk / notification)
+sent_at (timestamp)
+
+Forms (Built Into Your Website)
+All forms live on your website. No JotForm, no external services. Each form submits directly to your API which inserts into the database.
+
+Vendor Application Form
+URL: /events/<slug>/vendor-apply
+
+Fields: Business name, contact name, email, phone, food type/description, ServSafe certificate upload, insurance certificate upload
+
+On submit:
+
+POST /api/vendors
+{
+  "event_slug": "street-market",
+  "business_name": "Joe's BBQ",
+  "contact_name": "Joe Smith",
+  "email": "joe@bbq.com",
+  "phone": "555-1234"
+}
+
+Server looks up event_id from slug
+Inserts into vendors table with approved = 'pending'
+If ServSafe/Insurance files were uploaded, save to public/vendor-docs/<vendor_id>/ and set servsafe_received = true / insurance_received = true
+Returns 201 with the new vendor ID
+Sponsor Signup Form
+URL: /events/<slug>/sponsor-signup
+
+Fields: Company name, email, website, tier selection (dropdown: Presenting / Gold / Silver), logo file upload
+
+On submit:
+
+POST /api/sponsors
+Content-Type: multipart/form-data
+event_slug: "street-market"
+company_name: "Acme Corp"
+email: "sponsor@acme.com"
+website: "https://acme.com"
+tier: "gold"
+logo: [file upload]
+
+Server looks up event_id from slug
+Saves the uploaded logo file immediately to public/sponsor-logos/<md5hash>.<ext>
+Inserts into sponsors table with approved = 'pending' and logo_local_path set
+Logo is permanent from this moment — no third-party URL dependency
+Returns 201 with the new sponsor ID
+Participant Registration Form
+URL: /events/<slug>/register
+
+Fields: Name, email, phone, vehicle info (if applicable)
+
+On submit:
+
+POST /api/registrations
+{
+  "event_slug": "irwin-car-cruise",
+  "name": "Jane Doe",
+  "email": "jane@email.com",
+  "phone": "555-5678",
+  "vehicle_info": "1967 Ford Mustang, Red"
+}
+
+Inserts into registrations table
+If event requires payment, create a Stripe Checkout session and redirect
+Returns 201 or redirects to Stripe
+Ticket Purchase Flow
+URL: /events/<slug>/tickets
+
+Flow:
+
+User selects quantity, enters name and email
+Create a Stripe Checkout Session with metadata:
+{
+  "metadata": {
+    "event_slug": "street-market",
+    "category": "ticket",
+    "buyer_name": "Jane Smith",
+    "buyer_email": "jane@example.com",
+    "quantity": "2"
+  }
+}
+
+Redirect user to Stripe Checkout
+Stripe webhook payment_intent.succeeded fires → insert into tickets table
+Send confirmation email via SendGrid
+Vendor Approval Flow
+Dashboard reads vendors:
+GET /api/vendors?event=<slug>
+
+Returns all vendors for that event with approval status and document status. Requires admin auth.
+
+Admin approves:
+PATCH /api/vendors/:id
+{ "approved": "yes" }
+
+Updates the row directly. Optionally send a welcome/confirmation email via SendGrid.
+
+Admin rejects:
+PATCH /api/vendors/:id
+{ "approved": "no", "rejection_reason": "Missing health department permit" }
+
+Updates the row AND triggers a SendGrid rejection email to the vendor with the reason.
+
+Admin marks document received:
+PATCH /api/vendors/:id/documents
+{ "servsafe_received": true }
+
+Sets the flag. Clears future reminders for that document.
+
+Automated Document Reminders (background job):
+Run a scheduled job every hour:
+
+SELECT v.*, e.date as event_date
+FROM vendors v
+JOIN events e ON v.event_id = e.id
+WHERE v.approved = 'yes'
+AND e.active = true
+AND (v.servsafe_received = false OR v.insurance_received = false)
+
+For each result:
+
+Calculate days until event
+If more than 7 days out → send reminder only if last_servsafe_reminder is older than 7 days
+If within 7 days → send reminder only if last_servsafe_reminder is older than 1 day
+After sending, update last_servsafe_reminder or last_insurance_reminder to now
+On server startup, delay reminders by 6 hours to prevent spam on restarts
+Email via SendGrid:
+
+To: vendor.email
+Subject: "Reminder: Missing documents for {event.name}"
+Body: "Hi {vendor.contact_name}, you are approved for {event.name} on {event.date} but we still need your {missing_doc}. Please submit it as soon as possible."
+
+Sponsor Approval & Logo Pipeline
+Dashboard reads sponsor candidates:
+GET /api/sponsor-candidates?event=<slug>
+
+Returns all sponsors for that event with approval status and logo URLs. Requires admin auth.
+
+Admin approves:
+PATCH /api/sponsors/:id
+{ "approved": "yes" }
+
+Sponsor immediately becomes visible in the public API.
+
+Admin rejects:
+PATCH /api/sponsors/:id
+{ "approved": "no" }
+
+Logo storage rules:
+On sponsor form submission, save the uploaded logo immediately to public/sponsor-logos/<md5_of_filename>.<original_ext>
+Store the local path in logo_local_path
+When serving via API, always return absolute URLs: https://yourdomain.com/sponsor-logos/abc123.png
+Never depend on external URLs for logos — everything is local from day one
+Public website endpoint (no auth required):
+GET /api/event-sponsors.json?event=<slug>
+
+Response:
+
+{
+  "ok": true,
+  "event": "street-market",
+  "eventName": "Street Market",
+  "sponsors": [
+    {
+      "name": "Acme Corp",
+      "companyName": "Acme Corp",
+      "tier": "Gold",
+      "level": "gold",
+      "logoUrl": "https://yourdomain.com/sponsor-logos/abc123.png",
+      "sponsorImageUrl": "https://yourdomain.com/sponsor-logos/abc123.png"
+    }
+  ],
+  "updatedAt": "2026-03-30T12:00:00Z"
+}
+
+Only returns sponsors where approved = 'yes'
+Sorted by tier: presenting → gold → silver → supporting → trophy
+Logo URLs are absolute so the website can render them directly
+CORS enabled so any frontend can consume it
+Financial Tracking (Stripe)
+Stripe Webhook Listener:
+POST /api/stripe-webhook
+
+Verify the Stripe signature, then handle these events:
+
+payment_intent.succeeded:
+
+const metadata = event.data.object.metadata;
+const eventSlug = metadata.event_slug;
+const category = metadata.category; // "participant", "vendor", "sponsor", "ticket"
+// Look up event_id from slug
+// Insert into payments table
+// If category === "ticket", also insert into tickets table
+
+payment_intent.payment_failed:
+
+Insert into payments with status = 'failed'
+Do NOT count in revenue
+charge.refunded:
+
+Update existing payment to status = 'refunded'
+Subtract from revenue
+Stripe Metadata Convention:
+When creating any Stripe Checkout Session or Payment Link, always include:
+
+{
+  "metadata": {
+    "event_slug": "street-market",
+    "category": "vendor",
+    "payer_name": "Joe Smith",
+    "payer_email": "joe@bbq.com"
+  }
+}
+
+This eliminates all note-parsing. Every payment is attributed structurally.
+
+Manual Check Payments:
+POST /api/payments/manual
+{
+  "event_slug": "street-market",
+  "amount_cents": 50000,
+  "category": "sponsor",
+  "payer_name": "Local Bank",
+  "payer_email": "sponsor@bank.com",
+  "notes": "Gold sponsorship - paid by check #1234"
+}
+
+Inserts with payment_method = 'check'.
+
+Revenue Endpoint:
+GET /api/revenue?event=<slug>
+
+Response:
+
+{
+  "participants": 150000,
+  "vendors": 300000,
+  "sponsors": 500000,
+  "tickets": 240000,
+  "total": 1190000,
+  "currency": "cents"
+}
+
+Only counts status = 'succeeded'. Excludes failed and refunded.
+
+Payment List:
+GET /api/payments?event=<slug>
+
+Returns all payments for the event, grouped by category. Includes payer name, email, amount, status, payment method, and timestamp.
+
+Ticket Sales
+Stats Endpoint (public, no auth):
+GET /api/ticket-stats?event=<slug>
+
+Response:
+
+{
+  "sold": 24,
+  "capacity": 100,
+  "revenue_cents": 240000
+}
+
+sold = sum of quantity where status is completed or pending
+Exclude failed, canceled, refunded
+capacity from events.ticket_capacity
+Purchaser List (admin auth required):
+GET /api/tickets?event=<slug>
+
+Returns all ticket purchases with buyer name, email, quantity, amount, confirmation number, status, and purchase timestamp.
+
+Print-Ready Ticket List:
+GET /api/tickets?event=<slug>&format=print
+
+Returns a simplified list (name, quantity, confirmation number) suitable for a check-in sheet at the event.
+
+Communication System
+Contact Aggregation:
+GET /api/contacts?event=<slug>&type=all
+
+Queries across all tables for that event:
+
+vendors where approved = 'yes' → type "Vendor"
+sponsors where approved = 'yes' → type "Sponsor"
+registrations → type "Participant"
+tickets where status is completed or pending → type "Ticket"
+Returns deduplicated by email:
+
+[
+  {
+    "name": "Joe Smith",
+    "email": "joe@bbq.com",
+    "type": "Vendor",
+    "event": "street-market"
+  }
+]
+
+Filter by type: GET /api/contacts?event=<slug>&type=vendor
+
+Send Email:
+POST /api/emails/send
+{
+  "event_slug": "street-market",
+  "to_email": "joe@bbq.com",
+  "to_name": "Joe Smith",
+  "subject": "Important update about Street Market",
+  "body": "Hi Joe, ...",
+  "attachments": [
+    {
+      "filename": "map.pdf",
+      "content": "<base64 encoded>",
+      "type": "application/pdf"
+    }
+  ]
+}
+
+Uses SendGrid API
+Attachments limited to 10 MB per email
+Logs to email_log table after sending
+Bulk Email:
+POST /api/emails/bulk
+{
+  "event_slug": "street-market",
+  "contact_type": "vendor",
+  "subject": "Vendor setup instructions",
+  "body": "Hi {{name}}, ..."
+}
+
+Queries all contacts of that type for the event
+Sends individual emails (not BCC — each person gets their own)
+Supports {{name}} template variable
+Logs each send to email_log
+Event Management
+Create Event:
+POST /api/events
+{
+  "name": "Fall Festival",
+  "slug": "fall-festival",
+  "abbreviation": "FF",
+  "date": "2026-10-15",
+  "is_ticketed": true,
+  "ticket_capacity": 200
+}
+
+Update Event:
+PATCH /api/events/:id
+{ "date": "2026-10-22", "ticket_capacity": 250 }
+
+Deactivate Event:
+PATCH /api/events/:id
+{ "active": false }
+
+Dashboard moves it to "Inactive Events" sidebar section. All data remains accessible in read-only mode.
+
+Auto-Archive Rule:
+Run a daily job:
+
+UPDATE events SET active = false
+WHERE active = true
+AND date < NOW() - INTERVAL '30 days'
+
+Events automatically become inactive 30 days after their date passes.
+
+List Events:
+GET /api/events
+
+Returns all events. Dashboard separates active vs. inactive in the sidebar.
+
+Website ↔ Dashboard Integration
+Since your forms and dashboard are one system, most of this is internal. The only external integration points are:
+
+Public Endpoints (no auth, CORS enabled):
+Endpoint	Purpose
+GET /api/event-sponsors.json?event=<slug>	Approved sponsors with absolute logo URLs
+GET /api/ticket-stats?event=<slug>	Tickets sold vs. capacity
+GET /api/events	List of active events (for website navigation)
+Webhook Endpoints:
+Endpoint	Purpose	Auth
+POST /api/stripe-webhook	Receive Stripe payment events	Stripe signature verification
+Admin Endpoints (session auth required):
+Endpoint	Purpose
+GET /api/vendors?event=<slug>	All vendors for an event
+PATCH /api/vendors/:id	Approve/reject vendor
+PATCH /api/vendors/:id/documents	Mark documents received
+GET /api/sponsor-candidates?event=<slug>	All sponsors for an event
+PATCH /api/sponsors/:id	Approve/reject sponsor
+GET /api/payments?event=<slug>	All payments for an event
+GET /api/revenue?event=<slug>	Revenue totals by category
+POST /api/payments/manual	Enter manual check payment
+GET /api/tickets?event=<slug>	All ticket purchases
+GET /api/contacts?event=<slug>	All contacts for communication
+POST /api/emails/send	Send individual email
+POST /api/emails/bulk	Send bulk email by contact type
+Key Lessons From the Reference Architecture
+Permanent file storage for uploaded images. Never depend on third-party URLs. Save locally on upload. Name files by MD5 hash to avoid duplicates.
+Slug-based event attribution everywhere. Every vendor, sponsor, payment, ticket, and registration ties back to an event via slug. This makes multi-event support trivial.
+Structured Stripe metadata over note-parsing. The reference system's biggest pain point is parsing free-text Square transaction notes. With Stripe metadata, attribution is structured from the start. Always include event_slug and category.
+Public vs. authenticated endpoint boundary. Sponsor logos and ticket stats are public. Everything else requires admin auth. Keep this separation clean.
+Automated reminders with backoff. Track when the last reminder was sent. 7-day interval normally, 1-day when within a week of the event. 6-hour delay on server startup.
+Cache expensive queries. Even with a database instead of Google Sheets, cache aggregated revenue and sponsor data for at least 60 seconds to avoid hammering the DB on every dashboard load.
+Absolute URLs in public endpoints. Any API that an external website consumes must return full absolute URLs for images and resources, not relative paths.
+Deduplication by email. When aggregating contacts across vendors, sponsors, registrations, and tickets, always deduplicate by email address before displaying or emailing.
