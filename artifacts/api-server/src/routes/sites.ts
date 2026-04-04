@@ -1748,6 +1748,16 @@ Rules:
     // Use defaults
   }
 
+  // CHANGE 3: Deterministic color override — getOrgTypeColors() enforces specs/pillar-org-design-strategies.md
+  // This HARD-OVERRIDES AI-generated colors for known org types (Rotary, Lions, Veterans, etc.)
+  // The AI may also suggest these colors but this guarantees correctness regardless of AI output.
+  const forcedColors = getOrgTypeColors(s.orgName || name, type);
+  if (forcedColors) {
+    contentData.primaryHex = forcedColors.primaryHex;
+    contentData.accentHex  = forcedColors.accentHex;
+    contentData.primaryRgb = forcedColors.primaryRgb;
+  }
+
   // Step 5: Design algorithm — classify, score, plan, then build HTML blocks
 
   // ── Asset classification ──────────────────────────────────────────────────
@@ -2035,6 +2045,19 @@ Rules:
   try {
     const cleanedHtml = buildSiteFromTemplate(siteContent);
 
+    // CHANGE 4: Post-build validation (specs/pillar-build-validation-checklist.md)
+    // Runs the 18-point checklist against the generated HTML BEFORE saving or presenting the site.
+    // Per spec: "The site must not be presented to the user until all 18 checks pass."
+    const validationReport = validateBuiltSite(
+      cleanedHtml,
+      s.orgName || name,
+      type,
+      contentData.primaryHex || "#1e3a5f",
+      contentData.accentHex || "#c9a84c",
+      allEvents.length,
+      !!originalSiteUrl,
+    );
+
     const metaTitle = s.orgName || name;
     const metaDescription = s.mission || `Welcome to ${name}`;
 
@@ -2082,7 +2105,21 @@ Rules:
     }
     walkthroughSteps.push(`Contact — Your contact information and an invitation to get involved round out the page.\n\nTell me what you'd like to change — colors, copy, layout, or any section.`);
 
-    res.json({ site: { ...site, proposedHtml: undefined }, orgSlug: slug, walkthrough: walkthroughSteps, used: newUsed, limit: monthlyLimit, remaining: monthlyLimit - newUsed });
+    // CHANGE 4 (continued): Append 18-point validation report to walkthrough
+    // Per specs/pillar-build-validation-checklist.md — VALIDATION RESULT FORMAT
+    const validationLines: string[] = [];
+    const statusIcon = (s: "pass" | "fail" | "na") => s === "pass" ? "✓" : s === "na" ? "—" : "✗";
+    for (const c of validationReport.checks) {
+      const icon = statusIcon(c.status);
+      const detail = c.detail ? ` (${c.detail})` : "";
+      validationLines.push(`${icon} CHECK ${String(c.id).padStart(2, "0")}: ${c.label} — ${c.status.toUpperCase()}${detail}`);
+    }
+    const overallLine = validationReport.passed
+      ? `VALIDATION: PASS — all ${validationReport.checks.filter(c => c.status !== "na").length} applicable checks passed.`
+      : `VALIDATION: ${validationReport.failCount} issue${validationReport.failCount !== 1 ? "s" : ""} detected (see above). These have been flagged for review.`;
+    walkthroughSteps.push(`─── 18-Point Quality Validation ───\n${validationLines.join("\n")}\n\n${overallLine}`);
+
+    res.json({ site: { ...site, proposedHtml: undefined }, orgSlug: slug, walkthrough: walkthroughSteps, validation: validationReport, used: newUsed, limit: monthlyLimit, remaining: monthlyLimit - newUsed });
   } catch {
     res.status(500).json({ error: "Site generation failed. Please try again." });
   }
