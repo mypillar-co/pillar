@@ -36,7 +36,7 @@ import {
   sitesTable,
   siteBlocksTable,
 } from "@workspace/db";
-import { eq, and, gte, sum, count, isNull, desc, or, sql } from "drizzle-orm";
+import { eq, and, gte, sum, count, isNull, desc, or, sql, like } from "drizzle-orm";
 import OpenAI from "openai";
 import { resolveFullOrg } from "../lib/resolveOrg";
 import { compileSite } from "@workspace/site/services";
@@ -417,6 +417,16 @@ router.post("/chat", async (req: Request, res: Response) => {
       function: {
         name: "get_analytics_overview",
         description: "Get a full analytics overview: events, ticket sales, sponsors, subscribers, messages.",
+        parameters: { type: "object", properties: {} },
+      },
+    },
+
+    // ── 11. Self-test ────────────────────────────────────────────────────────
+    {
+      type: "function",
+      function: {
+        name: "run_self_test",
+        description: "Run the Pillar build engine self-test. Seeds demo events (Norwin Rotary scenario), recompiles the site, then validates the compiled HTML and database state against the spec checklist. Returns a detailed pass/fail report.",
         parameters: { type: "object", properties: {} },
       },
     },
@@ -1017,6 +1027,296 @@ router.post("/chat", async (req: Request, res: Response) => {
     });
   }
 
+  // ── 11. Self-test ──────────────────────────────────────────────────────
+
+  async function execRunSelfTest(): Promise<string> {
+    const SELF_TEST_PREFIX = "selftest-";
+
+    // ── Demo events (Norwin Rotary scenario from spec) ──────────────────────
+    type DemoEvent = {
+      title: string;
+      date: string;
+      startTime: string;
+      endTime: string | null;
+      location: string;
+      description: string;
+      category: string;
+      featured: boolean;
+      isTicketed: boolean;
+      ticketPrice: number | null;
+      ticketCapacity: number | null;
+      hasRegistration: boolean;
+      hasSponsorSection: boolean;
+      isRecurring: boolean;
+    };
+
+    const demoEvents: DemoEvent[] = [
+      {
+        title: "Annual Golf Outing",
+        date: "Saturday, June 14, 2026",
+        startTime: "8:00 AM",
+        endTime: null,
+        location: "Youghiogheny Country Club",
+        description: "18-hole scramble format with lunch, prizes, and silent auction. Register as a foursome or individually.",
+        category: "Fundraiser",
+        featured: true,
+        isTicketed: true,
+        ticketPrice: 125,
+        ticketCapacity: 144,
+        hasRegistration: false,
+        hasSponsorSection: true,
+        isRecurring: false,
+      },
+      {
+        title: "Backpack Program Packing Night",
+        date: "Thursday, August 20, 2026",
+        startTime: "6:00 PM",
+        endTime: "8:00 PM",
+        location: "Norwin School District Warehouse",
+        description: "Volunteers pack weekend meal bags for food-insecure students at Norwin schools. No experience needed.",
+        category: "Community Service",
+        featured: true,
+        isTicketed: false,
+        ticketPrice: null,
+        ticketCapacity: null,
+        hasRegistration: false,
+        hasSponsorSection: false,
+        isRecurring: false,
+      },
+      {
+        title: "Annual Chili Cookoff",
+        date: "Saturday, October 10, 2026",
+        startTime: "11:00 AM",
+        endTime: "3:00 PM",
+        location: "Main Street, Irwin",
+        description: "Teams compete for the best chili in Irwin. Public tasting tickets available — come hungry.",
+        category: "Community",
+        featured: true,
+        isTicketed: true,
+        ticketPrice: 10,
+        ticketCapacity: 300,
+        hasRegistration: true,
+        hasSponsorSection: false,
+        isRecurring: false,
+      },
+      {
+        title: "Weekly Meetings",
+        date: "Every Tuesday",
+        startTime: "12:00 PM",
+        endTime: "1:00 PM",
+        location: "Irwin Fire Hall, 221 Main St, Irwin, PA 15642",
+        description: "Regular weekly meeting of the Norwin Rotary Club. Guests are welcome.",
+        category: "Meeting",
+        featured: false,
+        isTicketed: false,
+        ticketPrice: null,
+        ticketCapacity: null,
+        hasRegistration: false,
+        hasSponsorSection: false,
+        isRecurring: true,
+      },
+    ];
+
+    // ── Step 1: Seed demo events ────────────────────────────────────────────
+    const seededSlugs: Record<string, string> = {};
+    let eventsCreated = 0;
+    let eventsReused = 0;
+
+    for (const ev of demoEvents) {
+      const baseSlug = `${SELF_TEST_PREFIX}${toSlug(ev.title)}`;
+
+      // Check if a self-test event for this title already exists
+      const [existing] = await db
+        .select({ id: eventsTable.id, slug: eventsTable.slug })
+        .from(eventsTable)
+        .where(and(
+          eq(eventsTable.orgId, org.id),
+          like(eventsTable.slug, `${baseSlug}%`),
+        ))
+        .limit(1);
+
+      if (existing) {
+        seededSlugs[ev.title] = existing.slug;
+        eventsReused++;
+        continue;
+      }
+
+      const uniqueSlug = `${baseSlug}-${Date.now().toString(36)}`;
+
+      const [created] = await db
+        .insert(eventsTable)
+        .values({
+          orgId: org.id,
+          name: ev.title,
+          slug: uniqueSlug,
+          description: ev.description,
+          startDate: ev.date,
+          startTime: ev.startTime,
+          endTime: ev.endTime ?? undefined,
+          location: ev.location,
+          eventType: ev.category,
+          featured: ev.featured,
+          featuredOnSite: ev.featured,
+          isTicketed: ev.isTicketed,
+          ticketPrice: ev.ticketPrice ?? undefined,
+          ticketCapacity: ev.ticketCapacity ?? undefined,
+          hasRegistration: ev.hasRegistration,
+          hasSponsorSection: ev.hasSponsorSection,
+          status: "published",
+          isActive: true,
+          showOnPublicSite: true,
+        })
+        .returning();
+
+      if (created && ev.isTicketed && ev.ticketPrice != null) {
+        await db.insert(ticketTypesTable).values({
+          eventId: created.id,
+          orgId: org.id,
+          name: "General Admission",
+          price: ev.ticketPrice,
+          quantity: ev.ticketCapacity ?? undefined,
+          isActive: true,
+        });
+      }
+
+      seededSlugs[ev.title] = uniqueSlug;
+      eventsCreated++;
+    }
+
+    // ── Step 2: Force site recompile ────────────────────────────────────────
+    await forceSiteRecompile(org.id);
+    // Give compileSite time to finish (it's sync inside the call but may need I/O)
+    await new Promise<void>((r) => setTimeout(r, 4000));
+
+    // ── Step 3: Fetch compiled HTML ─────────────────────────────────────────
+    const [siteRow] = await db
+      .select({ generatedHtml: sitesTable.generatedHtml })
+      .from(sitesTable)
+      .where(and(eq(sitesTable.orgId, org.id), isNull(sitesTable.deletedAt)))
+      .limit(1);
+
+    const html = siteRow?.generatedHtml ?? "";
+    const htmlLower = html.toLowerCase();
+
+    // ── Step 4: Validation checks ───────────────────────────────────────────
+    type Check = { id: string; name: string; pass: boolean; detail?: string };
+    const checks: Check[] = [];
+
+    function chk(id: string, name: string, pass: boolean, detail?: string) {
+      checks.push({ id, name, pass, detail });
+    }
+
+    // ── HTML was generated ──────────────────────────────────────────────────
+    chk("C01", "Site HTML generated", html.length > 1000, `HTML length: ${html.length} chars`);
+
+    // ── Hero / brand identity ───────────────────────────────────────────────
+    chk("C02", "Hero: org name in page", html.includes(org.name) || htmlLower.includes(org.name.toLowerCase()));
+    chk("C03", "Brand: Rotary blue (#003366) present", /003366/i.test(html), "Rotary parent org requires #003366");
+    chk("C04", "Brand: Gold accent (#F7A81B or #ffb700) present", /F7A81B|f7a81b|FFB700|ffb700|F7A800/i.test(html), "Rotary gold required");
+    chk("C05", "No default gray hero", !(/#e5e7eb|#d1d5db|bg-gray-200|bg-gray-300/i.test(html) && /hero|banner/i.test(html)), "Hero should use brand color, not default gray");
+
+    // ── Events ─────────────────────────────────────────────────────────────
+    chk("C06", "Golf Outing event present", /golf\s*outing/i.test(html));
+    chk("C07", "Backpack Program event present", /backpack/i.test(html));
+    chk("C08", "Chili Cookoff event present", /chili/i.test(html));
+    chk("C09", "Weekly Meetings / recurring event present", /weekly\s*meeting|every\s*tuesday/i.test(html));
+
+    // ── Ticket pricing ──────────────────────────────────────────────────────
+    chk("C10", "Golf Outing $125 price displayed", /\$125|125.*golfer|125.*ticket/i.test(html));
+    chk("C11", "Chili Cookoff $10 price displayed", /\$10\b|10.*taster|10.*ticket/i.test(html));
+    chk("C12", "Free event has no price badge (Backpack)", !(/backpack[\s\S]{0,400}\$\d/i.test(html) && /\$\d[\s\S]{0,400}backpack/i.test(html)));
+
+    // ── DB: event records ───────────────────────────────────────────────────
+    const allTestEvents = await db
+      .select({ slug: eventsTable.slug, isTicketed: eventsTable.isTicketed, ticketPrice: eventsTable.ticketPrice, featured: eventsTable.featured, hasSponsorSection: eventsTable.hasSponsorSection, hasRegistration: eventsTable.hasRegistration })
+      .from(eventsTable)
+      .where(and(eq(eventsTable.orgId, org.id), like(eventsTable.slug, `${SELF_TEST_PREFIX}%`)));
+
+    const golfEvent = allTestEvents.find(e => e.slug.includes("golf"));
+    const backpackEvent = allTestEvents.find(e => e.slug.includes("backpack"));
+    const chiliEvent = allTestEvents.find(e => e.slug.includes("chili"));
+    const meetingEvent = allTestEvents.find(e => e.slug.includes("weekly"));
+
+    chk("C13", "DB: Golf Outing record exists", !!golfEvent);
+    chk("C14", "DB: Golf Outing isTicketed=true, price=$125", golfEvent?.isTicketed === true && Number(golfEvent?.ticketPrice) === 125, `isTicketed=${golfEvent?.isTicketed}, price=${golfEvent?.ticketPrice}`);
+    chk("C15", "DB: Golf Outing featured=true", golfEvent?.featured === true);
+    chk("C16", "DB: Golf Outing hasSponsorSection=true", golfEvent?.hasSponsorSection === true);
+    chk("C17", "DB: Backpack record exists", !!backpackEvent);
+    chk("C18", "DB: Backpack isTicketed=false (free event)", backpackEvent?.isTicketed === false || backpackEvent?.isTicketed == null);
+    chk("C19", "DB: Chili Cookoff record exists", !!chiliEvent);
+    chk("C20", "DB: Chili Cookoff isTicketed=true, price=$10", chiliEvent?.isTicketed === true && Number(chiliEvent?.ticketPrice) === 10, `isTicketed=${chiliEvent?.isTicketed}, price=${chiliEvent?.ticketPrice}`);
+    chk("C21", "DB: Chili Cookoff hasRegistration=true (vendor reg)", chiliEvent?.hasRegistration === true);
+    chk("C22", "DB: Weekly Meetings record exists", !!meetingEvent);
+
+    // ── Ticket types in DB ──────────────────────────────────────────────────
+    if (golfEvent) {
+      const [golfEventFull] = await db
+        .select({ id: eventsTable.id })
+        .from(eventsTable)
+        .where(and(eq(eventsTable.orgId, org.id), eq(eventsTable.slug, golfEvent.slug)))
+        .limit(1);
+      if (golfEventFull) {
+        const [tt] = await db
+          .select({ price: ticketTypesTable.price, quantity: ticketTypesTable.quantity })
+          .from(ticketTypesTable)
+          .where(and(eq(ticketTypesTable.eventId, golfEventFull.id), eq(ticketTypesTable.isActive, true)))
+          .limit(1);
+        chk("C23", "DB: Golf ticket type price=$125, capacity=144", tt?.price === 125 && tt?.quantity === 144, `price=${tt?.price}, qty=${tt?.quantity}`);
+      } else {
+        chk("C23", "DB: Golf ticket type price=$125, capacity=144", false, "Golf event not found by ID");
+      }
+    } else {
+      chk("C23", "DB: Golf ticket type price=$125, capacity=144", false, "Golf event not found");
+    }
+
+    // ── Content quality ─────────────────────────────────────────────────────
+    const fillerPhrases = [
+      "scroll to explore",
+      "making a meaningful impact",
+      "bringing people together",
+      "lasting connection",
+      "vite app",
+      "lorem ipsum",
+    ];
+    for (const filler of fillerPhrases) {
+      chk(`FILLER-${filler.substring(0, 10)}`, `No filler: "${filler}"`, !htmlLower.includes(filler.toLowerCase()));
+    }
+
+    // ── Footer / affiliation ────────────────────────────────────────────────
+    chk("C24", "Footer: Rotary International affiliation mentioned", /rotary\s*international|member\s*of\s*rotary/i.test(html));
+    chk("C25", "Footer: Powered by Pillar", /powered\s*by\s*pillar/i.test(html));
+    chk("C26", "Footer is dark (navy/black bg)", /footer[\s\S]{0,500}(#1[a-f0-9]{5}|#0{6}|#003|bg-navy|bg-dark|navy|#00003|dark.*footer)/i.test(html) || /#003366[\s\S]{0,800}footer/i.test(html));
+
+    // ── Programs / about ────────────────────────────────────────────────────
+    chk("C27", "Programs: Backpack Program listed", /backpack\s*program/i.test(html));
+    chk("C28", "Programs: Scholarship Fund listed", /scholarship/i.test(html));
+    chk("C29", "About: org description present", /service\s*club|rotary|irwin|norwin/i.test(html));
+
+    // ── Contact / metadata ──────────────────────────────────────────────────
+    chk("C30", "Contact: address or location present", /irwin|PA\s*15642|main\s*st/i.test(html));
+    chk("C31", "No raw placeholder text", !/(TODO|PLACEHOLDER|INSERT.*HERE|your.*email.*here)/i.test(html));
+
+    // ── Step 5: Summarize ───────────────────────────────────────────────────
+    const passed = checks.filter(c => c.pass);
+    const failed = checks.filter(c => !c.pass);
+
+    const report = {
+      ok: failed.length === 0,
+      summary: `${passed.length}/${checks.length} checks passed`,
+      eventsCreated,
+      eventsReused,
+      seededSlugs,
+      siteUrl: `https://${org.slug}.mypillar.co`,
+      eventsUrl: `https://${org.slug}.mypillar.co/events`,
+      htmlLength: html.length,
+      failed: failed.map(c => ({ id: c.id, name: c.name, detail: c.detail })),
+      passed: passed.map(c => c.id),
+      allChecks: checks.map(c => ({ id: c.id, name: c.name, pass: c.pass, detail: c.detail })),
+    };
+
+    return JSON.stringify(report);
+  }
+
   // ── System prompt ───────────────────────────────────────────────────────
 
   const systemPrompt = `You are the Pillar Autopilot assistant for ${org.name}. Today is ${today}.
@@ -1064,7 +1364,53 @@ Never invent dates, prices, or descriptions.
 If event info reveals something actionable, mention it naturally:
 - Event is soon (≤14 days) but isTicketed=false → "Want to enable ticket sales? The [event] is only X days away."
 - Pending sponsors waiting → "You have [N] sponsor applications — want to review them?"
-- Event has passed (date < today) → "The [event] has passed. Want me to hide it from the public site?"`;
+- Event has passed (date < today) → "The [event] has passed. Want me to hide it from the public site?"
+
+=== SELF-TEST ===
+Trigger phrases: "run the self-test", "test the build engine", "build a demo site and verify it", "show me it works", "prove the specs work", "test the platform", "run a test", "validate the site".
+Action: call run_self_test immediately — NO questions beforehand. The tool knows all the scenario data.
+Wait time: The tool takes ~5–10 seconds (it seeds events + recompiles the site). Tell the user it's running.
+After receiving results, format as a MARKDOWN report using this structure:
+
+## Self-Test Results: [org name]
+**[PASS ✓ / FAIL ✗] — [N]/[total] checks passed**
+
+### Events Seeded
+List each event title and its slug (created or reused).
+
+### Check Results
+Group by category. Use ✓ for pass, ✗ for fail.
+
+**Site Generation**
+✓/✗ C01 — [name]
+
+**Hero & Brand**
+✓/✗ C02 — ... etc
+
+**Events Content**
+...
+
+**Ticket Pricing**
+...
+
+**Database Records**
+...
+
+**Content Quality**
+...
+
+**Footer & Affiliation**
+...
+
+If failures exist:
+### ✗ Failures Found ([N] issues)
+For each failed check: - **[ID]**: [name] — [detail if any]
+
+If all pass:
+### ✅ All Checks Pass
+The build engine produced a fully valid Rotary club site.
+
+Always end with the site URL and events URL.`;
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
@@ -1116,6 +1462,7 @@ If event info reveals something actionable, mention it naturally:
           case "list_messages":         result = await execListMessages(args); break;
           case "mark_messages_read":    result = await execMarkMessagesRead(args); break;
           case "get_analytics_overview": result = await execGetAnalyticsOverview(); break;
+          case "run_self_test":          result = await execRunSelfTest(); break;
           default:                      result = JSON.stringify({ error: `Unknown tool: ${call.function.name}` });
         }
       } catch (err) {
