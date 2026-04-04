@@ -9,6 +9,8 @@ import { load as cheerioLoad } from "cheerio";
 import { promises as dnsPromises } from "dns";
 import { isIP } from "net";
 import * as ipaddr from "ipaddr.js";
+import { ObjectStorageService } from "../lib/objectStorage";
+import type { ObjectAclPolicy } from "../lib/objectAcl";
 
 const router = Router();
 
@@ -148,15 +150,31 @@ router.post("/builder", async (req: Request, res: Response) => {
 
   const systemPrompt = `You are a friendly, professional website consultant for Pillar — an AI platform that builds websites for civic organizations, nonprofits, clubs, and community groups.
 
+MANDATORY SPEC RULES (from specs/pillar-master-index.md — these override everything):
+- If the user provides a URL at ANY point: STOP the interview immediately, direct them to use the Import button. Do NOT ask any remaining questions.
+- Every built site MUST have: colored hero (NOT white), event cards with icons and hover effects, org-type-specific colors, alternating section backgrounds, dark footer, no AI filler text, no duplicate content.
+- Homepage MUST show up to 3 featured event cards near the top.
+- After every build, the site is validated against 18 spec checks. Never present a site that fails them.
+- Events: Rotary/Lions/service clubs use PARENT ORG brand colors (Rotary=royal blue #0c4da2 + gold #f7a81b). Never use generic gray for any org with known brand colors.
+
 You're helping ${name} (a ${type}) build their public website. Ask ONE question at a time. Be warm, conversational, and brief. If a user's answer already answers a future question, skip that question.
 
-Interview sequence — follow this order, but skip any question the user already answered:
+⚠️ CRITICAL BRANCHING RULE — READ THIS FIRST ⚠️
+If the user mentions a URL or an existing website AT ANY POINT, you MUST:
+1. STOP THE INTERVIEW IMMEDIATELY
+2. Do NOT ask any more questions (not about programs, events, location, contact, social media, or design)
+3. Say ONLY: "Got it — I'll pull everything from [url] automatically. Use the **Import from existing site** button below to kick off the crawl. I'll only follow up if there's anything it couldn't find."
+4. WAIT. Do not say anything else until they tell you the import is done.
+The user giving you a URL means: DO NOT MAKE THEM TYPE THEIR CONTENT AGAIN. Everything is already on their site. The import button reads the site for you.
+⚠️ VIOLATION: Asking about programs, events, location, or contact info AFTER a URL was given is a critical bug. Never do it. ⚠️
+
+If NO URL is provided, follow this interview sequence:
 
 BLOCK 1 — Identity:
 1. "Let's build ${name}'s website! In one sentence — what does ${name} do? The kind of thing you'd say to a neighbor who'd never heard of you. Include how long you've been around if you know it."
 
 2. "Do you have an existing website? If so, share the URL and I'll pull your content from it automatically — events, programs, photos, contact info, the works. If not, just say 'no existing site' and we'll build from scratch."
-   → If they give a URL: say "Got it — I'll import from [url]. Use the 'Import from existing site' button below to pull in your content, then confirm what I find and click 'Generate My Site'."
+   → If URL provided: STOP. Apply the CRITICAL BRANCHING RULE above.
    → If no existing site: continue to question 3.
 
 3. "What are your top programs, services, or activities? Name them and give a sentence on each — these become the highlight cards on your site. List as many as you have."
@@ -495,13 +513,85 @@ type ImportedSiteData = {
   audience: string;
   style: string;
   extra: string;
-  /** Absolute URL of the detected logo/icon from the crawled site */
+  /** Re-hosted path for the org logo (e.g. /api/storage/object/uploads/uuid) — never an external hotlink */
   logoUrl?: string;
-  /** Absolute URL of the best hero image from the crawled site */
+  /** Re-hosted path for the hero image */
   heroUrl?: string;
-  /** Additional image URLs from the crawled site */
+  /** Re-hosted paths for additional gallery images */
   imageUrls?: string[];
+  /** Summary counts for the crawl presentation to the user */
+  crawlMeta?: {
+    eventsFound: number;
+    programsFound: number;
+    boardMembersFound: number;
+    hasLogo: boolean;
+    hasHero: boolean;
+    imagesDownloaded: number;
+    imagesFailed: number;
+    warnings: string[];
+  };
 };
+
+// ─── Download & re-host a single image from an external URL ──────────────────
+// Returns the /api/storage/object/... path on success, or null on failure.
+// Verifies the response is actually an image (Content-Type check + min size).
+// NEVER returns the external URL — re-hosting is mandatory per spec.
+const _crawlObjectStorage = new ObjectStorageService();
+const IMAGE_DOWNLOAD_TIMEOUT_MS = 8_000;
+const IMAGE_MIN_BYTES = 2_000; // < 2 KB is likely a tracking pixel or icon
+
+async function downloadAndRehostImage(
+  externalUrl: string,
+  label: string,
+): Promise<{ path: string; warning?: string } | null> {
+  let parsedImg: URL;
+  try { parsedImg = new URL(externalUrl); } catch { return null; }
+  if (!["http:", "https:"].includes(parsedImg.protocol)) return null;
+
+  try {
+    const resp = await fetch(externalUrl, {
+      signal: AbortSignal.timeout(IMAGE_DOWNLOAD_TIMEOUT_MS),
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; Pillar-Importer/1.0; +https://mypillar.co)" },
+    });
+    if (!resp.ok) return null;
+
+    const contentType = (resp.headers.get("content-type") ?? "").toLowerCase().split(";")[0].trim();
+    // Spec rule: MUST be image/* — if we get text/html the URL returned an error page
+    if (!contentType.startsWith("image/")) {
+      return { path: "", warning: `${label}: URL returned ${contentType} (not an image) — skipped` };
+    }
+
+    const buffer = Buffer.from(await resp.arrayBuffer());
+    if (buffer.byteLength < IMAGE_MIN_BYTES) {
+      return { path: "", warning: `${label}: file too small (${buffer.byteLength} bytes) — likely an icon or tracking pixel, skipped` };
+    }
+
+    // Upload to object storage via signed PUT URL
+    const signedUploadUrl = await _crawlObjectStorage.getObjectEntityUploadURL();
+    const putResp = await fetch(signedUploadUrl, {
+      method: "PUT",
+      body: buffer,
+      headers: { "Content-Type": contentType },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!putResp.ok) {
+      return { path: "", warning: `${label}: upload failed (${putResp.status})` };
+    }
+
+    // Set ACL to public so the public site can load it without auth
+    const aclPolicy: ObjectAclPolicy = { owner: "system", visibility: "public" };
+    await _crawlObjectStorage.trySetObjectEntityAclPolicy(signedUploadUrl, aclPolicy);
+
+    // Return the normalized internal path (/objects/uploads/{uuid})
+    const normalizedPath = _crawlObjectStorage.normalizeObjectEntityPath(signedUploadUrl);
+    // Convert to the public-facing /api/storage/object/... path
+    const publicPath = normalizedPath.replace(/^\/objects\//, "/api/storage/object/");
+    return { path: publicPath };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { path: "", warning: `${label}: download error — ${msg.slice(0, 80)}` };
+  }
+}
 
 router.post("/import-url", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -697,15 +787,57 @@ ${plainText}`;
       audience: safeStr(obj.audience),
       style: safeStr(obj.style),
       extra: safeStr(obj.extra),
-      // Attach discovered image assets
-      logoUrl: pageContent.logoUrl || undefined,
-      heroUrl: pageContent.heroUrl || undefined,
-      imageUrls: pageContent.imageUrls.length > 0 ? pageContent.imageUrls : undefined,
     };
   } catch {
     res.status(500).json({ error: "AI extraction failed. Please try again or start the interview manually." });
     return;
   }
+
+  // ── Download & re-host images (spec: NEVER hotlink) ───────────────────────
+  const warnings: string[] = [];
+  let rehostedLogoPath: string | undefined;
+  let rehostedHeroPath: string | undefined;
+  const rehostedGalleryPaths: string[] = [];
+  let imagesDownloaded = 0;
+  let imagesFailed = 0;
+
+  const imageDownloads: Array<{ url: string; label: string; role: "logo" | "hero" | "gallery" }> = [];
+  if (pageContent.logoUrl) imageDownloads.push({ url: pageContent.logoUrl, label: "Logo", role: "logo" });
+  if (pageContent.heroUrl && pageContent.heroUrl !== pageContent.logoUrl) imageDownloads.push({ url: pageContent.heroUrl, label: "Hero image", role: "hero" });
+  pageContent.imageUrls.slice(0, 3).forEach((u, i) => {
+    if (u !== pageContent.logoUrl && u !== pageContent.heroUrl) {
+      imageDownloads.push({ url: u, label: `Gallery image ${i + 1}`, role: "gallery" });
+    }
+  });
+
+  await Promise.all(imageDownloads.map(async ({ url, label, role }) => {
+    const result = await downloadAndRehostImage(url, label);
+    if (result?.warning) warnings.push(result.warning);
+    if (!result || !result.path) { imagesFailed++; return; }
+    imagesDownloaded++;
+    if (role === "logo" && !rehostedLogoPath) rehostedLogoPath = result.path;
+    else if (role === "hero" && !rehostedHeroPath) rehostedHeroPath = result.path;
+    else if (role === "gallery") rehostedGalleryPaths.push(result.path);
+  }));
+
+  // Compute crawl summary counts for the post-crawl presentation
+  const eventsFound = extracted.events ? extracted.events.split("\n").filter(l => l.trim()).length : 0;
+  const programsFound = extracted.services ? extracted.services.split(/[,\n]/).filter(s => s.trim()).length : 0;
+  const boardMembersFound = extracted.leadership ? extracted.leadership.split("\n").filter(l => l.trim()).length : 0;
+
+  extracted.logoUrl = rehostedLogoPath;
+  extracted.heroUrl = rehostedHeroPath;
+  extracted.imageUrls = rehostedGalleryPaths.length > 0 ? rehostedGalleryPaths : undefined;
+  extracted.crawlMeta = {
+    eventsFound,
+    programsFound,
+    boardMembersFound,
+    hasLogo: !!rehostedLogoPath,
+    hasHero: !!rehostedHeroPath,
+    imagesDownloaded,
+    imagesFailed,
+    warnings,
+  };
 
   res.json({ data: extracted, url: parsedUrl.toString() });
 });
@@ -970,7 +1102,8 @@ function planLayout(scores: ContentScores, hasActualHeroPhoto: boolean, hasLogo:
     primaryJob,
     heroType,
     showStats: scores.stats >= 2,
-    showFeaturedEvent: (strategy === "event-led") && scores.events >= 2,
+    // Per specs/pillar-event-rendering-spec.md: homepage MUST show featured events if any exist
+    showFeaturedEvent: scores.events >= 1,
     showEventList: scores.events >= 1,
     showPrograms: scores.programs >= 1,
   };
@@ -985,50 +1118,65 @@ type EventRow = {
 };
 
 function buildFeaturedEventSection(
-  event: EventRow,
+  events: EventRow[],
   esc: (s: string) => string,
   accentHex: string,
   orgSlug: string,
 ): string {
-  const dateObj = event.startDate ? new Date(event.startDate + "T00:00:00") : null;
-  const day = dateObj ? String(dateObj.getDate()) : "";
-  const month = dateObj ? dateObj.toLocaleDateString("en-US", { month: "short" }).toUpperCase() : "";
-  const year = dateObj ? String(dateObj.getFullYear()) : "";
-  const timeStr = event.startTime
-    ? `🕐 ${esc(event.startTime)}${event.endTime ? ` – ${esc(event.endTime)}` : ""}`
-    : "";
-  const { label: ctaLabel } = inferEventCta(event.name, event.description ?? "");
-  const eventUrl = event.slug ? `https://${orgSlug}.mypillar.co/events/${event.slug}/tickets` : null;
-  const primaryCta = eventUrl
-    ? `<a href="${eventUrl}" target="_blank" rel="noopener noreferrer" class="btn-primary">${event.hasRegistration ? esc(ctaLabel) : "Learn More"}</a>`
-    : `<a href="#contact" class="btn-primary">${esc(ctaLabel)}</a>`;
+  // Per specs/pillar-event-rendering-spec.md: max 3 featured events, card-based layout
+  // Per specs/pillar-visual-design-spec.md: each card needs border+shadow, hover effect, icons
+  const featured = events.slice(0, 3);
+
+  const buildCard = (event: EventRow) => {
+    const dateObj = event.startDate ? new Date(event.startDate + "T00:00:00") : null;
+    const day = dateObj ? String(dateObj.getDate()) : "";
+    const month = dateObj ? dateObj.toLocaleDateString("en-US", { month: "short" }).toUpperCase() : "";
+    const year = dateObj ? String(dateObj.getFullYear()) : "";
+    const fullDateStr = dateObj
+      ? dateObj.toLocaleDateString("en-US", { weekday: "short", month: "long", day: "numeric", year: "numeric" })
+      : "";
+    const timeStr = event.startTime
+      ? `${esc(event.startTime)}${event.endTime ? ` – ${esc(event.endTime)}` : ""}`
+      : "";
+    const { label: ctaLabel } = inferEventCta(event.name, event.description ?? "");
+    const eventUrl = event.slug ? `https://${orgSlug}.mypillar.co/events/${event.slug}/tickets` : null;
+    const ticketBtn = eventUrl && event.hasRegistration
+      ? `<a href="${eventUrl}" target="_blank" rel="noopener noreferrer" class="btn-primary" style="display:inline-flex;align-items:center;gap:6px;padding:0.5rem 1.25rem;font-size:0.875rem">${esc(ctaLabel)}</a>`
+      : eventUrl
+      ? `<a href="${eventUrl}" target="_blank" rel="noopener noreferrer" class="btn-ghost" style="display:inline-flex;align-items:center;gap:6px;padding:0.5rem 1.25rem;font-size:0.875rem;background:transparent;border:1px solid var(--border);color:var(--text)">Learn More →</a>`
+      : "";
+
+    return `<div class="fe-card reveal-child">
+          <div class="fe-card-accent" style="background:${accentHex}"></div>
+          <div class="fe-card-body">
+            ${(day && month) ? `<div class="fe-card-date-badge"><span class="fe-card-day">${day}</span><span class="fe-card-month">${month}</span>${year ? `<span class="fe-card-year" style="font-size:0.65rem;letter-spacing:0.05em">${year}</span>` : ""}</div>` : ""}
+            <h3 class="fe-card-title">${esc(event.name)}</h3>
+            <div class="fe-card-meta">
+              ${fullDateStr ? `<span class="fe-meta-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>${fullDateStr}</span>` : ""}
+              ${timeStr ? `<span class="fe-meta-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>${timeStr}</span>` : ""}
+              ${event.location ? `<span class="fe-meta-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>${esc(event.location)}</span>` : ""}
+            </div>
+            ${event.description ? `<p class="fe-card-desc">${esc(event.description)}</p>` : ""}
+            ${ticketBtn ? `<div class="fe-card-cta">${ticketBtn}</div>` : ""}
+          </div>
+        </div>`;
+  };
+
+  const sectionHeading = featured.length === 1 ? "Featured Event" : "Upcoming Events";
+  const gridClass = featured.length === 1 ? "fe-grid-single" : featured.length === 2 ? "fe-grid-two" : "fe-grid-three";
 
   return `
-  <section class="featured-event" id="featured-event">
+  <section class="featured-events-section" id="featured-event">
     <div class="container">
       <div class="section-header reveal" style="margin-bottom:40px">
-        <span class="eyebrow">Featured Event</span>
+        <span class="eyebrow">${sectionHeading}</span>
+        <h2>Don&#8217;t Miss These</h2>
       </div>
-      <div class="featured-event-card reveal">
-        ${day ? `
-        <div class="fe-date-block">
-          <span class="fe-day">${day}</span>
-          <span class="fe-month">${month}</span>
-          ${year ? `<span class="fe-year">${year}</span>` : ""}
-        </div>` : ""}
-        <div class="fe-body">
-          <h2>${esc(event.name)}</h2>
-          ${(timeStr || event.location) ? `
-          <p class="fe-meta">
-            ${timeStr ? `<span>${timeStr}</span>` : ""}
-            ${event.location ? `<span>📍 ${esc(event.location)}</span>` : ""}
-          </p>` : ""}
-          ${event.description ? `<p>${esc(event.description)}</p>` : ""}
-          <div class="fe-cta-row">
-            ${primaryCta}
-            <a href="#events" class="btn-ghost" style="background:transparent;color:var(--text);border-color:var(--border)">View All Events</a>
-          </div>
-        </div>
+      <div class="fe-cards-grid ${gridClass} reveal">
+        ${featured.map(buildCard).join("\n        ")}
+      </div>
+      <div style="text-align:center;margin-top:2rem">
+        <a href="#events" class="btn-ghost" style="background:transparent;border:1px solid var(--border);color:var(--text);padding:0.6rem 1.5rem;font-size:0.875rem">View All Events →</a>
       </div>
     </div>
   </section>`;
@@ -1210,9 +1358,9 @@ router.post("/generate", async (req: Request, res: Response) => {
         .filter((u): u is string => typeof u === "string" && (u.startsWith("/api/storage/") || u.startsWith("https://")))
         .slice(0, 6)
     : [];
-  // External images discovered from crawled site — must be absolute https:// URLs
+  // External images discovered from crawled site — allow absolute https:// OR re-hosted /api/storage/ paths
   const isSafeExternalUrl = (u: unknown): u is string =>
-    typeof u === "string" && u.startsWith("https://");
+    typeof u === "string" && (u.startsWith("https://") || u.startsWith("/api/storage/"));
   const importedLogoUrl: string | null = isSafeExternalUrl(rawImportedLogoUrl) ? rawImportedLogoUrl : null;
   const importedHeroUrl: string | null = isSafeExternalUrl(rawImportedHeroUrl) ? rawImportedHeroUrl : null;
   const importedImageUrls: string[] = Array.isArray(rawImportedImageUrls)
@@ -1316,17 +1464,15 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
     contactCardHeading: string; contactCardText: string;
   };
 
+  // Per specs/pillar-build-validation-checklist.md CHECK 1: NEVER generate descriptions the user didn't provide.
+  // If no real description exists, show name + icon ONLY. No AI filler.
   const defaultPrograms = s.services.length > 0
     ? s.services.slice(0, 3).map((svc, i) => ({
         icon: ["🤝","📚","🌟"][i] ?? "⭐",
         title: svc,
-        description: `Our ${svc} program brings community members together for meaningful impact and lasting connection.`,
+        description: "", // No AI filler — real description must come from user or crawl
       }))
-    : [
-        { icon: "🤝", title: "Community Service", description: "We unite volunteers around shared goals through regular service projects that address local needs and strengthen our community bonds." },
-        { icon: "📚", title: "Education & Training", description: "From youth programs to professional development, we invest in learning opportunities that help our members and neighbors grow." },
-        { icon: "🌟", title: "Leadership Development", description: "Our programs identify and develop the next generation of civic leaders through mentorship, training, and hands-on experience." },
-      ];
+    : [];
 
   let contentData: ContentData = {
     primaryHex: "#1e3a5f", accentHex: "#c9a84c", primaryRgb: "30,58,95",
@@ -1360,16 +1506,22 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
 
 Output ONLY a valid JSON object — no explanation, no markdown fences.
 
-COLOR SELECTION RULES — pick ONE primary color based on org type, then derive the accent:
-- Rotary / Lions / civic service clubs → warm navy (#1e3a5f) or deep teal (#1b4f5a). Accent: gold (#c9a84c).
-- Community association / neighborhood org → warm earth: deep green (#2d5016) or slate blue (#2c4a6e). Accent: warm amber (#d4822a).
-- Festival / entertainment → rich, warm: deep burgundy (#6b1f2e) or warm navy. Accent: amber or warm gold.
-- Business association / chamber → professional: forest green (#1a3a2a) or navy. Accent: gold or copper (#b87333).
-- Arts / cultural → muted jewel tones: deep teal (#1e4d5a) or burgundy (#5c1a2e). Accent: warm gold.
-- Children / family → warm bright primary: deep sky blue (#1a5276) or forest green. Accent: warm yellow (#f0c040).
-- If explicit brand colors are provided, match them and derive the accent to complement.
-- NEVER: neon colors, pure RGB primaries (#ff0000, #0000ff), more than one accent color, low-contrast pairs.
-- Color system uses HSL CSS variables — all site colors are derived from primaryHex. Pick with care.
+COLOR SELECTION RULES — MANDATORY org-type colors (from specs/pillar-org-design-strategies.md):
+DETECT org type from name/description, then apply EXACT colors. These are NOT suggestions:
+- ROTARY CLUB → primary: #0c4da2 (Rotary royal blue, HSL 218 100% 32%), accent: #f7a81b (Rotary gold, HSL 40 93% 54%)
+- LIONS CLUB → primary: #4b2181 (Lions purple, HSL 275 70% 30%), accent: #f5c518 (Lions gold)
+- KIWANIS → primary: #1a5fa8 (Kiwanis blue, HSL 210 80% 35%), accent: #f5c518 (gold)
+- MASONIC / FRATERNAL (Elks, Moose, Eagles, Knights of Columbus) → primary: #1a2d4a (deep navy, HSL 220 60% 25%), accent: #c9a84c (gold)
+- VETERANS (VFW, American Legion, AMVETS) → primary: #162d55 (military navy, HSL 215 70% 22%), accent: #c0392b (patriotic red)
+- HOA / HOMEOWNERS ASSOCIATION → primary: #2d7d6e (calm teal, HSL 170 35% 40%), accent: #4aaba0
+- PTA / BOOSTER CLUB / SCHOOL GROUP → primary: school's primary or #1565c0 (school blue), accent: #fbc02d (school gold)
+- NONPROFIT / FOUNDATION / CHARITY → primary: #1e3a5f (deep navy), accent: #c9a84c (gold)
+- COMMUNITY / NEIGHBORHOOD → primary: #2c5d3f (community green) or #2c4a6e (slate blue), accent: #d4822a (amber)
+- FESTIVAL / ENTERTAINMENT → primary: #6b1f2e (burgundy) or #1e3a5f (navy), accent: #c9a84c (gold)
+- CHAMBER / BUSINESS → primary: #1a3a2a (forest green) or #1e3a5f (navy), accent: #b87333 (copper)
+- If explicit brand colors are provided by user, match them exactly.
+- NEVER: neon colors, pure RGB primaries (#ff0000, #0000ff), more than one accent, low-contrast pairs, generic gray.
+- Color system uses HSL CSS variables — all site colors are derived from primaryHex. These hex values are correct — use them verbatim.
 
 Required JSON structure:
 {
@@ -1407,7 +1559,7 @@ Rules:
         role: "user",
         content: `Name: ${s.orgName}\nType: ${type}\nTagline: ${s.tagline}\nMission: ${s.mission}\nServices: ${s.services.join(", ") || "Community service programs"}\nLocation: ${s.location || ""}\nHours/Schedule: ${s.hours || ""}\nColors/Branding: ${colorHints}\nEmail: ${s.contactEmail || ""}\nPhone: ${s.contactPhone || ""}\nAudience: ${s.audience || ""}\nExtras/History: ${s.extras || ""}${originalSiteContext}`,
       },
-    ], 2000, "gpt-5-mini");
+    ], 2000, "gpt-4o-mini");
 
     const jsonMatch = contentJson.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
@@ -1518,8 +1670,8 @@ Rules:
         <h4>${esc(e.name)}</h4>
         ${e.description ? `<p>${esc(e.description)}</p>` : ""}
         <div class="event-meta">
-          ${timeStr ? `<span class="event-meta-item">${esc(timeStr)}</span>` : ""}
-          ${e.location ? `<span class="event-meta-item">${esc(e.location)}</span>` : ""}
+          ${timeStr ? `<span class="event-meta-item" style="display:flex;align-items:center;gap:5px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;opacity:0.6"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>${esc(timeStr)}</span>` : ""}
+          ${e.location ? `<span class="event-meta-item" style="display:flex;align-items:center;gap:5px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;opacity:0.6"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>${esc(e.location)}</span>` : ""}
         </div>
         ${registerBtn}
       </div>
@@ -1615,17 +1767,27 @@ Rules:
   })();
   const heroSecondaryCta = `<a href="#contact" class="btn-ghost">Get in Touch</a>`;
 
-  // ── Featured event — pick best candidate ─────────────────────────────────
-  const featuredEventCandidate = allEvents.find(e => (e as any).featuredOnSite === true)
-    ?? allEvents.find(e => {
-      const t = `${e.name} ${e.description ?? ""}`.toLowerCase();
-      return /ticket|fundrais|gala|donate|\$\d/.test(t);
-    })
-    ?? allEvents[0]
-    ?? null;
+  // ── Featured events — up to 3 per specs/pillar-event-rendering-spec.md ──────
+  // Priority: manually featured → ticketed/fundraiser events → soonest upcoming
+  const todayIso = new Date().toISOString().split("T")[0];
+  const futureOnly = allEvents.filter(e => !e.startDate || e.startDate >= todayIso);
+  const eventPool = futureOnly.length > 0 ? futureOnly : allEvents;
 
-  const featuredEventSection = plan.showFeaturedEvent && featuredEventCandidate
-    ? buildFeaturedEventSection(featuredEventCandidate, esc, contentData.accentHex || "#c9a84c", slug)
+  const manuallyFeatured = eventPool.filter(e => (e as any).featuredOnSite === true);
+  const ticketedEvents = eventPool.filter(e => {
+    const t = `${e.name} ${e.description ?? ""}`.toLowerCase();
+    return e.hasRegistration || /ticket|fundrais|gala|donate|\$\d/.test(t);
+  });
+
+  // Build featured list: manually featured first, fill with ticketed, then remaining
+  const featuredSet = new Set<typeof eventPool[0]>();
+  for (const e of manuallyFeatured) featuredSet.add(e);
+  for (const e of ticketedEvents) if (featuredSet.size < 3) featuredSet.add(e);
+  for (const e of eventPool) if (featuredSet.size < 3) featuredSet.add(e);
+  const featuredEvents = Array.from(featuredSet).slice(0, 3);
+
+  const featuredEventSection = plan.showFeaturedEvent && featuredEvents.length > 0
+    ? buildFeaturedEventSection(featuredEvents, esc, contentData.accentHex || "#c9a84c", slug)
     : "";
 
   // ── Sponsor strip — parse from extras text ────────────────────────────────
@@ -2053,8 +2215,8 @@ router.post("/sync-events", async (req: Request, res: Response) => {
         <h4>${esc(e.name)}</h4>
         ${e.description ? `<p>${esc(e.description)}</p>` : ""}
         <div class="event-meta">
-          ${timeStr ? `<span class="event-meta-item">${esc(timeStr)}</span>` : ""}
-          ${e.location ? `<span class="event-meta-item">${esc(e.location)}</span>` : ""}
+          ${timeStr ? `<span class="event-meta-item" style="display:flex;align-items:center;gap:5px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;opacity:0.6"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>${esc(timeStr)}</span>` : ""}
+          ${e.location ? `<span class="event-meta-item" style="display:flex;align-items:center;gap:5px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;opacity:0.6"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>${esc(e.location)}</span>` : ""}
         </div>
         ${registerBtn}
       </div>

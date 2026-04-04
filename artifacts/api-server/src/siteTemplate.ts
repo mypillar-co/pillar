@@ -804,89 +804,116 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
       letter-spacing: 0.04em;
     }
 
-    /* ─── FEATURED EVENT ─── */
-    .featured-event {
+    /* ─── FEATURED EVENTS SECTION (spec-compliant card grid) ─── */
+    .featured-events-section {
       padding: var(--section-pad) 0;
       background: var(--bg);
     }
-    .featured-event-card {
+    /* Card grid layouts per spec: 1/2/3 column responsive */
+    .fe-cards-grid {
       display: grid;
-      grid-template-columns: auto 1fr auto;
-      gap: var(--sp-6);
-      align-items: center;
-      background: var(--bg-subtle);
-      border-radius: var(--radius-lg);
-      padding: var(--sp-5) var(--sp-6);
-      border-left: 5px solid var(--accent);
-      box-shadow: var(--shadow);
+      gap: var(--sp-5);
     }
-    .fe-date-block {
-      text-align: center;
-      min-width: 80px;
+    .fe-grid-single { grid-template-columns: 1fr; max-width: 640px; margin: 0 auto; }
+    .fe-grid-two { grid-template-columns: repeat(2, 1fr); }
+    .fe-grid-three { grid-template-columns: repeat(3, 1fr); }
+    /* Per spec: every card MUST have border, shadow, hover effect */
+    .fe-card {
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-card, var(--bg-subtle));
+      box-shadow: 0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.04);
+      overflow: hidden;
+      transition: box-shadow 0.25s ease, transform 0.25s ease;
+      display: flex;
+      flex-direction: column;
+    }
+    .fe-card:hover {
+      box-shadow: 0 8px 25px rgba(0,0,0,0.13), 0 4px 10px rgba(0,0,0,0.06);
+      transform: translateY(-2px);
+    }
+    /* Per spec: colored accent bar at top if no image */
+    .fe-card-accent {
+      height: 5px;
+      width: 100%;
+      flex-shrink: 0;
+    }
+    .fe-card-body { padding: var(--sp-4) var(--sp-5); flex: 1; display: flex; flex-direction: column; }
+    .fe-card-date-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
       background: var(--primary);
       color: white;
       border-radius: var(--radius);
-      padding: var(--sp-2) var(--sp-2);
+      padding: 4px 10px;
+      margin-bottom: var(--sp-3);
     }
-    .fe-day {
-      font-family: var(--font-display);
-      font-size: 2.8rem;
+    .fe-card-day {
+      font-size: 1.4rem;
+      font-weight: 700;
       line-height: 1;
-      font-weight: 400;
-      display: block;
     }
-    .fe-month {
-      font-size: var(--t-meta);
+    .fe-card-month {
+      font-size: 0.7rem;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.12em;
+      letter-spacing: 0.1em;
       opacity: 0.85;
-      display: block;
-      margin-top: 4px;
     }
-    .fe-year {
-      font-size: var(--t-meta);
-      opacity: 0.65;
-      display: block;
-    }
-    .fe-body .eyebrow { margin-bottom: var(--sp-2); }
-    .fe-body h2 {
+    .fe-card-title {
       font-family: var(--font-display);
-      font-size: var(--t-h2);
-      font-weight: 400;
+      font-size: var(--t-h3);
+      font-weight: 600;
       color: var(--text);
-      letter-spacing: -0.02em;
-      line-height: 1.15;
-      margin-bottom: var(--sp-2);
+      line-height: 1.25;
+      margin-bottom: var(--sp-3);
     }
-    .fe-meta {
+    /* Per spec: icons MUST appear next to date, time, location */
+    .fe-card-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: var(--sp-3);
+    }
+    .fe-meta-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
       font-size: var(--t-small);
       color: var(--text-muted);
-      margin-bottom: var(--sp-2);
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
+      line-height: 1.4;
     }
-    .fe-meta span { display: flex; align-items: center; gap: 5px; }
-    .fe-body > p {
-      font-size: var(--t-body);
+    .fe-meta-item svg { margin-top: 1px; color: var(--primary); opacity: 0.7; }
+    .fe-card-desc {
+      font-size: var(--t-small);
       color: var(--text-muted);
-      line-height: 1.75;
-      margin-bottom: var(--sp-4);
-      max-width: 60ch;
+      line-height: 1.6;
+      margin-bottom: var(--sp-3);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
     }
-    .fe-cta-row {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
+    .fe-card-cta { margin-top: auto; padding-top: var(--sp-3); }
+    /* Legacy classes kept for backward compat with old generated sites */
+    .featured-event { padding: var(--section-pad) 0; background: var(--bg); }
+    .featured-event-card {
+      display: grid; grid-template-columns: auto 1fr; gap: var(--sp-6);
+      align-items: center; background: var(--bg-subtle);
+      border-radius: var(--radius-lg); padding: var(--sp-5) var(--sp-6);
+      border-left: 5px solid var(--accent); box-shadow: var(--shadow);
     }
-    .fe-image {
-      width: 240px;
-      height: 180px;
-      border-radius: var(--radius);
-      object-fit: cover;
-      flex-shrink: 0;
-    }
+    .fe-date-block { text-align: center; min-width: 80px; background: var(--primary); color: white; border-radius: var(--radius); padding: var(--sp-2); }
+    .fe-day { font-family: var(--font-display); font-size: 2.8rem; line-height: 1; font-weight: 400; display: block; }
+    .fe-month { font-size: var(--t-meta); font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; opacity: 0.85; display: block; margin-top: 4px; }
+    .fe-year { font-size: var(--t-meta); opacity: 0.65; display: block; }
+    .fe-body h2 { font-family: var(--font-display); font-size: var(--t-h2); font-weight: 400; color: var(--text); margin-bottom: var(--sp-2); }
+    .fe-meta { font-size: var(--t-small); color: var(--text-muted); margin-bottom: var(--sp-2); display: flex; flex-wrap: wrap; gap: 12px; }
+    .fe-meta span { display: flex; align-items: center; gap: 5px; }
+    .fe-body > p { font-size: var(--t-body); color: var(--text-muted); line-height: 1.75; margin-bottom: var(--sp-4); max-width: 60ch; }
+    .fe-cta-row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .fe-image { width: 240px; height: 180px; border-radius: var(--radius); object-fit: cover; flex-shrink: 0; }
 
     /* ─── SPONSOR STRIP ─── */
     .sponsor-strip {
@@ -971,6 +998,7 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
       .about-img-wrap { aspect-ratio: 16/9; }
       .contact-grid { grid-template-columns: 1fr; gap: 40px; }
       .footer-grid { grid-template-columns: 1fr 1fr; gap: 40px; }
+      .fe-grid-two, .fe-grid-three { grid-template-columns: repeat(2, 1fr); }
       .featured-event-card { grid-template-columns: 1fr; gap: var(--sp-4); }
       .fe-date-block { display: flex; gap: 12px; align-items: baseline; min-width: unset; padding: var(--sp-2) var(--sp-3); }
       .fe-day { font-size: 1.6rem; }
@@ -984,6 +1012,7 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
       .footer-grid { grid-template-columns: 1fr; gap: 32px; }
       .footer-bar { flex-direction: column; gap: 8px; text-align: center; }
       .hero-content h1 { max-width: 100%; }
+      .fe-grid-single, .fe-grid-two, .fe-grid-three { grid-template-columns: 1fr; }
       .featured-event-card { padding: var(--sp-4); }
       .sponsor-logos { gap: var(--sp-3) var(--sp-4); }
     }

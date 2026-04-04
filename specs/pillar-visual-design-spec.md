@@ -1,0 +1,533 @@
+# Pillar: Visual Design Specification (STRICT)
+
+**THIS IS NOT A SUGGESTION. THIS IS A BUILD REQUIREMENT.**
+
+The build engine MUST follow every rule in this document. A site that violates any rule is BROKEN and MUST be fixed before presenting to the user. "Text on a white page" is not a website. Every site must have visual depth, color, hierarchy, and personality specific to its org type.
+
+---
+
+## MANDATORY VISUAL ELEMENTS
+
+Every Pillar site MUST have ALL of the following. No exceptions:
+
+1. A colored or image-backed hero section (NOT plain text on white)
+2. Cards with borders, shadows, or backgrounds for every listed item (events, programs, businesses)
+3. Icons next to every metadata item (dates, times, locations, phone numbers, emails)
+4. Badges for categories, statuses, and labels
+5. Hover effects on every clickable element
+6. Visual separation between sections (alternating backgrounds, borders, or spacing)
+7. A consistent color theme derived from the org type (NOT default gray)
+8. Proper whitespace rhythm (NOT cramped, NOT barren)
+
+If any of these 8 elements are missing, the site fails validation.
+
+---
+
+## SECTION-BY-SECTION BUILD RULES
+
+### HERO SECTION
+
+The hero is the first thing anyone sees. It MUST have visual impact.
+
+**REQUIRED structure:**
+```html
+<section class="[HERO_BACKGROUND]">
+  <div class="max-w-7xl mx-auto px-4 py-16 md:py-24">
+    [OPTIONAL: Badge — org type label, e.g., "Service Organization"]
+    <h1 class="text-4xl md:text-5xl font-bold [HEADLINE_FONT]">[Org Name]</h1>
+    <p class="text-lg md:text-xl [SUBTITLE_COLOR] max-w-2xl mt-4">[Tagline or mission]</p>
+    <div class="flex gap-3 mt-8">
+      [Primary CTA button — solid, prominent]
+      [Secondary CTA button — outline or ghost]
+    </div>
+  </div>
+</section>
+```
+
+**HERO_BACKGROUND rules by org type:**
+
+| Org Type | Hero Background | Text Color |
+|---|---|---|
+| Masonic & Fraternal | Solid deep navy (primary color), NO image unless lodge building photo provided | White |
+| Rotary & Service Clubs | Parent org brand color (Rotary blue, Lions purple, etc.) | White |
+| Veterans Organizations | Dark navy with subtle flag motif or solid patriotic blue | White |
+| Homeowner Associations | Photo of the community/neighborhood with dark overlay, OR solid calm teal/green | White on image, dark on solid |
+| PTAs & School Groups | School's primary color, bright and energetic | White |
+| Nonprofits | Primary color solid, OR mission-related photo with dark overlay | White |
+
+**NEVER:** Plain white background with black text. That is not a hero, it is a paragraph.
+
+**NEVER:** "Scroll to explore" text anywhere.
+
+---
+
+### EVENT CARDS
+
+Every event MUST be displayed as a card, not a text list. Text lists are forbidden for events.
+
+**REQUIRED card structure:**
+```html
+<div class="rounded-lg border bg-card shadow-sm hover:shadow-md transition-shadow">
+  [IF event has image: <img class="w-full h-48 object-cover rounded-t-lg" />]
+  [IF no image: <div class="h-2 bg-primary rounded-t-lg"></div>]  ← colored accent bar
+  <div class="p-5">
+    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary">[Category]</span>
+    <h3 class="font-semibold text-lg mt-2">[Event Name]</h3>
+    <p class="text-sm text-muted-foreground mt-1 line-clamp-2">[Description]</p>
+    <div class="flex flex-col gap-2 mt-4 text-sm text-muted-foreground">
+      <span class="flex items-center gap-2"><CalendarIcon /> [Date]</span>
+      <span class="flex items-center gap-2"><ClockIcon /> [Time]</span>
+      <span class="flex items-center gap-2"><MapPinIcon /> [Location]</span>
+    </div>
+    [IF ticketed: <div class="mt-4"><Button>Buy Tickets — $[price]</Button></div>]
+    [IF has detail page: <div class="mt-4"><Button variant="outline">Learn More</Button></div>]
+  </div>
+</div>
+```
+
+**MANDATORY card rules:**
+- Every card MUST have a border OR shadow (not flat on flat)
+- Every card MUST have hover effect (shadow increase, subtle lift, or border color change)
+- Every date MUST have a calendar icon next to it
+- Every time MUST have a clock icon next to it
+- Every location MUST have a map pin icon next to it
+- Descriptions MUST be clamped to 2 lines (`line-clamp-2`)
+- If the event has no image, use a 4-8px colored accent bar at the top of the card instead. NEVER show an empty image area or broken image placeholder.
+- Cards MUST be in a responsive grid: 1 column mobile, 2 columns tablet, 3 columns desktop
+
+**FORBIDDEN:**
+- Flat text list of events with no cards
+- Cards with no borders, no shadows, no visual containment
+- Missing icons on date/time/location
+- Event images without `object-cover` (stretched/distorted images)
+
+---
+
+### PROGRAM/SERVICE CARDS
+
+Programs and services MUST be displayed as cards with icons, not plain text.
+
+**REQUIRED structure:**
+```html
+<div class="rounded-lg border bg-card p-6 text-center">
+  <div class="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+    [Icon — emoji or Lucide icon, colored with primary]
+  </div>
+  <h3 class="font-semibold text-lg">[Program Name]</h3>
+  [IF real description exists: <p class="text-sm text-muted-foreground mt-2">[Description]</p>]
+  [IF no real description: show NOTHING below the name. Do NOT generate filler.]
+</div>
+```
+
+**MANDATORY rules:**
+- Every program card MUST have an icon (emoji or Lucide icon in a colored circle)
+- Icons MUST be inside a rounded background circle using `bg-primary/10`
+- If no description was provided by the user, show the program name and icon ONLY. Do NOT generate text.
+- Cards in a responsive grid: 1 column mobile, 2-3 columns tablet, 3-4 columns desktop
+
+---
+
+### CONTACT SECTION
+
+**REQUIRED structure:**
+```html
+<section class="bg-card border-t">
+  <div class="max-w-7xl mx-auto px-4 py-16">
+    <h2 class="text-2xl md:text-3xl font-bold [HEADLINE_FONT]">[Contact heading]</h2>
+    <div class="grid md:grid-cols-2 gap-8 mt-8">
+      <div class="space-y-4">
+        [IF address: <div class="flex items-start gap-3"><MapPinIcon /><span>[Address]</span></div>]
+        [IF phone: <div class="flex items-center gap-3"><PhoneIcon /><a href="tel:[phone]">[Phone]</a></div>]
+        [IF email: <div class="flex items-center gap-3"><MailIcon /><a href="mailto:[email]">[Email]</a></div>]
+        [IF meeting schedule: <div class="flex items-start gap-3"><ClockIcon /><span>[Schedule]</span></div>]
+      </div>
+      [Optional: Contact form OR "Get in Touch" CTA]
+    </div>
+  </div>
+</section>
+```
+
+**MANDATORY rules:**
+- Every piece of contact info MUST have an icon
+- Phone numbers MUST be `tel:` links (tappable on mobile)
+- Email MUST be `mailto:` link
+- Address SHOULD be a Google Maps link
+- Each piece of info appears ONCE. Never duplicate.
+
+---
+
+### SECTION SEPARATION
+
+Sections MUST be visually distinct from each other. The user must be able to tell where one section ends and another begins.
+
+**REQUIRED: Alternate section backgrounds.**
+
+```
+Hero:           [Primary color or image — dark]
+Featured Event: [White background]
+About/Mission:  [bg-card with border-t, slightly off-white or tinted]
+Programs:       [White background]
+Events:         [bg-card with border-t]
+Contact:        [White background]
+Footer:         [Dark background — near-black or deep primary]
+```
+
+The pattern: alternate between `bg-background` (white) and `bg-card` (slightly tinted or bordered). Every other section gets a different background treatment. This creates visual rhythm.
+
+**FORBIDDEN:** Every section on the same white background with no visual separation.
+
+---
+
+## ORG-TYPE VISUAL PERSONALITIES
+
+Each org type MUST have a distinct visual feel. These are NOT suggestions — the build engine MUST apply these.
+
+### MASONIC & FRATERNAL LODGES
+
+**Mood:** Dignified, historic, substantial. Dark wood and brass.
+
+```
+COLORS:
+  --primary:            220 60% 25%        (deep navy)
+  --primary-foreground:  0 0% 100%          (white)
+  --accent:             42 80% 50%          (gold)
+  --background:         40 20% 98%          (warm off-white)
+  --card:               40 15% 96%          (warm light gray)
+  --foreground:         220 15% 12%         (warm near-black)
+  --muted-foreground:   220 10% 45%         (warm gray)
+  --border:             220 10% 85%         (warm light border)
+
+TYPOGRAPHY:
+  Headlines: font-serif, font-bold
+  Body: system sans-serif
+
+HERO: Solid deep navy background. Lodge emblem/seal centered or left-aligned, large (w-24 h-24 minimum).
+      Gold accent on CTA button borders or badge.
+      
+CARDS: Subtle warm borders. No heavy shadows. Understated elegance.
+       Gold accent bar at top of cards instead of primary color.
+
+FOOTER: Very dark navy, almost black. Gold text for links.
+
+SPECIAL: Display officer titles prominently (Worshipful Master, Senior Warden, etc.)
+         These titles are ceremonial and important — don't abbreviate or skip them.
+```
+
+### ROTARY & SERVICE CLUBS
+
+**Mood:** Professional, community-spirited, polished. Business networking meets civic duty.
+
+```
+COLORS (example for Rotary — adjust for Lions, Kiwanis, etc.):
+  --primary:            218 100% 32%       (Rotary royal blue)
+  --primary-foreground:  0 0% 100%          (white)
+  --accent:             40 93% 54%          (Rotary gold)
+  --background:          0 0% 100%          (clean white)
+  --card:               218 15% 97%         (blue-tinted white)
+  --foreground:          0 0% 12%           (near-black)
+  --muted-foreground:    0 0% 45%           (medium gray)
+  --border:             218 15% 90%         (light blue-gray border)
+
+TYPOGRAPHY:
+  Headlines: sans-serif, font-bold
+  Body: system sans-serif
+
+HERO: Solid primary color (Rotary blue). Parent org logo prominently displayed (w-16 h-16 minimum).
+      Motto as subtitle ("Service Above Self").
+      Gold accent on badges or secondary elements.
+
+CARDS: Clean white with light borders. Primary color accent bars on top.
+       Moderate shadows on hover.
+
+FOOTER: Dark primary color. Parent org link included.
+
+SPECIAL: Parent org logo MUST appear in the header/nav area.
+         Meeting info MUST be a single persistent block, not repeated event entries.
+```
+
+### VETERANS ORGANIZATIONS
+
+**Mood:** Patriotic, honorable, strong. American flag, military precision.
+
+```
+COLORS:
+  --primary:            215 70% 22%        (military navy)
+  --primary-foreground:  0 0% 100%          (white)
+  --accent:              0 65% 45%          (patriotic red)
+  --background:          0 0% 100%          (white)
+  --card:               215 10% 97%         (very light blue-gray)
+  --foreground:          0 0% 10%           (near-black)
+  --muted-foreground:    0 0% 40%           (dark gray)
+  --border:             215 10% 85%         (light border)
+
+TYPOGRAPHY:
+  Headlines: font-bold (serif OR sans — both work, key is BOLD and strong)
+  Body: system sans-serif, 16px (readability for older veterans)
+
+HERO: Dark navy background. Post name and number large and centered.
+      No playful elements. Clean, strong, direct.
+      CTA buttons: one primary (navy), one outline (red border).
+
+CARDS: Clean with light borders. Navy accent bars on top of cards.
+       Red accent used SPARINGLY — for important badges or CTAs only.
+
+FOOTER: Very dark navy. White text. Post charter info.
+
+SPECIAL: If post has a canteen/bar, display hours prominently on homepage.
+         Hall rental info gets its own section if applicable.
+         Memorial Day and Veterans Day events auto-feature when within 30 days.
+```
+
+### HOMEOWNER ASSOCIATIONS
+
+**Mood:** Clean, functional, calm. Neighborhood feel without being cutesy.
+
+```
+COLORS:
+  --primary:            170 35% 40%        (calm teal) OR 210 30% 45% (neutral blue)
+  --primary-foreground:  0 0% 100%          (white)
+  --accent:             170 25% 50%         (lighter teal)
+  --background:          0 0% 100%          (white)
+  --card:               170 10% 97%         (barely tinted)
+  --foreground:          0 0% 12%           (near-black)
+  --muted-foreground:    0 0% 45%           (gray)
+  --border:             170 10% 88%         (light border)
+
+TYPOGRAPHY:
+  Headlines: sans-serif, semi-bold (not ultra-bold — calm, not shouty)
+  Body: system sans-serif, 15px
+
+HERO: Community photo with dark overlay if photo exists.
+      If no photo: solid primary color, clean white text.
+      Subtitle: neighborhood name and location.
+
+CARDS: Minimal shadows, clean borders. Functional, not decorative.
+       Primary color accent bars.
+
+FOOTER: Medium-dark primary. Management company name if applicable.
+
+SPECIAL: Announcements section MUST be the first section after the hero.
+         Current notices, construction updates, rule changes — this is why residents visit.
+         Documents section with links to CC&Rs, bylaws, meeting minutes.
+         Board member list with titles and contact info.
+```
+
+### PTAs & SCHOOL GROUPS
+
+**Mood:** Bright, energetic, welcoming. School spirit. Parents on their phones in the pickup line.
+
+```
+COLORS (use school colors — these are fallback):
+  --primary:            210 70% 45%        (bright blue)
+  --primary-foreground:  0 0% 100%          (white)
+  --accent:             140 60% 45%         (energetic green) OR 30 80% 50% (orange)
+  --background:          0 0% 100%          (white)
+  --card:               210 15% 97%         (light tint)
+  --foreground:          0 0% 12%           (near-black)
+  --muted-foreground:    0 0% 45%           (gray)
+  --border:             210 15% 88%         (light border)
+
+TYPOGRAPHY:
+  Headlines: sans-serif, bold. Friendly and energetic.
+  Body: system sans-serif, 15-16px
+
+HERO: School primary color, bright. School mascot/logo if available (w-16 h-16).
+      Tagline: "Supporting [School Name] Students & Families"
+      CTA: "Upcoming Events" and "Volunteer"
+
+CARDS: Light shadows, colorful category badges. More visual energy than other org types.
+       Accent color accent bars (not just primary — use the secondary school color).
+
+FOOTER: School primary color, medium-dark. School name, PTA affiliation.
+
+SPECIAL: Volunteer sign-up CTAs should be prominent and on the homepage.
+         Fundraiser progress bars if fundraiser has a goal amount.
+         Quick-action buttons near the top: "Buy Spirit Wear" "Volunteer" "Donate"
+         Everything must be operable in under 10 seconds on a phone.
+```
+
+### NONPROFITS
+
+**Mood:** Warm, impactful, trustworthy. Show don't tell — numbers and real stories.
+
+```
+COLORS (varies by sub-type — see org design strategies doc):
+  --primary:            [varies]            (see sub-type table)
+  --primary-foreground:  0 0% 100%          (white)
+  --accent:             [complement of primary]
+  --background:          0 0% 100%          (white)
+  --card:               [primary] 10% 97%   (barely tinted)
+  --foreground:          0 0% 12%           (near-black)
+  --muted-foreground:    0 0% 45%           (gray)
+  --border:             [primary] 10% 88%   (light border)
+
+TYPOGRAPHY:
+  Headlines: sans-serif for modern orgs, serif for established (50+ years old)
+  Body: system sans-serif, 15-16px
+
+HERO: Primary color background OR impactful photo with dark overlay.
+      Mission statement as subtitle.
+      CTA: "Donate" (PRIMARY, most visually prominent) and "Get Involved"
+
+CARDS: Warm feel. Moderate shadows. Friendly borders.
+
+FOOTER: Dark primary. 501(c)(3) statement. EIN number. Charity rating links.
+
+SPECIAL: DONATE BUTTON IN THE HEADER ON EVERY PAGE. Warm accent color (orange or green).
+         Impact statistics section with large numbers: "12,000 meals served"
+         Numbers in large font (text-3xl or text-4xl), labels below in muted text.
+         Multiple giving pathways: donate money, volunteer time, donate goods.
+         Board of directors list (builds credibility for donors).
+```
+
+---
+
+## ICON REQUIREMENTS
+
+Every metadata item MUST have an icon. This is not optional. Sites without icons look unfinished.
+
+**Required icon usage:**
+
+| Data Type | Icon | Context |
+|---|---|---|
+| Date | Calendar | Event cards, event detail, meeting schedule |
+| Time | Clock | Event cards, event detail, operating hours |
+| Location | MapPin | Event cards, event detail, contact section |
+| Phone | Phone | Contact section, business cards |
+| Email | Mail | Contact section |
+| Website | Globe or ExternalLink | Business cards, sponsor cards |
+| Price/Tickets | Ticket or DollarSign | Event cards when ticketed |
+| Capacity | Users | Ticket availability display |
+| Category | Tag | Event category badges |
+
+Use Lucide icons (lucide-react) or equivalent. Size: `w-4 h-4` inline with text, `w-5 h-5` in standalone display.
+
+Icons MUST be colored `text-muted-foreground` or `text-primary` — never pure black on white.
+
+---
+
+## HOVER & INTERACTION EFFECTS
+
+Every clickable element MUST have a hover state. Static-looking clickable elements confuse users.
+
+**Cards:**
+```css
+transition: box-shadow 0.2s ease, transform 0.2s ease;
+
+hover:
+  box-shadow: increase by 1 level (sm → md, md → lg)
+  transform: translateY(-2px)
+```
+
+**Buttons:**
+```
+Primary: slight darken on hover (10% darker)
+Outline: fill with primary/10 on hover
+Ghost: fill with muted on hover
+```
+
+**Links:**
+```
+Underline on hover, or color shift to primary
+```
+
+**FORBIDDEN:** Clickable elements with no visual hover change.
+
+---
+
+## FOOTER REQUIREMENTS
+
+The footer MUST exist on every site. It MUST contain:
+
+```html
+<footer class="bg-[DARK_PRIMARY] text-white">
+  <div class="max-w-7xl mx-auto px-4 py-12">
+    <div class="grid md:grid-cols-3 gap-8">
+      <!-- Column 1: Org info -->
+      <div>
+        <h3 class="font-bold text-lg">[Org Name]</h3>
+        <p class="text-sm text-white/70 mt-2">[Address]</p>
+        [IF phone: <p class="text-sm text-white/70"><a href="tel:...">[Phone]</a></p>]
+        [IF email: <p class="text-sm text-white/70"><a href="mailto:...">[Email]</a></p>]
+      </div>
+      <!-- Column 2: Quick links -->
+      <div>
+        <h3 class="font-bold text-lg">Quick Links</h3>
+        <nav class="flex flex-col gap-2 mt-2 text-sm text-white/70">
+          <a href="/#events">Events</a>
+          <a href="/#about">About</a>
+          <a href="/#contact">Contact</a>
+        </nav>
+      </div>
+      <!-- Column 3: Social + affiliation -->
+      <div>
+        [IF social links: Display social media icons]
+        [IF parent org: "Member of [Parent Org]" with link]
+        [IF nonprofit: "501(c)(3) Tax-Exempt Organization. EIN: [number]"]
+      </div>
+    </div>
+    <div class="border-t border-white/20 mt-8 pt-8 text-center text-sm text-white/50">
+      © [Year] [Org Name]. All rights reserved.
+      <br />Powered by <a href="https://mypillar.co">Pillar</a>
+    </div>
+  </div>
+</footer>
+```
+
+**MANDATORY footer rules:**
+- Background MUST be dark (near-black or very dark version of primary)
+- Text MUST be white or white/70 (semi-transparent white)
+- MUST have at least 2 columns on desktop (org info + links)
+- MUST include copyright line
+- MUST include "Powered by Pillar" attribution
+- Footer links MUST have hover color change (white/70 → white)
+
+**FORBIDDEN:** Light-colored footers. Footers with no content. Missing copyright.
+
+---
+
+## RESPONSIVE BREAKPOINTS
+
+All layouts MUST be responsive. These breakpoints are mandatory:
+
+```
+Mobile:  < 768px   → single column, hamburger nav, full-width cards
+Tablet:  768-1023px → 2 columns for cards, full nav or hamburger
+Desktop: ≥ 1024px  → 3 columns for cards, full nav bar
+```
+
+**MANDATORY mobile rules:**
+- No horizontal scroll on any screen width
+- Touch targets minimum 44px height
+- Hamburger menu slides out from right, full height, scrollable
+- All text readable without zooming (minimum 14px body text)
+- Phone numbers tappable (`tel:` links)
+- No hover-dependent content (hover doesn't exist on mobile)
+
+---
+
+## FINAL VALIDATION: VISUAL QUALITY GATE
+
+After applying all rules above, the build engine MUST verify:
+
+```
+[ ] Hero has a colored or image background (NOT plain white)
+[ ] Every event is in a card (NOT a text list)
+[ ] Every card has a border or shadow
+[ ] Every card has hover effect
+[ ] Every date/time/location has an icon
+[ ] Sections alternate backgrounds (NOT all white)
+[ ] Colors match the org type specification
+[ ] Footer exists and is dark with white text
+[ ] No AI filler text anywhere
+[ ] No duplicate content
+[ ] No broken or irrelevant images
+[ ] Mobile layout is single-column and scrollable
+[ ] All clickable elements have hover states
+[ ] Category/status badges are styled (NOT plain text)
+[ ] Buttons have proper variant hierarchy (primary/outline/ghost)
+```
+
+**If any check fails, DO NOT present the site. Fix it first.**
+
+A text-only page with no visual structure is not a website. It is a document. Pillar builds websites.

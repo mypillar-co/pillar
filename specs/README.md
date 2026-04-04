@@ -1,0 +1,1 @@
+These spec files are the AUTHORITATIVE rules for the AI Site Builder. The agent MUST read `pillar-master-index.md` before any site build, crawl, interview, or validation task. These specs override any conflicting behavior in the codebase.

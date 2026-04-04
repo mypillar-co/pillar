@@ -64,12 +64,23 @@ type ImportedSiteData = {
   audience: string;
   style: string;
   extra: string;
-  /** Logo/icon URL detected from the crawled site */
+  /** Re-hosted path for the org logo — served via /api/storage/object/... (never a hotlink) */
   logoUrl?: string;
-  /** Hero image URL detected from the crawled site */
+  /** Re-hosted path for the hero image */
   heroUrl?: string;
-  /** Additional image URLs from the crawled site */
+  /** Re-hosted paths for gallery images */
   imageUrls?: string[];
+  /** Crawl summary counts — shown in the post-crawl confirmation message */
+  crawlMeta?: {
+    eventsFound: number;
+    programsFound: number;
+    boardMembersFound: number;
+    hasLogo: boolean;
+    hasHero: boolean;
+    imagesDownloaded: number;
+    imagesFailed: number;
+    warnings: string[];
+  };
 };
 
 const DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -417,24 +428,89 @@ export default function SiteBuilder() {
     if (!editableImportData) return;
     const d = editableImportData;
     const orgName = org?.name ?? d.name ?? "your organization";
-    const qa: { q: string; a: string }[] = [
-      { q: `Let's build ${orgName}'s website! What is your mission or main purpose?`, a: d.mission || `We are ${orgName}.` },
-      { q: "What programs, services, or activities do you offer?", a: d.services || "Various community programs and services." },
-      { q: "Where are you located? Include address and regular meeting schedule.", a: [d.location, d.schedule].filter(Boolean).join(". ") || "Location and schedule available upon request." },
-      { q: "Tell me about your upcoming events — any recurring gatherings or fundraisers? (Future events only)", a: d.events || "We host regular community events throughout the year." },
-      { q: "How should visitors reach you? Share email and phone number.", a: d.contact || "Contact information available on our website." },
-      { q: "What are your social media accounts?", a: d.social || "No social media listed." },
-      { q: "Who are your current officers or board members? List names and titles.", a: d.leadership || "Leadership information available upon request." },
-      { q: "Who are you trying to reach?", a: d.audience || "Community members, volunteers, and supporters." },
-      { q: "Any color, style preferences, or parent organization branding to follow?", a: d.style || "Keep it consistent with our existing branding." },
-      { q: "Anything else to highlight? Founding history, announcements, calls to action?", a: (d.extra ? d.extra + " " : "") + `Content imported from ${importedFromUrl ?? "existing website"}.` },
-    ];
+    const sourceUrl = importedFromUrl ?? "your existing website";
+
+    // ── Build the post-crawl summary message (spec: exact counts) ──────────
+    const foundItems: string[] = [];
+    if (d.name) foundItems.push(`org name (${d.name})`);
+    if (importedLogoUrl) foundItems.push("your logo");
+    if (importedHeroUrl) foundItems.push("a hero image");
+
+    const eventLines = d.events ? d.events.split("\n").filter(l => l.trim()) : [];
+    if (eventLines.length > 0) {
+      const preview = eventLines.slice(0, 2).map(l => l.split("|")[0].trim()).filter(Boolean).join(", ");
+      foundItems.push(`${eventLines.length} upcoming event${eventLines.length !== 1 ? "s" : ""} (${preview}${eventLines.length > 2 ? "…" : ""})`);
+    }
+
+    const programItems = d.services ? d.services.split(/[,\n]/).map(s => s.trim()).filter(Boolean) : [];
+    if (programItems.length > 0) {
+      const preview = programItems.slice(0, 2).join(", ");
+      foundItems.push(`${programItems.length} program${programItems.length !== 1 ? "s" : ""} (${preview}${programItems.length > 2 ? "…" : ""})`);
+    }
+
+    if (d.contact) foundItems.push("contact info");
+    if (d.social) foundItems.push("social links");
+
+    const boardLines = d.leadership ? d.leadership.split("\n").filter(l => l.trim()) : [];
+    if (boardLines.length > 0) {
+      foundItems.push(`${boardLines.length} board member${boardLines.length !== 1 ? "s" : ""}`);
+    }
+
+    const summaryText = foundItems.length > 0
+      ? `I pulled everything from ${sourceUrl}. I found:\n- ${foundItems.join("\n- ")}\n\nDoes this look right? Anything to add or change?`
+      : `I imported content from ${sourceUrl}, but couldn't find much. Let me ask you a few questions to fill in the details.`;
+
+    // ── Build synthetic Q&A — only inject fields with REAL data ─────────────
+    type QA = { q: string; a: string };
+    const qa: QA[] = [];
+    if (d.mission)   qa.push({ q: `What is ${orgName}'s mission or main purpose?`, a: d.mission });
+    if (d.services)  qa.push({ q: "What programs, services, or activities do you offer?", a: d.services });
+    const locationAnswer = [d.location, d.schedule].filter(Boolean).join(". ");
+    if (locationAnswer) qa.push({ q: "Where are you located? Include address and meeting schedule.", a: locationAnswer });
+    if (d.events)    qa.push({ q: "Tell me about your upcoming events.", a: d.events });
+    if (d.contact)   qa.push({ q: "How should visitors reach you? Share email and phone number.", a: d.contact });
+    if (d.social)    qa.push({ q: "What are your social media accounts?", a: d.social });
+    if (d.leadership) qa.push({ q: "Who are your current officers or board members?", a: d.leadership });
+    if (d.audience)  qa.push({ q: "Who are you trying to reach?", a: d.audience });
+    if (d.style)     qa.push({ q: "Any color or style preferences or parent organization branding?", a: d.style });
+
+    // Extra / history — always include as context note
+    const extraParts = [d.extra, `Content imported from ${sourceUrl}.`].filter(Boolean).join(" ");
+    qa.push({ q: "Any other context, history, or announcements?", a: extraParts });
+
+    // ── Identify missing critical fields for follow-up (spec requirement) ────
+    const followUps: string[] = [];
+    if (!d.events) {
+      followUps.push("I didn't find any upcoming events on your current site. Do you have events to add? List names, dates, and ticket prices if applicable.");
+    }
+    if (!d.contact) {
+      followUps.push("I couldn't find contact info. What's the best email and phone number for visitors to reach you?");
+    }
+    if (!d.mission && !d.services) {
+      followUps.push(`What does ${orgName} do? Give me a one-sentence description plus your main programs or activities.`);
+    }
+
+    // ── Assemble the full message list ────────────────────────────────────────
     const syntheticMessages: Message[] = [];
+
+    // First AI message = post-crawl summary (spec requirement)
+    syntheticMessages.push({ id: "import-summary", role: "assistant", content: summaryText });
+    syntheticMessages.push({ id: "import-confirm", role: "user", content: "Yes, looks right!" });
+
+    // Inject all real Q&A pairs so the generator has full context
     qa.forEach(({ q, a }, i) => {
       syntheticMessages.push({ id: `import-ai-${i}`, role: "assistant", content: q });
       syntheticMessages.push({ id: `import-user-${i}`, role: "user", content: a });
     });
-    syntheticMessages.push({ id: "import-ai-final", role: "assistant", content: "I have everything I need! Click **Generate My Site** to build your website." });
+
+    // Spec: ask follow-ups ONLY for data the crawl didn't find
+    if (followUps.length > 0) {
+      const followUpMsg = followUps.join("\n\n") + "\n\nOnce you've answered these, click **Generate My Site**.";
+      syntheticMessages.push({ id: "import-followup", role: "assistant", content: followUpMsg });
+    } else {
+      syntheticMessages.push({ id: "import-ai-final", role: "assistant", content: "I have everything I need! Click **Generate My Site** to build your website." });
+    }
+
     setMessages(syntheticMessages);
     setImportData(null);
     setEditableImportData(null);
@@ -1745,7 +1821,7 @@ export default function SiteBuilder() {
                         { key: "audience", label: "Audience", multiline: false },
                         { key: "style", label: "Visual style & colors", multiline: false },
                         { key: "extra", label: "Other highlights", multiline: true },
-                      ] as { key: keyof ImportedSiteData; label: string; multiline: boolean }[]).map(field => (
+                      ] as { key: "name"|"mission"|"services"|"location"|"schedule"|"events"|"contact"|"social"|"leadership"|"audience"|"style"|"extra"; label: string; multiline: boolean }[]).map(field => (
                         <div key={field.key} className="space-y-1">
                           <label className="text-[11px] font-medium text-slate-400 uppercase tracking-wide">{field.label}</label>
                           {field.multiline ? (
