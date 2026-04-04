@@ -10,7 +10,7 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import { WebhookHandlers } from "./webhookHandlers";
 import { db, sitesTable, domainsTable, organizationsTable, eventsTable, ticketTypesTable, eventSponsorsTable, sponsorsTable } from "@workspace/db";
-import { eq, or, and, asc } from "drizzle-orm";
+import { eq, or, and, asc, sql as drizzleSql } from "drizzle-orm";
 import { buildEventPage, buildEventSuccessPage, buildEventNotFoundPage } from "./eventPage";
 import {
   buildEventsListingPage,
@@ -181,15 +181,35 @@ function sendSiteHtml(res: express.Response, html: string): void {
 
 const SITE_NOT_FOUND_HTML = `<!DOCTYPE html><html><head><title>Site Not Found</title><style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#0f172a;color:#94a3b8;text-align:center}.box{max-width:400px;padding:2rem}.title{color:#fff;font-size:1.5rem;margin-bottom:.5rem}</style></head><body><div class="box"><div class="title">Site not found</div><p>This organization hasn't published their site yet.</p><a href="/" style="color:#f59e0b;text-decoration:none">← Pillar Home</a></div></body></html>`;
 
+// Temporary: diagnostic endpoint to verify production DB access
+app.get("/sites/__diag", async (_req, res) => {
+  try {
+    const result = await db.execute(drizzleSql`SELECT id, org_slug, status, length(generated_html) as html_len FROM sites WHERE org_slug = 'norwin-rotary-club' LIMIT 1`);
+    const allSites = await db.execute(drizzleSql`SELECT id, org_slug, status FROM sites LIMIT 10`);
+    res.json({ found: result.rows, allSites: allSites.rows });
+  } catch (e: unknown) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // Public site renderer — serves generated HTML at /sites/:slug (by slug path)
 app.get("/sites/:slug", async (req, res) => {
-  const { slug } = req.params as { slug: string };
-  const [site] = await db.select().from(sitesTable).where(eq(sitesTable.orgSlug, slug));
-  if (!site || site.status !== "published" || !site.generatedHtml) {
+  try {
+    const { slug } = req.params as { slug: string };
+    logger.info({ slug }, "[/sites/:slug] received");
+    const [site] = await db.select().from(sitesTable).where(eq(sitesTable.orgSlug, slug));
+    logger.info({ slug, found: !!site, status: site?.status, hasHtml: !!site?.generatedHtml, htmlLen: site?.generatedHtml?.length ?? 0 }, "[/sites/:slug] db result");
+    if (!site || site.status !== "published" || !site.generatedHtml) {
+      const reason = !site ? "not_found" : site.status !== "published" ? `status_is_${site.status}` : "no_html";
+      logger.info({ slug, reason }, "[/sites/:slug] 404");
+      res.status(404).send(SITE_NOT_FOUND_HTML);
+      return;
+    }
+    sendSiteHtml(res, site.generatedHtml);
+  } catch (err) {
+    logger.error({ err }, "[/sites/:slug] error");
     res.status(404).send(SITE_NOT_FOUND_HTML);
-    return;
   }
-  sendSiteHtml(res, site.generatedHtml);
 });
 
 // Reserved subdomains that must never map to an org site
