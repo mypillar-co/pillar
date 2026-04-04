@@ -659,16 +659,21 @@ function buildSponsorsSection(sponsors: PublicSponsor[], primary: string, accent
 
 function buildRegistrationSection(event: PublicEvent, primary: string, accent: string): string {
   const isClosed = !!event.registrationClosed;
+  const vendorUrl = `/events/${event.slug}/vendor-apply`;
+  const sponsorUrl = `/events/${event.slug}/sponsor-signup`;
   return `
-  <section style="padding:56px 24px;">
+  <section style="padding:56px 24px;background:var(--surface);">
     <div class="container" style="max-width:640px;">
-      <h2 style="font-family:'DM Serif Display',serif;font-size:1.85rem;font-weight:400;margin-bottom:12px;">Vendor Registration</h2>
+      <h2 style="font-family:'DM Serif Display',serif;font-size:1.85rem;font-weight:400;margin-bottom:12px;">Get Involved</h2>
       ${isClosed
         ? `<div style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:18px 22px;color:#854d0e;font-size:15px;margin-top:8px;">
             <strong>Registration is currently closed.</strong> Check back closer to the event date for updates.
            </div>`
-        : `<p style="color:var(--muted);font-size:15px;margin-bottom:24px;">Interested in having a vendor booth at ${esc(event.name)}? Fill out the form below and we'll be in touch.</p>
-           <a href="/#contact" style="display:inline-block;background:${primary};color:#fff;padding:12px 28px;border-radius:8px;font-size:15px;font-weight:600;transition:opacity .15s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">Contact Us to Register</a>`
+        : `<p style="color:var(--muted);font-size:15px;margin-bottom:28px;">Want to participate in ${esc(event.name)}? Apply for a vendor booth or sponsorship opportunity.</p>
+           <div style="display:flex;gap:14px;flex-wrap:wrap;">
+             <a href="${esc(vendorUrl)}" style="display:inline-block;background:${primary};color:#fff;padding:12px 28px;border-radius:8px;font-size:15px;font-weight:600;transition:opacity .15s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">Apply as Vendor</a>
+             <a href="${esc(sponsorUrl)}" style="display:inline-block;background:#fff;color:${primary};border:2px solid ${primary};padding:10px 28px;border-radius:8px;font-size:15px;font-weight:600;transition:all .15s;" onmouseover="this.style.background='${primary}';this.style.color='#fff'" onmouseout="this.style.background='#fff';this.style.color='${primary}'">Become a Sponsor</a>
+           </div>`
       }
     </div>
   </section>`;

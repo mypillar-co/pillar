@@ -39,6 +39,8 @@ async function runMigrations() {
     await db.execute(sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS has_sponsor_section boolean DEFAULT false`);
 
     // Vendor registration extended fields
+    await db.execute(sql`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS last_servsafe_reminder timestamptz`);
+    await db.execute(sql`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS last_insurance_reminder timestamptz`);
     await db.execute(sql`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS contact_name text`);
     await db.execute(sql`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS address text`);
     await db.execute(sql`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS city text`);

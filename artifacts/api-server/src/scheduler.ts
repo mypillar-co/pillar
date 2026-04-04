@@ -11,6 +11,7 @@ import {
   organizationsTable,
   ticketSalesTable,
   ticketTypesTable,
+  registrationsTable,
 } from "@workspace/db";
 import {
   runCustomerSuccessAgent,
@@ -851,6 +852,114 @@ async function reconcilePendingTicketSales(): Promise<void> {
   }
 }
 
+// ─── Document Reminders ───────────────────────────────────────────────────────
+
+const REMINDER_INTERVAL_MS = 24 * 60 * 60 * 1000; // every 24h
+const REMINDER_CADENCE_DAYS = 7; // re-remind every 7 days
+
+async function sendDocumentReminders(): Promise<void> {
+  try {
+    const cutoff = new Date(Date.now() - REMINDER_CADENCE_DAYS * 24 * 60 * 60 * 1000);
+
+    // Find approved vendor registrations with upcoming events that still need docs
+    const pending = await db
+      .select({
+        id: registrationsTable.id,
+        email: registrationsTable.email,
+        name: registrationsTable.name,
+        orgId: registrationsTable.orgId,
+        eventId: registrationsTable.eventId,
+        servSafeUrl: registrationsTable.servSafeUrl,
+        insuranceCertUrl: registrationsTable.insuranceCertUrl,
+      })
+      .from(registrationsTable)
+      .where(
+        and(
+          eq(registrationsTable.type, "vendor"),
+          eq(registrationsTable.status, "approved"),
+        )
+      );
+
+    for (const reg of pending) {
+      const needsServSafe = !reg.servSafeUrl;
+      const needsInsurance = !reg.insuranceCertUrl;
+      if (!needsServSafe && !needsInsurance) continue;
+      if (!reg.email) continue;
+
+      // Get event to check it's in the future
+      if (!reg.eventId) continue;
+      const [event] = await db
+        .select({ name: eventsTable.name, slug: eventsTable.slug, startDate: eventsTable.startDate, orgId: eventsTable.orgId })
+        .from(eventsTable)
+        .where(eq(eventsTable.id, reg.eventId));
+      if (!event?.startDate) continue;
+
+      const eventDate = new Date(event.startDate);
+      const daysUntil = Math.floor((eventDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+      if (daysUntil < 0 || daysUntil > 60) continue; // only remind for events in next 60 days
+
+      // Check if we've reminded recently - use raw SQL since these are migrated columns
+      const rawRow = await db.execute(
+        sql`SELECT last_servsafe_reminder, last_insurance_reminder FROM registrations WHERE id = ${reg.id}`
+      );
+      const raw = rawRow.rows?.[0] as Record<string, Date | null> | undefined;
+
+      const [org] = await db
+        .select({ name: organizationsTable.name, senderEmail: organizationsTable.senderEmail })
+        .from(organizationsTable)
+        .where(eq(organizationsTable.id, reg.orgId));
+      if (!org) continue;
+
+      const fromEmail = org.senderEmail ?? "noreply@mypillar.co";
+      const uploadUrl = `https://norwin-rotary-club.mypillar.co/events/${event.slug}/vendor-apply`;
+
+      if (needsServSafe) {
+        const lastReminder = raw?.last_servsafe_reminder;
+        if (!lastReminder || new Date(lastReminder) < cutoff) {
+          const sendgridKey = process.env.SENDGRID_API_KEY;
+          if (sendgridKey) {
+            await fetch("https://api.sendgrid.com/v3/mail/send", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${sendgridKey}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                personalizations: [{ to: [{ email: reg.email, name: reg.name }] }],
+                from: { email: fromEmail, name: org.name },
+                subject: `Action Required: ServSafe Certificate for ${event.name}`,
+                content: [{ type: "text/plain", value: `Hi ${reg.name},\n\nThis is a reminder that we still need your ServSafe certificate for the ${event.name} (${daysUntil} days away).\n\nPlease upload it here: ${uploadUrl}\n\nThanks,\n${org.name}` }],
+              }),
+            }).catch(() => {});
+          }
+          await db.execute(sql`UPDATE registrations SET last_servsafe_reminder = NOW() WHERE id = ${reg.id}`);
+          logger.info({ regId: reg.id, email: reg.email }, "[doc-reminders] SerSafe reminder sent");
+        }
+      }
+
+      if (needsInsurance) {
+        const lastReminder = raw?.last_insurance_reminder;
+        if (!lastReminder || new Date(lastReminder) < cutoff) {
+          const sendgridKey = process.env.SENDGRID_API_KEY;
+          if (sendgridKey) {
+            await fetch("https://api.sendgrid.com/v3/mail/send", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${sendgridKey}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                personalizations: [{ to: [{ email: reg.email, name: reg.name }] }],
+                from: { email: fromEmail, name: org.name },
+                subject: `Action Required: Insurance Certificate for ${event.name}`,
+                content: [{ type: "text/plain", value: `Hi ${reg.name},\n\nThis is a reminder that we still need your certificate of insurance for the ${event.name} (${daysUntil} days away).\n\nPlease upload it here: ${uploadUrl}\n\nThanks,\n${org.name}` }],
+              }),
+            }).catch(() => {});
+          }
+          await db.execute(sql`UPDATE registrations SET last_insurance_reminder = NOW() WHERE id = ${reg.id}`);
+          logger.info({ regId: reg.id, email: reg.email }, "[doc-reminders] Insurance reminder sent");
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, "[doc-reminders] Error sending document reminders");
+  }
+}
+
 function locked(jobName: string, ttlMs: number, fn: () => Promise<void>): () => void {
   return () => {
     withSchedulerLock(jobName, ttlMs, fn).catch((err: unknown) => {
@@ -902,4 +1011,8 @@ export function startScheduler(): void {
   setInterval(locked("agent-operations", AGENT_OPS_INTERVAL_MS, runOperationsAgent), AGENT_OPS_INTERVAL_MS);
   setInterval(locked("agent-content", AGENT_CONTENT_INTERVAL_MS, runContentAgent), AGENT_CONTENT_INTERVAL_MS);
   setInterval(locked("agent-outreach", AGENT_OUTREACH_INTERVAL_MS, runOutreachAgent), AGENT_OUTREACH_INTERVAL_MS);
+
+  // Document reminders — run daily for vendors missing SerSafe/insurance docs
+  locked("doc-reminders", REMINDER_INTERVAL_MS, sendDocumentReminders)();
+  setInterval(locked("doc-reminders", REMINDER_INTERVAL_MS, sendDocumentReminders), REMINDER_INTERVAL_MS);
 }

@@ -25,6 +25,8 @@ import orgMembersRouter from "./orgMembers";
 import siteEngineRouter from "./siteEngine";
 import publicContactRouter from "./publicContact";
 import managementRouter from "./management";
+import publicEventFormsRouter, { publicQueryRouter } from "./publicEventForms";
+import eventAdminRouter from "./eventAdmin";
 
 const router: IRouter = Router();
 
@@ -54,5 +56,8 @@ router.use("/org-members", orgMembersRouter);
 router.use("/site-engine", siteEngineRouter);
 router.use("/public/contact", publicContactRouter);
 router.use("/management", managementRouter);
+router.use("/public", publicEventFormsRouter);
+router.use(publicQueryRouter);
+router.use("/management", eventAdminRouter);
 
 export default router;

@@ -21,6 +21,11 @@ import {
   type PublicSponsor,
   type OrgInfo,
 } from "./publicEventPages";
+import {
+  buildVendorApplyPage,
+  buildSponsorSignupPage,
+  buildRegisterPage,
+} from "./publicFormPages";
 
 const app: Express = express();
 
@@ -456,6 +461,58 @@ app.use(async (req, res, next) => {
         siteHtml,
         cancelled: req.query.cancelled === "true",
       });
+
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store, no-cache");
+      res.send(html);
+      return;
+    }
+
+    // ── Event form pages: /events/:eventSlug/vendor-apply|sponsor-signup|register ─
+    const eventFormMatch = subPath.match(/^\/events\/([^/]+)\/(vendor-apply|sponsor-signup|register)$/);
+    if (eventFormMatch && !isPreview) {
+      const eventSlug = eventFormMatch[1];
+      const formType = eventFormMatch[2] as "vendor-apply" | "sponsor-signup" | "register";
+
+      const [orgRow] = await db
+        .select({ id: organizationsTable.id, name: organizationsTable.name, slug: organizationsTable.slug, stripeConnectAccountId: organizationsTable.stripeConnectAccountId, stripeConnectOnboarded: organizationsTable.stripeConnectOnboarded, senderEmail: organizationsTable.senderEmail })
+        .from(organizationsTable)
+        .where(eq(organizationsTable.slug, orgSlug));
+      const [siteRow] = await db.select({ generatedHtml: sitesTable.generatedHtml }).from(sitesTable).where(eq(sitesTable.orgSlug, orgSlug));
+      const siteHtml = siteRow?.generatedHtml ?? null;
+
+      if (!orgRow) { res.status(404).send(SITE_NOT_FOUND_HTML); return; }
+
+      const org: OrgInfo = { name: orgRow.name, slug: orgRow.slug ?? orgSlug, stripeConnectAccountId: orgRow.stripeConnectAccountId ?? null, stripeConnectOnboarded: orgRow.stripeConnectOnboarded ?? null, contactEmail: orgRow.senderEmail ?? null };
+
+      const [eventRow] = await db
+        .select()
+        .from(eventsTable)
+        .where(and(eq(eventsTable.slug, eventSlug), eq(eventsTable.orgId, orgRow.id), eq(eventsTable.isActive, true)));
+
+      if (!eventRow) {
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.status(404).send(buildPublicEventNotFoundPage(org, siteHtml));
+        return;
+      }
+
+      const event: PublicEvent = {
+        id: eventRow.id, name: eventRow.name, slug: eventRow.slug, description: eventRow.description ?? null,
+        eventType: eventRow.eventType ?? null, startDate: eventRow.startDate ?? null, endDate: eventRow.endDate ?? null,
+        startTime: eventRow.startTime ?? null, endTime: eventRow.endTime ?? null, location: eventRow.location ?? null,
+        isTicketed: eventRow.isTicketed ?? null, ticketPrice: eventRow.ticketPrice ?? null, ticketCapacity: eventRow.ticketCapacity ?? null,
+        hasRegistration: eventRow.hasRegistration ?? null, hasSponsorSection: (eventRow as Record<string, unknown>).hasSponsorSection as boolean ?? null,
+        registrationClosed: eventRow.registrationClosed ?? null, imageUrl: eventRow.imageUrl ?? null, featured: eventRow.featured ?? null,
+      };
+
+      let html: string;
+      if (formType === "vendor-apply") {
+        html = buildVendorApplyPage({ event, org, siteHtml });
+      } else if (formType === "sponsor-signup") {
+        html = buildSponsorSignupPage({ event, org, siteHtml });
+      } else {
+        html = buildRegisterPage({ event, org, siteHtml });
+      }
 
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.setHeader("Cache-Control", "no-store, no-cache");
