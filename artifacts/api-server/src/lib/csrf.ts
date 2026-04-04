@@ -12,6 +12,7 @@ const EXEMPT_PREFIXES = [
   "/api/public/",
   "/api/auth/",
   "/api/stripe/webhook",
+  "/api/hooks/",
 ];
 
 function isExempt(path: string): boolean {

@@ -143,6 +143,38 @@ async function runMigrations() {
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS ap_album_idx ON album_photos (album_id)`);
 
+    // Hook event log — records every incoming framework site-event webhook
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS hook_event_log (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        org_id varchar,
+        event_type varchar(100) NOT NULL,
+        hook_payload jsonb NOT NULL,
+        priority varchar(20) NOT NULL,
+        category varchar(40) NOT NULL,
+        action_taken varchar(40) NOT NULL DEFAULT 'queued',
+        created_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS hel_org_idx ON hook_event_log (org_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS hel_type_idx ON hook_event_log (event_type)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS hel_created_idx ON hook_event_log (created_at)`);
+
+    // Hook cadence log — enforces per-org/cadenceKey/day rate limits
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS hook_cadence_log (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        org_id varchar NOT NULL,
+        cadence_key varchar(100) NOT NULL,
+        date text NOT NULL,
+        count varchar(10) NOT NULL DEFAULT '1',
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        UNIQUE (org_id, cadence_key, date)
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS hcl_org_key_date_idx ON hook_cadence_log (org_id, cadence_key, date)`);
+
     logger.info("Startup migrations complete");
   } catch (err) {
     logger.warn({ err }, "Startup migration warning — continuing");

@@ -46,3 +46,4 @@ export * from "./newsletterSubscribers";
 export * from "./orgBusinesses";
 export * from "./orgSiteContent";
 export * from "./photoAlbums";
+export * from "./hookEventLog";

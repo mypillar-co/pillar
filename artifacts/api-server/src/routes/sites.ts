@@ -2296,14 +2296,28 @@ Rules:
 
     const [existing] = await db.select().from(sitesTable).where(eq(sitesTable.orgId, org.id));
     let site;
+
+    // Derive the Pillar webhook URL from the current request so it works in
+    // every environment (dev, staging, prod) without hard-coding a domain.
+    const reqProto = (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0].trim() ?? req.protocol;
+    const reqHost  = (req.headers["x-forwarded-host"] as string | undefined)?.split(",")[0].trim() ?? req.headers.host ?? "";
+    const pillarWebhookUrl = `${reqProto}://${reqHost}/api/hooks/site-event`;
+
+    // websiteSpec stored in the site row carries the hook endpoint so
+    // the framework knows where to POST content-hook events back to Pillar.
+    const websiteSpecPayload: Record<string, unknown> = {
+      ...(existing?.websiteSpec ?? {}),
+      pillarWebhookUrl,
+    };
+
     if (existing) {
       [site] = await db.update(sitesTable)
-        .set({ generatedHtml: cleanedHtml, proposedHtml: null, orgSlug: slug, metaTitle, metaDescription, updatedAt: new Date() })
+        .set({ generatedHtml: cleanedHtml, proposedHtml: null, orgSlug: slug, metaTitle, metaDescription, websiteSpec: websiteSpecPayload, updatedAt: new Date() })
         .where(eq(sitesTable.orgId, org.id))
         .returning();
     } else {
       [site] = await db.insert(sitesTable)
-        .values({ orgId: org.id, orgSlug: slug, generatedHtml: cleanedHtml, metaTitle, metaDescription, status: "draft" })
+        .values({ orgId: org.id, orgSlug: slug, generatedHtml: cleanedHtml, metaTitle, metaDescription, status: "draft", websiteSpec: websiteSpecPayload })
         .returning();
     }
 
