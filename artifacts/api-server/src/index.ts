@@ -161,11 +161,27 @@ async function ensureNorwinSite() {
       return;
     }
 
-    const [org] = await db.select({ id: organizationsTable.id })
+    let [org] = await db.select({ id: organizationsTable.id })
       .from(organizationsTable).where(eq(organizationsTable.slug, "norwin-rotary-club"));
     if (!org) {
-      logger.warn("Norwin org not found — skipping site seed (org must be created via admin first)");
-      return;
+      // Production DB doesn't have the org yet — seed it with the canonical dev values
+      await db.insert(organizationsTable).values({
+        id: "0780408d-967a-4071-991f-ce29a8ed2577",
+        userId: "53650667",
+        name: "Norwin Rotary Club",
+        type: "civic_org",
+        tier: "tier3",
+        slug: "norwin-rotary-club",
+        senderEmail: "info@norwinrotary.org",
+        isNonprofit: true,
+      }).onConflictDoNothing();
+      [org] = await db.select({ id: organizationsTable.id })
+        .from(organizationsTable).where(eq(organizationsTable.slug, "norwin-rotary-club"));
+      if (!org) {
+        logger.warn("Norwin org seed failed — skipping site seed");
+        return;
+      }
+      logger.info("Norwin org created via startup seed");
     }
 
     const slug = "norwin-rotary-club";
