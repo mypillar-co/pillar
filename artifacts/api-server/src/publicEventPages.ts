@@ -417,10 +417,10 @@ export function buildEventDetailPage(opts: {
         ${timeStr ? `<span style="display:flex;align-items:center;gap:8px;">${SVG_CLOCK} ${esc(timeStr)}</span>` : ""}
         ${event.location ? `<span style="display:flex;align-items:center;gap:8px;">${SVG_MAPPIN} ${esc(event.location)}</span>` : ""}
       </div>
-      ${showTicketSection ? `
+      ${(event.isTicketed && ticketTypes.length > 0) ? `
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-        ${ticketTypes.length > 0 ? `<span style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.2);padding:6px 16px;border-radius:999px;font-size:14px;font-weight:600;">${SVG_TICKET} ${allSoldOut ? "Sold Out" : `From ${formatPrice(Math.min(...ticketTypes.map(t => t.price)))}`}</span>` : ""}
-        ${allSoldOut ? `<span style="background:#fee2e2;color:#991b1b;padding:6px 16px;border-radius:999px;font-size:13px;font-weight:700;">SOLD OUT</span>` : `<a href="#tickets" style="background:${accent};color:${primary};padding:10px 24px;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none;transition:opacity .15s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">Buy Tickets</a>`}
+        <span style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.2);padding:6px 16px;border-radius:999px;font-size:14px;font-weight:600;">${SVG_TICKET} ${allSoldOut ? "Sold Out" : `From ${formatPrice(Math.min(...ticketTypes.map(t => t.price)))}`}</span>
+        ${showTicketSection ? (allSoldOut ? `<span style="background:#fee2e2;color:#991b1b;padding:6px 16px;border-radius:999px;font-size:13px;font-weight:700;">SOLD OUT</span>` : `<a href="#tickets" style="background:${accent};color:${primary};padding:10px 24px;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none;transition:opacity .15s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">Buy Tickets</a>`) : ""}
       </div>` : ""}
     </div>
   </section>`;

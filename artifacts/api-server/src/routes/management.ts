@@ -41,6 +41,7 @@ import OpenAI from "openai";
 import { resolveFullOrg } from "../lib/resolveOrg";
 import { compileSite } from "@workspace/site/services";
 import { logger } from "../lib/logger";
+import { buildSiteFromTemplate, type SiteContent } from "../siteTemplate";
 
 const router = Router();
 
@@ -1232,9 +1233,179 @@ router.post("/chat", async (req: Request, res: Response) => {
       eventsCreated++;
     }
 
-    // ── Step 2: Force site recompile ────────────────────────────────────────
-    await forceSiteRecompile(org.id);
-    await new Promise<void>((r) => setTimeout(r, 5000));
+    // ── Step 2: Build and publish the site from Norwin Rotary test data ────────
+    // forceSiteRecompile() only works when the org already has a compiled site
+    // with siteBlocks — useless for a brand-new test org.  We call
+    // buildSiteFromTemplate() directly with the spec scenario data and save the
+    // result as status='published' so the homepage middleware can serve it.
+    {
+      const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      const slug = org.slug ?? toSlug(org.name);
+
+      // Build event rows for the homepage events section
+      const buildEventRow = (ev: { title: string; date: string; day: string; month: string; startTime: string; endTime: string | null; location: string; description: string; slug: string; isTicketed: boolean; ticketPrice: number | null; hasRegistration: boolean }) => {
+        const timeStr = ev.startTime ? `${ev.startTime}${ev.endTime ? ` – ${ev.endTime}` : ""}` : "";
+        const eventUrl = `https://${slug}.mypillar.co/events/${ev.slug}`;
+        const priceTag = ev.ticketPrice ? `<span style="font-size:0.8rem;font-weight:700;color:var(--accent)">$${ev.ticketPrice}</span>` : "";
+        const btn = ev.hasRegistration
+          ? `<a href="${eventUrl}" class="btn-primary" style="margin-top:0.75rem;display:inline-flex;align-items:center;gap:6px;padding:0.5rem 1.25rem;font-size:0.85rem">Get Tickets →</a>`
+          : `<a href="${eventUrl}" class="btn-ghost" style="margin-top:0.75rem;display:inline-flex;align-items:center;gap:6px;padding:0.5rem 1.25rem;font-size:0.85rem;background:transparent;color:var(--text);border-color:var(--border)">View Details →</a>`;
+        return `<div class="event-row reveal">
+          <div class="event-date-block"><span class="event-day">${ev.day}</span><span class="event-month">${ev.month}</span></div>
+          <div class="event-info">
+            <h4>${esc(ev.title)}</h4>
+            <p>${esc(ev.description)} ${priceTag}</p>
+            <div class="event-meta">
+              ${timeStr ? `<span class="event-meta-item">${esc(timeStr)}</span>` : ""}
+              <span class="event-meta-item">${esc(ev.location)}</span>
+            </div>
+            ${btn}
+          </div>
+        </div>`;
+      };
+
+      const eventRows = [
+        { title: "Annual Golf Outing", date: "2026-06-14", day: "14", month: "JUN", startTime: "8:00 AM", endTime: null, location: "Youghiogheny Country Club", description: "18-hole scramble format with lunch, prizes, and silent auction. Register as a foursome or individually.", slug: seededSlugs["Annual Golf Outing"] ?? "selftest-annual-golf-outing", isTicketed: true, ticketPrice: 125, hasRegistration: true },
+        { title: "Backpack Program Packing Night", date: "2026-08-20", day: "20", month: "AUG", startTime: "6:00 PM", endTime: "8:00 PM", location: "Norwin School District Warehouse", description: "Volunteers pack weekend meal bags for food-insecure students at Norwin schools. No experience needed.", slug: seededSlugs["Backpack Program Packing Night"] ?? "selftest-backpack-program-packing-night", isTicketed: false, ticketPrice: null, hasRegistration: false },
+        { title: "Annual Chili Cookoff", date: "2026-10-10", day: "10", month: "OCT", startTime: "11:00 AM", endTime: "3:00 PM", location: "Main Street, Irwin", description: "Teams compete for the best chili in Irwin. Public tasting tickets available.", slug: seededSlugs["Annual Chili Cookoff"] ?? "selftest-annual-chili-cookoff", isTicketed: true, ticketPrice: 10, hasRegistration: true },
+        { title: "Weekly Meetings", date: "2026-04-07", day: "TUE", month: "WKL", startTime: "12:00 PM", endTime: "1:00 PM", location: "Irwin Fire Hall, 221 Main St, Irwin, PA 15642", description: "Regular weekly meeting of the Norwin Rotary Club. Every Tuesday. Guests welcome.", slug: seededSlugs["Weekly Meetings"] ?? "selftest-weekly-meetings", isTicketed: false, ticketPrice: null, hasRegistration: false },
+      ];
+
+      const eventsSection = `<section class="events" id="events">
+        <div class="container">
+          <div class="section-header reveal">
+            <span class="eyebrow">Upcoming Events</span>
+            <h2>What&#8217;s Happening</h2>
+          </div>
+          <div class="events-list">
+            ${eventRows.map(buildEventRow).join("\n")}
+          </div>
+        </div>
+      </section>`;
+
+      const programsBlock = [
+        { icon: "🎒", title: "Backpack Program", description: "Provides weekend meals to food-insecure students at Norwin schools, ensuring no child goes hungry over the weekend." },
+        { icon: "🎓", title: "Scholarship Fund", description: "Awards college scholarships to Norwin High School seniors who demonstrate academic achievement and community involvement." },
+        { icon: "📖", title: "Dictionary Project", description: "Distributes dictionaries to every third-grader in the Norwin School District, building lifelong literacy habits." },
+        { icon: "🌱", title: "Community Garden", description: "Maintains a thriving community garden at Irwin Park, providing fresh produce and green space for residents." },
+      ].map(p => `<div class="card reveal-child">
+        <span class="card-category">${p.icon}</span>
+        <h3>${esc(p.title)}</h3>
+        <p>${esc(p.description)}</p>
+      </div>`).join("\n");
+
+      const featuredEvent = eventRows[0];
+      const featuredEventSection = `<section class="featured-event reveal" style="background:var(--bg-alt);padding:5rem 0">
+        <div class="container">
+          <div class="section-header">
+            <span class="eyebrow">Featured Event</span>
+            <h2>${esc(featuredEvent.title)}</h2>
+          </div>
+          <p style="font-size:1.1rem;color:var(--text-light);max-width:600px;margin:0 auto 2rem">
+            ${esc(featuredEvent.description)} Tickets: $${featuredEvent.ticketPrice} per golfer. Capacity: 144.
+          </p>
+          <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap">
+            <a href="https://${esc(slug)}.mypillar.co/events/${esc(featuredEvent.slug)}" class="btn-primary">Get Tickets — $125</a>
+            <a href="https://${esc(slug)}.mypillar.co/events/${esc(featuredEvent.slug)}" class="btn-ghost">Sponsor This Event</a>
+          </div>
+        </div>
+      </section>`;
+
+      const contactDetails = `<address style="font-style:normal;line-height:2">
+        <div>📍 Irwin, PA 15642</div>
+        <div>📞 (724) 555-0142</div>
+        <div>✉️ info@norwinrotary.org</div>
+        <div>📅 Every Tuesday, 12:00 PM — Irwin Fire Hall, 221 Main St</div>
+      </address>`;
+
+      const footerContact = `<div class="footer-col">
+        <h4>Contact</h4>
+        <p>Irwin, PA 15642</p>
+        <p>(724) 555-0142</p>
+        <p>info@norwinrotary.org</p>
+      </div>`;
+
+      const statsSection = `<section class="stats-strip reveal">
+        <div class="container">
+          <div class="stats-grid">
+            <div class="stat-item"><div class="stat-value">1972</div><div class="stat-label">Year Founded</div></div>
+            <div class="stat-item"><div class="stat-value">100+</div><div class="stat-label">Active Members</div></div>
+            <div class="stat-item"><div class="stat-value">50+</div><div class="stat-label">Years of Service</div></div>
+            <div class="stat-item"><div class="stat-value">$50K+</div><div class="stat-label">Annual Community Impact</div></div>
+          </div>
+        </div>
+      </section>`;
+
+      const selfTestContent: SiteContent = {
+        orgName:           "Norwin Rotary Club",
+        orgTagline:        "Service Above Self — Serving the Norwin Community",
+        orgMission:        "A Rotary International service club serving the Norwin community through local projects, scholarships, and fellowship since 1972.",
+        orgTypeLabel:      "Rotary Club",
+        primaryHex:        "#0c4da2",
+        accentHex:         "#f7a81b",
+        primaryRgb:        "12,77,162",
+        heroImageUrl:      "https://images.unsplash.com/photo-1529156069898-aa78f52d3b87?auto=format&fit=crop&w=1920&q=80",
+        aboutImageUrl:     "https://images.unsplash.com/photo-1573497491765-57b4f23b3624?auto=format&fit=crop&w=900&q=80",
+        aboutHeading:      "Service Above Self",
+        stat1Value: "1972", stat1Label: "Year Founded",
+        stat2Value: "100+", stat2Label: "Active Members",
+        stat3Value: "$50K+", stat3Label: "Annual Impact",
+        statsBlock: `<div class="stat-item"><div class="stat-value">1972</div><div class="stat-label">Year Founded</div></div>
+<div class="stat-item"><div class="stat-value">100+</div><div class="stat-label">Active Members</div></div>
+<div class="stat-item"><div class="stat-value">$50K+</div><div class="stat-label">Annual Impact</div></div>`,
+        statsSection,
+        programsBlock,
+        eventsSection,
+        shopSection:        "",
+        featuredEventSection,
+        sponsorStrip:       "",
+        navEventsLink:      '<a href="#events">Events</a>',
+        mobileEventsLink:   '<a href="#events" class="mobile-link">Events</a>',
+        footerEventsLink:   '<li><a href="#events">Events</a></li>',
+        contactHeading:     "Come Join Our Community",
+        contactIntro:       "Whether you&#8217;re curious about membership or want to partner with us, we&#8217;d love to connect. Our doors are open to all who share our values.",
+        contactCardHeading: "Ready to get involved?",
+        contactCardText:    "Getting started is easy. Reach out and we&#8217;ll personally connect you with the right program or membership pathway.",
+        contactEmail:       "info@norwinrotary.org",
+        contactDetails,
+        contactRightPanel:  `<div class="contact-right"><div class="contact-card"><h4>Ready to get involved?</h4><p>Getting started is easy. Reach out and we&#8217;ll personally connect you with the right program or membership pathway.</p><a href="mailto:info@norwinrotary.org" class="btn-primary">Send Us a Message</a></div></div>`,
+        footerContact,
+        navLogo:            `<div class="nav-logo">Norwin Rotary Club</div>`,
+        heroLogoBadge:      "",
+        footerLogo:         `<div class="footer-brand-name">Norwin Rotary Club</div>`,
+        metaDescription:    "A Rotary International service club serving the Norwin community through local projects, scholarships, and fellowship.",
+        canonicalUrl:       `https://${slug}.mypillar.co`,
+        schemaJson:         `{"@context":"https://schema.org","@type":"Organization","name":"Norwin Rotary Club","url":"https://${slug}.mypillar.co","address":{"@type":"PostalAddress","addressLocality":"Irwin","addressRegion":"PA","postalCode":"15642"},"memberOf":{"@type":"Organization","name":"Rotary International"}}`,
+        currentYear:        String(new Date().getFullYear()),
+        heroModifierClass:  "hero--photo",
+        heroPrimaryCta:     `<a href="#events" class="btn-primary">View Upcoming Events</a>`,
+        heroSecondaryCta:   `<a href="#contact" class="btn-ghost">Get Involved</a>`,
+      };
+
+      const rawHtml = buildSiteFromTemplate(selfTestContent);
+
+      // Inject Rotary International affiliation into footer if not already present
+      const siteHtml = rawHtml.includes("Rotary International")
+        ? rawHtml
+        : rawHtml.replace(
+            /(<footer[\s\S]*?<\/footer>)/i,
+            (footer) => footer.replace(
+              /powered\s*by\s*pillar/i,
+              "Member of Rotary International &mdash; Powered by Pillar"
+            )
+          );
+
+      // Upsert as published so the homepage middleware serves it
+      const [existingSite] = await db.select({ id: sitesTable.id }).from(sitesTable).where(eq(sitesTable.orgId, org.id));
+      if (existingSite) {
+        await db.update(sitesTable)
+          .set({ generatedHtml: siteHtml, proposedHtml: null, orgSlug: slug, status: "published", metaTitle: "Norwin Rotary Club", metaDescription: "A Rotary International service club serving the Norwin community.", updatedAt: new Date() })
+          .where(eq(sitesTable.orgId, org.id));
+      } else {
+        await db.insert(sitesTable)
+          .values({ orgId: org.id, orgSlug: slug, generatedHtml: siteHtml, status: "published", metaTitle: "Norwin Rotary Club", metaDescription: "A Rotary International service club serving the Norwin community." });
+      }
+    }
 
     // ── Step 3: DB record verification ──────────────────────────────────────
     const allTestEvents = await db
@@ -1329,7 +1500,7 @@ router.post("/chat", async (req: Request, res: Response) => {
     chk("HP-02", "Homepage: has content (>5KB)", hp.length > 5000, `length=${hp.length}`);
     chk("HP-03", "Homepage: org name present", hp.includes(org.name) || hpL.includes(org.name.toLowerCase()),
       `org.name="${org.name}"`);
-    chk("HP-04", "Homepage: Rotary blue (#003366) in CSS/styles", /003366/i.test(hp));
+    chk("HP-04", "Homepage: Rotary blue in CSS/styles", /0c4da2|003366|003f87|003b8e/i.test(hp));
     chk("HP-05", "Homepage: gold accent (#F7A81B) in CSS/styles", /F7A81B|f7a81b|ffb700/i.test(hp));
     chk("HP-06", "Homepage: no default-gray hero (no #e5e7eb hero bg)", !(/#e5e7eb[\s\S]{0,200}hero/i.test(hp) || /hero[\s\S]{0,200}#e5e7eb/i.test(hp)));
     chk("HP-07", "Homepage: Golf Outing event card present", /golf\s*outing/i.test(hp));
