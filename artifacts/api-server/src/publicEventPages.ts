@@ -91,7 +91,14 @@ function formatDateShort(dateStr: string | null): string {
 function formatTime(t: string | null): string {
   if (!t) return "";
   try {
-    const [h, m] = t.split(":").map(Number);
+    const trimmed = t.trim();
+    // Already in 12-hour format with AM/PM (e.g., "8:00 AM", "12:30 PM")
+    if (/^\d{1,2}:\d{2}\s*(AM|PM)$/i.test(trimmed)) {
+      return trimmed;
+    }
+    // 24-hour format "HH:MM"
+    const [h, m] = trimmed.split(":").map(Number);
+    if (isNaN(h) || isNaN(m)) return trimmed;
     const ampm = h >= 12 ? "PM" : "AM";
     return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`;
   } catch { return t; }

@@ -245,25 +245,42 @@ function resolveSiteFromHost(host: string): { orgSlug: string; isPreview: boolea
 }
 
 // Host-based site routing — serves sites at <slug>.mypillar.co or registered custom domains
-// This middleware runs before the fallback so API paths (/api/*) are not intercepted.
+// Also handles path-based routing /sites/:slug[/*] used by Replit's deployment proxy,
+// which converts <slug>.mypillar.co/<path> → /sites/<slug>/<path>.
 app.use(async (req, res, next) => {
-  // Only intercept non-API, non-static paths
-  if (req.path.startsWith("/api") || req.path.startsWith("/sites")) {
-    return next();
+  // Skip API paths
+  if (req.path.startsWith("/api")) return next();
+
+  let orgSlug: string | null = null;
+  let isPreview = false;
+  // subPath is the "virtual" path for this org (e.g. "/events", "/events/golf", "/")
+  let subPath: string = req.path;
+  // host is set when routing via Host header (pattern 2) so custom-domain routing can use it
+  let host = "";
+
+  // ── Pattern 1: Path-based routing /sites/:slug[/*] ────────────────────────
+  // Replit's deployment proxy converts norwin-rotary-club.mypillar.co/foo → /sites/norwin-rotary-club/foo
+  const pathBasedMatch = req.path.match(/^\/sites\/([a-z0-9][a-z0-9-]{0,62})(\/.*)?$/);
+  if (pathBasedMatch) {
+    // Let named diagnostic/static routes (/sites/__diag) pass through as normal
+    if (pathBasedMatch[1].startsWith("_")) return next();
+    orgSlug = pathBasedMatch[1];
+    subPath = pathBasedMatch[2] || "/";
+  } else {
+    // ── Pattern 2: Host-based routing (<slug>.mypillar.co or custom domain) ─
+    const rawHost = (req.headers["x-forwarded-host"] ?? req.headers.host ?? "") as string;
+    host = rawHost.split(":")[0].toLowerCase();
+    if (!host) return next();
+    const resolved = resolveSiteFromHost(host);
+    if (resolved) {
+      orgSlug = resolved.orgSlug;
+      isPreview = resolved.isPreview;
+    }
   }
 
-  const rawHost = (req.headers["x-forwarded-host"] ?? req.headers.host ?? "") as string;
-  const host = rawHost.split(":")[0].toLowerCase();
-
-  if (!host) return next();
-
-  const resolved = resolveSiteFromHost(host);
-
-  if (resolved) {
-    const { orgSlug, isPreview } = resolved;
-
+  if (orgSlug) {
     // ── Events listing page: <orgSlug>.mypillar.co/events ─────────────────────
-    if (req.path === "/events" && !isPreview) {
+    if (subPath === "/events" && !isPreview) {
       const [orgRow] = await db
         .select({ id: organizationsTable.id, name: organizationsTable.name, slug: organizationsTable.slug, stripeConnectAccountId: organizationsTable.stripeConnectAccountId, stripeConnectOnboarded: organizationsTable.stripeConnectOnboarded, senderEmail: organizationsTable.senderEmail, tier: organizationsTable.tier })
         .from(organizationsTable)
@@ -298,7 +315,7 @@ app.use(async (req, res, next) => {
     }
 
     // ── Event detail page: <orgSlug>.mypillar.co/events/:slug ─────────────────
-    const eventDetailMatch = req.path.match(/^\/events\/([^/]+)$/);
+    const eventDetailMatch = subPath.match(/^\/events\/([^/]+)$/);
     if (eventDetailMatch && !isPreview) {
       const eventSlug = eventDetailMatch[1];
       const [orgRow] = await db
@@ -363,7 +380,7 @@ app.use(async (req, res, next) => {
     }
 
     // ── Event pages: <orgSlug>.mypillar.co/events/:eventSlug/tickets[/success] ──
-    const eventTicketsMatch = req.path.match(/^\/events\/([^/]+)\/tickets(\/success)?$/);
+    const eventTicketsMatch = subPath.match(/^\/events\/([^/]+)\/tickets(\/success)?$/);
     if (eventTicketsMatch && !isPreview) {
       const eventSlug = eventTicketsMatch[1];
       const isSuccess = !!eventTicketsMatch[2];
