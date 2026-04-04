@@ -195,7 +195,15 @@ X-Pillar-Key: pillar_ro_a3a97fea1c8f5f3750e7f650df3de1b0cc6177ffb471398a
 ### Critical Rule
 **The AI fills in CONFIG VARIABLES ONLY. It does NOT redesign pages or invent layouts.** Every page structure, component, and route pattern is already defined in `frontend-patterns.tsx`. Pillar's job is to fill in the blanks from the interview answers.
 
-### Intake Questions (23 total — used in chat interview)
+### Blog / News Module (added in framework v2)
+- New intake question: `has_blog` — "Do you want a News & Updates / Blog section on the site?"
+- Ask **every org** — not restricted by org type.
+- **When yes**: `blogPosts` table, public routes (`GET /api/blog`, `GET /api/blog/:slug`), admin CRUD routes (`GET/POST/PATCH/DELETE /api/admin/blog`), three frontend components (`BlogListPage`, `BlogPostDetail`, `RecentPostsSection`), `/blog` and `/blog/:slug` pages, "News" nav link, "Blog / News" admin tab. Content Studio publishes press releases, event recaps, and spotlights through the blog admin API.
+- **When no**: skip all blog code entirely.
+- **Homepage section order when blog=true**: Hero → Stats → Upcoming Events → **Recent Posts** → Business Highlights → Newsletter → Partners.
+- `hasBlog` is captured in `SpecType` and `ContentData` during site generation. Always preserved from user's explicit answer — never inferred by AI.
+
+### Intake Questions (24 total — used in chat interview)
 Key fields mapped to `OrgConfig`:
 - `name`, `shortName`, `tagline`, `address`, `mailingAddress`, `phone`, `email`, `eventsEmail`
 - `social.facebook`, `social.instagram`
@@ -204,6 +212,7 @@ Key fields mapped to `OrgConfig`:
 - `stats.annualEvents`, `stats.annualAttendees`, `stats.localBusinesses`
 - `has_sponsors`, `has_vendors`, `has_ticketed_events`
 - `paymentProvider` (Square or Stripe)
+- `has_blog` ← **new** — Blog/News & Updates section
 - `has_newsletter`
 - `partners[]` (name + description)
 - `eventCategories[]`

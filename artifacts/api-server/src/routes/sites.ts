@@ -261,11 +261,14 @@ BLOCK 3 — Stats & Community:
 
 8. "Do you have community partners — other organizations, businesses, or government offices you collaborate with? Just name them and one line on what they do."
 
+9. "Would you like a News & Updates section on your site? This gives you a place to post event recaps, announcements, and press releases — all editable from your admin dashboard. (yes or no)"
+   → If yes: note hasBlog=true. If no: note hasBlog=false.
+
 BLOCK 4 — Contact & Social:
-9. "Where are you located? Include your address, regular meeting venue, and meeting schedule. Also share your email, phone, and any social media accounts (Facebook, Instagram, etc.)."
+10. "Where are you located? Include your address, regular meeting venue, and meeting schedule. Also share your email, phone, and any social media accounts (Facebook, Instagram, etc.)."
 
 BLOCK 5 — Design (last, mostly inferred):
-10. "Last one — do you have a logo or brand colors? If not, I'll match your org type's standard colors automatically. Any websites whose look you like? (Optional — I can infer everything from your org type if you skip this.)"
+11. "Last one — do you have a logo or brand colors? If not, I'll match your org type's standard colors automatically. Any websites whose look you like? (Optional — I can infer everything from your org type if you skip this.)"
 
 After each answer, acknowledge in ONE sentence that shows you heard it, then ask the next question.
 After collecting answers to all 5 blocks (adjusting for skips), say EXACTLY: "I have everything I need! Click **Generate My Site** to build your website."
@@ -1723,13 +1726,14 @@ router.post("/generate", async (req: Request, res: Response) => {
   type SpecType = {
     orgName: string; tagline: string; mission: string; services: string[];
     location: string; hours: string; events: string[]; contactEmail: string;
-    contactPhone: string; socialMedia: string[]; audience: string; colors: string; extras: string;
+    contactPhone: string; socialMedia: string[]; audience: string; colors: string;
+    extras: string; hasBlog: boolean;
   };
 
   let extractedSpec: SpecType = {
     orgName: name, tagline: `Welcome to ${name}`, mission: `${name} serves our community.`,
     services: [], location: "", hours: "", events: [], contactEmail: "", contactPhone: "",
-    socialMedia: [], audience: "", colors: "navy and gold", extras: "",
+    socialMedia: [], audience: "", colors: "navy and gold", extras: "", hasBlog: false,
   };
 
   try {
@@ -1751,7 +1755,8 @@ Required structure:
   "socialMedia": ["string"],
   "audience": "string",
   "colors": "string",
-  "extras": "string"
+  "extras": "string",
+  "hasBlog": true or false (true if they said yes to news/blog/updates section, false otherwise)
 }
 Use empty strings and empty arrays for anything not mentioned. Output ONLY the JSON object.`,
       },
@@ -1828,6 +1833,7 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
     stat1Value: string; stat1Label: string;
     stat2Value: string; stat2Label: string;
     stat3Value: string; stat3Label: string;
+    hasBlog: boolean;
     programs: Array<{ icon: string; title: string; description: string }>;
     contactHeading: string; contactIntro: string;
     contactCardHeading: string; contactCardText: string;
@@ -1852,6 +1858,7 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
     stat1Value: "1985", stat1Label: "Year Founded",
     stat2Value: "200+", stat2Label: "Active Members",
     stat3Value: "20+", stat3Label: "Annual Events",
+    hasBlog: s.hasBlog ?? false,
     programs: defaultPrograms,
     contactHeading: "Come Join Our Community",
     contactIntro: "Whether you're curious about membership or want to partner with us, we'd love to connect. Our doors are open to all who share our values.",
@@ -1893,6 +1900,15 @@ DETECT org type from name/description, then apply EXACT colors. These are NOT su
 - NEVER: neon colors, pure RGB primaries (#ff0000, #0000ff), more than one accent, low-contrast pairs, generic gray.
 - Color system uses HSL CSS variables — all site colors are derived from primaryHex. These hex values are correct — use them verbatim.
 
+HOMEPAGE SECTION ORDER (framework spec — assemble in this order, skip conditionally):
+1. Hero (always)
+2. Stats (always)
+3. Upcoming Events — 3 featured cards (always)
+4. Recent Posts — 3 latest blog cards (ONLY if hasBlog=true)
+5. Business Highlights — 4 business cards (skip if not a business directory org)
+6. Newsletter Signup (skip if newsletter=false)
+7. Partners (skip if no partners provided)
+
 Required JSON structure:
 {
   "primaryHex": "#hex — use the color selection rules above, informed by: org type = ${type}, color hints = "${colorHints}".",
@@ -1906,6 +1922,7 @@ Required JSON structure:
   "stat1Value": "founding year e.g. '1952'", "stat1Label": "Year Founded",
   "stat2Value": "member count with + e.g. '45+'", "stat2Label": "Active Members",
   "stat3Value": "annual events count e.g. '12+'", "stat3Label": "Annual Events",
+  "hasBlog": true or false — pass through exactly from the user's answer,
   "programs": [
     {"icon":"2-3 word category label e.g. 'Youth Leadership' or 'Community Service' or 'Annual Fundraiser'","title":"exact program name from their content","description":"2 vivid, specific sentences about this program's real impact"},
     {"icon":"2-3 word category label","title":"program name","description":"2 specific sentences"},
@@ -1927,7 +1944,7 @@ Rules:
       },
       {
         role: "user",
-        content: `Name: ${s.orgName}\nType: ${type}\nTagline: ${s.tagline}\nMission: ${s.mission}\nServices: ${s.services.join(", ") || "Community service programs"}\nLocation: ${s.location || ""}\nHours/Schedule: ${s.hours || ""}\nColors/Branding: ${colorHints}\nEmail: ${s.contactEmail || ""}\nPhone: ${s.contactPhone || ""}\nAudience: ${s.audience || ""}\nExtras/History: ${s.extras || ""}${originalSiteContext}`,
+        content: `Name: ${s.orgName}\nType: ${type}\nTagline: ${s.tagline}\nMission: ${s.mission}\nServices: ${s.services.join(", ") || "Community service programs"}\nLocation: ${s.location || ""}\nHours/Schedule: ${s.hours || ""}\nColors/Branding: ${colorHints}\nEmail: ${s.contactEmail || ""}\nPhone: ${s.contactPhone || ""}\nAudience: ${s.audience || ""}\nExtras/History: ${s.extras || ""}\nBlog/News section enabled: ${s.hasBlog ? "yes" : "no"}${originalSiteContext}`,
       },
     ], 2000, "gpt-4o-mini");
 
@@ -1935,6 +1952,8 @@ Rules:
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]) as Partial<ContentData>;
       contentData = { ...contentData, ...parsed };
+      // hasBlog always comes from the spec (user's explicit answer), not from AI inference
+      contentData.hasBlog = s.hasBlog ?? false;
       if (!Array.isArray(contentData.programs) || contentData.programs.length === 0) {
         contentData.programs = defaultPrograms;
       }
