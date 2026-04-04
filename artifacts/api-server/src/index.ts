@@ -175,6 +175,134 @@ async function runMigrations() {
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS hcl_org_key_date_idx ON hook_cadence_log (org_id, cadence_key, date)`);
 
+    // ── NRC: Norwin Rotary Club community website tables ──────────────────────
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS nrc_events (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        title text NOT NULL,
+        description text,
+        event_date timestamptz NOT NULL,
+        end_date timestamptz,
+        location text,
+        image_url text,
+        is_ticketed boolean NOT NULL DEFAULT false,
+        ticket_price numeric(10,2),
+        ticket_capacity integer,
+        tickets_sold integer NOT NULL DEFAULT 0,
+        is_published boolean NOT NULL DEFAULT false,
+        stripe_price_id varchar,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS nrc_events_date_idx ON nrc_events (event_date)`);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS nrc_blog_posts (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        title text NOT NULL,
+        slug varchar NOT NULL UNIQUE,
+        excerpt text,
+        body text,
+        cover_image_url text,
+        author text NOT NULL DEFAULT 'Norwin Rotary Club',
+        tags text,
+        is_published boolean NOT NULL DEFAULT false,
+        published_at timestamptz,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS nrc_blog_slug_idx ON nrc_blog_posts (slug)`);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS nrc_sponsors (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        name text NOT NULL,
+        logo_url text,
+        website_url text,
+        tier varchar(50) NOT NULL DEFAULT 'community',
+        description text,
+        tier_rank integer NOT NULL DEFAULT 99,
+        is_active boolean NOT NULL DEFAULT true,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS nrc_newsletter_subscribers (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        org_id varchar NOT NULL,
+        email varchar NOT NULL,
+        name text,
+        subscribed_at timestamptz NOT NULL DEFAULT now(),
+        unsubscribed_at timestamptz,
+        UNIQUE (org_id, email)
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS nrc_ns_org_idx ON nrc_newsletter_subscribers (org_id)`);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS nrc_contact_messages (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        name text NOT NULL,
+        email varchar NOT NULL,
+        subject text,
+        message text NOT NULL,
+        is_read boolean NOT NULL DEFAULT false,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS nrc_photo_albums (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        title text NOT NULL,
+        description text,
+        event_slug varchar,
+        cover_photo_id varchar,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS nrc_album_photos (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        album_id varchar NOT NULL,
+        url text NOT NULL,
+        caption text,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS nrc_ap_album_idx ON nrc_album_photos (album_id)`);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS nrc_site_content (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        key varchar NOT NULL UNIQUE,
+        value text NOT NULL,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS nrc_ticket_purchases (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        event_id varchar NOT NULL,
+        buyer_email varchar NOT NULL,
+        buyer_name text,
+        quantity integer NOT NULL DEFAULT 1,
+        amount_paid numeric(10,2),
+        stripe_session_id varchar,
+        status varchar(20) NOT NULL DEFAULT 'pending',
+        created_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS nrc_tp_event_idx ON nrc_ticket_purchases (event_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS nrc_tp_session_idx ON nrc_ticket_purchases (stripe_session_id)`);
+
     logger.info("Startup migrations complete");
   } catch (err) {
     logger.warn({ err }, "Startup migration warning — continuing");

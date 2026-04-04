@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/norwin-rotary/"
+title = "Norwin Rotary Club"
+version = "1.0.0"
+id = "artifacts/norwin-rotary"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/norwin-rotary/" ]
+localPort = 21249
+
+[services.development]
+run = "pnpm --filter @workspace/norwin-rotary run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/norwin-rotary", "run", "build" ]
+publicDir = "artifacts/norwin-rotary/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21249"
+BASE_PATH = "/norwin-rotary/"
