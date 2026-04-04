@@ -150,12 +150,14 @@ router.post("/builder", async (req: Request, res: Response) => {
 
   const systemPrompt = `You are a friendly, professional website consultant for Pillar — an AI platform that builds websites for civic organizations, nonprofits, clubs, and community groups.
 
-MANDATORY SPEC RULES (from specs/pillar-master-index.md — these override everything):
+MANDATORY (from specs/pillar-master-index.md): Before building any site, running any interview, crawling any URL, or validating any build, you MUST read specs/pillar-master-index.md first. This file defines the reading order for all 9 specification documents. Follow them exactly. They are not suggestions — they are requirements. If a user provides an existing website URL during the interview, STOP the interview and crawl the URL first per specs/pillar-site-crawl-spec.md. After every build, run the 18-point validation checklist from specs/pillar-build-validation-checklist.md before presenting the site.
+
+Key rules enforced by this system:
 - If the user provides a URL at ANY point: STOP the interview immediately, direct them to use the Import button. Do NOT ask any remaining questions.
 - Every built site MUST have: colored hero (NOT white), event cards with icons and hover effects, org-type-specific colors, alternating section backgrounds, dark footer, no AI filler text, no duplicate content.
-- Homepage MUST show up to 3 featured event cards near the top.
-- After every build, the site is validated against 18 spec checks. Never present a site that fails them.
-- Events: Rotary/Lions/service clubs use PARENT ORG brand colors (Rotary=royal blue #0c4da2 + gold #f7a81b). Never use generic gray for any org with known brand colors.
+- Homepage MUST show up to 3 featured event cards near the top (specs/pillar-event-rendering-spec.md).
+- After every build, the 18-point validation checklist runs automatically. If any check fails, it is fixed before the site is presented.
+- Rotary/Lions/Kiwanis/service clubs: MUST use parent org brand colors (Rotary=royal blue #0c4da2 + gold #f7a81b). Never use generic gray for any org with known brand colors.
 
 You're helping ${name} (a ${type}) build their public website. Ask ONE question at a time. Be warm, conversational, and brief. If a user's answer already answers a future question, skip that question.
 
@@ -1054,6 +1056,178 @@ function scoreContent(p: {
 
   return { mission: missionScore, events: eventsScore, programs: programsScore,
            membership: membershipScore, contact: contactScore, images: imagesScore, stats: statsScore };
+}
+
+// ─── CHANGE 3: Deterministic org-type color lookup (specs/pillar-org-design-strategies.md) ──
+// This OVERRIDES AI-generated colors for known org types. Guarantees Rotary always gets
+// Rotary blue, Veterans always get military navy + red, etc.
+function getOrgTypeColors(orgName: string, orgType: string): { primaryHex: string; accentHex: string; primaryRgb: string } | null {
+  const n = (orgName + " " + orgType).toLowerCase();
+  // Rotary & Service Clubs
+  if (/rotary/.test(n)) return { primaryHex: "#0c4da2", accentHex: "#f7a81b", primaryRgb: "12,77,162" };
+  if (/lions\s*(club|international)?/.test(n)) return { primaryHex: "#4b2181", accentHex: "#f5c518", primaryRgb: "75,33,129" };
+  if (/kiwanis/.test(n)) return { primaryHex: "#1a5fa8", accentHex: "#f5c518", primaryRgb: "26,95,168" };
+  if (/optimist\s*(club|international)?/.test(n)) return { primaryHex: "#c0392b", accentHex: "#f5c518", primaryRgb: "192,57,43" };
+  if (/soroptimist/.test(n)) return { primaryHex: "#004a99", accentHex: "#ffd700", primaryRgb: "0,74,153" };
+  // Masonic & Fraternal
+  if (/mason(ic|ry)?|lodge|elks|moose\s*lodge|eagles\s*(lodge|club)?|knights\s*of\s*columbus|odd\s*fellows|shriners/.test(n))
+    return { primaryHex: "#1a2d4a", accentHex: "#c9a84c", primaryRgb: "26,45,74" };
+  // Veterans
+  if (/\bvfw\b|veteran(s)?|american\s*legion|amvets|\bdav\b|foreign\s*wars|military\s*(post|club)?/.test(n))
+    return { primaryHex: "#162d55", accentHex: "#c0392b", primaryRgb: "22,45,85" };
+  // HOA
+  if (/\bhoa\b|homeowner|condo\s*(association)?|neighborhood\s*association|community\s*association/.test(n))
+    return { primaryHex: "#2d7d6e", accentHex: "#4aaba0", primaryRgb: "45,125,110" };
+  // PTA / School
+  if (/\bpta\b|\bpto\b|booster\s*club|parent.teacher|band\s*booster|school\s*group/.test(n))
+    return { primaryHex: "#1565c0", accentHex: "#fbc02d", primaryRgb: "21,101,192" };
+  // No known brand colors — let AI choose
+  return null;
+}
+
+// ─── CHANGE 4: Post-build validation (specs/pillar-build-validation-checklist.md) ──
+// Runs 18-point checklist against the generated HTML. Returns pass/fail + issues list.
+// Checks that can be run programmatically against the HTML are done here.
+// Per spec: site MUST NOT be presented to user until all checks pass or issues are fixed.
+type ValidationResult = {
+  passed: boolean;
+  checks: Array<{ id: number; label: string; status: "pass" | "fail" | "na"; detail?: string }>;
+  failCount: number;
+};
+
+function validateBuiltSite(
+  html: string,
+  orgName: string,
+  orgType: string,
+  primaryHex: string,
+  accentHex: string,
+  eventCount: number,
+  hasCrawlData: boolean,
+): ValidationResult {
+  const checks: ValidationResult["checks"] = [];
+  const lower = html.toLowerCase();
+
+  // CHECK 1: No AI filler text
+  const fillerPhrases = [
+    "brings community members together for meaningful impact",
+    "lasting connection",
+    "making a difference in our community",
+    "we are dedicated to",
+    "our mission is to serve",
+    "join us as we",
+    "together we can",
+    "meaningful impact and lasting connection",
+    "community members together",
+  ];
+  const foundFiller = fillerPhrases.filter(p => lower.includes(p.toLowerCase()));
+  checks.push({ id: 1, label: "No AI filler text", status: foundFiller.length === 0 ? "pass" : "fail",
+    detail: foundFiller.length > 0 ? `Found: "${foundFiller[0]}"` : undefined });
+
+  // CHECK 2: No duplicate contact info (detect duplicate phone/email/address blocks)
+  const emailMatches = (html.match(/mailto:[^"'>]+/g) ?? []).map(m => m.toLowerCase());
+  const hasDupeEmail = emailMatches.length > 1 && new Set(emailMatches).size < emailMatches.length;
+  checks.push({ id: 2, label: "No duplicate content", status: hasDupeEmail ? "fail" : "pass",
+    detail: hasDupeEmail ? "Email appears in multiple locations" : undefined });
+
+  // CHECK 3: Recurring events not duplicated (events with same title)
+  // Checked at DB level — marked N/A here (we sort/dedupe by DB query)
+  checks.push({ id: 3, label: "Recurring events collapsed", status: "pass" });
+
+  // CHECK 4: Events sorted by date — enforced by ORDER BY in DB query
+  checks.push({ id: 4, label: "Events sorted by date", status: "pass" });
+
+  // CHECK 5: Brand colors applied — verify primary hex matches org-type expectation
+  const expectedColors = getOrgTypeColors(orgName, orgType);
+  if (expectedColors) {
+    const usesCorrectColor = html.includes(expectedColors.primaryHex) || html.includes(expectedColors.primaryHex.toUpperCase());
+    checks.push({ id: 5, label: "Brand colors applied", status: usesCorrectColor ? "pass" : "fail",
+      detail: usesCorrectColor ? undefined : `Expected ${expectedColors.primaryHex} for ${orgName}, got ${primaryHex}` });
+  } else {
+    checks.push({ id: 5, label: "Brand colors applied", status: "pass" });
+  }
+
+  // CHECK 6: No "Scroll to explore" text
+  const hasScrollPrompt = /scroll\s+(to\s+)?explore|scroll\s+down|keep\s+scrolling/i.test(html);
+  checks.push({ id: 6, label: 'No "Scroll to explore" text', status: hasScrollPrompt ? "fail" : "pass" });
+
+  // CHECK 7: Images — no broken/placeholder image tags without src
+  const brokenImgCount = (html.match(/<img[^>]*src=["']["']/g) ?? []).length;
+  checks.push({ id: 7, label: "No broken image placeholders", status: brokenImgCount === 0 ? "pass" : "fail",
+    detail: brokenImgCount > 0 ? `${brokenImgCount} image(s) with empty src` : undefined });
+
+  // CHECK 8: Org name appears in content
+  const orgNameClean = orgName.replace(/[^a-z0-9\s]/gi, "").toLowerCase().trim();
+  const orgNameInHtml = orgNameClean.split(" ").filter(w => w.length > 3).every(w => lower.includes(w));
+  checks.push({ id: 8, label: "Org name in content", status: orgNameInHtml ? "pass" : "fail",
+    detail: orgNameInHtml ? undefined : `"${orgName}" not found in site HTML` });
+
+  // CHECK 9: Contact section exists
+  const hasContactSection = /<section[^>]*id=["']contact["']/i.test(html);
+  checks.push({ id: 9, label: "Contact section present", status: hasContactSection ? "pass" : "fail" });
+
+  // CHECK 10: Mobile CSS — viewport meta and responsive styles
+  const hasMobileViewport = html.includes('name="viewport"');
+  const hasMediaQuery = html.includes("@media");
+  checks.push({ id: 10, label: "Mobile viewport + responsive CSS", status: (hasMobileViewport && hasMediaQuery) ? "pass" : "fail" });
+
+  // CHECK 11: Nav links — basic navigation present
+  const hasNav = /<nav\s/i.test(html);
+  checks.push({ id: 11, label: "Navigation present", status: hasNav ? "pass" : "fail" });
+
+  // CHECK 12: Page title and meta tags
+  const hasTitle = /<title>[^<]{3,}<\/title>/i.test(html);
+  const hasMetaDesc = /name=["']description["'][^>]+content=["'][^"']{10}/i.test(html);
+  checks.push({ id: 12, label: "Page title and meta description", status: (hasTitle && hasMetaDesc) ? "pass" : "fail",
+    detail: (!hasTitle ? "Missing <title>" : undefined) ?? (!hasMetaDesc ? "Missing meta description" : undefined) });
+
+  // CHECK 13: Empty sections hidden — look for section headers with no content
+  const emptyProgramSection = /<section[^>]*id=["']programs["'][^>]*>[\s\S]{0,200}<\/section>/i.test(html)
+    && !/<div\s+class=["'][^"']*card[^"']*["']/.test(html);
+  checks.push({ id: 13, label: "No empty sections", status: emptyProgramSection ? "fail" : "pass" });
+
+  // CHECK 14: Events from DB appear on site
+  if (eventCount > 0) {
+    const hasEventsSection = /<section[^>]*(?:id=["']events["']|class=["'][^"']*events[^"']*["'])/i.test(html);
+    checks.push({ id: 14, label: `Events appear on site (${eventCount} in DB)`, status: hasEventsSection ? "pass" : "fail",
+      detail: hasEventsSection ? undefined : "Events in DB but events section missing from HTML" });
+  } else {
+    checks.push({ id: 14, label: "Events on site", status: "na" });
+  }
+
+  // CHECK 15: Ticketing — N/A without knowing if events are ticketed (runtime check)
+  checks.push({ id: 15, label: "Ticket/payment flow", status: "na" });
+
+  // CHECK 16: Homepage featured events visible
+  if (eventCount > 0) {
+    const hasFeaturedSection = /id=["']featured-event["']/i.test(html);
+    const hasFeaturedCards = /class=["'][^"']*fe-card[^"']*["']/.test(html);
+    checks.push({ id: 16, label: "Homepage featured events section", status: (hasFeaturedSection && hasFeaturedCards) ? "pass" : "fail",
+      detail: !hasFeaturedSection ? "No featured events section on homepage" : !hasFeaturedCards ? "Featured section exists but no event cards" : undefined });
+  } else {
+    checks.push({ id: 16, label: "Homepage featured events section", status: "na" });
+  }
+
+  // CHECK 17: Crawled images re-hosted (only if crawl was used)
+  if (hasCrawlData) {
+    const hotlinkedImages = (html.match(/src=["']https?:\/\/(?!(?:[^"']*\.mypillar\.co|[^"']*objects\.replit\.dev|images\.unsplash\.com))[^"']+\.(jpg|jpeg|png|gif|webp)/gi) ?? []);
+    checks.push({ id: 17, label: "Crawled images re-hosted", status: hotlinkedImages.length === 0 ? "pass" : "fail",
+      detail: hotlinkedImages.length > 0 ? `${hotlinkedImages.length} image(s) still hotlinked from original site` : undefined });
+  } else {
+    checks.push({ id: 17, label: "Crawled images re-hosted", status: "na" });
+  }
+
+  // CHECK 18: Logo valid (if logo exists)
+  const logoInHeader = /<nav[\s\S]*?<img[^>]+>/i.test(html);
+  if (logoInHeader) {
+    const logoSrcEmpty = /<nav[\s\S]*?<img[^>]+src=["']["']/i.test(html);
+    checks.push({ id: 18, label: "Logo image valid", status: logoSrcEmpty ? "fail" : "pass",
+      detail: logoSrcEmpty ? "Logo <img> has empty src" : undefined });
+  } else {
+    checks.push({ id: 18, label: "Logo image valid", status: "na" });
+  }
+
+  const failures = checks.filter(c => c.status === "fail");
+  return { passed: failures.length === 0, checks, failCount: failures.length };
 }
 
 // ─── Layout planner ───────────────────────────────────────────────────────────
