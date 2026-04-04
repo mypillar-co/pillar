@@ -91,7 +91,7 @@ These rules apply to every org site Pillar generates. Violations destroy credibi
 - **"Scroll to explore" is an anti-pattern.** Remove it. People know how to scroll.
 
 ### Design Rules
-- **Always check for known brand colors first.** Rotary International = blue #003DA5 + gold #F7A81B. Lions Club = purple + gold. VFW = red/white/blue. Elks = purple/gold. If the org is part of a national/international organization, use those colors — they're immediately recognizable to members.
+- **Always check for known brand colors first.** Rotary International = blue #003DA5 + gold #F7A81B. Lions Club = purple + gold. VFW = red/white/blue. Elks = purple/gold. **PA Masonic lodges = Midnight #12233e + Cornflower #5b7db1 + Parchment background #f7e8e0** (from the Grand Lodge of Pennsylvania official style guide — see full spec in the Masonic Lodge Sites section below). If the org is part of a national/international organization, use those colors — they're immediately recognizable to members.
 - **Hero must never be empty.** Use a real event photo (dark overlay + white text) or solid brand color as background. Never text on white with no color/image.
 - **Programs/features need real descriptions.** Ask for one real sentence about each program. If not provided, show icon + name only.
 - **object-cover on all images, always.** User photos are random sizes. Never show distorted images.
@@ -105,6 +105,62 @@ These rules apply to every org site Pillar generates. Violations destroy credibi
 
 ### What "Done" Means
 All pages load without error. Events sorted by date everywhere. Ticket flow works end-to-end. No hardcoded placeholder text. Contact section has no duplicated content. Mobile menu scrolls if event list is long. One dominant CTA per section.
+
+## Masonic Lodge Sites (Grand Lodge of Pennsylvania)
+
+When an organization is a Masonic lodge (any lodge subordinate to the Grand Lodge of Pennsylvania), these specifications are **mandatory** — not suggestions.
+
+### Color Scheme (PA Grand Lodge Official Style Guide)
+| Role | Token | Hex |
+|------|-------|-----|
+| Primary | Midnight | `#12233e` |
+| Accent | Cornflower | `#5b7db1` |
+| Background | Parchment | `#f7e8e0` |
+| Secondary | — | `#ded5cd` |
+
+Never substitute generic navy/gold on Masonic lodge sites. These are the official colors and members recognize them immediately.
+
+### Typography
+- **Headings**: Lora (serif) — traditional, lodge-appropriate
+- **Body**: Montserrat (sans-serif) — clean readability
+
+### Page Structure
+**Public pages** (accessible to anyone):
+- Home, About, Officers, Past Masters, Community, Events, Hall Rental, Calendar, Contact, FAQs, Becoming a Mason, Widows & Helpers
+
+**Members-only pages** (behind authentication):
+- Dashboard (personalized greeting: "Bro. [Name], PM" if Past Master), Announcements, Events (with JotForm registration links), Members Calendar, Monthly Notices archive, Dues Info, Profile/Account
+
+**Admin panel** (lodge secretary / WM only):
+- Manage Users (whitelist, toggle admin), Announcements, Events, Master's Messages, Monthly Notices, Documents, Officers
+
+### Event Registration
+- Use **JotForm iframe embeds** for registration forms — not custom-built forms
+- Time-gated: before open → countdown; during window → JotForm; after close → closed message
+- REGISTRATION_OPEN and REGISTRATION_CLOSE dates on each event
+
+### Calendar
+- **Google Calendar API**: two separate calendars — public (community events) + members-only (degree work, practices)
+- Events fetched server-side, cached, served to frontend
+
+### Authentication
+- Session-based with email 2FA (6-digit code, 10-minute expiry)
+- **Whitelist-based registration**: only pre-approved emails can sign up
+- Codes stored in `verification_codes` table with auto-cleanup
+- Dev-only bypass for test admin account
+
+### Content Philosophy
+- Database-driven content: Master's Messages, Announcements, Member events, Monthly notices, Officers, Documents
+- Hardcoded content: page layouts, stable event details, FAQs, About/history text
+- Admin (secretary or WM) can update the database-driven content without developer help
+
+### Masonic Design Rules
+- Address members as "Bro. [Name]" — not "Mr." or first name only
+- Past Masters get "PM" suffix in greetings and officer lists
+- Widows & Helpers section is always on public pages — this is a core Masonic obligation
+- "Becoming a Mason" page is mandatory for any lodge site (it's a primary public-facing purpose)
+- Hall rental is almost always a lodge revenue stream — include if lodge owns their building
+- The lodge number is part of the identity (e.g., "Lodge #601") — display it prominently
 
 ## External Dependencies
 
