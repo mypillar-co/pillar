@@ -125,7 +125,16 @@ function extractColors(siteHtml: string | null): { primary: string; accent: stri
 function extractNavHtml(siteHtml: string | null): string {
   if (!siteHtml) return "";
   const match = siteHtml.match(/<nav[\s\S]*?<\/nav>/i);
-  return match?.[0] ?? "";
+  if (!match) return "";
+  // Rewrite same-page anchor links to real page URLs so the extracted nav
+  // works correctly on /events and /events/{slug} sub-pages.
+  return match[0]
+    .replace(/href=["']#events["']/gi, 'href="/events"')
+    .replace(/href=["']#about["']/gi, 'href="/#about"')
+    .replace(/href=["']#programs["']/gi, 'href="/#programs"')
+    .replace(/href=["']#contact["']/gi, 'href="/#contact"')
+    .replace(/href=["']#members["']/gi, 'href="/#members"')
+    .replace(/href=["']#sponsors["']/gi, 'href="/#sponsors"');
 }
 
 function extractFooterHtml(siteHtml: string | null): string {
@@ -776,4 +785,143 @@ ${navHtml}
 ${footerHtml}
 </body>
 </html>`;
+}
+
+// ─── Homepage: Featured Events Section (Dynamic Injection) ────────────────────
+
+/**
+ * Selects up to 3 events to feature on the homepage per spec rules:
+ *  1. Manually featured events (featured=true) come first, future dates only
+ *  2. Fill remaining slots (up to 3) with the soonest upcoming events
+ */
+export function selectFeaturedEvents(events: PublicEvent[]): PublicEvent[] {
+  const today = new Date().toISOString().split("T")[0];
+  const upcoming = events.filter(e => !e.startDate || e.startDate >= today);
+  const manual = upcoming.filter(e => e.featured).slice(0, 3);
+  if (manual.length >= 3) return manual.slice(0, 3);
+  const manualIds = new Set(manual.map(e => e.id));
+  const auto = upcoming
+    .filter(e => !manualIds.has(e.id))
+    .sort((a, b) => {
+      if (!a.startDate && !b.startDate) return 0;
+      if (!a.startDate) return 1;
+      if (!b.startDate) return -1;
+      return a.startDate.localeCompare(b.startDate);
+    })
+    .slice(0, 3 - manual.length);
+  return [...manual, ...auto];
+}
+
+function buildFeaturedEventCard(e: PublicEvent, primary: string, accent: string): string {
+  const catColor = categoryColor(e.eventType, primary);
+  const dateStr = formatDateShort(e.startDate);
+  const timeStr = formatTimeRange(e.startTime, e.endTime);
+  const hasTickets = e.isTicketed && e.ticketPrice !== null;
+
+  const imageOrAccent = e.imageUrl
+    ? `<img src="${esc(e.imageUrl)}" alt="${esc(e.name)}" style="width:100%;height:180px;object-fit:cover;display:block;">`
+    : `<div style="height:5px;background:${catColor};"></div>`;
+
+  const metaRows = [
+    dateStr ? `<div style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--feat-muted,#6b7280);">${SVG_CALENDAR} ${esc(dateStr)}</div>` : "",
+    timeStr ? `<div style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--feat-muted,#6b7280);">${SVG_CLOCK} ${esc(timeStr)}</div>` : "",
+    e.location ? `<div style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--feat-muted,#6b7280);">${SVG_MAPPIN} ${esc(e.location)}</div>` : "",
+  ].filter(Boolean).join("\n");
+
+  const cta = e.slug
+    ? hasTickets
+      ? `<a href="/events/${esc(e.slug)}" style="display:inline-block;background:${primary};color:#fff;padding:9px 22px;border-radius:7px;font-size:13px;font-weight:700;text-decoration:none;transition:opacity .15s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">${SVG_TICKET_INLINE} Buy Tickets${e.ticketPrice ? ` — $${e.ticketPrice % 1 === 0 ? e.ticketPrice.toFixed(0) : e.ticketPrice.toFixed(2)}` : ""}</a>`
+      : `<a href="/events/${esc(e.slug)}" style="display:inline-block;background:#fff;color:${primary};border:1.5px solid ${primary};padding:8px 22px;border-radius:7px;font-size:13px;font-weight:700;text-decoration:none;transition:all .15s;" onmouseover="this.style.background='${primary}';this.style.color='#fff'" onmouseout="this.style.background='#fff';this.style.color='${primary}'">Learn More →</a>`
+    : "";
+
+  return `<a href="${e.slug ? `/events/${esc(e.slug)}` : "#"}" style="display:block;border-radius:12px;overflow:hidden;background:#fff;border:1px solid #e5e7eb;box-shadow:0 2px 8px rgba(0,0,0,.06);transition:box-shadow .2s,transform .2s;text-decoration:none;color:inherit;" onmouseover="this.style.boxShadow='0 8px 24px rgba(0,0,0,.12)';this.style.transform='translateY(-3px)'" onmouseout="this.style.boxShadow='0 2px 8px rgba(0,0,0,.06)';this.style.transform='translateY(0)'">
+  ${imageOrAccent}
+  <div style="padding:20px;">
+    ${e.eventType ? `<span style="display:inline-block;background:${catColor}18;color:${catColor};font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:3px 10px;border-radius:999px;margin-bottom:10px;">${esc(e.eventType)}</span>` : ""}
+    <div style="font-family:'DM Serif Display',Georgia,serif;font-size:1.2rem;font-weight:400;line-height:1.3;margin-bottom:8px;color:#111827;">${esc(e.name)}</div>
+    ${e.description ? `<div style="font-size:13px;color:#6b7280;line-height:1.6;margin-bottom:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${esc(e.description)}</div>` : ""}
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px;">${metaRows}</div>
+    ${cta}
+  </div>
+</a>`;
+}
+
+const SVG_TICKET_INLINE = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:4px;"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><line x1="9" y1="2" x2="9" y2="22"/></svg>`;
+
+/**
+ * Builds the server-rendered "Upcoming Events" section for the homepage.
+ * Shows up to 3 featured/upcoming events as cards with links to /events/{slug}.
+ */
+function buildFeaturedEventsSection(events: PublicEvent[], primary: string, accent: string): string {
+  const cards = events.length === 0
+    ? `<div style="grid-column:1/-1;text-align:center;padding:48px 24px;color:#6b7280;">
+        <div style="font-size:42px;margin-bottom:12px;">📅</div>
+        <p style="font-size:16px;font-weight:500;color:#374151;margin-bottom:6px;">No upcoming events</p>
+        <p style="font-size:14px;">Check back soon — we update this regularly.</p>
+       </div>`
+    : events.map(e => buildFeaturedEventCard(e, primary, accent)).join("\n");
+
+  return `
+<!-- pillar:featured-events -->
+<section id="events" style="background:#f9fafb;padding:72px 24px;">
+  <div style="max-width:1100px;margin:0 auto;">
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:40px;">
+      <div>
+        <p style="color:${accent !== "#c9a84c" ? accent : primary};font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;">Upcoming Events</p>
+        <h2 style="font-family:'DM Serif Display',Georgia,serif;font-size:clamp(1.6rem,4vw,2.25rem);font-weight:400;line-height:1.15;color:#111827;margin:0;">What's Happening</h2>
+      </div>
+      <a href="/events" style="display:inline-flex;align-items:center;gap:6px;background:#fff;color:${primary};border:1.5px solid ${primary};padding:9px 20px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none;white-space:nowrap;transition:all .15s;" onmouseover="this.style.background='${primary}';this.style.color='#fff'" onmouseout="this.style.background='#fff';this.style.color='${primary}'">View All Events →</a>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:24px;">
+      ${cards}
+    </div>
+  </div>
+</section>
+<!-- /pillar:featured-events -->`;
+}
+
+/**
+ * Patches the stored site HTML to:
+ *  1. Replace all `href="#events"` anchors with `href="/events"` (nav, hero CTAs, etc.)
+ *  2. Replace the static `<section ... id="events">` with a dynamic featured events section
+ *
+ * This is called at serve time so the homepage always shows fresh events from the DB.
+ */
+export function buildDynamicHomepage(
+  storedHtml: string,
+  featuredEvents: PublicEvent[],
+  primary: string,
+  accent: string,
+): string {
+  let html = storedHtml;
+
+  // Step 1: Fix all href="#events" → href="/events"
+  html = html.replace(/href=["']#events["']/gi, 'href="/events"');
+
+  // Step 2: Replace static events section with dynamic one
+  const dynamicSection = buildFeaturedEventsSection(featuredEvents, primary, accent);
+
+  // Try to replace existing <!-- pillar:featured-events --> block (idempotent re-renders)
+  if (html.includes("<!-- pillar:featured-events -->")) {
+    html = html.replace(
+      /<!-- pillar:featured-events -->[\s\S]*?<!-- \/pillar:featured-events -->/,
+      dynamicSection,
+    );
+    return html;
+  }
+
+  // Replace the static <section ... id="events"...>...</section>
+  const sectionRegex = /<section[^>]*\bid=["']events["'][^>]*>[\s\S]*?<\/section>/i;
+  if (sectionRegex.test(html)) {
+    html = html.replace(sectionRegex, dynamicSection);
+    return html;
+  }
+
+  // No events section found — inject before </main> or </body>
+  if (html.includes("</main>")) {
+    html = html.replace("</main>", `${dynamicSection}\n</main>`);
+  } else {
+    html = html.replace("</body>", `${dynamicSection}\n</body>`);
+  }
+  return html;
 }

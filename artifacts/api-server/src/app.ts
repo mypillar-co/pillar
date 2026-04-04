@@ -16,6 +16,8 @@ import {
   buildEventsListingPage,
   buildEventDetailPage,
   buildEventNotFoundPage as buildPublicEventNotFoundPage,
+  buildDynamicHomepage,
+  selectFeaturedEvents,
   type PublicEvent,
   type PublicTicketType,
   type PublicSponsor,
@@ -163,6 +165,61 @@ app.use("/api", router);
 
 const POWERED_BY_FOOTER = `<div style="position:fixed;bottom:0;left:0;right:0;text-align:center;padding:5px 12px;background:rgba(10,14,26,0.93);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.07);font-family:system-ui,-apple-system,sans-serif;font-size:11px;color:rgba(148,163,184,0.75);z-index:2147483647;letter-spacing:0.01em">Powered by&nbsp;<a href="https://mypillar.co" style="color:#f59e0b;text-decoration:none;font-weight:600" target="_blank" rel="noopener noreferrer">Pillar</a>&nbsp;— AI for civic organizations</div>`;
 
+/**
+ * Fetches active events for an org and returns the homepage HTML patched with
+ * a dynamic "Upcoming Events" card-grid section (replacing the static one).
+ */
+async function patchHomepageWithFeaturedEvents(orgSlug: string, storedHtml: string): Promise<string> {
+  try {
+    const primary = storedHtml.match(/--primary:\s*(#[0-9a-fA-F]{3,8})/)?.[1] ?? "#1e2d4f";
+    const accent = storedHtml.match(/--accent:\s*(#[0-9a-fA-F]{3,8})/)?.[1] ?? "#c9a84c";
+
+    // Fetch all active+published events for this org
+    const [orgRow] = await db
+      .select({ id: organizationsTable.id })
+      .from(organizationsTable)
+      .where(eq(organizationsTable.slug, orgSlug));
+    if (!orgRow) return storedHtml;
+
+    const eventRows = await db
+      .select()
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.orgId, orgRow.id),
+        eq(eventsTable.status, "published"),
+        eq(eventsTable.isActive, true),
+      ))
+      .orderBy(asc(eventsTable.startDate));
+
+    const allEvents: PublicEvent[] = eventRows.map(e => ({
+      id: e.id,
+      name: e.name,
+      slug: e.slug ?? "",
+      description: e.description ?? null,
+      eventType: e.eventType ?? null,
+      startDate: e.startDate ?? null,
+      endDate: e.endDate ?? null,
+      startTime: e.startTime ?? null,
+      endTime: e.endTime ?? null,
+      location: e.location ?? null,
+      isTicketed: e.isTicketed ?? null,
+      ticketPrice: e.ticketPrice ? Number(e.ticketPrice) : null,
+      ticketCapacity: e.ticketCapacity ?? null,
+      hasRegistration: e.hasRegistration ?? null,
+      hasSponsorSection: e.hasSponsorSection ?? null,
+      registrationClosed: e.registrationClosed ?? null,
+      imageUrl: e.imageUrl ?? null,
+      featured: e.featured ?? null,
+    }));
+
+    const featured = selectFeaturedEvents(allEvents);
+    return buildDynamicHomepage(storedHtml, featured, primary, accent);
+  } catch (err) {
+    logger.warn({ err, orgSlug }, "Failed to patch homepage with featured events — serving stored HTML");
+    return storedHtml;
+  }
+}
+
 // Shared site HTML response helper
 function sendSiteHtml(res: express.Response, html: string): void {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -210,7 +267,8 @@ app.get("/sites/:slug", async (req, res) => {
       res.status(404).send(SITE_NOT_FOUND_HTML);
       return;
     }
-    sendSiteHtml(res, site.generatedHtml);
+    const patchedHtml = await patchHomepageWithFeaturedEvents(slug, site.generatedHtml);
+    sendSiteHtml(res, patchedHtml);
   } catch (err) {
     logger.error({ err }, "[/sites/:slug] error");
     res.status(404).send(SITE_NOT_FOUND_HTML);
@@ -539,7 +597,8 @@ app.use(async (req, res, next) => {
 
     // Live subdomain: only serve published sites
     if (site?.status === "published" && site.generatedHtml) {
-      sendSiteHtml(res, site.generatedHtml);
+      const patchedHomepage = await patchHomepageWithFeaturedEvents(orgSlug, site.generatedHtml);
+      sendSiteHtml(res, patchedHomepage);
       return;
     }
     res.status(404).send(SITE_NOT_FOUND_HTML);
@@ -565,7 +624,9 @@ app.use(async (req, res, next) => {
         or(eq(sitesTable.orgId, orgId), eq(sitesTable.orgSlug, domainRecord.org.slug ?? ""))
       );
       if (site?.status === "published" && site.generatedHtml) {
-        sendSiteHtml(res, site.generatedHtml);
+        const domainSlug = domainRecord.org.slug ?? "";
+        const patchedCustomDomain = await patchHomepageWithFeaturedEvents(domainSlug, site.generatedHtml);
+        sendSiteHtml(res, patchedCustomDomain);
         return;
       }
     }
