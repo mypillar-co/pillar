@@ -14,6 +14,74 @@ import type { ObjectAclPolicy } from "../lib/objectAcl";
 
 const router = Router();
 
+// ─── Community Framework API ──────────────────────────────────────────────────
+// Fetches the 9-file code framework from discoverirwin.com/api/pillar/framework.
+// Cached in-process for 1 hour — fetched on first site generate, not on every request.
+const FRAMEWORK_API_URL = "https://discoverirwin.com/api/pillar/framework";
+const FRAMEWORK_API_KEY = "pillar_ro_a3a97fea1c8f5f3750e7f650df3de1b0cc6177ffb471398a";
+let _frameworkCache: { files: Record<string, string>; fetchedAt: number } | null = null;
+const FRAMEWORK_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+async function fetchFramework(): Promise<Record<string, string> | null> {
+  if (_frameworkCache && Date.now() - _frameworkCache.fetchedAt < FRAMEWORK_CACHE_TTL_MS) {
+    return _frameworkCache.files;
+  }
+  try {
+    const res = await fetch(FRAMEWORK_API_URL, {
+      headers: { "X-Pillar-Key": FRAMEWORK_API_KEY, "Accept": "application/json" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return null;
+    const payload = await res.json() as { files?: Record<string, string> };
+    if (!payload.files || typeof payload.files !== "object") return null;
+    _frameworkCache = { files: payload.files, fetchedAt: Date.now() };
+    return payload.files;
+  } catch {
+    return null;
+  }
+}
+
+// Extract the ORG_TYPE_COLOR_PALETTES block from the framework's INTAKE-QUESTIONS.ts
+// and build a lookup: org type label → { primary HSL, accent HSL }
+function parseFrameworkPalettes(intakeFile: string): Record<string, { primary: string; accent: string }> {
+  try {
+    const match = intakeFile.match(/ORG_TYPE_COLOR_PALETTES[^=]+=\s*\{([\s\S]+?)\};/);
+    if (!match) return {};
+    const block = match[1];
+    const result: Record<string, { primary: string; accent: string }> = {};
+    const lineRe = /"([^"]+)"\s*:\s*\{\s*primary:\s*"([^"]+)"\s*,\s*accent:\s*"([^"]+)"\s*\}/g;
+    let m: RegExpExecArray | null;
+    while ((m = lineRe.exec(block)) !== null) {
+      result[m[1]] = { primary: m[2], accent: m[3] };
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+// Convert HSL string like "210 70% 40%" to hex (best-effort approximation for prompt injection)
+function hslStringToHex(hsl: string): string {
+  const parts = hsl.trim().split(/\s+/);
+  if (parts.length < 3) return "#1e3a5f";
+  const h = parseFloat(parts[0]) / 360;
+  const s = parseFloat(parts[1]) / 100;
+  const l = parseFloat(parts[2]) / 100;
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hue2rgb = (p: number, q: number, t: number) => {
+    if (t < 0) t += 1; if (t > 1) t -= 1;
+    if (t < 1/6) return p + (q - p) * 6 * t;
+    if (t < 1/2) return q;
+    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+    return p;
+  };
+  const r = Math.round(hue2rgb(p, q, h + 1/3) * 255);
+  const g = Math.round(hue2rgb(p, q, h) * 255);
+  const b = Math.round(hue2rgb(p, q, h - 1/3) * 255);
+  return `#${r.toString(16).padStart(2,"0")}${g.toString(16).padStart(2,"0")}${b.toString(16).padStart(2,"0")}`;
+}
+
 const CONTEXT_TURNS = 10;
 const MAX_CHAT_TOKENS = 700;
 const MAX_GEN_TOKENS = 10000;
@@ -170,7 +238,7 @@ If the user mentions a URL or an existing website AT ANY POINT, you MUST:
 The user giving you a URL means: DO NOT MAKE THEM TYPE THEIR CONTENT AGAIN. Everything is already on their site. The import button reads the site for you.
 ⚠️ VIOLATION: Asking about programs, events, location, or contact info AFTER a URL was given is a critical bug. Never do it. ⚠️
 
-If NO URL is provided, follow this interview sequence:
+If NO URL is provided, follow this interview sequence. These questions come from the community organization framework — ask them in order, skip any the user already answered:
 
 BLOCK 1 — Identity:
 1. "Let's build ${name}'s website! In one sentence — what does ${name} do? The kind of thing you'd say to a neighbor who'd never heard of you. Include how long you've been around if you know it."
@@ -179,21 +247,28 @@ BLOCK 1 — Identity:
    → If URL provided: STOP. Apply the CRITICAL BRANCHING RULE above.
    → If no existing site: continue to question 3.
 
-3. "What are your top programs, services, or activities? Name them and give a sentence on each — these become the highlight cards on your site. List as many as you have."
+3. "What's your short name or abbreviation? (e.g. 'IBPA', 'VFW Post 1', 'Lodge #601') — it appears in the logo badge and page titles."
 
-BLOCK 2 — Events (most important — be thorough):
-4. "Now for events — this is the heart of your site. List every event you have: name, approximate date, and whether it's annual or one-time. Include regular meetings too (e.g. 'Weekly Tuesday lunch meetings')."
+4. "What are your top programs, services, or activities? Name them and give a sentence on each — these become the highlight cards on your site. List as many as you have."
 
-5. "For your ticketed events: what are the prices? Is there a capacity limit? Do vendors pay to set up booths? Do you have sponsors, and if so, what are the sponsorship levels and prices? (e.g. Gold $500, Silver $250)"
+BLOCK 2 — Events & Registration:
+5. "Now for events — this is the heart of your site. List every event you have: name, approximate date, and whether it's annual or one-time. Include regular meetings too (e.g. 'Weekly Tuesday lunch')."
 
-BLOCK 3 — Contact & Social:
-6. "Where are you located? Include your address, regular meeting venue, and meeting schedule. Also share your email, phone, and any social media accounts (Facebook, Instagram, etc.)."
+6. "Do any events sell tickets? Do vendors pay to set up booths? Do you accept event sponsors, and if so, what are the sponsorship levels and prices? (e.g. Gold $500, Silver $250)"
 
-BLOCK 4 — Design (last, mostly inferred):
-7. "Last one — do you have a logo or brand colors? If not, I'll match your org type's standard colors automatically. Any websites whose look you like? (Optional — I can infer everything from your org type if you skip this.)"
+BLOCK 3 — Stats & Community:
+7. "A few quick numbers for your site's stats section: roughly how many events per year? Approximate total attendees across all events? And how many local businesses or members does your org support or include?"
+
+8. "Do you have community partners — other organizations, businesses, or government offices you collaborate with? Just name them and one line on what they do."
+
+BLOCK 4 — Contact & Social:
+9. "Where are you located? Include your address, regular meeting venue, and meeting schedule. Also share your email, phone, and any social media accounts (Facebook, Instagram, etc.)."
+
+BLOCK 5 — Design (last, mostly inferred):
+10. "Last one — do you have a logo or brand colors? If not, I'll match your org type's standard colors automatically. Any websites whose look you like? (Optional — I can infer everything from your org type if you skip this.)"
 
 After each answer, acknowledge in ONE sentence that shows you heard it, then ask the next question.
-After collecting answers to all 4 blocks (adjusting for skips), say EXACTLY: "I have everything I need! Click **Generate My Site** to build your website."
+After collecting answers to all 5 blocks (adjusting for skips), say EXACTLY: "I have everything I need! Click **Generate My Site** to build your website."
 Keep every response under 65 words. Stay conversational. Never suggest edits — just collect info. NEVER make up events, programs, or descriptions the user didn't provide.`;
 
   const messages: OpenAI.ChatCompletionMessageParam[] = [
@@ -1069,8 +1144,12 @@ function getOrgTypeColors(orgName: string, orgType: string): { primaryHex: strin
   if (/kiwanis/.test(n)) return { primaryHex: "#1a5fa8", accentHex: "#f5c518", primaryRgb: "26,95,168" };
   if (/optimist\s*(club|international)?/.test(n)) return { primaryHex: "#c0392b", accentHex: "#f5c518", primaryRgb: "192,57,43" };
   if (/soroptimist/.test(n)) return { primaryHex: "#004a99", accentHex: "#ffd700", primaryRgb: "0,74,153" };
-  // Masonic & Fraternal
-  if (/mason(ic|ry)?|lodge|elks|moose\s*lodge|eagles\s*(lodge|club)?|knights\s*of\s*columbus|odd\s*fellows|shriners/.test(n))
+  // Masonic Lodges (Free & Accepted Masons) — PA Grand Lodge of Pennsylvania official colors
+  // Primary: Midnight #12233e | Accent: Cornflower #5b7db1 (NOT gold — these are the official PA GL spec)
+  if (/\bmasonic?\b|\bmasonry\b|lodge\s*#?\d+|f\.?\s*[&a]\.?\s*m\.?\b|free\s*(and|&)\s*accepted/.test(n))
+    return { primaryHex: "#12233e", accentHex: "#5b7db1", primaryRgb: "18,35,62" };
+  // Other Fraternal (Elks, Eagles, Moose, Knights of Columbus, Odd Fellows, Shriners)
+  if (/\belks\b|moose\s*(lodge)?\b|eagles\s*(lodge|club)?|knights\s*of\s*columbus|odd\s*fellows|shriners/.test(n))
     return { primaryHex: "#1a2d4a", accentHex: "#c9a84c", primaryRgb: "26,45,74" };
   // Veterans
   if (/\bvfw\b|veteran(s)?|american\s*legion|amvets|\bdav\b|foreign\s*wars|military\s*(post|club)?/.test(n))
@@ -1708,6 +1787,32 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
   const futureEvents = upcomingEvents.filter(e => !e.startDate || e.startDate >= today);
   const allEvents = futureEvents.length > 0 ? futureEvents : upcomingEvents.slice(0, 5);
 
+  // Step 3b: Fetch community framework — provides authoritative color palettes and page structure rules.
+  // Framework is cached 1h; failure is non-blocking (generation continues with built-in rules).
+  let frameworkColorNote = "";
+  let frameworkStructureNote = "";
+  try {
+    const fw = await fetchFramework();
+    if (fw) {
+      // Parse color palettes from framework's INTAKE-QUESTIONS.ts
+      const palettes = parseFrameworkPalettes(fw["INTAKE-QUESTIONS.ts"] ?? "");
+      if (Object.keys(palettes).length > 0) {
+        const paletteLines = Object.entries(palettes)
+          .map(([label, p]) => `- ${label} → primary: ${hslStringToHex(p.primary)} (HSL ${p.primary}), accent: ${hslStringToHex(p.accent)} (HSL ${p.accent})`)
+          .join("\n");
+        frameworkColorNote = `\n\nFRAMEWORK ORG-TYPE COLOR PALETTES (use these when no exact brand match above applies):\n${paletteLines}`;
+      }
+      // Extract page structure summary from BUILDER-INSTRUCTIONS.md
+      const instructions = fw["BUILDER-INSTRUCTIONS.md"] ?? "";
+      const structureMatch = instructions.match(/## Page Structure[\s\S]+?(?=\n##|$)/);
+      if (structureMatch) {
+        frameworkStructureNote = `\n\nFRAMEWORK PAGE STRUCTURE (every site gets these routes):\n${structureMatch[0].slice(0, 800)}`;
+      }
+    }
+  } catch {
+    // Framework fetch failed — continue with built-in rules
+  }
+
   // Step 4: AI generates CONTENT JSON only — not design, not CSS
   const safeOrgName = (s.orgName || org.name).replace(/["<>&]/g, c => c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;");
   const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -1766,16 +1871,17 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
     const contentJson = await callOpenAI([
       {
         role: "system",
-        content: `You are a master UX/UI designer and copywriter specializing in civic and community organizations. Your job is to produce content for a stunning, modern website that is far superior to the organization's existing site. Create content that is compelling, specific, and authentic — this will be seen by the community and must make a strong first impression.${originalSiteContext}
+        content: `You are a master UX/UI designer and copywriter specializing in civic and community organizations. Your job is to produce content for a stunning, modern website that is far superior to the organization's existing site. Create content that is compelling, specific, and authentic — this will be seen by the community and must make a strong first impression.${originalSiteContext}${frameworkStructureNote}
 
 Output ONLY a valid JSON object — no explanation, no markdown fences.
 
-COLOR SELECTION RULES — MANDATORY org-type colors (from specs/pillar-org-design-strategies.md):
+COLOR SELECTION RULES — MANDATORY org-type colors (from specs/pillar-org-design-strategies.md + community framework):${frameworkColorNote}
 DETECT org type from name/description, then apply EXACT colors. These are NOT suggestions:
 - ROTARY CLUB → primary: #0c4da2 (Rotary royal blue, HSL 218 100% 32%), accent: #f7a81b (Rotary gold, HSL 40 93% 54%)
 - LIONS CLUB → primary: #4b2181 (Lions purple, HSL 275 70% 30%), accent: #f5c518 (Lions gold)
 - KIWANIS → primary: #1a5fa8 (Kiwanis blue, HSL 210 80% 35%), accent: #f5c518 (gold)
-- MASONIC / FRATERNAL (Elks, Moose, Eagles, Knights of Columbus) → primary: #1a2d4a (deep navy, HSL 220 60% 25%), accent: #c9a84c (gold)
+- MASONIC LODGE (Free & Accepted Masons, any lodge with a number e.g. "Lodge #601") → primary: #12233e (PA Grand Lodge Midnight, HSL 220 70% 16%), accent: #5b7db1 (PA Grand Lodge Cornflower). NOT gold — these are the official PA Grand Lodge of Pennsylvania colors.
+- OTHER FRATERNAL (Elks, Moose Lodge, Eagles, Knights of Columbus, Odd Fellows, Shriners) → primary: #1a2d4a (deep navy, HSL 220 60% 25%), accent: #c9a84c (gold)
 - VETERANS (VFW, American Legion, AMVETS) → primary: #162d55 (military navy, HSL 215 70% 22%), accent: #c0392b (patriotic red)
 - HOA / HOMEOWNERS ASSOCIATION → primary: #2d7d6e (calm teal, HSL 170 35% 40%), accent: #4aaba0
 - PTA / BOOSTER CLUB / SCHOOL GROUP → primary: school's primary or #1565c0 (school blue), accent: #fbc02d (school gold)

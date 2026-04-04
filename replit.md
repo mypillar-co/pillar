@@ -162,6 +162,52 @@ Never substitute generic navy/gold on Masonic lodge sites. These are the officia
 - Hall rental is almost always a lodge revenue stream — include if lodge owns their building
 - The lodge number is part of the identity (e.g., "Lodge #601") — display it prominently
 
+## Community Framework API
+
+Pillar uses a two-endpoint system from `discoverirwin.com` for site building. Both endpoints require the same auth header:
+```
+X-Pillar-Key: pillar_ro_a3a97fea1c8f5f3750e7f650df3de1b0cc6177ffb471398a
+```
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET https://discoverirwin.com/api/pillar/architecture` | Design specs, visual rules, validation checklists. Long-lived reference. |
+| `GET https://discoverirwin.com/api/pillar/framework` | 9 working code files (~96KB). Fetched at generation time, cached 1h. |
+
+### Framework File Reading Order
+1. `BUILDER-INSTRUCTIONS.md` — Master playbook. Explains the entire system.
+2. `INTAKE-QUESTIONS.ts` — 23 intake questions + org-type color palettes (`ORG_TYPE_COLOR_PALETTES`)
+3. `org-config.ts` — `OrgConfig` interface + filled Irwin example (use as template)
+4. `schema.ts` — Drizzle ORM schema. Payment-provider agnostic (`paymentOrderId`).
+5. `storage-interface.ts` — Every CRUD method.
+6. `api-routes-pattern.ts` — All Express routes (public + auth + admin).
+7. `registration-window-engine.ts` — 90-day open / 7-day close window logic. Copy as-is.
+8. `frontend-patterns.tsx` — Every UI component (Hero, EventCard, TicketPurchase, Nav, Footer…)
+9. `theme-variables.css` — CSS color system with org-type palettes. Replace primary/accent.
+
+### How Site Generation Uses the Framework
+- **On every `/generate` call**: `fetchFramework()` is called (1h in-memory cache). If successful:
+  - `ORG_TYPE_COLOR_PALETTES` from `INTAKE-QUESTIONS.ts` are parsed and injected into the AI color selection prompt as a fallback palette lookup when no exact brand match exists.
+  - Page structure summary from `BUILDER-INSTRUCTIONS.md` is injected into the system prompt.
+- **Color overrides** (deterministic, post-AI): `getOrgTypeColors()` in `routes/sites.ts` hard-overrides AI color choices for known org types. This always wins.
+- **Framework fetch failure is non-blocking**: If the endpoint is down, generation continues with built-in rules.
+
+### Critical Rule
+**The AI fills in CONFIG VARIABLES ONLY. It does NOT redesign pages or invent layouts.** Every page structure, component, and route pattern is already defined in `frontend-patterns.tsx`. Pillar's job is to fill in the blanks from the interview answers.
+
+### Intake Questions (23 total — used in chat interview)
+Key fields mapped to `OrgConfig`:
+- `name`, `shortName`, `tagline`, `address`, `mailingAddress`, `phone`, `email`, `eventsEmail`
+- `social.facebook`, `social.instagram`
+- `branding.logoInitials` (2-3 letter badge)
+- `org_type` → determines `ORG_TYPE_COLOR_PALETTES` lookup
+- `stats.annualEvents`, `stats.annualAttendees`, `stats.localBusinesses`
+- `has_sponsors`, `has_vendors`, `has_ticketed_events`
+- `paymentProvider` (Square or Stripe)
+- `has_newsletter`
+- `partners[]` (name + description)
+- `eventCategories[]`
+
 ## External Dependencies
 
 - **PostgreSQL**: Primary database for all application data.
