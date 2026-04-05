@@ -2,9 +2,6 @@ import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { api, type NrcEvent } from "@/lib/api";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-function path(p: string) { return `${BASE}${p}`; }
-
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric", year: "numeric",
@@ -27,7 +24,7 @@ export default function Events() {
         <div className="container">
           <div className="page-header-inner">
             <div className="breadcrumb">
-              <Link href={path("/")} style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>Home</Link>
+              <Link href="/" style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>Home</Link>
               <span>›</span>
               <span>Events</span>
             </div>
@@ -53,7 +50,7 @@ export default function Events() {
           ) : (
             <div className="cards-grid">
               {events.map(ev => (
-                <Link key={ev.id} href={path(`/events/${ev.id}`)} style={{ textDecoration: "none" }}>
+                <Link key={ev.id} href={`/events/${ev.id}`} style={{ textDecoration: "none" }}>
                   <div className="card">
                     {ev.image_url
                       ? <img src={ev.image_url} alt={ev.title} className="card-image" />
@@ -97,7 +94,7 @@ export default function Events() {
               Our weekly luncheon meetings are held every Tuesday at the Irwin Fire Hall, 221 Main
               Street, Irwin PA 15642. Guests are always welcome — come see what we're about!
             </p>
-            <Link href={path("/contact")} className="btn btn-primary">RSVP as a Guest →</Link>
+            <Link href="/contact" className="btn btn-primary">RSVP as a Guest →</Link>
           </div>
         </div>
       </section>

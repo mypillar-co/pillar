@@ -2,9 +2,6 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "wouter";
 import { api, type NrcEvent } from "@/lib/api";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-function path(p: string) { return `${BASE}${p}`; }
-
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric", year: "numeric",
@@ -69,7 +66,7 @@ export default function EventDetail() {
         <div className="empty-state-icon">😕</div>
         <h3>Event Not Found</h3>
         <p>This event may have been removed or the link is incorrect.</p>
-        <Link href={path("/events")} className="btn btn-outline" style={{ marginTop: "1.5rem" }}>← Back to Events</Link>
+        <Link href="/events" className="btn btn-outline" style={{ marginTop: "1.5rem" }}>← Back to Events</Link>
       </div>
     );
   }
@@ -84,9 +81,9 @@ export default function EventDetail() {
         <div className="container">
           <div className="page-header-inner">
             <div className="breadcrumb">
-              <Link href={path("/")} style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>Home</Link>
+              <Link href="/" style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>Home</Link>
               <span>›</span>
-              <Link href={path("/events")} style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>Events</Link>
+              <Link href="/events" style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>Events</Link>
               <span>›</span>
               <span>{event.title}</span>
             </div>
@@ -213,7 +210,7 @@ export default function EventDetail() {
                   </form>
                 ) : (
                   <div style={{ marginTop: "1.5rem" }}>
-                    <Link href={path("/contact")} className="btn btn-primary" style={{ width: "100%", justifyContent: "center", display: "flex" }}>
+                    <Link href="/contact" className="btn btn-primary" style={{ width: "100%", justifyContent: "center", display: "flex" }}>
                       RSVP / Get Info →
                     </Link>
                   </div>

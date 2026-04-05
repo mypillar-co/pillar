@@ -2,9 +2,6 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "wouter";
 import { api, type GalleryAlbum, type AlbumPhoto } from "@/lib/api";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-function path(p: string) { return `${BASE}${p}`; }
-
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
@@ -23,7 +20,7 @@ export function GalleryList() {
         <div className="container">
           <div className="page-header-inner">
             <div className="breadcrumb">
-              <Link href={path("/")} style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>Home</Link>
+              <Link href="/" style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>Home</Link>
               <span>›</span>
               <span>Gallery</span>
             </div>
@@ -48,7 +45,7 @@ export function GalleryList() {
           ) : (
             <div className="gallery-grid">
               {albums.map(album => (
-                <Link key={album.id} href={path(`/gallery/${album.id}`)} className="gallery-card">
+                <Link key={album.id} href={`/gallery/${album.id}`} className="gallery-card">
                   {album.cover_photo_url
                     ? <img src={album.cover_photo_url} alt={album.title} className="gallery-card-img" />
                     : <div className="gallery-card-placeholder">📸</div>
@@ -96,7 +93,7 @@ export function GalleryAlbumView() {
       <div className="empty-state" style={{ minHeight: "60vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
         <div className="empty-state-icon">😕</div>
         <h3>Album Not Found</h3>
-        <Link href={path("/gallery")} className="btn btn-outline" style={{ marginTop: "1.5rem" }}>← Back to Gallery</Link>
+        <Link href="/gallery" className="btn btn-outline" style={{ marginTop: "1.5rem" }}>← Back to Gallery</Link>
       </div>
     );
   }
@@ -107,9 +104,9 @@ export function GalleryAlbumView() {
         <div className="container">
           <div className="page-header-inner">
             <div className="breadcrumb">
-              <Link href={path("/")} style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>Home</Link>
+              <Link href="/" style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>Home</Link>
               <span>›</span>
-              <Link href={path("/gallery")} style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>Gallery</Link>
+              <Link href="/gallery" style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>Gallery</Link>
               <span>›</span>
               <span>{data.album.title}</span>
             </div>

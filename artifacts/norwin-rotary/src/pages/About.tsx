@@ -1,8 +1,5 @@
 import { Link } from "wouter";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-function path(p: string) { return `${BASE}${p}`; }
-
 const PROGRAMS = [
   { icon: "🎒", title: "Backpack Program", description: "Provides weekend meals to food-insecure students at Norwin schools each school week." },
   { icon: "🎓", title: "Scholarship Fund", description: "Awards college scholarships to deserving Norwin High School seniors pursuing higher education." },
@@ -19,7 +16,7 @@ export default function About() {
         <div className="container">
           <div className="page-header-inner">
             <div className="breadcrumb">
-              <Link href={path("/")} style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>Home</Link>
+              <Link href="/" style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>Home</Link>
               <span>›</span>
               <span>About</span>
             </div>
@@ -50,8 +47,8 @@ export default function About() {
                 neighbors throughout the Norwin School District area.
               </p>
               <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-                <Link href={path("/contact")} className="btn btn-primary">Become a Member</Link>
-                <Link href={path("/events")} className="btn btn-outline">Attend a Meeting</Link>
+                <Link href="/contact" className="btn btn-primary">Become a Member</Link>
+                <Link href="/events" className="btn btn-outline">Attend a Meeting</Link>
               </div>
             </div>
             <div>
@@ -121,7 +118,7 @@ export default function About() {
                 </div>
               </div>
             </div>
-            <Link href={path("/contact")} className="btn btn-primary">RSVP as a Guest →</Link>
+            <Link href="/contact" className="btn btn-primary">RSVP as a Guest →</Link>
           </div>
         </div>
       </section>

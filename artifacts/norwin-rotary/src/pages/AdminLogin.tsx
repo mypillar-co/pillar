@@ -1,8 +1,6 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { api } from "@/lib/api";
-
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export default function AdminLogin() {
   const [, nav] = useLocation();
@@ -16,7 +14,7 @@ export default function AdminLogin() {
     setLoading(true);
     try {
       await api.login(form.username, form.password);
-      nav(`${BASE}/admin`);
+      nav("/admin");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
@@ -65,7 +63,7 @@ export default function AdminLogin() {
           </button>
         </form>
         <p style={{ textAlign: "center", marginTop: "1.5rem", fontSize: "0.82rem", color: "var(--text-muted)" }}>
-          <a href={`${BASE}/`} style={{ color: "var(--text-muted)" }}>← Back to website</a>
+          <Link href="/" style={{ color: "var(--text-muted)" }}>← Back to website</Link>
         </p>
       </div>
     </div>

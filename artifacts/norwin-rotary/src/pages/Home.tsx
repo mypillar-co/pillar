@@ -3,9 +3,6 @@ import { Link } from "wouter";
 import { api, type NrcEvent, type BlogPost, type Sponsor } from "@/lib/api";
 import NewsletterSection from "@/components/NewsletterSection";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-function path(p: string) { return `${BASE}${p}`; }
-
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
@@ -46,8 +43,8 @@ export default function Home() {
               since 1972. Join us every Tuesday at noon.
             </p>
             <div className="hero-actions">
-              <Link href={path("/events")} className="btn btn-primary">View Upcoming Events</Link>
-              <Link href={path("/contact")} className="btn btn-ghost">Get Involved</Link>
+              <Link href="/events" className="btn btn-primary">View Upcoming Events</Link>
+              <Link href="/contact" className="btn btn-ghost">Get Involved</Link>
             </div>
           </div>
         </div>
@@ -96,7 +93,7 @@ export default function Home() {
               {events.map(ev => {
                 const { month, day } = formatShortDate(ev.event_date);
                 return (
-                  <Link key={ev.id} href={path(`/events/${ev.id}`)} style={{ textDecoration: "none" }}>
+                  <Link key={ev.id} href={`/events/${ev.id}`} style={{ textDecoration: "none" }}>
                     <div className="card">
                       {ev.image_url
                         ? <img src={ev.image_url} alt={ev.title} className="card-image" />
@@ -122,7 +119,7 @@ export default function Home() {
             </div>
           )}
           <div style={{ textAlign: "center", marginTop: "2.5rem" }}>
-            <Link href={path("/events")} className="btn btn-outline">View All Events →</Link>
+            <Link href="/events" className="btn btn-outline">View All Events →</Link>
           </div>
         </div>
       </section>
@@ -137,7 +134,7 @@ export default function Home() {
             </div>
             <div className="cards-grid">
               {posts.map(post => (
-                <Link key={post.id} href={path(`/blog/${post.slug}`)} style={{ textDecoration: "none" }}>
+                <Link key={post.id} href={`/blog/${post.slug}`} style={{ textDecoration: "none" }}>
                   <div className="card">
                     {post.cover_image_url
                       ? <img src={post.cover_image_url} alt={post.title} className="card-image" />
@@ -159,7 +156,7 @@ export default function Home() {
               ))}
             </div>
             <div style={{ textAlign: "center", marginTop: "2.5rem" }}>
-              <Link href={path("/blog")} className="btn btn-outline">Read More News →</Link>
+              <Link href="/blog" className="btn btn-outline">Read More News →</Link>
             </div>
           </div>
         </section>
