@@ -31,7 +31,11 @@ export default function Nav() {
           {open ? "✕" : "☰"}
         </button>
 
-        <ul className={`nav-links${open ? " open" : ""}`} onClick={() => setOpen(false)}>
+        <ul
+          className={`nav-links${open ? " open" : ""}`}
+          onClick={() => setOpen(false)}
+          style={open ? { overflowY: "auto", maxHeight: "calc(100vh - 64px)" } : undefined}
+        >
           <li><Link href="/" className={active("/")}>Home</Link></li>
           <li><Link href="/events" className={active("/events")}>Events</Link></li>
           <li><Link href="/blog" className={active("/blog")}>News</Link></li>

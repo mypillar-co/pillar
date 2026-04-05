@@ -35,7 +35,7 @@ function Router() {
     <Switch>
       <Route path="/" component={() => <PublicLayout><Home /></PublicLayout>} />
       <Route path="/events" component={() => <PublicLayout><Events /></PublicLayout>} />
-      <Route path="/events/:id" component={() => <PublicLayout><EventDetail /></PublicLayout>} />
+      <Route path="/events/:slug" component={() => <PublicLayout><EventDetail /></PublicLayout>} />
       <Route path="/blog" component={() => <PublicLayout><Blog /></PublicLayout>} />
       <Route path="/blog/:slug" component={() => <PublicLayout><BlogPost /></PublicLayout>} />
       <Route path="/about" component={() => <PublicLayout><About /></PublicLayout>} />

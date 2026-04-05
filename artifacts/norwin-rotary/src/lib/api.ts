@@ -74,17 +74,17 @@ export const api = {
     adm<{ ok: boolean }>(`/admin/sponsors/${id}`, { method: "DELETE" }),
 
   // ── Newsletter (public) ───────────────────────────────────────────────────
-  subscribe: (email: string, name?: string) =>
+  subscribe: (email: string, name?: string, _hp?: string, _t?: number) =>
     pub<{ ok: boolean; message: string }>("/newsletter/subscribe", {
       method: "POST",
-      body: JSON.stringify({ email, name }),
+      body: JSON.stringify({ email, name, _hp, _t }),
     }),
 
   // ── Newsletter (admin) ────────────────────────────────────────────────────
   adminGetSubscribers: () => adm<NewsletterSubscriber[]>("/admin/newsletter"),
 
   // ── Contact (public) ──────────────────────────────────────────────────────
-  sendContact: (data: { name: string; email: string; message: string; subject?: string }) =>
+  sendContact: (data: { name: string; email: string; message: string; subject?: string; _hp?: string; _t?: number }) =>
     pub<{ ok: boolean; message: string }>("/contact", {
       method: "POST",
       body: JSON.stringify(data),

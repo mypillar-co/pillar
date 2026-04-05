@@ -65,23 +65,23 @@ export interface OrgConfig {
 }
 
 const DEFAULT_CONFIG: OrgConfig = {
-  name: "Our Organization",
-  shortName: "ORG",
-  tagline: "Serving our community",
+  name: "",
+  shortName: "",
+  tagline: "",
   type: "organization",
   primaryColor: "#1e3a5f",
   accentColor: "#f59e0b",
   hero: {
-    headline: "Serving our community",
-    subtext: "Welcome to our organization. Join us in making a difference.",
+    headline: "",
+    subtext: "",
     ctaPrimary: "View Events",
     ctaSecondary: "Get Involved",
   },
   stats: [],
   programs: [],
   about: {
-    mission: "Serving our community",
-    description1: "We are dedicated to making a positive impact in our community.",
+    mission: "",
+    description1: "",
   },
   contact: {},
 };
@@ -104,6 +104,39 @@ export function useOrgConfig() {
   return useContext(OrgConfigContext);
 }
 
+// ── Meta tag helpers ───────────────────────────────────────────────────────────
+
+function setMeta(name: string, content: string, prop = false) {
+  const attr = prop ? "property" : "name";
+  let el = document.querySelector(`meta[${attr}="${name}"]`) as HTMLMetaElement | null;
+  if (!el) {
+    el = document.createElement("meta");
+    el.setAttribute(attr, name);
+    document.head.appendChild(el);
+  }
+  el.content = content;
+}
+
+function applyMetaTags(config: OrgConfig) {
+  if (!config.name) return;
+  const title = config.tagline
+    ? `${config.name} — ${config.tagline}`
+    : config.name;
+  const description = config.about.description1 || config.hero.subtext || `${config.name} — ${config.tagline}`;
+
+  document.title = title;
+  setMeta("description", description);
+  setMeta("og:title", config.name, true);
+  setMeta("og:description", description, true);
+  setMeta("og:type", "website", true);
+  if (config.hero.imageUrl) {
+    setMeta("og:image", config.hero.imageUrl, true);
+  }
+  setMeta("twitter:card", "summary_large_image");
+  setMeta("twitter:title", title);
+  setMeta("twitter:description", description);
+}
+
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export function OrgConfigProvider({ children }: { children: ReactNode }) {
@@ -115,10 +148,12 @@ export function OrgConfigProvider({ children }: { children: ReactNode }) {
     fetch(`/api/org/${orgSlug}/config`)
       .then((r) => r.json())
       .then((data: OrgConfig) => {
-        setConfig({ ...DEFAULT_CONFIG, ...data });
+        const merged = { ...DEFAULT_CONFIG, ...data };
+        setConfig(merged);
+        applyMetaTags(merged);
       })
       .catch(() => {
-        // Keep defaults on error
+        // Keep blank defaults on error — never show filler text
       })
       .finally(() => setLoading(false));
   }, [orgSlug]);
@@ -129,7 +164,6 @@ export function OrgConfigProvider({ children }: { children: ReactNode }) {
     const primary = config.primaryColor ?? "#1e3a5f";
     const accent = config.accentColor ?? "#f59e0b";
 
-    // Compute light/dark variants automatically
     const style = document.getElementById("pillar-org-vars") ?? document.createElement("style");
     style.id = "pillar-org-vars";
     style.textContent = `

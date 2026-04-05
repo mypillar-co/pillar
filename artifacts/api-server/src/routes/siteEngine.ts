@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { db, sitesTable, siteThemesTable, sitePagesTable, siteBlocksTable, siteNavItemsTable, siteDataSourcesTable, siteBlockBindingsTable, siteChangeLogTable, jobQueueTable, siteImportRunsTable, siteVersionsTable, siteRenderCacheTable } from "@workspace/db";
+import { db, sitesTable, siteThemesTable, sitePagesTable, siteBlocksTable, siteNavItemsTable, siteDataSourcesTable, siteBlockBindingsTable, siteChangeLogTable, jobQueueTable, siteImportRunsTable, siteVersionsTable, siteRenderCacheTable, orgSiteContentTable } from "@workspace/db";
 import { eq, and, isNull, desc, sql } from "drizzle-orm";
 import { resolveOrgScope } from "../lib/resolveOrgScope.js";
 import { compileSite } from "@workspace/site/services";
@@ -237,6 +237,28 @@ async function buildAndSaveSiteConfig(
     await db.execute(
       sql`UPDATE organizations SET site_config = ${JSON.stringify(cleanConfig)}::jsonb WHERE id = ${orgId}`,
     );
+
+    // ── Seed org_site_content KV store with standard editable text keys ──
+    // Uses INSERT … ON CONFLICT DO NOTHING so manual edits are never overwritten.
+    const seedKeys: Array<{ key: string; value: string }> = [
+      { key: "home_tagline",       value: config.tagline ?? "" },
+      { key: "hero_headline",      value: config.hero?.headline ?? "" },
+      { key: "hero_subheadline",   value: config.hero?.subtext ?? "" },
+      { key: "about_description",  value: config.about?.description1 ?? "" },
+      { key: "mission_statement",  value: config.about?.mission ?? "" },
+      { key: "contact_email",      value: config.contact?.email ?? "" },
+      { key: "contact_phone",      value: config.contact?.phone ?? "" },
+      { key: "contact_address",    value: config.contact?.address ?? "" },
+      { key: "newsletter_cta",     value: "Stay Connected with Your Community" },
+      { key: "footer_copyright",   value: `© ${new Date().getFullYear()} ${config.name}. All rights reserved.` },
+    ].filter(kv => kv.value.trim());
+
+    for (const kv of seedKeys) {
+      await db.insert(orgSiteContentTable)
+        .values({ orgId, key: kv.key, value: kv.value })
+        .onConflictDoNothing()
+        .catch(() => {/* non-fatal */});
+    }
 
     await logInfo(SERVICE, "buildAndSaveSiteConfig", `site_config saved for org ${orgId}`, { orgId }, orgId);
   } catch (err) {

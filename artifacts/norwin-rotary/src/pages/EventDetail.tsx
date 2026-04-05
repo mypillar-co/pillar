@@ -13,7 +13,7 @@ function formatTime(d: string) {
 }
 
 export default function EventDetail() {
-  const { id } = useParams<{ id: string }>();
+  const { slug } = useParams<{ slug: string }>();
   const [event, setEvent] = useState<NrcEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -24,12 +24,12 @@ export default function EventDetail() {
   const [checkoutError, setCheckoutError] = useState("");
 
   useEffect(() => {
-    if (!id) return;
-    api.getEvent(id)
+    if (!slug) return;
+    api.getEvent(slug)
       .then(setEvent)
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [slug]);
 
   async function handleCheckout(e: React.FormEvent) {
     e.preventDefault();

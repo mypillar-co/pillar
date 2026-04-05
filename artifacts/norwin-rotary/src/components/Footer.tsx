@@ -15,7 +15,9 @@ export default function Footer() {
     );
   }
 
-  const { name, contact, meeting, footer: footerCfg } = config;
+  const { name, contact, meeting, footer: footerCfg, parentOrg } = config;
+  const parentName = footerCfg?.parentName ?? parentOrg;
+  const parentUrl = footerCfg?.parentUrl;
 
   return (
     <footer className="footer">
@@ -28,6 +30,14 @@ export default function Footer() {
             </p>
             {footerCfg?.badge && (
               <span className="footer-badge">{footerCfg.badge}</span>
+            )}
+            {parentName && (
+              <p style={{ fontSize: "0.8rem", opacity: 0.7, marginTop: "0.75rem" }}>
+                {parentUrl
+                  ? <>Member of <a href={parentUrl} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "underline" }}>{parentName}</a></>
+                  : <>Member of {parentName}</>
+                }
+              </p>
             )}
           </div>
           <div>
@@ -45,10 +55,10 @@ export default function Footer() {
               <li><Link href="/about">About Us</Link></li>
               <li><Link href="/about#programs">Programs</Link></li>
               <li><Link href="/contact">Get Involved</Link></li>
-              {footerCfg?.parentUrl && footerCfg?.parentName && (
+              {parentUrl && parentName && (
                 <li>
-                  <a href={footerCfg.parentUrl} target="_blank" rel="noopener noreferrer">
-                    {footerCfg.parentName}
+                  <a href={parentUrl} target="_blank" rel="noopener noreferrer">
+                    {parentName}
                   </a>
                 </li>
               )}
@@ -75,9 +85,17 @@ export default function Footer() {
         </div>
         <div className="footer-bottom">
           <span>© {year} {name}. All rights reserved.</span>
-          <div style={{ display: "flex", gap: "1.5rem" }}>
+          <div style={{ display: "flex", gap: "1.5rem", alignItems: "center" }}>
             <Link href="/contact">Contact</Link>
             <Link href="/admin">Admin</Link>
+            <a
+              href="https://mypillar.co"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontSize: "0.75rem", opacity: 0.5 }}
+            >
+              Powered by Pillar
+            </a>
           </div>
         </div>
       </div>

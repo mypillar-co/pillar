@@ -1,17 +1,25 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { api } from "@/lib/api";
 
 export default function NewsletterSection() {
   const [email, setEmail] = useState("");
+  const [honeypot, setHoneypot] = useState("");
+  const renderTime = useRef(Date.now());
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [msg, setMsg] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!email) return;
+
+    // Bot protection: honeypot filled → silent drop
+    if (honeypot) return;
+    // Bot protection: submitted in under 3 seconds → silent drop
+    if (Date.now() - renderTime.current < 3000) return;
+
     setStatus("loading");
     try {
-      const res = await api.subscribe(email);
+      const res = await api.subscribe(email, undefined, honeypot, renderTime.current);
       setMsg(res.message);
       setStatus("success");
       setEmail("");
@@ -32,6 +40,17 @@ export default function NewsletterSection() {
           </p>
         ) : (
           <form className="newsletter-form" onSubmit={handleSubmit}>
+            {/* Honeypot — invisible to real users */}
+            <div style={{ display: "none" }} aria-hidden="true">
+              <input
+                type="text"
+                name="website"
+                value={honeypot}
+                onChange={e => setHoneypot(e.target.value)}
+                tabIndex={-1}
+                autoComplete="off"
+              />
+            </div>
             <input
               type="email"
               placeholder="Your email address"

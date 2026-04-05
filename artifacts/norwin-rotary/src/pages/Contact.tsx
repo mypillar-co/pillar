@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Link } from "wouter";
 import { api } from "@/lib/api";
 import { useOrgConfig } from "@/contexts/OrgConfigContext";
@@ -8,6 +8,8 @@ export default function Contact() {
   const { contact, meeting } = config;
 
   const [form, setForm] = useState({ name: "", email: "", subject: "", message: "" });
+  const [honeypot, setHoneypot] = useState("");
+  const renderTime = useRef(Date.now());
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [msg, setMsg] = useState("");
 
@@ -17,9 +19,15 @@ export default function Contact() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    // Bot protection: honeypot filled → silent drop
+    if (honeypot) return;
+    // Bot protection: submitted in under 3 seconds → silent drop
+    if (Date.now() - renderTime.current < 3000) return;
+
     setStatus("loading");
     try {
-      const res = await api.sendContact(form);
+      const res = await api.sendContact({ ...form, _hp: honeypot, _t: renderTime.current });
       setMsg(res.message);
       setStatus("success");
     } catch (err) {
@@ -140,6 +148,20 @@ export default function Contact() {
               ) : (
                 <form onSubmit={handleSubmit} style={{ background: "var(--surface)", borderRadius: 14, padding: "2rem", border: "1.5px solid var(--border)" }}>
                   <h2 style={{ margin: "0 0 1.5rem", fontSize: "1.25rem", fontWeight: 700 }}>Send Us a Message</h2>
+
+                  {/* Honeypot — hidden from real users, bots fill it */}
+                  <div style={{ display: "none" }} aria-hidden="true">
+                    <label>Leave this blank</label>
+                    <input
+                      type="text"
+                      name="website"
+                      value={honeypot}
+                      onChange={e => setHoneypot(e.target.value)}
+                      tabIndex={-1}
+                      autoComplete="off"
+                    />
+                  </div>
+
                   <div className="form-group">
                     <label className="form-label">Your Name *</label>
                     <input

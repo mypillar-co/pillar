@@ -1857,4 +1857,52 @@ router.get("/newsletter/unsubscribe", async (req: Request, res: Response) => {
   res.send(`<html><body style="font-family:system-ui;text-align:center;padding:60px"><h2>You've been unsubscribed.</h2><p>You will no longer receive newsletters from this organization.</p></body></html>`);
 });
 
+// ── Site content KV store — direct REST endpoints (no AI required) ──────────
+// These allow the Steward admin UI and AI agent to read/write editable site
+// content keys without going through the management chat endpoint.
+
+router.get("/content", async (req: Request, res: Response) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+
+  const rows = await db
+    .select()
+    .from(orgSiteContentTable)
+    .where(eq(orgSiteContentTable.orgId, org.id))
+    .orderBy(orgSiteContentTable.key);
+
+  res.json(rows.map(r => ({ key: r.key, value: r.value, updatedAt: r.updatedAt })));
+});
+
+router.put("/content", async (req: Request, res: Response) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+
+  const { key, value } = req.body as { key?: string; value?: string };
+  if (!key?.trim()) { res.status(400).json({ error: "key is required" }); return; }
+  if (value === undefined || value === null) { res.status(400).json({ error: "value is required" }); return; }
+
+  await db
+    .insert(orgSiteContentTable)
+    .values({ orgId: org.id, key: key.trim(), value: String(value) })
+    .onConflictDoUpdate({
+      target: [orgSiteContentTable.orgId, orgSiteContentTable.key],
+      set: { value: String(value), updatedAt: new Date() },
+    });
+
+  res.json({ ok: true, key: key.trim(), value: String(value) });
+});
+
+router.delete("/content/:key", async (req: Request, res: Response) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+
+  const { key } = req.params as { key: string };
+  await db
+    .delete(orgSiteContentTable)
+    .where(and(eq(orgSiteContentTable.orgId, org.id), eq(orgSiteContentTable.key, key)));
+
+  res.json({ ok: true });
+});
+
 export default router;

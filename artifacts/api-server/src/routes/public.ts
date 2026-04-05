@@ -49,25 +49,27 @@ router.get("/:orgSlug/config", async (req: Request, res: Response) => {
     let config = row.site_config as Record<string, unknown> | null;
 
     // Fall back to minimal default if org hasn't been configured yet
+    // IMPORTANT: no filler text — blank fields are better than fake content
     if (!config) {
+      const orgName = String(row.name ?? "");
       config = {
-        name: String(row.name ?? ""),
-        shortName: String(row.name ?? "").split(" ").map((w: string) => w[0]).join("").slice(0, 3),
-        tagline: "Serving our community",
+        name: orgName,
+        shortName: orgName.split(" ").map((w: string) => w[0]).join("").slice(0, 3),
+        tagline: "",
         type: String(row.type ?? "organization"),
         primaryColor: "#1e3a5f",
         accentColor: "#f59e0b",
         hero: {
-          headline: "Serving our community",
-          subtext: `Welcome to ${String(row.name ?? "our organization")}. Join us in making a difference.`,
+          headline: orgName,
+          subtext: "",
           ctaPrimary: "View Upcoming Events",
           ctaSecondary: "Get Involved",
         },
         stats: [],
         programs: [],
         about: {
-          mission: "Serving our community",
-          description1: `Welcome to ${String(row.name ?? "our organization")}.`,
+          mission: "",
+          description1: "",
         },
         contact: {},
       };
@@ -302,7 +304,19 @@ router.get("/:orgSlug/gallery/:albumId", async (req: Request, res: Response) => 
 router.post("/:orgSlug/contact", async (req: Request, res: Response) => {
   try {
     const { orgSlug } = req.params as { orgSlug: string };
-    const { name, email, subject, message } = req.body as Record<string, unknown>;
+    const { name, email, subject, message, _hp, _t } = req.body as Record<string, unknown>;
+
+    // Bot protection: honeypot field filled → silent drop
+    if (_hp) {
+      res.json({ ok: true, message: "Your message has been sent. We'll get back to you soon!" });
+      return;
+    }
+    // Bot protection: submitted faster than any human can read + fill a form
+    if (_t && Date.now() - Number(_t) < 3000) {
+      res.json({ ok: true, message: "Your message has been sent. We'll get back to you soon!" });
+      return;
+    }
+
     if (!name || !email || !message) {
       res.status(400).json({ error: "name, email, and message are required" });
       return;
@@ -334,7 +348,19 @@ router.post("/:orgSlug/contact", async (req: Request, res: Response) => {
 router.post("/:orgSlug/newsletter/subscribe", async (req: Request, res: Response) => {
   try {
     const { orgSlug } = req.params as { orgSlug: string };
-    const { email, name } = req.body as Record<string, unknown>;
+    const { email, name, _hp, _t } = req.body as Record<string, unknown>;
+
+    // Bot protection: honeypot field filled → silent drop
+    if (_hp) {
+      res.json({ ok: true, message: "You've been subscribed! Welcome to the community." });
+      return;
+    }
+    // Bot protection: submitted in under 3 seconds → silent drop
+    if (_t && Date.now() - Number(_t) < 3000) {
+      res.json({ ok: true, message: "You've been subscribed! Welcome to the community." });
+      return;
+    }
+
     if (!email) {
       res.status(400).json({ error: "Email is required" });
       return;

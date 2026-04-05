@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { api, type NrcEvent } from "@/lib/api";
+import { useOrgConfig } from "@/contexts/OrgConfigContext";
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", {
@@ -11,6 +12,8 @@ function formatDate(d: string) {
 export default function Events() {
   const [events, setEvents] = useState<NrcEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const { config } = useOrgConfig();
+  const { meeting } = config;
 
   useEffect(() => {
     api.getEvents()
@@ -50,7 +53,7 @@ export default function Events() {
           ) : (
             <div className="cards-grid">
               {events.map(ev => (
-                <Link key={ev.id} href={`/events/${ev.id}`} style={{ textDecoration: "none" }}>
+                <Link key={ev.id} href={`/events/${ev.slug ?? ev.id}`} style={{ textDecoration: "none" }}>
                   <div className="card">
                     {ev.image_url
                       ? <img src={ev.image_url} alt={ev.title} className="card-image" />
@@ -84,20 +87,24 @@ export default function Events() {
         </div>
       </section>
 
-      {/* Weekly meeting info */}
-      <section className="section section-alt">
-        <div className="container">
-          <div style={{ maxWidth: 640, margin: "0 auto", textAlign: "center" }}>
-            <span className="section-eyebrow">Weekly Meetings</span>
-            <h2>Every Tuesday at 12:00 PM</h2>
-            <p style={{ color: "var(--text-muted)", fontSize: "1.05rem", margin: "0 0 2rem" }}>
-              Our weekly luncheon meetings are held every Tuesday at the Irwin Fire Hall, 221 Main
-              Street, Irwin PA 15642. Guests are always welcome — come see what we're about!
-            </p>
-            <Link href="/contact" className="btn btn-primary">RSVP as a Guest →</Link>
+      {meeting?.schedule && (
+        <section className="section section-alt">
+          <div className="container">
+            <div style={{ maxWidth: 640, margin: "0 auto", textAlign: "center" }}>
+              <span className="section-eyebrow">Regular Meetings</span>
+              <h2>{meeting.schedule}</h2>
+              {meeting.venue && (
+                <p style={{ color: "var(--text-muted)", fontSize: "1.05rem", margin: "0 0 2rem" }}>
+                  {meeting.venue}
+                  {meeting.address ? `, ${meeting.address}` : ""}
+                  {meeting.guestsWelcome ? " — Guests are always welcome!" : ""}
+                </p>
+              )}
+              <Link href="/contact" className="btn btn-primary">RSVP as a Guest →</Link>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
     </div>
   );
 }
