@@ -220,8 +220,46 @@ async function patchHomepageWithFeaturedEvents(orgSlug: string, storedHtml: stri
   }
 }
 
+/**
+ * Rewrites root-relative internal links to include the /sites/:slug prefix.
+ * Required when serving via path-based routing (/sites/:slug) so that clicking
+ * event cards, nav links, etc. stays within the correct org context.
+ * In production (host-based routing at slug.mypillar.co), this is NOT applied —
+ * root-relative links already resolve correctly against the org's subdomain.
+ */
+function rewriteLinksForPathBasedRouting(html: string, orgSlug: string): string {
+  const base = `/sites/${orgSlug}`;
+  let result = html;
+
+  // href="/events..." → href="/sites/slug/events..."
+  result = result.replace(/href="(\/events[^"]*)"/g, `href="${base}$1"`);
+  result = result.replace(/href='(\/events[^']*)'/g, `href='${base}$1'`);
+
+  // href="/" exactly (home link) → href="/sites/slug/"
+  result = result.replace(/href="\/"/g, `href="${base}/"`);
+  result = result.replace(/href='\/'/g, `href='${base}/'`);
+
+  // href="/#section" → href="/sites/slug/#section"
+  result = result.replace(/href="\/#/g, `href="${base}/#`);
+  result = result.replace(/href='\/\#/g, `href='${base}/#`);
+
+  // onclick: location.href='/events/...' → location.href='/sites/slug/events/...'
+  result = result.replace(/location\.href='(\/events[^']*)'/g, `location.href='${base}$1'`);
+  result = result.replace(/location\.href="(\/events[^"]*)"/g, `location.href="${base}$1"`);
+
+  // window.location.href='/events/...' (fetch/JS)
+  result = result.replace(/window\.location\.href\s*=\s*'(\/events[^']*)'/g, `window.location.href='${base}$1'`);
+  result = result.replace(/window\.location\.href\s*=\s*"(\/events[^"]*)"/g, `window.location.href="${base}$1"`);
+
+  // Guard: strip any double-prefix that crept in (idempotent)
+  const escapedBase = base.replace(/[/]/g, "\\/");
+  result = result.replace(new RegExp(`${escapedBase}${escapedBase}`, "g"), base);
+
+  return result;
+}
+
 // Shared site HTML response helper
-function sendSiteHtml(res: express.Response, html: string): void {
+function sendSiteHtml(res: express.Response, html: string, pathBasedOrgSlug?: string): void {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.setHeader("Cache-Control", "public, max-age=60");
   // Allow inline scripts (site animations/observer), Google Fonts, and external images (Unsplash, org CDNs)
@@ -235,10 +273,13 @@ function sendSiteHtml(res: express.Response, html: string): void {
     "frame-ancestors 'none'"
   );
   res.setHeader("X-Content-Type-Options", "nosniff");
-  const injected = html.includes("</body>")
-    ? html.replace("</body>", `${POWERED_BY_FOOTER}</body>`)
-    : html + POWERED_BY_FOOTER;
-  res.send(injected);
+  let content = pathBasedOrgSlug
+    ? rewriteLinksForPathBasedRouting(html, pathBasedOrgSlug)
+    : html;
+  content = content.includes("</body>")
+    ? content.replace("</body>", `${POWERED_BY_FOOTER}</body>`)
+    : content + POWERED_BY_FOOTER;
+  res.send(content);
 }
 
 const SITE_NOT_FOUND_HTML = `<!DOCTYPE html><html><head><title>Site Not Found</title><style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#0f172a;color:#94a3b8;text-align:center}.box{max-width:400px;padding:2rem}.title{color:#fff;font-size:1.5rem;margin-bottom:.5rem}</style></head><body><div class="box"><div class="title">Site not found</div><p>This organization hasn't published their site yet.</p><a href="/" style="color:#f59e0b;text-decoration:none">← Pillar Home</a></div></body></html>`;
@@ -268,7 +309,9 @@ app.get("/sites/:slug", async (req, res) => {
       return;
     }
     const patchedHtml = await patchHomepageWithFeaturedEvents(slug, site.generatedHtml);
-    sendSiteHtml(res, patchedHtml);
+    // Pass slug so root-relative links (/events/...) are rewritten to /sites/:slug/events/...
+    // This is only needed for path-based dev routing; in production, host routing handles it.
+    sendSiteHtml(res, patchedHtml, slug);
   } catch (err) {
     logger.error({ err }, "[/sites/:slug] error");
     res.status(404).send(SITE_NOT_FOUND_HTML);
@@ -320,6 +363,10 @@ app.use(async (req, res, next) => {
   let subPath: string = req.path;
   // host is set when routing via Host header (pattern 2) so custom-domain routing can use it
   let host = "";
+  // isPathBased is true when routing via /sites/:slug (dev/Replit proxy environment).
+  // In this mode, root-relative links (/events/slug) need to be rewritten to
+  // include the /sites/:slug prefix so navigation stays within the correct org context.
+  let isPathBased = false;
 
   // ── Pattern 1: Path-based routing /sites/:slug[/*] ────────────────────────
   // Replit's deployment proxy converts norwin-rotary-club.mypillar.co/foo → /sites/norwin-rotary-club/foo
@@ -329,6 +376,7 @@ app.use(async (req, res, next) => {
     if (pathBasedMatch[1].startsWith("_")) return next();
     orgSlug = pathBasedMatch[1];
     subPath = pathBasedMatch[2] || "/";
+    isPathBased = true;
   } else {
     // ── Pattern 2: Host-based routing (<slug>.mypillar.co or custom domain) ─
     const rawHost = (req.headers["x-forwarded-host"] ?? req.headers.host ?? "") as string;
@@ -373,7 +421,7 @@ app.use(async (req, res, next) => {
       const html = buildEventsListingPage({ events, org, siteHtml });
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.setHeader("Cache-Control", "no-store, no-cache");
-      res.send(html);
+      res.send(isPathBased ? rewriteLinksForPathBasedRouting(html, orgSlug) : html);
       return;
     }
 
@@ -438,7 +486,7 @@ app.use(async (req, res, next) => {
       });
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.setHeader("Cache-Control", "no-store, no-cache");
-      res.send(html);
+      res.send(isPathBased ? rewriteLinksForPathBasedRouting(html, orgSlug) : html);
       return;
     }
 
@@ -491,7 +539,7 @@ app.use(async (req, res, next) => {
         });
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         res.setHeader("Cache-Control", "no-store");
-        res.send(html);
+        res.send(isPathBased ? rewriteLinksForPathBasedRouting(html, orgSlug) : html);
         return;
       }
 
@@ -522,7 +570,7 @@ app.use(async (req, res, next) => {
 
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.setHeader("Cache-Control", "no-store, no-cache");
-      res.send(html);
+      res.send(isPathBased ? rewriteLinksForPathBasedRouting(html, orgSlug) : html);
       return;
     }
 
@@ -574,7 +622,7 @@ app.use(async (req, res, next) => {
 
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.setHeader("Cache-Control", "no-store, no-cache");
-      res.send(html);
+      res.send(isPathBased ? rewriteLinksForPathBasedRouting(html, orgSlug) : html);
       return;
     }
 
