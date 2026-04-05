@@ -80,6 +80,33 @@ The project is organized as a monorepo containing several distinct packages:
 - **Slug Uniqueness**: Database constraint ensures unique organization slugs.
 - **Webhook Safety**: Errors fail closed (re-thrown for Stripe retry). Idempotent payment processing. Atomic inventory reservation with rollback on failure.
 
+## React SPA Routing in Replit (REQUIRED for every multi-page site)
+
+Every React SPA served via Vite at a sub-path (e.g. `/norwin-rotary`) **must** include this custom middleware in its `vite.config.ts` to make subpages work in Replit's proxy environment. Without it, navigating directly to `/norwin-rotary/events` returns a blank page because Vite's default SPA fallback doesn't intercept before asset requests arrive.
+
+```ts
+{
+  name: "spa-history-fallback",
+  configureServer(server) {
+    server.middlewares.use((req, _res, next) => {
+      const url = req.url ?? "/";
+      const rawPath = url.split("?")[0];
+      const hasFileExtension = /\.[a-zA-Z0-9]+$/.test(rawPath);
+      // Exclude Vite internal virtual modules (/@vite/client, /@fs/, /__vite_ping, etc.)
+      const isViteInternal = url.includes("/@") || url.includes("/__");
+      if (!hasFileExtension && !isViteInternal) {
+        req.url = basePath + "/";
+      }
+      next();
+    });
+  },
+},
+```
+
+This must go inside the `plugins` array, BEFORE the cartographer/dev-banner plugins. The `basePath` variable must already be defined (from `process.env.BASE_PATH`). The wouter `Router` must use `base={import.meta.env.BASE_URL.replace(/\/$/, "")}`.
+
+**Why it's needed:** Replit's reverse proxy forwards full paths (e.g. `/norwin-rotary/events`) to the Vite dev server. Vite returns the correct HTML at 200, but the middleware must rewrite the URL so Vite's HTML fallback serves `index.html` correctly. The `isViteInternal` check is critical — without it, Vite's own `/@vite/client` request gets caught and rewritten, breaking JS bundle loading (blank page).
+
 ## Site Building Standards (Lessons from Norwin Rotary Review)
 
 These rules apply to every org site Pillar generates. Violations destroy credibility.
