@@ -2,9 +2,6 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "wouter";
 import { api, type BlogPost as BlogPostType } from "@/lib/api";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-function path(p: string) { return `${BASE}${p}`; }
-
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
@@ -38,7 +35,7 @@ export default function BlogPost() {
         <div className="empty-state-icon">😕</div>
         <h3>Article Not Found</h3>
         <p>This article may have been removed or the link is incorrect.</p>
-        <Link href={path("/blog")} className="btn btn-outline" style={{ marginTop: "1.5rem" }}>← Back to News</Link>
+        <Link href="/blog" className="btn btn-outline" style={{ marginTop: "1.5rem" }}>← Back to News</Link>
       </div>
     );
   }
@@ -49,9 +46,9 @@ export default function BlogPost() {
         <div className="container">
           <div className="page-header-inner">
             <div className="breadcrumb">
-              <Link href={path("/")} style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>Home</Link>
+              <Link href="/" style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>Home</Link>
               <span>›</span>
-              <Link href={path("/blog")} style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>News</Link>
+              <Link href="/blog" style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>News</Link>
               <span>›</span>
               <span>{post.title}</span>
             </div>
@@ -96,7 +93,7 @@ export default function BlogPost() {
               }
             </div>
             <hr className="divider" />
-            <Link href={path("/blog")} className="btn btn-outline">← Back to All News</Link>
+            <Link href="/blog" className="btn btn-outline">← Back to All News</Link>
           </div>
         </div>
       </section>

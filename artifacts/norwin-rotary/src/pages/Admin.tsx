@@ -45,9 +45,9 @@ function Sidebar({ section, setSection, onLogout }: {
           </li>
         ))}
         <li style={{ marginTop: "auto", borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: "1rem", marginTop: "2rem" }}>
-          <a href={path("/")} style={{ color: "rgba(255,255,255,0.5)", textDecoration: "none", display: "flex", gap: "0.65rem", padding: "0.65rem 1.25rem", fontSize: "0.875rem" }}>
+          <Link href="/" style={{ color: "rgba(255,255,255,0.5)", textDecoration: "none", display: "flex", gap: "0.65rem", padding: "0.65rem 1.25rem", fontSize: "0.875rem" }}>
             <span>🏠</span> View Website
-          </a>
+          </Link>
         </li>
         <li>
           <button onClick={onLogout}>
@@ -651,17 +651,17 @@ export default function Admin() {
   useEffect(() => {
     api.me().then(res => {
       if (!res.authenticated) {
-        nav(path("/admin/login"));
+        nav("/admin/login");
       } else {
         setAuthed(true);
         api.adminGetStats().then(setStats).catch(() => {});
       }
-    }).catch(() => nav(path("/admin/login")));
+    }).catch(() => nav("/admin/login"));
   }, []);
 
   async function handleLogout() {
     await api.logout();
-    nav(path("/admin/login"));
+    nav("/admin/login");
   }
 
   if (authed === null) {

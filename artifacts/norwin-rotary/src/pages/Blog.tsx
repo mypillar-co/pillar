@@ -2,9 +2,6 @@ import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { api, type BlogPost } from "@/lib/api";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-function path(p: string) { return `${BASE}${p}`; }
-
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
@@ -23,7 +20,7 @@ export default function Blog() {
         <div className="container">
           <div className="page-header-inner">
             <div className="breadcrumb">
-              <Link href={path("/")} style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>Home</Link>
+              <Link href="/" style={{ color: "rgba(255,255,255,0.75)", textDecoration: "none" }}>Home</Link>
               <span>›</span>
               <span>Community News</span>
             </div>
@@ -49,7 +46,7 @@ export default function Blog() {
           ) : (
             <div className="cards-grid">
               {posts.map(post => (
-                <Link key={post.id} href={path(`/blog/${post.slug}`)} style={{ textDecoration: "none" }}>
+                <Link key={post.id} href={`/blog/${post.slug}`} style={{ textDecoration: "none" }}>
                   <div className="card">
                     {post.cover_image_url
                       ? <img src={post.cover_image_url} alt={post.title} className="card-image" />
