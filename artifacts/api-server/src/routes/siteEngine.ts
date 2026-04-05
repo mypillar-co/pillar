@@ -85,6 +85,166 @@ async function getOrCreateSite(orgId: string, orgName?: string): Promise<typeof 
   return site;
 }
 
+// ── React Template: site_config builder ────────────────────────────────────────
+// Maps the AI-generated site profile + theme + block content into the
+// site_config JSON that powers the universal React org template.
+
+const PROGRAM_ICON_MAP: [string, string][] = [
+  ["backpack", "🎒"], ["food", "🍱"], ["meal", "🍱"], ["hunger", "🍱"],
+  ["scholar", "🎓"], ["education", "📚"], ["literacy", "📖"], ["dictionary", "📖"], ["school", "🏫"],
+  ["garden", "🌱"], ["environment", "🌿"], ["nature", "🌿"], ["tree", "🌳"],
+  ["health", "🩺"], ["medical", "🩺"], ["clinic", "🩺"],
+  ["global", "🌍"], ["international", "🌐"], ["polio", "💉"], ["vaccine", "💉"],
+  ["youth", "👦"], ["children", "👧"], ["kids", "👧"],
+  ["senior", "👴"], ["elder", "👴"], ["veteran", "🎖️"], ["military", "🎖️"],
+  ["music", "🎵"], ["arts", "🎨"], ["theater", "🎭"],
+  ["sports", "⚽"], ["athletic", "🏃"], ["fitness", "💪"],
+  ["house", "🏠"], ["shelter", "🏠"], ["housing", "🏠"],
+  ["fund", "💰"], ["grant", "💰"], ["financ", "💰"],
+  ["animal", "🐾"], ["pet", "🐾"],
+  ["tech", "💻"], ["stem", "🔬"], ["science", "🔬"],
+  ["communit", "🤝"], ["service", "🤲"], ["volunteer", "🙋"],
+];
+
+function programIcon(name: string): string {
+  const lower = name.toLowerCase();
+  return PROGRAM_ICON_MAP.find(([k]) => lower.includes(k))?.[1] ?? "✨";
+}
+
+function shortName(orgName: string): string {
+  const words = orgName
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !["the", "and", "of", "for", "a", "an"].includes(w.toLowerCase()));
+  if (words.length >= 2) return words.slice(0, 3).map(w => w[0].toUpperCase()).join("");
+  return orgName.slice(0, 3).toUpperCase();
+}
+
+function findBlockContent(
+  plan: { pages: Array<{ isHomepage?: boolean; blocks: Array<{ blockType: string; id: string }> }> },
+  contentMap: Record<string, Record<string, unknown>>,
+  blockType: string,
+  homepageOnly = false,
+): Record<string, unknown> | null {
+  const pages = homepageOnly
+    ? plan.pages.filter(p => p.isHomepage)
+    : plan.pages;
+  for (const page of pages) {
+    const block = page.blocks.find(b => b.blockType === blockType);
+    if (block && contentMap[block.id]) return contentMap[block.id];
+  }
+  return null;
+}
+
+interface SiteConfigTheme { colorPrimary: string; colorAccent: string }
+interface SiteConfigProfile {
+  orgName: string; orgType: string; tagline: string; mission: string; description: string;
+  contactEmail: string; contactPhone: string; address: string;
+  heroImageUrl?: string; programs: string[];
+  foundingYear?: string; memberCount?: string;
+}
+
+async function buildAndSaveSiteConfig(
+  orgId: string,
+  profile: SiteConfigProfile,
+  theme: SiteConfigTheme,
+  contentMap: Record<string, Record<string, unknown>>,
+  plan: { pages: Array<{ isHomepage?: boolean; blocks: Array<{ blockType: string; id: string }> }> },
+): Promise<void> {
+  try {
+    // ── Extract block content ────────────────────────────────────────────
+    const hero = findBlockContent(plan, contentMap, "hero", true);
+    const about = findBlockContent(plan, contentMap, "about");
+    const cards = findBlockContent(plan, contentMap, "cards");
+    const statsBlock = findBlockContent(plan, contentMap, "stats");
+    const contact = findBlockContent(plan, contentMap, "contact");
+
+    // ── Stats ────────────────────────────────────────────────────────────
+    const stats: Array<{ value: string; label: string }> = [];
+    if (statsBlock?.stats && Array.isArray(statsBlock.stats)) {
+      for (const s of statsBlock.stats as Array<{ value: string; label: string }>) {
+        if (s.value && s.label) stats.push({ value: String(s.value), label: String(s.label) });
+      }
+    }
+    if (stats.length === 0) {
+      if (profile.foundingYear) stats.push({ value: profile.foundingYear, label: "Year Founded" });
+      if (profile.memberCount) stats.push({ value: profile.memberCount, label: "Active Members" });
+    }
+
+    // ── Programs ────────────────────────────────────────────────────────
+    let programs: Array<{ icon: string; title: string; description: string }> = [];
+    if (cards?.cards && Array.isArray(cards.cards)) {
+      programs = (cards.cards as Array<{ title?: string; description?: string; icon?: string }>)
+        .slice(0, 6)
+        .map(c => ({
+          icon: String(c.icon ?? programIcon(c.title ?? "")),
+          title: String(c.title ?? "Program"),
+          description: String(c.description ?? "We serve our community through this program."),
+        }));
+    }
+    if (programs.length === 0 && profile.programs.length > 0) {
+      programs = profile.programs
+        .filter(p => !p.startsWith("__kw_") || true)
+        .map(p => {
+          const display = p.startsWith("__kw_")
+            ? p.replace("__kw_", "").replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+            : p;
+          return { icon: programIcon(display), title: display, description: `Our ${display} initiative serves the community through dedicated volunteer efforts and local partnerships.` };
+        })
+        .slice(0, 6);
+    }
+
+    // ── Build config ─────────────────────────────────────────────────────
+    const config = {
+      name: profile.orgName,
+      shortName: shortName(profile.orgName),
+      tagline: profile.tagline || profile.mission || `${profile.orgName} — Serving Our Community`,
+      type: profile.orgType,
+      primaryColor: theme.colorPrimary,
+      accentColor: theme.colorAccent,
+      hero: {
+        headline: String(hero?.headline ?? profile.tagline ?? profile.orgName),
+        subtext: String(hero?.subheadline ?? profile.mission),
+        eyebrow: hero?.orgTypeLabel ? String(hero.orgTypeLabel) : undefined,
+        imageUrl: String(hero?.imageUrl ?? profile.heroImageUrl ?? ""),
+        ctaPrimary: String(hero?.ctaText ?? "View Upcoming Events"),
+        ctaSecondary: "Get Involved",
+      },
+      stats,
+      programs,
+      about: {
+        mission: profile.mission,
+        description1: String(about?.body ?? profile.description ?? profile.mission),
+        imageUrl: String(about?.imageUrl ?? profile.heroImageUrl ?? ""),
+      },
+      contact: {
+        address: String(contact?.address ?? profile.address ?? ""),
+        phone: String(contact?.phone ?? profile.contactPhone ?? ""),
+        email: String(contact?.email ?? profile.contactEmail ?? ""),
+        membershipText: `Membership is open to all who share our commitment to community service. Come visit us and see what we're about.`,
+      },
+    };
+
+    // Strip empty strings so OrgConfigContext falls back gracefully
+    function stripEmpty(obj: Record<string, unknown>): Record<string, unknown> {
+      return Object.fromEntries(
+        Object.entries(obj).filter(([, v]) => v !== "" && v !== undefined && v !== null)
+          .map(([k, v]) => [k, v && typeof v === "object" && !Array.isArray(v) ? stripEmpty(v as Record<string, unknown>) : v]),
+      );
+    }
+
+    const cleanConfig = stripEmpty(config as unknown as Record<string, unknown>);
+
+    await db.execute(
+      sql`UPDATE organizations SET site_config = ${JSON.stringify(cleanConfig)}::jsonb WHERE id = ${orgId}`,
+    );
+
+    await logInfo(SERVICE, "buildAndSaveSiteConfig", `site_config saved for org ${orgId}`, { orgId }, orgId);
+  } catch (err) {
+    // Non-fatal: log but don't throw — HTML generation is unaffected
+    await logError(SERVICE, "buildAndSaveSiteConfig", `site_config save failed for ${orgId}`, { orgId }, err as Error, orgId).catch(() => {});
+  }
+}
+
 router.post("/generate", resolveOrgScope, async (req: Request, res: Response) => {
   const orgId = req.orgId!;
 
@@ -356,6 +516,29 @@ router.post("/generate", resolveOrgScope, async (req: Request, res: Response) =>
     await initializeModulesForSite(orgId, site.id);
 
     const compiledHtml = await compileSite(orgId, site.id, "full_compile");
+
+    // ── Build & save site_config for the React template ──────────────────
+    // Runs in parallel with the DB update below (non-blocking).
+    void buildAndSaveSiteConfig(
+      orgId,
+      {
+        orgName: profile.orgName,
+        orgType: profile.orgType,
+        tagline: profile.tagline,
+        mission: profile.mission,
+        description: profile.description,
+        contactEmail: profile.contactEmail,
+        contactPhone: profile.contactPhone,
+        address: profile.address,
+        heroImageUrl: profile.heroImageUrl,
+        programs: profile.programs,
+        foundingYear: profile.foundingYear,
+        memberCount: profile.memberCount,
+      },
+      { colorPrimary: theme.colorPrimary, colorAccent: theme.colorAccent },
+      contentResult.contentMap as Record<string, Record<string, unknown>>,
+      plan,
+    );
 
     await db.update(sitesTable)
       .set({ status: "draft", name: profile.orgName, version: sql`${sitesTable.version} + 1` })

@@ -401,13 +401,18 @@ app.use(async (req, res, next) => {
       const reactIndexHtml = path.join(reactDistDir, "index.html");
 
       if (fs.existsSync(reactIndexHtml)) {
-        // Quick DB check: does this org have a React site_config?
+        // Quick DB check: org has site_config AND site is published
         const cfgCheck = await db.execute(
-          drizzleSql`SELECT (site_config IS NOT NULL) AS has_react_site FROM organizations WHERE slug = ${orgSlug} LIMIT 1`,
+          drizzleSql`
+            SELECT (o.site_config IS NOT NULL) AS has_react_site,
+                   s.status AS site_status
+            FROM organizations o
+            LEFT JOIN sites s ON s.org_slug = o.slug AND s.deleted_at IS NULL
+            WHERE o.slug = ${orgSlug} LIMIT 1`,
         );
-        const hasReactSite = Boolean(
-          (cfgCheck.rows[0] as Record<string, unknown> | undefined)?.has_react_site,
-        );
+        const cfgRow = cfgCheck.rows[0] as Record<string, unknown> | undefined;
+        const hasReactSite =
+          Boolean(cfgRow?.has_react_site) && cfgRow?.site_status === "published";
 
         if (hasReactSite) {
           // Serve static assets (JS/CSS/images) directly; SPA fallback for all other paths
