@@ -29,3 +29,4 @@ to = "/index.html"
 [services.env]
 PORT = "21249"
 BASE_PATH = "/norwin-rotary/"
+VITE_ORG_SLUG = "norwin-rotary-club"

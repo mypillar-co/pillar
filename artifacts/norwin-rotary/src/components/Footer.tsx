@@ -1,18 +1,34 @@
 import { Link } from "wouter";
+import { useOrgConfig } from "@/contexts/OrgConfigContext";
 
 export default function Footer() {
   const year = new Date().getFullYear();
+  const { config, loading } = useOrgConfig();
+
+  if (loading) {
+    return (
+      <footer className="footer">
+        <div className="container">
+          <div style={{ padding: "2rem 0", opacity: 0.4 }}>Loading…</div>
+        </div>
+      </footer>
+    );
+  }
+
+  const { name, contact, meeting, footer: footerCfg } = config;
+
   return (
     <footer className="footer">
       <div className="container">
         <div className="footer-grid">
           <div className="footer-brand">
-            <h3>Norwin Rotary Club</h3>
+            <h3>{name}</h3>
             <p>
-              A Rotary International service club serving the Norwin community through local
-              projects, scholarships, and fellowship since 1972. Service Above Self.
+              {config.about.description1}
             </p>
-            <span className="footer-badge">Rotary International Member</span>
+            {footerCfg?.badge && (
+              <span className="footer-badge">{footerCfg.badge}</span>
+            )}
           </div>
           <div>
             <h4>Quick Links</h4>
@@ -29,23 +45,36 @@ export default function Footer() {
               <li><Link href="/about">About Us</Link></li>
               <li><Link href="/about#programs">Programs</Link></li>
               <li><Link href="/contact">Get Involved</Link></li>
-              <li><a href="https://www.rotary.org" target="_blank" rel="noopener noreferrer">Rotary International</a></li>
+              {footerCfg?.parentUrl && footerCfg?.parentName && (
+                <li>
+                  <a href={footerCfg.parentUrl} target="_blank" rel="noopener noreferrer">
+                    {footerCfg.parentName}
+                  </a>
+                </li>
+              )}
             </ul>
           </div>
           <div>
             <h4>Contact</h4>
             <ul className="footer-links">
-              <li>Irwin, PA 15642</li>
-              <li><a href="tel:7245550142">(724) 555-0142</a></li>
-              <li><a href="mailto:info@norwinrotary.org">info@norwinrotary.org</a></li>
-              <li style={{ fontSize: "0.8rem", opacity: 0.6, marginTop: "0.5rem" }}>
-                Every Tuesday, 12:00 PM<br />Irwin Fire Hall
-              </li>
+              {contact.address && <li>{contact.address}</li>}
+              {contact.phone && (
+                <li><a href={`tel:${contact.phone.replace(/\D/g, "")}`}>{contact.phone}</a></li>
+              )}
+              {contact.email && (
+                <li><a href={`mailto:${contact.email}`}>{contact.email}</a></li>
+              )}
+              {meeting?.schedule && (
+                <li style={{ fontSize: "0.8rem", opacity: 0.6, marginTop: "0.5rem" }}>
+                  {meeting.schedule}
+                  {meeting.venue && <><br />{meeting.venue}</>}
+                </li>
+              )}
             </ul>
           </div>
         </div>
         <div className="footer-bottom">
-          <span>© {year} Norwin Rotary Club. All rights reserved.</span>
+          <span>© {year} {name}. All rights reserved.</span>
           <div style={{ display: "flex", gap: "1.5rem" }}>
             <Link href="/contact">Contact</Link>
             <Link href="/admin">Admin</Link>

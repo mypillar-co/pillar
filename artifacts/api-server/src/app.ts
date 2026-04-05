@@ -3,6 +3,8 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import rateLimit from "express-rate-limit";
+import path from "path";
+import fs from "fs";
 import { authMiddleware } from "./middlewares/authMiddleware";
 import { csrfMiddleware } from "./lib/csrf";
 import { sendErrorAlert } from "./lib/errorAlert";
@@ -390,6 +392,40 @@ app.use(async (req, res, next) => {
   }
 
   if (orgSlug) {
+    // ── React template orgs: serve the Vite SPA when dist is present ──────────
+    // orgs with site_config use the React template (e.g. norwin-rotary-club).
+    // In production the built files live at artifacts/norwin-rotary/dist/public/.
+    // In dev the Vite dev server handles the React app; the dist won't exist.
+    if (!isPreview) {
+      const reactDistDir = path.resolve(process.cwd(), "artifacts/norwin-rotary/dist/public");
+      const reactIndexHtml = path.join(reactDistDir, "index.html");
+
+      if (fs.existsSync(reactIndexHtml)) {
+        // Quick DB check: does this org have a React site_config?
+        const cfgCheck = await db.execute(
+          drizzleSql`SELECT (site_config IS NOT NULL) AS has_react_site FROM organizations WHERE slug = ${orgSlug} LIMIT 1`,
+        );
+        const hasReactSite = Boolean(
+          (cfgCheck.rows[0] as Record<string, unknown> | undefined)?.has_react_site,
+        );
+
+        if (hasReactSite) {
+          // Serve static assets (JS/CSS/images) directly; SPA fallback for all other paths
+          if (subPath.startsWith("/assets/") || subPath.match(/\.(ico|png|jpg|jpeg|svg|webp|woff2?|ttf|eot)$/i)) {
+            const assetPath = path.join(reactDistDir, subPath);
+            if (fs.existsSync(assetPath)) {
+              res.sendFile(assetPath);
+              return;
+            }
+          }
+          // SPA: all non-asset paths get index.html (React Router handles navigation)
+          res.setHeader("Cache-Control", "no-cache, no-store");
+          res.sendFile(reactIndexHtml);
+          return;
+        }
+      }
+    }
+
     // ── Events listing page: <orgSlug>.mypillar.co/events ─────────────────────
     if (subPath === "/events" && !isPreview) {
       const [orgRow] = await db

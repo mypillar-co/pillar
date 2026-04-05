@@ -16,8 +16,9 @@ I want to prioritize concise and clear communication. For development, I prefer 
 
 ### Monorepo Structure
 The project is organized as a monorepo containing several distinct packages:
-- `artifacts/steward/`: React + Vite frontend application.
+- `artifacts/steward/`: React + Vite frontend application (Pillar admin dashboard).
 - `artifacts/api-server/`: Express API server.
+- `artifacts/norwin-rotary/`: Universal React+Vite org site template (NRC is the primary live tenant).
 - `lib/api-spec/`: OpenAPI specification as the single source of truth for API contracts.
 - `lib/api-client-react/`: Generated React hooks for API interaction.
 - `lib/api-zod/`: Generated Zod schemas for API validation.
@@ -25,6 +26,20 @@ The project is organized as a monorepo containing several distinct packages:
 - `lib/site/`: Site Engine package — deterministic site-building pipeline with 8 adapters, block renderer, page planner, site compiler (CSP), import service, auto-update service, version service, job queue, and feature flag system.
 - `lib/replit-auth-web/`: Client library for Replit Authentication.
 - `scripts/`: One-off utility scripts.
+
+### React Template Architecture (org sites)
+Orgs with a `site_config` jsonb column in the `organizations` table are served via the universal React template (`artifacts/norwin-rotary/`). The architecture:
+
+1. **API routes** — `GET /api/org/:orgSlug/config|events|sponsors|blog|gallery|contact` return all public data. Mounted in `artifacts/api-server/src/routes/public.ts` at `/org` prefix.
+2. **Org slug detection** — `artifacts/norwin-rotary/src/lib/orgSlug.ts` extracts the slug from `*.mypillar.co` subdomain in production, or falls back to `VITE_ORG_SLUG` env var in dev.
+3. **OrgConfigContext** — fetches `/api/org/:orgSlug/config` on mount, injects CSS `--primary`/`--accent` vars dynamically, and provides config to all components.
+4. **Production serving** — `app.ts` detects if the org has `site_config` and serves React SPA static files from `artifacts/norwin-rotary/dist/public/`. Production build in API server artifact runs `BASE_PATH=/ pnpm --filter @workspace/norwin-rotary run build` before the API build.
+5. **NRC seed** — `ensureNrcSiteConfig()` in `index.ts` seeds the NRC org with full `site_config` JSON on startup (idempotent — only seeds if `site_config IS NULL`).
+
+**Important rules:**
+- DB migrations: always use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in `runMigrations()`, never drizzle-kit push.
+- NRC legacy bridge: blog/gallery/sponsors read from NRC legacy tables; events and other data use management tables.
+- Admin API stays at `/api/nrc/*`; public org API is at `/api/org/:orgSlug/*`.
 
 ### Tech Stack
 - **Frontend**: React 19, Vite, Tailwind CSS 4, Shadcn/ui, TanStack Query, Framer Motion, Sonner.

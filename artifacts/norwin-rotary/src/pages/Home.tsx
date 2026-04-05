@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
-import { api, type NrcEvent, type BlogPost, type Sponsor } from "@/lib/api";
+import { api, type OrgEvent, type BlogPost, type Sponsor } from "@/lib/api";
+import { useOrgConfig } from "@/contexts/OrgConfigContext";
 import NewsletterSection from "@/components/NewsletterSection";
 
 function formatDate(d: string) {
@@ -13,7 +14,8 @@ function formatShortDate(d: string) {
 }
 
 export default function Home() {
-  const [events, setEvents] = useState<NrcEvent[]>([]);
+  const { config, loading } = useOrgConfig();
+  const [events, setEvents] = useState<OrgEvent[]>([]);
   const [posts, setPosts] = useState<BlogPost[]>([]);
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
 
@@ -23,56 +25,55 @@ export default function Home() {
     api.getSponsors().then(setSponsors).catch(() => {});
   }, []);
 
+  const hero = config.hero;
+
   return (
     <div>
       {/* Hero */}
       <section className="hero">
-        <div
-          className="hero-bg"
-          style={{ backgroundImage: "url(https://images.unsplash.com/photo-1529156069898-aa78f52d3b87?auto=format&fit=crop&w=1920&q=80)" }}
-        />
+        {hero.imageUrl && (
+          <div
+            className="hero-bg"
+            style={{ backgroundImage: `url(${hero.imageUrl})` }}
+          />
+        )}
         <div className="hero-overlay" />
         <div className="container">
           <div className="hero-content">
-            <div className="hero-eyebrow">
-              <span>🌐</span> Rotary International — District 7300
-            </div>
-            <h1>Service Above Self</h1>
-            <p>
-              Serving the Norwin community through local projects, scholarships, and fellowship
-              since 1972. Join us every Tuesday at noon.
-            </p>
+            {hero.eyebrow && (
+              <div className="hero-eyebrow">
+                <span>🌐</span> {hero.eyebrow}
+              </div>
+            )}
+            <h1>{loading ? "…" : hero.headline}</h1>
+            <p>{loading ? "" : hero.subtext}</p>
             <div className="hero-actions">
-              <Link href="/events" className="btn btn-primary">View Upcoming Events</Link>
-              <Link href="/contact" className="btn btn-ghost">Get Involved</Link>
+              <Link href="/events" className="btn btn-primary">
+                {hero.ctaPrimary ?? "View Upcoming Events"}
+              </Link>
+              <Link href="/contact" className="btn btn-ghost">
+                {hero.ctaSecondary ?? "Get Involved"}
+              </Link>
             </div>
           </div>
         </div>
       </section>
 
       {/* Stats */}
-      <div className="stats-strip">
-        <div className="container">
-          <div className="stats-grid">
-            <div className="stat-item">
-              <div className="stat-value">1972</div>
-              <div className="stat-label">Year Founded</div>
-            </div>
-            <div className="stat-item">
-              <div className="stat-value">100+</div>
-              <div className="stat-label">Active Members</div>
-            </div>
-            <div className="stat-item">
-              <div className="stat-value">50+</div>
-              <div className="stat-label">Years of Service</div>
-            </div>
-            <div className="stat-item">
-              <div className="stat-value">$50K+</div>
-              <div className="stat-label">Annual Community Impact</div>
+      {config.stats.length > 0 && (
+        <div className="stats-strip">
+          <div className="container">
+            <div className="stats-grid">
+              {config.stats.map((s) => (
+                <div key={s.label} className="stat-item">
+                  <div className="stat-value">{s.value}</div>
+                  <div className="stat-label">{s.label}</div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Upcoming Events */}
       <section className="section">
@@ -91,20 +92,22 @@ export default function Home() {
           ) : (
             <div className="cards-grid">
               {events.map(ev => {
-                const { month, day } = formatShortDate(ev.event_date);
+                const dateKey = ev.event_date;
+                const { month, day } = formatShortDate(dateKey);
+                const href = ev.id ? `/events/${ev.id}` : "/events";
                 return (
-                  <Link key={ev.id} href={`/events/${ev.id}`} style={{ textDecoration: "none" }}>
+                  <Link key={ev.id} href={href} style={{ textDecoration: "none" }}>
                     <div className="card">
                       {ev.image_url
                         ? <img src={ev.image_url} alt={ev.title} className="card-image" />
                         : <div className="card-image-placeholder">📅</div>
                       }
                       <div className="card-body">
-                        <div className="card-tag">
-                          {month} {day}
-                        </div>
+                        <div className="card-tag">{month} {day}</div>
                         <h3>{ev.title}</h3>
-                        {ev.description && <p>{ev.description.slice(0, 120)}{ev.description.length > 120 ? "…" : ""}</p>}
+                        {ev.description && (
+                          <p>{ev.description.slice(0, 120)}{ev.description.length > 120 ? "…" : ""}</p>
+                        )}
                         <div className="card-meta">
                           {ev.location && <span className="card-meta-item">📍 {ev.location}</span>}
                           {ev.is_ticketed && ev.ticket_price && (

@@ -14,6 +14,7 @@ import PaymentSuccess from "@/pages/PaymentSuccess";
 import AdminLogin from "@/pages/AdminLogin";
 import Admin from "@/pages/Admin";
 import NotFound from "@/pages/not-found";
+import { OrgConfigProvider } from "@/contexts/OrgConfigContext";
 
 const queryClient = new QueryClient();
 
@@ -52,9 +53,11 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <WouterRouter base={base}>
-        <Router />
-      </WouterRouter>
+      <OrgConfigProvider>
+        <WouterRouter base={base}>
+          <Router />
+        </WouterRouter>
+      </OrgConfigProvider>
     </QueryClientProvider>
   );
 }

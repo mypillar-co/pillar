@@ -1,8 +1,12 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { api } from "@/lib/api";
+import { useOrgConfig } from "@/contexts/OrgConfigContext";
 
 export default function Contact() {
+  const { config } = useOrgConfig();
+  const { contact, meeting } = config;
+
   const [form, setForm] = useState({ name: "", email: "", subject: "", message: "" });
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [msg, setMsg] = useState("");
@@ -47,60 +51,75 @@ export default function Contact() {
             <div>
               <h2 style={{ fontSize: "1.5rem", fontWeight: 800, margin: "0 0 1.75rem" }}>How to Reach Us</h2>
 
-              <div className="contact-info-item">
-                <div className="contact-info-icon">📍</div>
-                <div>
-                  <div className="contact-info-label">Location</div>
-                  <div className="contact-info-value">Irwin, PA 15642</div>
-                  <div style={{ fontSize: "0.875rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-                    Meetings at Irwin Fire Hall, 221 Main St
+              {contact.address && (
+                <div className="contact-info-item">
+                  <div className="contact-info-icon">📍</div>
+                  <div>
+                    <div className="contact-info-label">Location</div>
+                    <div className="contact-info-value">{contact.address}</div>
+                    {meeting?.address && (
+                      <div style={{ fontSize: "0.875rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
+                        Meetings at {meeting.venue}{meeting.address ? `, ${meeting.address}` : ""}
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
+              )}
 
-              <div className="contact-info-item">
-                <div className="contact-info-icon">📞</div>
-                <div>
-                  <div className="contact-info-label">Phone</div>
-                  <div className="contact-info-value">
-                    <a href="tel:7245550142">(724) 555-0142</a>
+              {contact.phone && (
+                <div className="contact-info-item">
+                  <div className="contact-info-icon">📞</div>
+                  <div>
+                    <div className="contact-info-label">Phone</div>
+                    <div className="contact-info-value">
+                      <a href={`tel:${contact.phone.replace(/\D/g, "")}`}>{contact.phone}</a>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
-              <div className="contact-info-item">
-                <div className="contact-info-icon">✉️</div>
-                <div>
-                  <div className="contact-info-label">Email</div>
-                  <div className="contact-info-value">
-                    <a href="mailto:info@norwinrotary.org">info@norwinrotary.org</a>
+              {contact.email && (
+                <div className="contact-info-item">
+                  <div className="contact-info-icon">✉️</div>
+                  <div>
+                    <div className="contact-info-label">Email</div>
+                    <div className="contact-info-value">
+                      <a href={`mailto:${contact.email}`}>{contact.email}</a>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
-              <div className="contact-info-item">
-                <div className="contact-info-icon">📅</div>
-                <div>
-                  <div className="contact-info-label">Weekly Meetings</div>
-                  <div className="contact-info-value">Every Tuesday at 12:00 PM</div>
-                  <div style={{ fontSize: "0.875rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-                    Guests always welcome — no reservation needed!
+              {meeting?.schedule && (
+                <div className="contact-info-item">
+                  <div className="contact-info-icon">📅</div>
+                  <div>
+                    <div className="contact-info-label">Meetings</div>
+                    <div className="contact-info-value">{meeting.schedule}</div>
+                    {meeting.guestsWelcome && (
+                      <div style={{ fontSize: "0.875rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
+                        Guests always welcome — no reservation needed!
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
+              )}
 
-              <div style={{ background: "var(--surface)", borderRadius: 12, padding: "1.5rem", marginTop: "1rem", border: "1.5px solid var(--border)" }}>
-                <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem", fontWeight: 700 }}>
-                  Interested in Membership?
-                </h3>
-                <p style={{ margin: "0 0 1rem", fontSize: "0.9rem", color: "var(--text-muted)", lineHeight: 1.65 }}>
-                  Rotary membership is open to business and community leaders who want to make a
-                  difference. Come to a Tuesday meeting as our guest — no commitment required.
-                </p>
-                <a href="mailto:info@norwinrotary.org" className="btn btn-outline btn-sm">
-                  Email Us →
-                </a>
-              </div>
+              {contact.membershipText && (
+                <div style={{ background: "var(--surface)", borderRadius: 12, padding: "1.5rem", marginTop: "1rem", border: "1.5px solid var(--border)" }}>
+                  <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem", fontWeight: 700 }}>
+                    Interested in Membership?
+                  </h3>
+                  <p style={{ margin: "0 0 1rem", fontSize: "0.9rem", color: "var(--text-muted)", lineHeight: 1.65 }}>
+                    {contact.membershipText}
+                  </p>
+                  {contact.email && (
+                    <a href={`mailto:${contact.email}`} className="btn btn-outline btn-sm">
+                      Email Us →
+                    </a>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Form */}

@@ -1,18 +1,30 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
+import { useOrgConfig } from "@/contexts/OrgConfigContext";
 
 export default function Nav() {
   const [open, setOpen] = useState(false);
   const [loc] = useLocation();
+  const { config, loading } = useOrgConfig();
 
   const active = (p: string) => (loc === p || (p !== "/" && loc.startsWith(p)) ? "active" : "");
+
+  const initials = loading
+    ? "…"
+    : config.shortName ??
+      config.name
+        .split(" ")
+        .map((w) => w[0])
+        .join("")
+        .slice(0, 3)
+        .toUpperCase();
 
   return (
     <nav className="nav">
       <div className="nav-inner">
         <Link href="/" className="nav-brand">
-          <div className="nav-logo-badge">NR</div>
-          <span>Norwin Rotary Club</span>
+          <div className="nav-logo-badge">{initials}</div>
+          <span>{loading ? "" : config.name}</span>
         </Link>
 
         <button className="nav-mobile-toggle" onClick={() => setOpen(!open)} aria-label="Toggle menu">

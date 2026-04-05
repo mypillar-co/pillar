@@ -307,6 +307,9 @@ async function runMigrations() {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS nrc_tp_event_idx ON nrc_ticket_purchases (event_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS nrc_tp_session_idx ON nrc_ticket_purchases (stripe_session_id)`);
 
+    // Universal React site template — site_config JSONB on organizations
+    await db.execute(sql`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS site_config jsonb`);
+
     logger.info("Startup migrations complete");
   } catch (err) {
     logger.warn({ err }, "Startup migration warning — continuing");
@@ -428,9 +431,79 @@ async function ensureNorwinSite() {
   }
 }
 
+const NRC_SITE_CONFIG = {
+  name: "Norwin Rotary Club",
+  shortName: "NRC",
+  tagline: "Service Above Self",
+  type: "rotary",
+  parentOrg: "Rotary International — District 7300",
+  primaryColor: "#0c4da2",
+  accentColor: "#f7a81b",
+  hero: {
+    headline: "Service Above Self",
+    subtext: "Serving the Norwin community through local projects, scholarships, and fellowship since 1972. Join us every Tuesday at noon.",
+    eyebrow: "Rotary International — District 7300",
+    imageUrl: "https://images.unsplash.com/photo-1529156069898-aa78f52d3b87?auto=format&fit=crop&w=1920&q=80",
+    ctaPrimary: "View Upcoming Events",
+    ctaSecondary: "Get Involved",
+  },
+  stats: [
+    { value: "1972", label: "Year Founded" },
+    { value: "100+", label: "Active Members" },
+    { value: "50+", label: "Years of Service" },
+    { value: "$50K+", label: "Annual Community Impact" },
+  ],
+  programs: [
+    { icon: "🎒", title: "Backpack Program", description: "Provides weekend meals to food-insecure students at Norwin schools each school week." },
+    { icon: "🎓", title: "Scholarship Fund", description: "Awards college scholarships to deserving Norwin High School seniors pursuing higher education." },
+    { icon: "📖", title: "Dictionary Project", description: "Distributes dictionaries to every third-grader in the Norwin School District to build literacy." },
+    { icon: "🌱", title: "Community Garden", description: "Maintains a community garden at Irwin Park, providing fresh produce to local residents in need." },
+    { icon: "🩺", title: "Health Screenings", description: "Organizes free health fairs and screenings for the community in partnership with local providers." },
+    { icon: "🌍", title: "Polio Plus", description: "Supports Rotary International's global initiative to eradicate polio worldwide." },
+  ],
+  about: {
+    mission: "Service Above Self",
+    description1: "The Norwin Rotary Club is a chapter of Rotary International, the world's premier service organization. Founded in 1972, we bring together business and community leaders to create positive change in Irwin, PA and around the world.",
+    description2: "With over 100 active members, we meet every Tuesday at noon for fellowship, professional development, and to plan and execute projects that lift up our community. Every dollar raised stays local — supporting students, families, and neighbors throughout the Norwin School District area.",
+    imageUrl: "https://images.unsplash.com/photo-1573497491765-57b4f23b3624?auto=format&fit=crop&w=900&q=80",
+  },
+  contact: {
+    address: "Irwin, PA 15642",
+    phone: "(724) 555-0142",
+    email: "info@norwinrotary.org",
+    membershipText: "Rotary membership is open to business and community leaders who want to make a difference. Come to a Tuesday meeting as our guest — no commitment required.",
+  },
+  meeting: {
+    schedule: "Every Tuesday at 12:00 PM",
+    venue: "Irwin Fire Hall",
+    address: "221 Main St, Irwin PA 15642",
+    duration: "12:00 PM – 1:30 PM",
+    guestsWelcome: true,
+  },
+  footer: {
+    badge: "Rotary International Member",
+    parentUrl: "https://www.rotary.org",
+    parentName: "Rotary International",
+  },
+};
+
+async function ensureNrcSiteConfig() {
+  try {
+    await db.execute(sql`
+      UPDATE organizations
+      SET site_config = ${JSON.stringify(NRC_SITE_CONFIG)}::jsonb
+      WHERE slug = 'norwin-rotary-club' AND (site_config IS NULL)
+    `);
+    logger.info("NRC site_config ensured");
+  } catch (err) {
+    logger.warn({ err }, "NRC site_config seed failed — continuing");
+  }
+}
+
 async function main() {
   await runMigrations();
   await ensureNorwinSite();
+  await ensureNrcSiteConfig();
 
   // Initialize Stripe sync (webhooks → postgres stripe schema)
   try {

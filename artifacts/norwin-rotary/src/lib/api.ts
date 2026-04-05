@@ -1,8 +1,11 @@
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-const API = "/api/nrc";
+import { getOrgSlug } from "@/lib/orgSlug";
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
+const orgSlug = getOrgSlug();
+const PUBLIC_API = `/api/org/${orgSlug}`;
+const ADMIN_API = "/api/nrc";
+
+async function request<T>(api: string, path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${api}${path}`, {
     headers: { "Content-Type": "application/json", ...options?.headers },
     credentials: "include",
     ...options,
@@ -14,89 +17,129 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+function pub<T>(path: string, options?: RequestInit) {
+  return request<T>(PUBLIC_API, path, options);
+}
+
+function adm<T>(path: string, options?: RequestInit) {
+  return request<T>(ADMIN_API, path, options);
+}
+
 export const api = {
-  // Auth
+  // ── Auth (NRC admin) ──────────────────────────────────────────────────────
   login: (username: string, password: string) =>
-    request<{ ok: boolean; username: string }>("/auth/login", {
+    adm<{ ok: boolean; username: string }>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ username, password }),
     }),
-  logout: () => request("/auth/logout", { method: "POST" }),
-  me: () => request<{ authenticated: boolean; username?: string }>("/auth/me"),
+  logout: () => adm("/auth/logout", { method: "POST" }),
+  me: () => adm<{ authenticated: boolean; username?: string }>("/auth/me"),
 
-  // Events (public)
-  getEvents: () => request<NrcEvent[]>("/events"),
-  getEvent: (id: string) => request<NrcEvent>(`/events/${id}`),
+  // ── Events (public) ───────────────────────────────────────────────────────
+  getEvents: () => pub<OrgEvent[]>("/events"),
+  getEvent: (id: string) => pub<OrgEvent>(`/events/${id}`),
 
-  // Events (admin)
-  adminGetEvents: () => request<NrcEvent[]>("/admin/events"),
+  // ── Events (admin — NRC only) ─────────────────────────────────────────────
+  adminGetEvents: () => adm<NrcEvent[]>("/admin/events"),
   adminCreateEvent: (data: Partial<NrcEvent>) =>
-    request<NrcEvent>("/admin/events", { method: "POST", body: JSON.stringify(data) }),
+    adm<NrcEvent>("/admin/events", { method: "POST", body: JSON.stringify(data) }),
   adminUpdateEvent: (id: string, data: Partial<NrcEvent>) =>
-    request<NrcEvent>(`/admin/events/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    adm<NrcEvent>(`/admin/events/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   adminDeleteEvent: (id: string) =>
-    request<{ ok: boolean }>(`/admin/events/${id}`, { method: "DELETE" }),
+    adm<{ ok: boolean }>(`/admin/events/${id}`, { method: "DELETE" }),
 
-  // Blog (public)
-  getBlogPosts: () => request<BlogPost[]>("/blog"),
-  getBlogPost: (slug: string) => request<BlogPost>(`/blog/${slug}`),
+  // ── Blog (public) ─────────────────────────────────────────────────────────
+  getBlogPosts: () => pub<BlogPost[]>("/blog"),
+  getBlogPost: (slug: string) => pub<BlogPost>(`/blog/${slug}`),
 
-  // Blog (admin)
-  adminGetBlogPosts: () => request<BlogPost[]>("/admin/blog"),
+  // ── Blog (admin — NRC only) ───────────────────────────────────────────────
+  adminGetBlogPosts: () => adm<NrcEvent[]>("/admin/blog"),
   adminCreateBlogPost: (data: Partial<BlogPost>) =>
-    request<BlogPost>("/admin/blog", { method: "POST", body: JSON.stringify(data) }),
+    adm<BlogPost>("/admin/blog", { method: "POST", body: JSON.stringify(data) }),
   adminUpdateBlogPost: (id: string, data: Partial<BlogPost>) =>
-    request<BlogPost>(`/admin/blog/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    adm<BlogPost>(`/admin/blog/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   adminDeleteBlogPost: (id: string) =>
-    request<{ ok: boolean }>(`/admin/blog/${id}`, { method: "DELETE" }),
+    adm<{ ok: boolean }>(`/admin/blog/${id}`, { method: "DELETE" }),
 
-  // Sponsors
-  getSponsors: () => request<Sponsor[]>("/sponsors"),
-  adminGetSponsors: () => request<Sponsor[]>("/admin/sponsors"),
+  // ── Sponsors (public) ─────────────────────────────────────────────────────
+  getSponsors: () => pub<Sponsor[]>("/sponsors"),
+
+  // ── Sponsors (admin — NRC only) ───────────────────────────────────────────
+  adminGetSponsors: () => adm<NrcEvent[]>("/admin/sponsors"),
   adminCreateSponsor: (data: Partial<Sponsor>) =>
-    request<Sponsor>("/admin/sponsors", { method: "POST", body: JSON.stringify(data) }),
+    adm<Sponsor>("/admin/sponsors", { method: "POST", body: JSON.stringify(data) }),
   adminUpdateSponsor: (id: string, data: Partial<Sponsor>) =>
-    request<Sponsor>(`/admin/sponsors/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    adm<Sponsor>(`/admin/sponsors/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   adminDeleteSponsor: (id: string) =>
-    request<{ ok: boolean }>(`/admin/sponsors/${id}`, { method: "DELETE" }),
+    adm<{ ok: boolean }>(`/admin/sponsors/${id}`, { method: "DELETE" }),
 
-  // Newsletter
+  // ── Newsletter (public) ───────────────────────────────────────────────────
   subscribe: (email: string, name?: string) =>
-    request<{ ok: boolean; message: string }>("/newsletter/subscribe", {
+    pub<{ ok: boolean; message: string }>("/newsletter/subscribe", {
       method: "POST",
       body: JSON.stringify({ email, name }),
     }),
-  adminGetSubscribers: () => request<NewsletterSubscriber[]>("/admin/newsletter"),
 
-  // Contact
+  // ── Newsletter (admin) ────────────────────────────────────────────────────
+  adminGetSubscribers: () => adm<NewsletterSubscriber[]>("/admin/newsletter"),
+
+  // ── Contact (public) ──────────────────────────────────────────────────────
   sendContact: (data: { name: string; email: string; message: string; subject?: string }) =>
-    request<{ ok: boolean; message: string }>("/contact", {
+    pub<{ ok: boolean; message: string }>("/contact", {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  adminGetMessages: () => request<ContactMessage[]>("/admin/contact"),
+
+  // ── Contact (admin) ───────────────────────────────────────────────────────
+  adminGetMessages: () => adm<ContactMessage[]>("/admin/contact"),
   adminMarkRead: (id: string) =>
-    request<{ ok: boolean }>(`/admin/contact/${id}/read`, { method: "PUT" }),
+    adm<{ ok: boolean }>(`/admin/contact/${id}/read`, { method: "PUT" }),
 
-  // Gallery
-  getAlbums: () => request<GalleryAlbum[]>("/gallery"),
-  getAlbum: (id: string) => request<{ album: GalleryAlbum; photos: AlbumPhoto[] }>(`/gallery/${id}`),
+  // ── Gallery (public) ──────────────────────────────────────────────────────
+  getAlbums: () => pub<GalleryAlbum[]>("/gallery"),
+  getAlbum: (id: string) => pub<{ album: GalleryAlbum; photos: AlbumPhoto[] }>(`/gallery/${id}`),
+
+  // ── Gallery (admin) ───────────────────────────────────────────────────────
   adminCreateAlbum: (data: Partial<GalleryAlbum>) =>
-    request<GalleryAlbum>("/admin/gallery/albums", { method: "POST", body: JSON.stringify(data) }),
+    adm<GalleryAlbum>("/admin/gallery/albums", { method: "POST", body: JSON.stringify(data) }),
   adminAddPhoto: (data: { album_id: string; url: string; caption?: string }) =>
-    request<AlbumPhoto>("/admin/gallery/photos", { method: "POST", body: JSON.stringify(data) }),
+    adm<AlbumPhoto>("/admin/gallery/photos", { method: "POST", body: JSON.stringify(data) }),
 
-  // Stats
-  adminGetStats: () => request<AdminStats>("/admin/stats"),
+  // ── Stats (admin) ─────────────────────────────────────────────────────────
+  adminGetStats: () => adm<AdminStats>("/admin/stats"),
 
-  // Tickets
+  // ── Tickets (public) ──────────────────────────────────────────────────────
   checkout: (data: { event_id: string; quantity: number; buyer_email: string; buyer_name?: string }) =>
-    request<{ url: string }>("/tickets/checkout", { method: "POST", body: JSON.stringify(data) }),
+    pub<{ url: string }>("/checkout", { method: "POST", body: JSON.stringify(data) }),
   verifyTicket: (session_id: string) =>
-    request<{ status: string }>(`/tickets/verify?session_id=${session_id}`),
+    pub<{ status: string }>(`/tickets/verify?session_id=${session_id}`),
 };
 
-// Types
+// ── Types ──────────────────────────────────────────────────────────────────────
+
+/** Public org event — returned by /api/public/:orgSlug/events */
+export interface OrgEvent {
+  id: string;
+  title: string;
+  slug?: string;
+  description?: string;
+  event_date: string;
+  end_date?: string;
+  start_time?: string;
+  end_time?: string;
+  location?: string;
+  image_url?: string;
+  is_ticketed: boolean;
+  ticket_price?: number;
+  ticket_capacity?: number;
+  tickets_sold?: number;
+  is_published: boolean;
+  ticket_sale_open?: string;
+  ticket_sale_close?: string;
+  created_at: string;
+}
+
+/** Legacy NRC event type — used only by the NRC admin panel */
 export interface NrcEvent {
   id: string;
   title: string;

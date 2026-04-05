@@ -29,6 +29,7 @@ import publicEventFormsRouter, { publicQueryRouter } from "./publicEventForms";
 import eventAdminRouter from "./eventAdmin";
 import siteHooksRouter from "./siteHooks";
 import nrcRouter from "./nrc";
+import publicOrgRouter from "./public";
 
 const router: IRouter = Router();
 
@@ -63,5 +64,6 @@ router.use(publicQueryRouter);
 router.use("/management", eventAdminRouter);
 router.use("/hooks", siteHooksRouter);
 router.use(nrcRouter);
+router.use("/org", publicOrgRouter);
 
 export default router;
