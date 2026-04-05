@@ -32,6 +32,21 @@ export default defineConfig({
     react(),
     tailwindcss(),
     runtimeErrorOverlay(),
+    {
+      name: "spa-history-fallback",
+      configureServer(server) {
+        server.middlewares.use((req, _res, next) => {
+          const url = req.url ?? "/";
+          const rawPath = url.split("?")[0];
+          const hasFileExtension = /\.[a-zA-Z0-9]+$/.test(rawPath);
+          const isViteInternal = url.includes("/@") || url.includes("/__");
+          if (!hasFileExtension && !isViteInternal) {
+            req.url = basePath + "/";
+          }
+          next();
+        });
+      },
+    },
     ...(process.env.NODE_ENV !== "production" &&
     process.env.REPL_ID !== undefined
       ? [
