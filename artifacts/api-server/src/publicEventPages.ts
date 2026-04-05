@@ -29,6 +29,8 @@ export type PublicEvent = {
   registrationClosed: boolean | null;
   imageUrl: string | null;
   featured: boolean | null;
+  ticketSaleOpen: string | null;
+  ticketSaleClose: string | null;
 };
 
 export type PublicTicketType = {
@@ -408,7 +410,14 @@ export function buildEventDetailPage(opts: {
 
   const hasPaidTickets = ticketTypes.some(tt => tt.price > 0);
   const acceptsPayments = !hasPaidTickets || !!(org.stripeConnectAccountId && org.stripeConnectOnboarded);
-  const showTicketSection = !!(event.isTicketed && ticketTypes.length > 0 && acceptsPayments);
+
+  // Ticket sale window checks
+  const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const saleNotYetOpen = !!(event.ticketSaleOpen && todayStr < event.ticketSaleOpen);
+  const saleHasClosed  = !!(event.ticketSaleClose && todayStr > event.ticketSaleClose);
+  const saleWindowBlocked = saleNotYetOpen || saleHasClosed;
+
+  const showTicketSection = !!(event.isTicketed && ticketTypes.length > 0 && acceptsPayments && !saleWindowBlocked);
   const allSoldOut = ticketTypes.length > 0 && ticketTypes.every(tt => {
     const rem = tt.quantity !== null ? tt.quantity - tt.sold : 1;
     return rem <= 0;
@@ -436,7 +445,7 @@ export function buildEventDetailPage(opts: {
       ${(event.isTicketed && ticketTypes.length > 0) ? `
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         <span style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.2);padding:6px 16px;border-radius:999px;font-size:14px;font-weight:600;">${SVG_TICKET} ${allSoldOut ? "Sold Out" : `From ${formatPrice(Math.min(...ticketTypes.map(t => t.price)))}`}</span>
-        ${showTicketSection ? (allSoldOut ? `<span style="background:#fee2e2;color:#991b1b;padding:6px 16px;border-radius:999px;font-size:13px;font-weight:700;">SOLD OUT</span>` : `<a href="#tickets" style="background:${accent};color:${primary};padding:10px 24px;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none;transition:opacity .15s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">Buy Tickets</a>`) : ""}
+        ${saleNotYetOpen ? `<span style="background:rgba(255,255,255,.15);color:#fff;padding:6px 16px;border-radius:999px;font-size:13px;font-weight:600;">Sales open ${esc(event.ticketSaleOpen!)}</span>` : saleHasClosed ? `<span style="background:#fee2e2;color:#991b1b;padding:6px 16px;border-radius:999px;font-size:13px;font-weight:700;">Sales Closed</span>` : showTicketSection ? (allSoldOut ? `<span style="background:#fee2e2;color:#991b1b;padding:6px 16px;border-radius:999px;font-size:13px;font-weight:700;">SOLD OUT</span>` : `<a href="#tickets" style="background:${accent};color:${primary};padding:10px 24px;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none;transition:opacity .15s;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">Buy Tickets</a>`) : ""}
       </div>` : ""}
     </div>
   </section>`;
@@ -451,7 +460,22 @@ export function buildEventDetailPage(opts: {
   </section>` : "";
 
   // ── Section 3: Ticket Purchase ─────────────────────────────────────────────
-  const ticketSection = showTicketSection ? buildTicketPurchaseSection(event, ticketTypes, primary, accent, allSoldOut, cancelled) : "";
+  const ticketWindowNotice = (event.isTicketed && ticketTypes.length > 0 && saleWindowBlocked) ? `
+  <section id="tickets" style="padding:48px 24px;">
+    <div class="container" style="max-width:640px;">
+      <div style="background:#f9fafb;border:1.5px solid #e5e7eb;border-radius:14px;padding:36px 32px;text-align:center;">
+        <div style="font-size:2rem;margin-bottom:12px;">${saleNotYetOpen ? "🗓️" : "🔒"}</div>
+        <h2 style="font-family:'DM Serif Display',serif;font-size:1.5rem;font-weight:400;margin-bottom:10px;color:#111827;">
+          ${saleNotYetOpen ? `Ticket Sales Open ${esc(event.ticketSaleOpen!)}` : "Ticket Sales Have Closed"}
+        </h2>
+        <p style="color:#6b7280;font-size:15px;line-height:1.6;">
+          ${saleNotYetOpen ? `Mark your calendar — tickets go on sale <strong>${esc(event.ticketSaleOpen!)}</strong>. Check back then to secure your spot.` : `Ticket sales for this event have ended. Contact the organizer if you need assistance.`}
+        </p>
+      </div>
+    </div>
+  </section>` : "";
+
+  const ticketSection = showTicketSection ? buildTicketPurchaseSection(event, ticketTypes, primary, accent, allSoldOut, cancelled) : ticketWindowNotice;
 
   // ── Section 4: Sponsors ────────────────────────────────────────────────────
   const sponsorSection = showSponsorSection ? buildSponsorsSection(visibleSponsors, primary, accent) : "";

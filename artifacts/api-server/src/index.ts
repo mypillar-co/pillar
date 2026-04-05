@@ -54,6 +54,10 @@ async function runMigrations() {
     await db.execute(sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS registration_closed boolean DEFAULT false`);
     await db.execute(sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS registration_force_open boolean DEFAULT false`);
 
+    // Ticket sale window — open/close dates (ISO YYYY-MM-DD strings)
+    await db.execute(sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS ticket_sale_open varchar(32)`);
+    await db.execute(sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS ticket_sale_close varchar(32)`);
+
     // Sponsors extended fields for site/sponsor grid
     await db.execute(sql`ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS tier_rank integer DEFAULT 0`);
     await db.execute(sql`ALTER TABLE sponsors ADD COLUMN IF NOT EXISTS site_display_priority integer DEFAULT 0`);

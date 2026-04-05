@@ -166,6 +166,8 @@ router.post("/chat", async (req: Request, res: Response) => {
             isTicketed: { type: "boolean" },
             ticketPrice: { type: "number", description: "Price per ticket in USD" },
             ticketCapacity: { type: "number" },
+            ticketSaleOpen: { type: "string", description: "Date ticket sales open, ISO format YYYY-MM-DD. Null = sales open immediately." },
+            ticketSaleClose: { type: "string", description: "Date ticket sales close, ISO format YYYY-MM-DD. Null = no close date." },
             hasRegistration: { type: "boolean", description: "True if vendors/attendees register" },
             hasSponsorSection: { type: "boolean" },
           },
@@ -193,6 +195,8 @@ router.post("/chat", async (req: Request, res: Response) => {
             isTicketed: { type: "boolean" },
             ticketPrice: { type: "number" },
             ticketCapacity: { type: "number" },
+            ticketSaleOpen: { type: "string", description: "ISO YYYY-MM-DD date when sales open. Pass null to clear (open immediately)." },
+            ticketSaleClose: { type: "string", description: "ISO YYYY-MM-DD date when sales close. Pass null to clear (no close date)." },
             hasRegistration: { type: "boolean" },
             registrationClosed: { type: "boolean" },
             registrationForceOpen: { type: "boolean" },
@@ -507,6 +511,8 @@ router.post("/chat", async (req: Request, res: Response) => {
         isTicketed: args.isTicketed === true,
         ticketPrice: args.ticketPrice ? Number(args.ticketPrice) : undefined,
         ticketCapacity: args.ticketCapacity ? Number(args.ticketCapacity) : undefined,
+        ...(args.ticketSaleOpen != null ? { ticketSaleOpen: String(args.ticketSaleOpen) } : {}),
+        ...(args.ticketSaleClose != null ? { ticketSaleClose: String(args.ticketSaleClose) } : {}),
         hasRegistration: args.hasRegistration === true,
         hasSponsorSection: args.hasSponsorSection === true,
         status: "published",
@@ -571,6 +577,10 @@ router.post("/chat", async (req: Request, res: Response) => {
     // These come through as direct column updates
     if ("registrationClosed" in args) allowed.registrationClosed = args.registrationClosed;
     if ("registrationForceOpen" in args) allowed.registrationForceOpen = args.registrationForceOpen;
+
+    // Handle ticket sale window dates (null clears the date)
+    if ("ticketSaleOpen" in args) allowed.ticketSaleOpen = args.ticketSaleOpen ?? null;
+    if ("ticketSaleClose" in args) allowed.ticketSaleClose = args.ticketSaleClose ?? null;
 
     if (!Object.keys(allowed).length) return JSON.stringify({ error: "No valid fields to update" });
 
@@ -1641,6 +1651,24 @@ Otherwise featured=false. The homepage auto-fills from the 3 soonest events when
 "how many tickets" / "how are sales" → get_ticket_sales
 "any new messages" / "contact messages" → list_messages
 "pending sponsors" / "sponsor applications" → list_pending_sponsors
+"ticket sales open [date]" / "start selling tickets on [date]" → update_event ticketSaleOpen: "YYYY-MM-DD"
+"close ticket sales on [date]" / "stop selling tickets [date]" → update_event ticketSaleClose: "YYYY-MM-DD"
+"remove ticket sale open date" / "sell tickets now" → update_event ticketSaleOpen: null
+"remove ticket close date" / "keep sales open" → update_event ticketSaleClose: null
+
+=== TICKET SALE DATES ===
+When a user creates a TICKETED event, after confirming the event is created, ALWAYS follow up:
+  "When should ticket sales open? And is there a date you want to stop selling? (If you want sales to start immediately or stay open indefinitely, just say so.)"
+Accept natural language: "April 5", "next Friday", "day of the event", "two weeks before" — convert to YYYY-MM-DD.
+"Immediately" / "now" / "right away" → omit ticketSaleOpen (null means open immediately).
+"Day of the event" → set ticketSaleClose to the event's startDate.
+"Never" / "indefinitely" / "no close date" → omit ticketSaleClose (null means no close date).
+Public site behavior: before ticketSaleOpen → shows "Sales open YYYY-MM-DD". After ticketSaleClose → shows "Sales Closed". Both dates on the hero badge and ticket section.
+
+=== FIRST-TIME EVENT ONBOARDING ===
+If the org has ZERO active events (check list_events returns empty), open the conversation with:
+  "Your site is live — great start! Let's get your events on there. Tell me about your upcoming events: name, date, location, and whether any sell tickets. Give me as many as you have."
+Then create each event one by one using create_event. For each ticketed event, follow the TICKET SALE DATES rule above.
 
 === MISSING INFO HANDLING ===
 If user says "add an event called X" with no date → ask "What date is it? And where will it be held?"

@@ -451,13 +451,16 @@ app.use(async (req, res, next) => {
         return;
       }
 
+      const eventRowAny = eventRow as Record<string, unknown>;
       const event: PublicEvent = {
         id: eventRow.id, name: eventRow.name, slug: eventRow.slug, description: eventRow.description ?? null,
         eventType: eventRow.eventType ?? null, startDate: eventRow.startDate ?? null, endDate: eventRow.endDate ?? null,
         startTime: eventRow.startTime ?? null, endTime: eventRow.endTime ?? null, location: eventRow.location ?? null,
         isTicketed: eventRow.isTicketed ?? null, ticketPrice: eventRow.ticketPrice ?? null, ticketCapacity: eventRow.ticketCapacity ?? null,
-        hasRegistration: eventRow.hasRegistration ?? null, hasSponsorSection: (eventRow as Record<string,unknown>).hasSponsorSection as boolean ?? null,
+        hasRegistration: eventRow.hasRegistration ?? null, hasSponsorSection: eventRowAny.hasSponsorSection as boolean ?? null,
         registrationClosed: eventRow.registrationClosed ?? null, imageUrl: eventRow.imageUrl ?? null, featured: eventRow.featured ?? null,
+        ticketSaleOpen: (eventRowAny.ticketSaleOpen as string | null) ?? null,
+        ticketSaleClose: (eventRowAny.ticketSaleClose as string | null) ?? null,
       };
 
       const [ticketTypeRows, sponsorRows] = await Promise.all([

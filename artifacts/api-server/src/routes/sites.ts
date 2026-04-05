@@ -252,9 +252,9 @@ BLOCK 1 — Identity:
 4. "What are your top programs, services, or activities? Name them and give a sentence on each — these become the highlight cards on your site. List as many as you have."
 
 BLOCK 2 — Events & Registration:
-5. "Now for events — this is the heart of your site. List every event you have: name, approximate date, and whether it's annual or one-time. Include regular meetings too (e.g. 'Weekly Tuesday lunch')."
+5. "Now for events — this is the heart of your site. List every event you have: name, date, and whether it's annual or one-time. Include regular meetings too (e.g. 'Weekly Tuesday lunch'). These will be added live to your events calendar."
 
-6. "Do any events sell tickets? Do vendors pay to set up booths? Do you accept event sponsors, and if so, what are the sponsorship levels and prices? (e.g. Gold $500, Silver $250)"
+6. "Do any events sell tickets or charge admission? If so: what's the price, how many spots are available, and when should ticket sales open and close? Also — do vendors pay to set up booths? Do you accept event sponsors (e.g. Gold $500, Silver $250)?"
 
 BLOCK 3 — Stats & Community:
 7. "A few quick numbers for your site's stats section: roughly how many events per year? Approximate total attendees across all events? And how many local businesses or members does your org support or include?"
@@ -271,7 +271,7 @@ BLOCK 5 — Design (last, mostly inferred):
 11. "Last one — do you have a logo or brand colors? If not, I'll match your org type's standard colors automatically. Any websites whose look you like? (Optional — I can infer everything from your org type if you skip this.)"
 
 After each answer, acknowledge in ONE sentence that shows you heard it, then ask the next question.
-After collecting answers to all 5 blocks (adjusting for skips), say EXACTLY: "I have everything I need! Click **Generate My Site** to build your website."
+After collecting answers to all 5 blocks (adjusting for skips), say EXACTLY: "I have everything I need! Click **Generate My Site** to build your website. Once it's live, the assistant will walk you through adding your events — including ticket sales and registration — to your live calendar."
 Keep every response under 65 words. Stay conversational. Never suggest edits — just collect info. NEVER make up events, programs, or descriptions the user didn't provide.`;
 
   const messages: OpenAI.ChatCompletionMessageParam[] = [
