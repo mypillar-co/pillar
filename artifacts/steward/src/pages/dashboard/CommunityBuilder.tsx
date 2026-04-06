@@ -100,7 +100,24 @@ function extractOptions(text: string): { cleanText: string; options: string[]; a
   // IMPORTANT: check the LAST sentence only — the AI often acks the previous
   // answer ("Got your Facebook URL.") before asking about the next platform.
   // Checking the full text would match the wrong platform.
-  const lastSentence = (t.split(/[.!?]+\s+/).pop() ?? t).trim();
+  //
+  // Edge case: AI appends "(optional)" as its own trailing fragment after "?",
+  // e.g. "What is your Facebook page URL? (optional)" → split produces
+  // ["What is your Facebook page URL?", "(optional)"]. We fold a trailing
+  // parenthetical fragment back into the preceding sentence so the keyword
+  // check still fires correctly.
+  const rawSentences = t.split(/[.!?]+\s+/).map(s => s.trim()).filter(Boolean);
+  if (
+    rawSentences.length >= 2 &&
+    /^\s*\([^)]{0,30}\)\s*$/.test(rawSentences[rawSentences.length - 1])
+  ) {
+    const merged =
+      rawSentences[rawSentences.length - 2] +
+      " " +
+      rawSentences[rawSentences.length - 1];
+    rawSentences.splice(rawSentences.length - 2, 2, merged);
+  }
+  const lastSentence = rawSentences[rawSentences.length - 1] ?? t;
 
   if (/instagram/i.test(lastSentence) && /(url|optional|link)/i.test(lastSentence)) {
     return { cleanText: t, options: ["Skip — no Instagram"] };
@@ -573,7 +590,7 @@ export default function CommunityBuilder() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => { setMessages([]); setStarted(false); setProvisionResult(null); setError(null); }}
+            onClick={() => { setMessages([]); setStarted(false); setProvisionResult(null); setError(null); setLoading(false); setLastFailedText(null); setLastFailedIsSkip(false); }}
             className="text-[#7a9cbf] hover:text-white text-xs"
           >
             Start over

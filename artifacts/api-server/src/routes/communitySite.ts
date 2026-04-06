@@ -56,6 +56,28 @@ async function callAI(
   return response.choices[0]?.message?.content ?? "";
 }
 
+// Wraps callAI with up to 2 automatic retries on thrown exception (transient API errors).
+// Delays: 1.5 s then 3 s between attempts. Does NOT retry on empty replies —
+// that is handled per-path below.
+async function callAIWithRetry(
+  messages: OpenAI.ChatCompletionMessageParam[],
+  maxTokens: number,
+): Promise<string> {
+  const delays = [1500, 3000];
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      return await callAI(messages, maxTokens);
+    } catch (err) {
+      lastErr = err;
+      if (attempt < delays.length) {
+        await new Promise(r => setTimeout(r, delays[attempt]));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 // ── Color palette by org type ────────────────────────────────────────────────
 const COLOR_PALETTE = `
 COLOR PALETTE — use exact hex values, no substitutions:
@@ -551,7 +573,7 @@ router.post("/interview", async (req: Request, res: Response) => {
     ];
     try {
       const skipMaxTokens = alreadyEmittedPayloadSkip ? MAX_PAYLOAD_TOKENS : MAX_INTERVIEW_TOKENS;
-      const skipReply = await callAI(skipMessages, skipMaxTokens);
+      const skipReply = await callAIWithRetry(skipMessages, skipMaxTokens);
       if (!skipReply || skipReply.trim().length < 2) {
         res.status(500).json({ error: "Something went wrong — please try again" });
         return;
@@ -561,7 +583,8 @@ router.post("/interview", async (req: Request, res: Response) => {
         .where(eq(organizationsTable.id, org.id));
       res.json({ reply: skipReply });
       return;
-    } catch {
+    } catch (skipErr) {
+      console.error("[interview skip-path error]", skipErr);
       res.status(500).json({ error: "Something went wrong — please try again" });
       return;
     }
@@ -580,7 +603,7 @@ router.post("/interview", async (req: Request, res: Response) => {
     );
     const maxTokens = alreadyEmittedPayload ? MAX_PAYLOAD_TOKENS : MAX_INTERVIEW_TOKENS;
 
-    let reply = await callAI(messages, maxTokens);
+    let reply = await callAIWithRetry(messages, maxTokens);
 
     if (!reply || reply.trim().length < 2) {
       const retryMessages: OpenAI.ChatCompletionMessageParam[] = [
@@ -605,7 +628,8 @@ router.post("/interview", async (req: Request, res: Response) => {
       .where(eq(organizationsTable.id, org.id));
 
     res.json({ reply, tier });
-  } catch {
+  } catch (normalErr) {
+    console.error("[interview normal-path error]", normalErr);
     res.status(500).json({ error: "AI service unavailable" });
   }
 });
