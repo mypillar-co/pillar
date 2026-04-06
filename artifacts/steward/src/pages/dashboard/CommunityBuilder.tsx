@@ -49,7 +49,7 @@ const ORG_TYPE_OPTIONS = [
   "Other",
 ];
 
-function extractOptions(text: string): { cleanText: string; options: string[] } {
+function extractOptions(text: string): { cleanText: string; options: string[]; appendMode?: boolean } {
   const t = text;
 
   // ── 1. Explicit [OPTIONS: A | B | C] marker ─────────────────────────────────
@@ -115,11 +115,12 @@ function extractOptions(text: string): { cleanText: string; options: string[] } 
     return { cleanText: t, options: ["No regular meetings"] };
   }
 
-  // ── 11. Event categories ─────────────────────────────────────────────────────
+  // ── 11. Event categories — multi-select, append to input ───────────────────
   if (/event categor/i.test(t) || /categor.*event/i.test(t)) {
     return {
       cleanText: t,
-      options: ["Festival", "Fundraiser", "Community", "Social", "Meeting", "Holiday", "Workshop", "Use defaults"],
+      options: ["Festival", "Fundraiser", "Community", "Social", "Meeting", "Holiday", "Workshop", "Sports", "Arts"],
+      appendMode: true,
     };
   }
 
@@ -185,10 +186,14 @@ function PayloadPreview({ payload }: { payload: Record<string, unknown> }) {
 function ChatMessage({
   message,
   onOptionSelect,
+  onOptionAppend,
+  currentInput,
   optionsDisabled,
 }: {
   message: Message;
   onOptionSelect?: (option: string) => void;
+  onOptionAppend?: (option: string) => void;
+  currentInput?: string;
   optionsDisabled?: boolean;
 }) {
   const isUser = message.role === "user";
@@ -198,7 +203,14 @@ function ChatMessage({
       "I have everything I need! Click **Launch Site** below to go live."
     : message.content;
 
-  const { cleanText, options } = extractOptions(rawContent);
+  const { cleanText, options, appendMode } = extractOptions(rawContent);
+
+  // For append-mode chips, derive which ones are already in the input
+  const selectedChips = new Set(
+    appendMode && currentInput
+      ? currentInput.split(",").map(s => s.trim()).filter(Boolean)
+      : [],
+  );
 
   const renderText = (text: string) =>
     text.split("\n").map((line, i) => {
@@ -238,17 +250,33 @@ function ChatMessage({
           {renderText(cleanText)}
         </div>
         {!isUser && options.length > 0 && (
-          <div className="flex flex-wrap gap-2 pl-1">
-            {options.map(opt => (
-              <button
-                key={opt}
-                onClick={() => onOptionSelect?.(opt)}
-                disabled={optionsDisabled}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium border border-[#d4a017]/40 text-[#d4a017] bg-[#d4a017]/8 hover:bg-[#d4a017]/20 hover:border-[#d4a017]/70 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {opt}
-              </button>
-            ))}
+          <div className="flex flex-col gap-1.5 pl-1">
+            {appendMode && (
+              <p className="text-[10px] text-[#7a9cbf] px-0.5">
+                Tap to add — then hit Send
+              </p>
+            )}
+            <div className="flex flex-wrap gap-2">
+              {options.map(opt => {
+                const isSelected = selectedChips.has(opt);
+                return (
+                  <button
+                    key={opt}
+                    onClick={() =>
+                      appendMode ? onOptionAppend?.(opt) : onOptionSelect?.(opt)
+                    }
+                    disabled={optionsDisabled && !appendMode}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                      isSelected
+                        ? "border-[#d4a017] text-[#060f1e] bg-[#d4a017] hover:bg-[#c49016]"
+                        : "border-[#d4a017]/40 text-[#d4a017] bg-[#d4a017]/8 hover:bg-[#d4a017]/20 hover:border-[#d4a017]/70 disabled:opacity-40 disabled:cursor-not-allowed"
+                    }`}
+                  >
+                    {opt}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
@@ -383,6 +411,18 @@ export default function CommunityBuilder() {
     }
   }
 
+  function handleAppend(option: string) {
+    setInput(prev => {
+      const parts = prev.split(",").map(s => s.trim()).filter(Boolean);
+      if (parts.includes(option)) {
+        // deselect — remove from list
+        return parts.filter(p => p !== option).join(", ");
+      }
+      return [...parts, option].join(", ");
+    });
+    textareaRef.current?.focus();
+  }
+
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -480,6 +520,8 @@ export default function CommunityBuilder() {
                 key={m.id}
                 message={m}
                 onOptionSelect={sendMessage}
+                onOptionAppend={handleAppend}
+                currentInput={input}
                 optionsDisabled={loading || idx !== lastMsgIndex}
               />
             ))}
