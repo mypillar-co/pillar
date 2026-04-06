@@ -5,6 +5,7 @@ import pinoHttp from "pino-http";
 import rateLimit from "express-rate-limit";
 import path from "path";
 import fs from "fs";
+import { fileURLToPath } from "url";
 import { authMiddleware } from "./middlewares/authMiddleware";
 import { csrfMiddleware } from "./lib/csrf";
 import { sendErrorAlert } from "./lib/errorAlert";
@@ -30,6 +31,10 @@ import {
   buildSponsorSignupPage,
   buildRegisterPage,
 } from "./publicFormPages";
+
+// Workspace root — resolves correctly in both dev (cwd = artifacts/api-server)
+// and production (cwd = workspace root) because it anchors to the bundle's absolute path.
+const WORKSPACE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
 const app: Express = express();
 
@@ -297,28 +302,6 @@ app.get("/sites/__diag", async (_req, res) => {
   }
 });
 
-// Public site renderer — serves generated HTML at /sites/:slug (by slug path)
-app.get("/sites/:slug", async (req, res) => {
-  try {
-    const { slug } = req.params as { slug: string };
-    logger.info({ slug }, "[/sites/:slug] received");
-    const [site] = await db.select().from(sitesTable).where(eq(sitesTable.orgSlug, slug));
-    logger.info({ slug, found: !!site, status: site?.status, hasHtml: !!site?.generatedHtml, htmlLen: site?.generatedHtml?.length ?? 0 }, "[/sites/:slug] db result");
-    if (!site || site.status !== "published" || !site.generatedHtml) {
-      const reason = !site ? "not_found" : site.status !== "published" ? `status_is_${site.status}` : "no_html";
-      logger.info({ slug, reason }, "[/sites/:slug] 404");
-      res.status(404).send(SITE_NOT_FOUND_HTML);
-      return;
-    }
-    const patchedHtml = await patchHomepageWithFeaturedEvents(slug, site.generatedHtml);
-    // Pass slug so root-relative links (/events/...) are rewritten to /sites/:slug/events/...
-    // This is only needed for path-based dev routing; in production, host routing handles it.
-    sendSiteHtml(res, patchedHtml, slug);
-  } catch (err) {
-    logger.error({ err }, "[/sites/:slug] error");
-    res.status(404).send(SITE_NOT_FOUND_HTML);
-  }
-});
 
 // Reserved subdomains that must never map to an org site
 const RESERVED_SUBDOMAINS = new Set([
@@ -407,7 +390,7 @@ app.use(async (req, res, next) => {
     // In dev the Vite dev server owns the app; dist won't exist, so we fall
     // through and let the dev server handle it (it runs on a separate port).
     if (!isPreview && hasReactSite) {
-      const reactDistDir = path.resolve(process.cwd(), "artifacts/norwin-rotary/dist/public");
+      const reactDistDir = path.join(WORKSPACE_ROOT, "artifacts/norwin-rotary/dist/public");
       const reactIndexHtml = path.join(reactDistDir, "index.html");
 
       if (fs.existsSync(reactIndexHtml)) {
