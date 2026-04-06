@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import {
   Send, Bot, User, Loader2, AlertCircle, CheckCircle2,
-  Globe, Rocket, ExternalLink, ChevronDown, ChevronUp,
+  Globe, Rocket, ExternalLink, ChevronDown, ChevronUp, ImagePlus, X,
 } from "lucide-react";
 import { useGetOrganization } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -300,8 +300,13 @@ export default function CommunityBuilder() {
     error?: string;
   } | null>(null);
 
+  const [logoPath, setLogoPath] = useState<string | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [logoUploading, setLogoUploading] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -358,6 +363,58 @@ export default function CommunityBuilder() {
     }
   }
 
+  async function uploadLogo(file: File) {
+    if (logoUploading) return;
+    setLogoUploading(true);
+    setError(null);
+
+    const ext = (file.name.split(".").pop() ?? "png").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5) || "png";
+
+    try {
+      const urlRes = await csrfFetch("/api/community-site/logo-upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ext }),
+      });
+      if (!urlRes.ok) {
+        const d = await urlRes.json() as { error?: string };
+        throw new Error(d.error ?? "Could not get upload URL");
+      }
+      const { uploadUrl, logoPath: newLogoPath } = await urlRes.json() as { uploadUrl: string; logoPath: string };
+
+      const putRes = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "image/png" },
+        body: file,
+      });
+      if (!putRes.ok) throw new Error("Logo upload failed");
+
+      setLogoPath(newLogoPath);
+      setLogoPreview(URL.createObjectURL(file));
+
+      const logoNote = `[Logo uploaded: ${file.name}]`;
+      const userMsg = { id: Date.now().toString(), role: "user" as const, content: logoNote };
+      const newMessages = [...messages, userMsg];
+      setMessages(newMessages);
+      setLoading(true);
+      try {
+        const reply = await callInterview(logoNote, newMessages);
+        if (reply) {
+          setMessages(prev => [
+            ...prev,
+            { id: (Date.now() + 1).toString(), role: "assistant", content: reply },
+          ]);
+        }
+      } finally {
+        setLoading(false);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Logo upload failed");
+    } finally {
+      setLogoUploading(false);
+    }
+  }
+
   async function sendMessage(overrideText?: string) {
     const text = (overrideText ?? input).trim();
     if (!text || loading) return;
@@ -390,10 +447,14 @@ export default function CommunityBuilder() {
     setError(null);
 
     try {
+      const payloadWithLogo = logoPath
+        ? { ...readyPayload, logoPath }
+        : readyPayload;
+
       const res = await csrfFetch("/api/community-site/provision", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ payload: readyPayload }),
+        body: JSON.stringify({ payload: payloadWithLogo }),
       });
 
       const d = await res.json() as { ok?: boolean; siteUrl?: string; error?: string };
@@ -575,7 +636,45 @@ export default function CommunityBuilder() {
       {/* Input */}
       {started && !isInterviewComplete && !provisionResult?.ok && (
         <div className="flex-shrink-0 border-t border-[#1e3a5f] px-4 py-3">
+          {/* Logo thumbnail badge */}
+          {logoPreview && (
+            <div className="flex items-center gap-2 mb-2 px-1">
+              <img src={logoPreview} alt="Logo" className="w-8 h-8 rounded object-cover border border-[#1e3a5f]" />
+              <span className="text-xs text-[#7aad6a]">Logo uploaded</span>
+              <button
+                onClick={() => { setLogoPath(null); setLogoPreview(null); }}
+                className="text-[#4a6a8a] hover:text-red-400 ml-auto"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
           <div className="flex gap-2 items-end">
+            {/* Hidden file input */}
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={e => {
+                const file = e.target.files?.[0];
+                if (file) uploadLogo(file);
+                e.target.value = "";
+              }}
+            />
+            {/* Logo upload button */}
+            <Button
+              onClick={() => logoInputRef.current?.click()}
+              disabled={loading || logoUploading}
+              title="Upload your organization logo"
+              className="bg-[#0f1a2e] border border-[#1e3a5f] hover:bg-[#1a2a3f] text-[#4a8ac4] h-10 w-10 p-0 flex-shrink-0 rounded-xl"
+            >
+              {logoUploading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <ImagePlus className="w-4 h-4" />
+              )}
+            </Button>
             <Textarea
               ref={textareaRef}
               value={input}
@@ -597,7 +696,7 @@ export default function CommunityBuilder() {
               )}
             </Button>
           </div>
-          <p className="text-xs text-[#4a6a8a] mt-1.5 px-1">Enter to send · Shift+Enter for new line</p>
+          <p className="text-xs text-[#4a6a8a] mt-1.5 px-1">Enter to send · Shift+Enter for new line · <ImagePlus className="w-3 h-3 inline mb-0.5" /> to upload your logo</p>
         </div>
       )}
     </div>

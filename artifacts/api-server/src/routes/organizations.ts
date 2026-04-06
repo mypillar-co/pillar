@@ -45,11 +45,37 @@ function generateSlug(name: string): string {
     .slice(0, 40);
 }
 
+function isAdminUser(req: Request): boolean {
+  if (!req.isAuthenticated()) return false;
+  const adminEmails = new Set(
+    (process.env.ADMIN_EMAILS ?? "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean),
+  );
+  const adminIds = new Set(
+    (process.env.ADMIN_USER_IDS ?? "").split(",").map(s => s.trim()).filter(Boolean),
+  );
+  return adminEmails.has((req.user.email ?? "").toLowerCase()) || adminIds.has(req.user.id);
+}
+
 // GET /api/organizations — get current user's org
 router.get("/organizations", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
     return;
+  }
+
+  // Admin dev-org override: if an admin has selected a specific org to test as,
+  // return that org instead of their default one.
+  const devOrgId = req.headers["x-dev-org-id"] as string | undefined;
+  if (devOrgId && isAdminUser(req)) {
+    const [overrideOrg] = await db
+      .select()
+      .from(organizationsTable)
+      .where(eq(organizationsTable.id, devOrgId))
+      .limit(1);
+    if (overrideOrg) {
+      res.json({ organization: { ...overrideOrg, createdAt: overrideOrg.createdAt.toISOString() } });
+      return;
+    }
   }
 
   const [org] = await db

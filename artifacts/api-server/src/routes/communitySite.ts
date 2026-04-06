@@ -4,6 +4,29 @@ import { eq, sql } from "drizzle-orm";
 import { resolveFullOrg } from "../lib/resolveOrg";
 import OpenAI from "openai";
 
+const SIDECAR = "http://127.0.0.1:1106";
+
+async function signStorageUrl(fullPath: string, method: "GET" | "PUT", ttlSec: number): Promise<string> {
+  const normalized = fullPath.startsWith("/") ? fullPath : `/${fullPath}`;
+  const parts = normalized.split("/");
+  const bucketName = parts[1];
+  const objectName = parts.slice(2).join("/");
+  const resp = await fetch(`${SIDECAR}/object-storage/signed-object-url`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      bucket_name: bucketName,
+      object_name: objectName,
+      method,
+      expires_at: new Date(Date.now() + ttlSec * 1000).toISOString(),
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!resp.ok) throw new Error(`Sidecar sign failed: ${resp.status}`);
+  const { signed_url } = await resp.json() as { signed_url: string };
+  return signed_url;
+}
+
 const router = Router();
 
 const CONTEXT_TURNS = 12;
@@ -247,7 +270,11 @@ RULE 2 — DEFAULT VALUES when the customer skips or says no/none/N/A:
 • Event categories → ["Community", "Fundraiser", "Social"]
 • Meeting schedule → null (skip cleanly)
 
-RULE 3 — TRACK PROGRESS. Before asking question N, scan the FULL conversation history above. If the customer already answered that question at any point (even early in the conversation), mark it done and skip it. Each numbered question is asked EXACTLY ONCE. Never repeat a question that has already been answered.`;
+RULE 3 — TRACK PROGRESS. Before asking question N, scan the FULL conversation history above. If the customer already answered that question at any point (even early in the conversation), mark it done and skip it. Each numbered question is asked EXACTLY ONCE. Never repeat a question that has already been answered.
+
+RULE 4 — HANDLE SKIP PHRASES IMMEDIATELY. Phrases like "skip", "none", "no [platform]", "Skip — no Facebook", "Skip — no Instagram", "No partners", "No regular meetings", or any variation mean: record null/empty for that field and ask the next question right away. Do NOT ask for confirmation. Do NOT return an empty response. Always respond with at least one sentence.
+
+RULE 5 — LOGO NOTE. If the user mentions they have uploaded a logo (you may see a system note like "[Logo uploaded: filename]"), acknowledge it briefly ("Got your logo!") and move to the next question. Do NOT ask them to upload again.`;
 
   // Starter: tier1 or null/default
   if (!tier || tier === "tier1") {
@@ -439,6 +466,33 @@ router.put("/target", async (req: Request, res: Response) => {
   }
 });
 
+// ── POST /api/community-site/logo-upload-url ────────────────────────────────
+// Returns a presigned PUT URL so the frontend can upload a logo directly to GCS.
+router.post("/logo-upload-url", async (req: Request, res: Response) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+
+  const privateDir = process.env.PRIVATE_OBJECT_DIR;
+  if (!privateDir) {
+    res.status(500).json({ error: "Object storage not configured" });
+    return;
+  }
+
+  const { ext: rawExt = "png" } = req.body as { ext?: string };
+  const ext = rawExt.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5) || "png";
+
+  try {
+    const { randomUUID } = await import("crypto");
+    const objectId = randomUUID();
+    const fullPath = `${privateDir}/logos/${org.id}/${objectId}.${ext}`;
+    const uploadUrl = await signStorageUrl(fullPath, "PUT", 900);
+    const logoPath = `/objects/logos/${org.id}/${objectId}.${ext}`;
+    res.json({ uploadUrl, logoPath });
+  } catch (err) {
+    res.status(500).json({ error: `Could not generate upload URL: ${err instanceof Error ? err.message : String(err)}` });
+  }
+});
+
 // ── POST /api/community-site/interview ──────────────────────────────────────
 router.post("/interview", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);
@@ -479,23 +533,24 @@ router.post("/interview", async (req: Request, res: Response) => {
 
     let reply = await callAI(messages, maxTokens);
 
-    // If the model returns empty (can happen for very short inputs like "no", "skip"),
-    // retry once with an explicit nudge injected into the system prompt.
-    if (!reply || reply.trim().length < 5) {
+    // If the model returns empty/very short (can happen for skip/no/none answers),
+    // retry once with a forceful nudge.
+    if (!reply || reply.trim().length < 2) {
       const retryMessages: OpenAI.ChatCompletionMessageParam[] = [
         {
           role: "system",
           content: systemPrompt +
-            "\n\nURGENT: Your last response was empty or too short. " +
-            "You MUST reply now. Acknowledge the customer's last message, " +
-            "apply the relevant default value if needed, and ask the next unanswered question.",
+            "\n\nCRITICAL: Your previous response was empty or too short. " +
+            "The user likely sent a skip or negative response for an optional field. " +
+            "You MUST respond with at least one full sentence: " +
+            "acknowledge the user's input, record null for that field, and immediately ask the next unanswered question.",
         },
         ...messages.slice(1),
       ];
       reply = await callAI(retryMessages, maxTokens);
     }
 
-    if (!reply || reply.trim().length < 5) {
+    if (!reply || reply.trim().length < 2) {
       res.status(500).json({ error: "Something went wrong — please try again" });
       return;
     }
@@ -544,7 +599,22 @@ router.post("/provision", async (req: Request, res: Response) => {
       ? `${req.protocol}://${req.get("host")}/api/hooks/${orgSlug}`
       : null;
 
-    const finalPayload = injectWebhookUrl(payload, pillarWebhookUrl);
+    let finalPayload = injectWebhookUrl(payload, pillarWebhookUrl);
+
+    // Resolve logoPath → signed download URL (valid 24 h) for the external platform
+    const logoPath = payload.logoPath as string | undefined;
+    if (logoPath && process.env.PRIVATE_OBJECT_DIR) {
+      try {
+        const entityId = logoPath.replace(/^\/objects\//, "");
+        const fullPath = `${process.env.PRIVATE_OBJECT_DIR}/${entityId}`;
+        const logoUrl = await signStorageUrl(fullPath, "GET", 86400);
+        const { logoPath: _drop, ...rest } = finalPayload as Record<string, unknown>;
+        void _drop;
+        finalPayload = { ...rest, logoUrl };
+      } catch {
+        // Non-fatal — proceed without logoUrl
+      }
+    }
 
     const endpoint = `${siteUrl.replace(/\/$/, "")}/api/pillar/setup`;
 

@@ -7,6 +7,34 @@ import {
   agentLogsTable,
   contentQueueTable,
   outreachProspectsTable,
+  boardApprovalLinksTable,
+  boardApprovalVotesTable,
+  ticketSalesTable,
+  ticketTypesTable,
+  eventVendorsTable,
+  eventSponsorsTable,
+  eventApprovalsTable,
+  eventCommunicationsTable,
+  paymentsTable,
+  recurringEventTemplatesTable,
+  eventsTable,
+  socialPostsTable,
+  automationRulesTable,
+  contentStrategyTable,
+  oauthStatesTable,
+  socialAccountsTable,
+  siteNavItemsTable,
+  siteBlocksTable,
+  sitePagesTable,
+  sitesTable,
+  siteUpdateSchedulesTable,
+  websiteSpecsTable,
+  studioOutputsTable,
+  notificationsTable,
+  contactsTable,
+  vendorsTable,
+  sponsorsTable,
+  domainsTable,
 } from "@workspace/db";
 import { eq, count, and, gte, lt, isNotNull, sql, desc } from "drizzle-orm";
 import { adminMiddleware } from "../middlewares/adminMiddleware";
@@ -536,6 +564,122 @@ router.post("/admin/orgs/:orgId/grant-trial", async (req: Request, res: Response
       });
     if (!updated) { res.status(404).json({ error: "Organization not found" }); return; }
     res.json({ ok: true, org: updated });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin Dev Lab: list admin's own orgs ────────────────────────────────────
+router.get("/admin/my-orgs", async (req: Request, res: Response) => {
+  try {
+    const orgs = await db
+      .select({
+        id: organizationsTable.id,
+        name: organizationsTable.name,
+        type: organizationsTable.type,
+        slug: organizationsTable.slug,
+        tier: organizationsTable.tier,
+        subscriptionStatus: organizationsTable.subscriptionStatus,
+        trialEndsAt: organizationsTable.trialEndsAt,
+        createdAt: organizationsTable.createdAt,
+      })
+      .from(organizationsTable)
+      .where(eq(organizationsTable.userId, req.user.id))
+      .orderBy(desc(organizationsTable.createdAt));
+    res.json(orgs);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin Dev Lab: create a test org with a chosen tier ─────────────────────
+router.post("/admin/my-orgs", async (req: Request, res: Response) => {
+  const { name, type, tier } = req.body as { name?: string; type?: string; tier?: string };
+  if (!name || !type) {
+    res.status(400).json({ error: "name and type are required" });
+    return;
+  }
+
+  try {
+    const baseSlug = name.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 40);
+    const slug = `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`;
+
+    const [org] = await db
+      .insert(organizationsTable)
+      .values({
+        id: crypto.randomUUID(),
+        userId: req.user.id,
+        name,
+        type,
+        slug,
+        tier: tier ?? null,
+        subscriptionStatus: tier ? "active" : null,
+      })
+      .returning();
+
+    res.json({ ok: true, org: { ...org, createdAt: org.createdAt.toISOString() } });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── Admin Dev Lab: delete a specific org by ID ───────────────────────────────
+router.delete("/admin/my-orgs/:id", async (req: Request, res: Response) => {
+  const orgId = req.params.id;
+
+  // Safety: only allow deleting orgs owned by the requesting admin
+  const [org] = await db
+    .select({ id: organizationsTable.id })
+    .from(organizationsTable)
+    .where(and(eq(organizationsTable.id, orgId), eq(organizationsTable.userId, req.user.id)))
+    .limit(1);
+
+  if (!org) {
+    res.status(404).json({ error: "Organization not found or not yours" });
+    return;
+  }
+
+  try {
+    const linkIds = await db
+      .select({ id: boardApprovalLinksTable.id })
+      .from(boardApprovalLinksTable)
+      .where(eq(boardApprovalLinksTable.orgId, orgId));
+
+    await db.transaction(async (tx) => {
+      for (const { id: lid } of linkIds) {
+        await tx.delete(boardApprovalVotesTable).where(eq(boardApprovalVotesTable.linkId, lid));
+      }
+      await tx.delete(boardApprovalLinksTable).where(eq(boardApprovalLinksTable.orgId, orgId));
+      await tx.delete(ticketSalesTable).where(eq(ticketSalesTable.orgId, orgId));
+      await tx.delete(ticketTypesTable).where(eq(ticketTypesTable.orgId, orgId));
+      await tx.delete(eventVendorsTable).where(eq(eventVendorsTable.orgId, orgId));
+      await tx.delete(eventSponsorsTable).where(eq(eventSponsorsTable.orgId, orgId));
+      await tx.delete(eventApprovalsTable).where(eq(eventApprovalsTable.orgId, orgId));
+      await tx.delete(eventCommunicationsTable).where(eq(eventCommunicationsTable.orgId, orgId));
+      await tx.delete(paymentsTable).where(eq(paymentsTable.orgId, orgId));
+      await tx.delete(recurringEventTemplatesTable).where(eq(recurringEventTemplatesTable.orgId, orgId));
+      await tx.delete(eventsTable).where(eq(eventsTable.orgId, orgId));
+      await tx.delete(socialPostsTable).where(eq(socialPostsTable.orgId, orgId));
+      await tx.delete(automationRulesTable).where(eq(automationRulesTable.orgId, orgId));
+      await tx.delete(contentStrategyTable).where(eq(contentStrategyTable.orgId, orgId));
+      await tx.delete(oauthStatesTable).where(eq(oauthStatesTable.orgId, orgId));
+      await tx.delete(socialAccountsTable).where(eq(socialAccountsTable.orgId, orgId));
+      await tx.delete(siteNavItemsTable).where(eq(siteNavItemsTable.orgId, orgId));
+      await tx.delete(siteBlocksTable).where(eq(siteBlocksTable.orgId, orgId));
+      await tx.delete(sitePagesTable).where(eq(sitePagesTable.orgId, orgId));
+      await tx.delete(sitesTable).where(eq(sitesTable.orgId, orgId));
+      await tx.delete(siteUpdateSchedulesTable).where(eq(siteUpdateSchedulesTable.orgId, orgId));
+      await tx.delete(websiteSpecsTable).where(eq(websiteSpecsTable.orgId, orgId));
+      await tx.delete(studioOutputsTable).where(eq(studioOutputsTable.orgId, orgId));
+      await tx.delete(notificationsTable).where(eq(notificationsTable.orgId, orgId));
+      await tx.delete(contactsTable).where(eq(contactsTable.orgId, orgId));
+      await tx.delete(vendorsTable).where(eq(vendorsTable.orgId, orgId));
+      await tx.delete(sponsorsTable).where(eq(sponsorsTable.orgId, orgId));
+      await tx.delete(domainsTable).where(eq(domainsTable.orgId, orgId));
+      await tx.delete(organizationsTable).where(eq(organizationsTable.id, orgId));
+    });
+
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

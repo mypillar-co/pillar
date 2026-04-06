@@ -355,6 +355,15 @@ export async function customFetch<T = unknown>(
     }
   }
 
+  // Admin dev-org override: if a dev org ID is stored in localStorage, forward
+  // it to the server via a custom header so the backend can serve that org's data.
+  try {
+    const devOrgId = typeof localStorage !== "undefined" ? localStorage.getItem("pillar_dev_org_id") : null;
+    if (devOrgId) headers.set("x-dev-org-id", devOrgId);
+  } catch {
+    // localStorage unavailable (SSR / React Native) — skip silently
+  }
+
   const requestInfo = { method, url: resolveUrl(input) };
 
   const response = await fetch(input, { ...init, method, headers });
