@@ -8,7 +8,7 @@ const router = Router();
 
 const CONTEXT_TURNS = 12;
 const MAX_INTERVIEW_TOKENS = 600;
-const MAX_PAYLOAD_TOKENS = 2000;
+const MAX_PAYLOAD_TOKENS = 2200;
 
 function getOpenAIClient() {
   if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || !process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
@@ -33,93 +33,104 @@ async function callAI(
   return response.choices[0]?.message?.content ?? "";
 }
 
-// ── Color palette (hex) for each org type ───────────────────────────────────
-const ORG_COLORS: Record<string, { primary: string; accent: string }> = {
-  "Main Street / Downtown Association": { primary: "#c25038", accent: "#2b7ab5" },
-  "Chamber of Commerce":               { primary: "#1a4a8a", accent: "#d4a017" },
-  "Rotary Club":                        { primary: "#003DA5", accent: "#d4a017" },
-  "Lions Club":                         { primary: "#d4a017", accent: "#1a4a8a" },
-  "VFW / American Legion":             { primary: "#8b1a1a", accent: "#2b5797" },
-  "PTA / PTO":                          { primary: "#339966", accent: "#7a3d9e" },
-  "Community Foundation":               { primary: "#2d8a57", accent: "#2b7ab5" },
-  "Neighborhood Association":           { primary: "#c26a17", accent: "#338899" },
-  "Arts Council":                       { primary: "#7a3d9e", accent: "#cc3366" },
-  "Other":                              { primary: "#2b7ab5", accent: "#2d8a57" },
-};
+// ── Color palette by org type ────────────────────────────────────────────────
+const COLOR_PALETTE = `
+COLOR PALETTE — use exact hex values, no substitutions:
+Main Street / Downtown Association → primaryColor: #c25038  accentColor: #2b7ab5
+Chamber of Commerce               → primaryColor: #1a4a8a  accentColor: #d4a017
+Rotary Club                       → primaryColor: #003DA5  accentColor: #d4a017
+Lions Club                        → primaryColor: #d4a017  accentColor: #1a4a8a
+VFW / American Legion             → primaryColor: #8b1a1a  accentColor: #2b5797
+PTA / PTO                         → primaryColor: #339966  accentColor: #7a3d9e
+Community Foundation              → primaryColor: #2d8a57  accentColor: #2b7ab5
+Neighborhood Association          → primaryColor: #c26a17  accentColor: #338899
+Arts Council                      → primaryColor: #7a3d9e  accentColor: #cc3366
+Other                             → primaryColor: #2b7ab5  accentColor: #338899
 
-const INTERVIEW_SYSTEM_PROMPT = `You are a friendly site setup specialist for Pillar — an AI platform that configures community organization websites.
+If the customer mentions their own brand colors, use those instead of the defaults above.
+Payment provider is ALWAYS Stripe — do not offer or mention Square.`;
 
-You are running the intake interview for a NEW organization. Your job is to ask the 24 questions below ONE AT A TIME, conversationally. Keep responses under 60 words. Acknowledge each answer briefly before asking the next question. Skip any question the user already answered.
+const ORG_TYPE_FIELD = `What type of organization are you?
+Options: Main Street / Downtown Association | Chamber of Commerce | Rotary Club | Lions Club | VFW / American Legion | PTA / PTO | Community Foundation | Neighborhood Association | Arts Council | Other`;
 
-If the user mentions they have an existing website URL at ANY point, stop interviewing and say: "Great — use the **Import from website** button to pull your content automatically. I'll only ask for anything it missed."
-
-INTERVIEW QUESTIONS (ask in order, skip if already answered):
-
-BLOCK 1 — IDENTITY
-1. What is the full name of your organization?
-2. What is the short name or abbreviation? (e.g. "NRC", "IBPA", "VFW Post 1")
-3. What is your tagline or one-sentence mission statement?
-4. What type of organization are you? Options: Main Street / Downtown Association | Chamber of Commerce | Rotary Club | Lions Club | VFW / American Legion | PTA / PTO | Community Foundation | Neighborhood Association | Arts Council | Other
-
-BLOCK 2 — LOCATION & CONTACT
-5. What city and state are you in?
-6. What is your physical address?
-7. Do you have a separate mailing address? (skip if same)
-8. What is your main phone number?
-9. What is your main contact email?
-10. Do you have a separate email for events/inquiries? (optional)
-11. What is your Facebook page URL? (optional)
-12. What is your Instagram URL? (optional)
-
-BLOCK 3 — BRANDING
-13. What 2–3 letter abbreviation should appear on your logo badge? (e.g. "DI" for Discover Irwin)
-
-BLOCK 4 — STATS
-14. Approximately how many events does your organization host per year?
-15. Approximately how many total attendees across all events?
-16. How many local businesses, members, or programs does your org have? (used for a stats card)
-
-BLOCK 5 — FEATURES
-17. Do you accept event sponsors? (yes/no)
-18. Do your events have vendor registration? (yes/no)
-19. Do any events sell tickets? (yes/no — if yes, we use Stripe)
-20. Do you want a News & Updates / Blog section? (yes/no)
-21. Do you want email newsletter signup? (yes/no)
-
-BLOCK 6 — CONTENT
-22. List your community partners (name + one-line description each)
-23. What categories do your events fall into? (e.g. Festival, Fundraiser, Meeting)
-24. Describe your regular meeting schedule, if any (day, time, location)
-
-────────────────────────────────────────────────────────────────────
-WHEN ALL QUESTIONS ARE ANSWERED:
-
-Say: "I have everything I need! I'll build the setup payload now."
-
-Then output EXACTLY this on its own line:
-[PAYLOAD_READY]
-
-Then output the complete JSON payload on the next line. The payload must follow this exact structure:
+// ── Starter payload shape ────────────────────────────────────────────────────
+const STARTER_PAYLOAD_SPEC = `
+PAYLOAD JSON — output immediately after [PAYLOAD_READY] with NO extra text before or after the JSON:
 {
   "orgName": "<full name>",
   "shortName": "<abbreviation>",
-  "orgType": "<type — use: civic | chamber | rotary | lions | vfw | pta | foundation | neighborhood | arts | community>",
+  "orgType": "<civic|chamber|rotary|lions|vfw|pta|foundation|neighborhood|arts|community>",
   "tagline": "<tagline>",
   "mission": "<expand tagline to 1-2 sentences>",
   "location": "<City, ST>",
-  "primaryColor": "<hex from palette below>",
-  "accentColor": "<hex from palette below>",
+  "primaryColor": "<hex>",
+  "accentColor": "<hex>",
   "contactEmail": "<email>",
   "contactPhone": "<phone>",
   "contactAddress": "<address>",
-  "mailingAddress": "<mailing if different, else null>",
-  "website": "<website if provided, else null>",
+  "mailingAddress": "<mailing address or null>",
+  "website": null,
   "socialFacebook": "<url or null>",
   "socialInstagram": "<url or null>",
   "meetingDay": "<e.g. Every Tuesday or null>",
-  "meetingTime": "<e.g. 12:00 PM - 1:30 PM or null>",
-  "meetingLocation": "<venue name or null>",
-  "footerText": "<short org description for footer>",
+  "meetingTime": "<e.g. 7:00 PM or null>",
+  "meetingLocation": "<venue or null>",
+  "footerText": "<short footer description>",
+  "metaDescription": "<SEO description>",
+  "stats": [
+    { "value": "12+", "label": "Annual Events" },
+    { "value": "500+", "label": "Annual Attendees" },
+    { "value": "100+", "label": "Active Members" },
+    { "value": "100%", "label": "Volunteer Run" }
+  ],
+  "programs": [],
+  "partners": [{ "name": "<name>", "description": "<description>", "website": null }],
+  "sponsorshipLevels": [],
+  "events": [],
+  "sponsors": [],
+  "siteContent": {
+    "home_tagline": "<tagline>",
+    "home_intro": "<mission>",
+    "home_subtitle": "<org type label e.g. Civic Organization>",
+    "contact_address": "<address>",
+    "contact_phone": "<phone>",
+    "contact_email": "<email>",
+    "social_facebook": "<facebook url or empty string>",
+    "social_instagram": "<instagram url or empty string>",
+    "about_mission": "<2-3 paragraph mission>",
+    "community_partners": "<JSON-stringified partners array>"
+  }
+}
+NOTE for stats: Since stats were not explicitly asked, use reasonable defaults based on the org type (e.g. 12+ events, 500+ attendees, 100+ members). Adapt labels appropriately (Active Members vs Local Businesses).`;
+
+// ── Autopilot payload shape (extends Starter) ────────────────────────────────
+const AUTOPILOT_PAYLOAD_SPEC = `
+PAYLOAD JSON — output immediately after [PAYLOAD_READY] with NO extra text before or after the JSON.
+Same structure as Starter PLUS these additions:
+- In siteContent, add: "pillarWebhookUrl": "__PILLAR_WEBHOOK_URL__"  (leave exactly as shown — Pillar fills it in)
+- In siteContent, add: "has_blog": "true", "has_newsletter": "true"
+- Do NOT include events, sponsors, or businesses arrays.
+Full payload:
+{
+  "orgName": "<full name>",
+  "shortName": "<abbreviation>",
+  "orgType": "<civic|chamber|rotary|lions|vfw|pta|foundation|neighborhood|arts|community>",
+  "tagline": "<tagline>",
+  "mission": "<expand tagline to 1-2 sentences>",
+  "location": "<City, ST>",
+  "primaryColor": "<hex>",
+  "accentColor": "<hex>",
+  "contactEmail": "<email>",
+  "contactPhone": "<phone>",
+  "contactAddress": "<address>",
+  "mailingAddress": "<mailing address or null>",
+  "website": null,
+  "socialFacebook": "<url or null>",
+  "socialInstagram": "<url or null>",
+  "meetingDay": "<e.g. Every Tuesday or null>",
+  "meetingTime": "<e.g. 7:00 PM or null>",
+  "meetingLocation": "<venue or null>",
+  "footerText": "<short footer description>",
   "metaDescription": "<SEO description>",
   "stats": [
     { "value": "<annual_events>", "label": "Annual Events" },
@@ -128,7 +139,7 @@ Then output the complete JSON payload on the next line. The payload must follow 
     { "value": "100%", "label": "Volunteer Run" }
   ],
   "programs": [],
-  "partners": [<{ "name": "...", "description": "...", "website": null }>],
+  "partners": [{ "name": "<name>", "description": "<description>", "website": null }],
   "sponsorshipLevels": [],
   "events": [],
   "sponsors": [],
@@ -139,26 +150,235 @@ Then output the complete JSON payload on the next line. The payload must follow 
     "contact_address": "<address>",
     "contact_phone": "<phone>",
     "contact_email": "<email>",
-    "social_facebook": "<facebook or empty>",
-    "social_instagram": "<instagram or empty>",
+    "social_facebook": "<facebook url or empty string>",
+    "social_instagram": "<instagram url or empty string>",
     "about_mission": "<2-3 paragraph mission>",
-    "community_partners": "<JSON string of partners array>"
+    "community_partners": "<JSON-stringified partners array>",
+    "has_blog": "true",
+    "has_newsletter": "true",
+    "pillarWebhookUrl": "__PILLAR_WEBHOOK_URL__"
+  }
+}`;
+
+// ── Events/Total Ops payload shape (full) ────────────────────────────────────
+const EVENTS_PAYLOAD_SPEC = `
+PAYLOAD JSON — output immediately after [PAYLOAD_READY] with NO extra text before or after the JSON.
+Full platform payload:
+{
+  "orgName": "<full name>",
+  "shortName": "<abbreviation>",
+  "orgType": "<civic|chamber|rotary|lions|vfw|pta|foundation|neighborhood|arts|community>",
+  "tagline": "<tagline>",
+  "mission": "<expand tagline to 1-2 sentences>",
+  "location": "<City, ST>",
+  "primaryColor": "<hex>",
+  "accentColor": "<hex>",
+  "contactEmail": "<email>",
+  "contactPhone": "<phone>",
+  "contactAddress": "<address>",
+  "mailingAddress": "<mailing address or null>",
+  "website": null,
+  "socialFacebook": "<url or null>",
+  "socialInstagram": "<url or null>",
+  "meetingDay": "<e.g. Every Tuesday or null>",
+  "meetingTime": "<e.g. 12:00 PM - 1:00 PM or null>",
+  "meetingLocation": "<venue or null>",
+  "footerText": "<short footer description>",
+  "metaDescription": "<SEO description>",
+  "stats": [
+    { "value": "<annual_events answer>", "label": "Annual Events" },
+    { "value": "<annual_attendees answer>", "label": "Annual Attendees" },
+    { "value": "<local_businesses or members>", "label": "<Local Businesses OR Active Members>" },
+    { "value": "100%", "label": "Volunteer Run" }
+  ],
+  "programs": [],
+  "partners": [{ "name": "<name>", "description": "<description>", "website": null }],
+  "sponsorshipLevels": [],
+  "events": [
+    {
+      "title": "<event name>",
+      "description": "<description>",
+      "date": "<date string>",
+      "time": "<time range>",
+      "location": "<venue>",
+      "category": "<category>",
+      "featured": true,
+      "isTicketed": <true|false>,
+      "ticketPrice": "<price or null>",
+      "ticketCapacity": <number or null>
+    }
+  ],
+  "sponsors": [],
+  "businesses": [],
+  "siteContent": {
+    "home_tagline": "<tagline>",
+    "home_intro": "<mission>",
+    "home_subtitle": "<org type label>",
+    "contact_address": "<address>",
+    "contact_phone": "<phone>",
+    "contact_email": "<email>",
+    "social_facebook": "<facebook url or empty string>",
+    "social_instagram": "<instagram url or empty string>",
+    "about_mission": "<2-3 paragraph mission>",
+    "community_partners": "<JSON-stringified partners array>",
+    "has_blog": "<true if they want blog, else false>",
+    "has_newsletter": "<true if they want newsletter, else false>",
+    "pillarWebhookUrl": "__PILLAR_WEBHOOK_URL__",
+    "event_categories": "<comma-separated categories>"
   }
 }
+TICKETING: If has_ticketed_events = yes, mark relevant events with isTicketed: true, ticketPrice, and ticketCapacity. Always use Stripe — never mention Square.
+BUSINESS DIRECTORY: If org is Main Street, Chamber, or Downtown Association, include a "businesses" array if they mentioned any local businesses.`;
 
-COLOR PALETTE (use exact hex values):
-Main Street / Downtown Association → primary #c25038 / accent #2b7ab5
-Chamber of Commerce → primary #1a4a8a / accent #d4a017
-Rotary Club → primary #003DA5 / accent #d4a017
-Lions Club → primary #d4a017 / accent #1a4a8a
-VFW / American Legion → primary #8b1a1a / accent #2b5797
-PTA / PTO → primary #339966 / accent #7a3d9e
-Community Foundation → primary #2d8a57 / accent #2b7ab5
-Neighborhood Association → primary #c26a17 / accent #338899
-Arts Council → primary #7a3d9e / accent #cc3366
-Other → primary #2b7ab5 / accent #2d8a57
+// ── Build system prompt by tier ───────────────────────────────────────────────
+function buildSystemPrompt(tier: string | null): string {
+  const base = `You are a friendly site setup specialist for Pillar — an AI platform that configures community organization websites.
 
-IMPORTANT: Always use Stripe for payment_provider, never Square.`;
+You are running the intake interview for a new organization. Ask questions ONE AT A TIME. Keep responses under 60 words. Acknowledge each answer in one brief sentence, then ask the next question. Skip any question the user has already answered.
+
+If the user mentions they have an existing website URL at ANY point, stop and say: "Great — use the **Import from website** button to pull your content automatically."`;
+
+  // Starter: tier1 or null/default
+  if (!tier || tier === "tier1") {
+    return `${base}
+
+TIER: Starter — ask only the following 14 questions, in order:
+
+BLOCK 1 — IDENTITY
+1. What is the full name of your organization?
+2. What is the short name or abbreviation? (e.g. "NRC", "IBPA", "VFW Post 1")
+3. What is your tagline or one-sentence mission statement?
+4. ${ORG_TYPE_FIELD}
+
+BLOCK 2 — LOCATION & CONTACT
+5. What city and state are you in?
+6. What is your physical address?
+7. Do you have a separate mailing address? (leave blank if same as physical)
+8. What is your main phone number?
+9. What is your main contact email?
+10. What is your Facebook page URL? (optional)
+11. What is your Instagram URL? (optional)
+
+BLOCK 3 — BRANDING
+12. What 2–3 letter abbreviation should appear on your logo badge? (e.g. "DI" for Discover Irwin)
+
+BLOCK 4 — CONTENT
+13. List your community partners — name and one-line description each (optional)
+14. What is your regular meeting schedule, if any? (day, time, and location — skip if you don't have regular meetings)
+
+HARD-SET (do NOT ask the customer — include these in payload automatically):
+- has_sponsors = false
+- has_vendors = false
+- has_ticketed_events = false
+- has_blog = false
+- has_newsletter = false
+
+When all 14 questions are answered, say: "I have everything I need! I'll build your website setup now." Then output:
+[PAYLOAD_READY]
+
+${STARTER_PAYLOAD_SPEC}
+
+${COLOR_PALETTE}`;
+  }
+
+  // Autopilot: tier1a
+  if (tier === "tier1a") {
+    return `${base}
+
+TIER: Autopilot — ask the following questions, in order:
+
+BLOCK 1 — IDENTITY
+1. What is the full name of your organization?
+2. What is the short name or abbreviation? (e.g. "NRC", "IBPA", "VFW Post 1")
+3. What is your tagline or one-sentence mission statement?
+4. ${ORG_TYPE_FIELD}
+
+BLOCK 2 — LOCATION & CONTACT
+5. What city and state are you in?
+6. What is your physical address?
+7. Do you have a separate mailing address? (leave blank if same as physical)
+8. What is your main phone number?
+9. What is your main contact email?
+10. What is your Facebook page URL? (optional)
+11. What is your Instagram URL? (optional)
+
+BLOCK 3 — BRANDING
+12. What 2–3 letter abbreviation should appear on your logo badge?
+
+BLOCK 4 — STATS
+13. Approximately how many events do you host per year?
+14. Approximately how many total attendees across all events?
+15. How many local businesses or active members does your organization have?
+
+BLOCK 5 — CONTENT
+16. List your community partners — name and one-line description each (optional)
+17. What is your regular meeting schedule, if any? (day, time, and location — skip if none)
+
+HARD-SET (do NOT ask — include in payload automatically):
+- has_sponsors = false
+- has_vendors = false
+- has_ticketed_events = false
+- has_blog = TRUE (Autopilot includes News & Updates — do not ask)
+- has_newsletter = TRUE (Autopilot includes newsletter signup — do not ask)
+
+When all questions are answered, say: "I have everything I need! I'll build your setup now." Then output:
+[PAYLOAD_READY]
+
+${AUTOPILOT_PAYLOAD_SPEC}
+
+${COLOR_PALETTE}`;
+  }
+
+  // Events (tier2) and Total Operations (tier3) — full 24 questions
+  return `${base}
+
+TIER: Events — ask all questions. Nothing is skipped. Payment provider is always Stripe (do not ask or mention Square).
+
+BLOCK 1 — IDENTITY
+1. What is the full name of your organization?
+2. What is the short name or abbreviation? (e.g. "NRC", "IBPA", "VFW Post 1")
+3. What is your tagline or one-sentence mission statement?
+4. ${ORG_TYPE_FIELD}
+
+BLOCK 2 — LOCATION & CONTACT
+5. What city and state are you in?
+6. What is your physical address?
+7. Do you have a separate mailing address? (leave blank if same as physical)
+8. What is your main phone number?
+9. What is your main contact email?
+10. Do you have a separate email for event inquiries? (optional)
+11. What is your Facebook page URL? (optional)
+12. What is your Instagram URL? (optional)
+
+BLOCK 3 — BRANDING
+13. What 2–3 letter abbreviation should appear on your logo badge?
+
+BLOCK 4 — STATS
+14. Approximately how many events do you host per year?
+15. Approximately how many total attendees across all events?
+16. How many local businesses, members, or programs does your org have?
+
+BLOCK 5 — FEATURES
+17. Do you accept event sponsors? (yes/no — if yes, ask for tier names and prices)
+18. Do your events have vendor registration? (yes/no)
+19. Do any events sell tickets? (yes/no — if yes, we use Stripe for checkout)
+20. Do you want a News & Updates / Blog section? (yes/no)
+21. Do you want email newsletter signup on your site? (yes/no)
+
+BLOCK 6 — CONTENT
+22. List your community partners — name and one-line description each (optional)
+23. What categories do your events fall into? (e.g. Festival, Fundraiser, Meeting, Holiday)
+24. Describe your regular meeting schedule, if any (day, time, location)
+
+Also: If the user mentions specific upcoming events during the interview, capture them for the events array.
+
+When all questions are answered, say: "I have everything I need! I'll build your site setup now." Then output:
+[PAYLOAD_READY]
+
+${EVENTS_PAYLOAD_SPEC}
+
+${COLOR_PALETTE}`;
+}
 
 // ── GET /api/community-site/target ──────────────────────────────────────────
 router.get("/target", async (req: Request, res: Response) => {
@@ -173,9 +393,10 @@ router.get("/target", async (req: Request, res: Response) => {
     res.json({
       url: r?.community_site_url ?? null,
       hasKey: !!r?.community_site_key,
+      tier: (org as { tier?: string | null }).tier ?? null,
     });
   } catch {
-    res.json({ url: null, hasKey: false });
+    res.json({ url: null, hasKey: false, tier: null });
   }
 });
 
@@ -220,16 +441,17 @@ router.post("/interview", async (req: Request, res: Response) => {
 
   if (!message?.trim()) { res.status(400).json({ error: "message is required" }); return; }
 
+  const tier = (org as { tier?: string | null }).tier ?? null;
   const trimmedHistory = history.slice(-(CONTEXT_TURNS * 2));
 
-  let systemPrompt = INTERVIEW_SYSTEM_PROMPT;
+  let systemPrompt = buildSystemPrompt(tier);
 
   if (prefilled && Object.keys(prefilled).length > 0) {
     const lines = Object.entries(prefilled)
       .filter(([, v]) => v)
       .map(([k, v]) => `  ${k}: ${v}`)
       .join("\n");
-    systemPrompt += `\n\nPRE-FILLED FROM WEBSITE CRAWL (skip these questions — already answered):\n${lines}`;
+    systemPrompt += `\n\nPRE-FILLED FROM WEBSITE IMPORT (treat as already answered — skip these questions):\n${lines}`;
   }
 
   const messages: OpenAI.ChatCompletionMessageParam[] = [
@@ -239,8 +461,10 @@ router.post("/interview", async (req: Request, res: Response) => {
   ];
 
   try {
-    const isPayloadReady = trimmedHistory.some(m => m.role === "assistant" && m.content.includes("[PAYLOAD_READY]"));
-    const maxTokens = isPayloadReady ? MAX_PAYLOAD_TOKENS : MAX_INTERVIEW_TOKENS;
+    const alreadyEmittedPayload = trimmedHistory.some(
+      m => m.role === "assistant" && m.content.includes("[PAYLOAD_READY]"),
+    );
+    const maxTokens = alreadyEmittedPayload ? MAX_PAYLOAD_TOKENS : MAX_INTERVIEW_TOKENS;
 
     const reply = await callAI(messages, maxTokens);
     if (!reply) { res.status(500).json({ error: "Empty AI response" }); return; }
@@ -249,7 +473,7 @@ router.post("/interview", async (req: Request, res: Response) => {
       .set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` })
       .where(eq(organizationsTable.id, org.id));
 
-    res.json({ reply });
+    res.json({ reply, tier });
   } catch {
     res.status(500).json({ error: "AI service unavailable" });
   }
@@ -274,8 +498,22 @@ router.post("/provision", async (req: Request, res: Response) => {
     const siteUrl = r?.community_site_url;
     const siteKey = r?.community_site_key;
 
-    if (!siteUrl) { res.status(400).json({ error: "No community site URL configured. Set it in Site Connection settings." }); return; }
-    if (!siteKey) { res.status(400).json({ error: "No community site service key configured." }); return; }
+    if (!siteUrl) {
+      res.status(400).json({ error: "No community site URL configured. Add it using the Site Connection settings above." });
+      return;
+    }
+    if (!siteKey) {
+      res.status(400).json({ error: "No service key configured. Add the PILLAR_SERVICE_KEY in Site Connection settings." });
+      return;
+    }
+
+    // Replace the __PILLAR_WEBHOOK_URL__ placeholder with the real Pillar hooks endpoint
+    const orgSlug = (org as { slug?: string | null }).slug;
+    const pillarWebhookUrl = orgSlug
+      ? `${req.protocol}://${req.get("host")}/api/hooks/${orgSlug}`
+      : null;
+
+    const finalPayload = injectWebhookUrl(payload, pillarWebhookUrl);
 
     const endpoint = `${siteUrl.replace(/\/$/, "")}/api/pillar/setup`;
 
@@ -285,7 +523,7 @@ router.post("/provision", async (req: Request, res: Response) => {
         "Content-Type": "application/json",
         "X-Pillar-Key": siteKey,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(finalPayload),
       signal: AbortSignal.timeout(30_000),
     });
 
@@ -303,5 +541,18 @@ router.post("/provision", async (req: Request, res: Response) => {
   }
 });
 
-export { ORG_COLORS };
+function injectWebhookUrl(
+  payload: Record<string, unknown>,
+  webhookUrl: string | null,
+): Record<string, unknown> {
+  if (!webhookUrl) return payload;
+  const sc = payload.siteContent;
+  if (!sc || typeof sc !== "object") return payload;
+  const siteContent = { ...(sc as Record<string, unknown>) };
+  if (siteContent.pillarWebhookUrl === "__PILLAR_WEBHOOK_URL__") {
+    siteContent.pillarWebhookUrl = webhookUrl;
+  }
+  return { ...payload, siteContent };
+}
+
 export default router;
