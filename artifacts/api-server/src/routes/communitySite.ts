@@ -1088,30 +1088,27 @@ router.post("/provision", async (req: Request, res: Response) => {
 
   try {
     const row = await db.execute(sql`
-      SELECT community_site_url, community_site_key FROM organizations WHERE id = ${org.id} LIMIT 1
+      SELECT community_site_url, community_site_key, slug FROM organizations WHERE id = ${org.id} LIMIT 1
     `);
     const r = row.rows[0] as Record<string, string | null> | undefined;
     const siteUrl = r?.community_site_url;
     const siteKey = r?.community_site_key;
+    const orgSlug = r?.slug ?? (org as { slug?: string | null }).slug;
 
-    if (!siteUrl) {
-      res.status(400).json({ error: "No community site URL configured." });
-      return;
-    }
-    if (!siteKey) {
-      res.status(400).json({ error: "No service key configured." });
-      return;
-    }
+    // Determine if this is a mypillar.co publish (no external URL, or already mypillar.co)
+    const isMypillar = !siteUrl || siteUrl.includes(".mypillar.co");
+    const mypillarUrl = orgSlug
+      ? `https://${orgSlug}.mypillar.co`
+      : `https://pillar-${org.id.slice(0, 8)}.mypillar.co`;
 
     // Replace the __PILLAR_WEBHOOK_URL__ placeholder with the real Pillar hooks endpoint
-    const orgSlug = (org as { slug?: string | null }).slug;
     const pillarWebhookUrl = orgSlug
       ? `${req.protocol}://${req.get("host")}/api/hooks/${orgSlug}`
       : null;
 
     let finalPayload = injectWebhookUrl(payload, pillarWebhookUrl);
 
-    // Resolve logoPath → signed download URL (valid 24 h) for the external platform
+    // Resolve logoPath → signed download URL (valid 24 h)
     const logoPath = payload.logoPath as string | undefined;
     if (logoPath && process.env.PRIVATE_OBJECT_DIR) {
       try {
@@ -1126,7 +1123,25 @@ router.post("/provision", async (req: Request, res: Response) => {
       }
     }
 
-    const endpoint = `${siteUrl.replace(/\/$/, "")}/api/pillar/setup`;
+    // ── mypillar.co publish: save config to DB and return success ──────────────
+    if (isMypillar) {
+      await db.execute(sql`
+        UPDATE organizations
+        SET site_config = ${JSON.stringify(finalPayload)}::jsonb,
+            community_site_url = ${mypillarUrl}
+        WHERE id = ${org.id}
+      `);
+      res.json({ ok: true, siteUrl: mypillarUrl });
+      return;
+    }
+
+    // ── External site: forward payload to the site's setup endpoint ────────────
+    if (!siteKey) {
+      res.status(400).json({ error: "No service key configured for this site." });
+      return;
+    }
+
+    const endpoint = `${siteUrl!.replace(/\/$/, "")}/api/pillar/setup`;
 
     const upstream = await fetch(endpoint, {
       method: "POST",

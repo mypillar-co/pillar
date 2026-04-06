@@ -2,8 +2,9 @@ import React, { useState, useRef, useEffect } from "react";
 import {
   Send, Bot, User, Loader2, AlertCircle, CheckCircle2,
   Globe, Rocket, ExternalLink, ChevronDown, ChevronUp,
-  ImagePlus, X, RefreshCw, Link, KeyRound, Pencil,
+  ImagePlus, X, RefreshCw,
 } from "lucide-react";
+import { Link } from "wouter";
 import { useGetOrganization } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -388,15 +389,6 @@ export default function CommunityBuilder() {
   const [logoUploading, setLogoUploading] = useState(false);
   const [crawling, setCrawling] = useState(false);
 
-  // ── Target site URL ──────────────────────────────────────────────────────────
-  const [targetUrl, setTargetUrl] = useState<string | null>(null);
-  const [targetLoading, setTargetLoading] = useState(true);
-  const [editingTarget, setEditingTarget] = useState(false);
-  const [targetUrlInput, setTargetUrlInput] = useState("");
-  const [targetKeyInput, setTargetKeyInput] = useState("");
-  const [savingTarget, setSavingTarget] = useState(false);
-  const [targetError, setTargetError] = useState<string | null>(null);
-
   const chatEndRef   = useRef<HTMLDivElement>(null);
   const inputRef     = useRef<HTMLTextAreaElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -413,44 +405,6 @@ export default function CommunityBuilder() {
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [stepIndex, started, currentQuestion?.type]);
-
-  // Fetch existing target URL on mount
-  useEffect(() => {
-    csrfFetch("/api/community-site/target")
-      .then(r => r.json())
-      .then((d: { url: string | null }) => {
-        setTargetUrl(d.url ?? null);
-        if (!d.url) setEditingTarget(true);
-        setTargetLoading(false);
-      })
-      .catch(() => setTargetLoading(false));
-  }, []);
-
-  async function saveTarget() {
-    const url = targetUrlInput.trim();
-    if (!url) { setTargetError("Please enter your community site URL."); return; }
-    setSavingTarget(true);
-    setTargetError(null);
-    try {
-      const res = await csrfFetch("/api/community-site/target", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, key: targetKeyInput.trim() || undefined }),
-      });
-      const d = await res.json() as { ok?: boolean; error?: string };
-      if (!res.ok || !d.ok) {
-        setTargetError(d.error ?? "Failed to save. Please try again.");
-      } else {
-        setTargetUrl(url);
-        setEditingTarget(false);
-        setTargetError(null);
-      }
-    } catch {
-      setTargetError("Couldn't connect. Please check your URL and try again.");
-    } finally {
-      setSavingTarget(false);
-    }
-  }
 
   // ── Ack fetch (fire-and-forget, never blocks progress) ──────────────────────
   async function fetchAck(fieldId: string, value: string, itemId: string) {
@@ -622,29 +576,19 @@ export default function CommunityBuilder() {
       });
       const d = await res.json() as { ok?: boolean; siteUrl?: string; error?: string };
       if (!res.ok || !d.ok) {
-        let error: string;
-        let canRetry = false;
-        if (res.status === 401) {
-          error = "Authentication failed. The service key doesn't match the deployed site. Contact support.";
-        } else if (res.status === 400) {
-          error = d.error?.includes("No community site")
-            ? (d.error ?? "No community site configured.")
-            : "Invalid configuration data. Please try the interview again.";
-        } else if (res.status >= 500) {
-          error = "The site encountered an error during setup. Please try again in a few minutes.";
-          canRetry = true;
-        } else {
-          error = d.error ?? "Launch failed";
-          canRetry = true;
-        }
-        setProvisionResult({ ok: false, error, canRetry });
+        const canRetry = res.status !== 400;
+        setProvisionResult({
+          ok: false,
+          error: "Something went wrong setting up your site. Please try again or contact support.",
+          canRetry,
+        });
       } else {
         setProvisionResult({ ok: true, siteUrl: d.siteUrl });
       }
     } catch {
       setProvisionResult({
         ok: false,
-        error: "Couldn't reach your site. It may still be deploying. Please try again in a few minutes.",
+        error: "Something went wrong. Please try again in a few minutes.",
         canRetry: true,
       });
     } finally {
@@ -718,21 +662,32 @@ export default function CommunityBuilder() {
 
       {/* ── Success banner ── */}
       {provisionResult?.ok && (
-        <div className="flex-shrink-0 mx-6 mt-4 p-4 rounded-xl bg-green-500/10 border border-green-500/30 flex items-start gap-3">
-          <CheckCircle2 className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-semibold text-green-300">Your site is live!</p>
-            {provisionResult.siteUrl && (
-              <a
-                href={provisionResult.siteUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-sm text-green-400 hover:text-green-300 underline mt-1"
-              >
-                {provisionResult.siteUrl}
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-            )}
+        <div className="flex-shrink-0 mx-6 mt-4 p-4 rounded-xl bg-green-500/10 border border-green-500/30">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-green-300">Your site is live!</p>
+              {provisionResult.siteUrl && (
+                <a
+                  href={provisionResult.siteUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-sm text-green-400 hover:text-green-300 underline underline-offset-2 mt-1 break-all"
+                >
+                  {provisionResult.siteUrl}
+                  <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
+                </a>
+              )}
+            </div>
+          </div>
+          <div className="mt-3 pt-3 border-t border-green-500/20 flex items-center justify-between">
+            <p className="text-xs text-green-400/70">Want to use your own domain name?</p>
+            <Link
+              to="/dashboard/domains"
+              className="text-xs font-medium text-green-400 hover:text-green-300 underline underline-offset-2 transition-colors"
+            >
+              Connect a domain →
+            </Link>
           </div>
         </div>
       )}
@@ -762,83 +717,17 @@ export default function CommunityBuilder() {
 
         {/* Not started yet */}
         {!started && (
-          <div className="flex flex-col items-center justify-center h-full text-center py-12">
+          <div className="flex flex-col items-center justify-center h-full text-center py-16">
             <div className="w-16 h-16 rounded-2xl bg-[#d4a017]/10 flex items-center justify-center mb-4">
               <Globe className="w-8 h-8 text-[#d4a017]" />
             </div>
             <h2 className="text-lg font-semibold text-white mb-2">
-              Let's set up {org?.name ?? "your website"}
+              Let's set up your website!
             </h2>
             <p className="text-sm text-[#7a9cbf] max-w-sm mb-6">
-              I'll ask you {totalSteps} questions about your organization — name, location,
-              contact info, and how you'd like your site to look. Takes about 5 minutes.
+              I'll ask you a few questions about your organization.
+              Takes about 5 minutes.
             </p>
-
-            {/* ── Community site URL step ── */}
-            <div className="w-full max-w-sm mb-5 text-left">
-              {targetLoading ? (
-                <div className="flex items-center gap-2 text-xs text-[#7a9cbf]">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Checking site configuration…
-                </div>
-              ) : targetUrl && !editingTarget ? (
-                <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-[#0f1a2e] border border-[#1e3a5f]">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-green-400 flex-shrink-0" />
-                    <span className="text-xs text-[#c8d8e8] truncate">{targetUrl}</span>
-                  </div>
-                  <button
-                    onClick={() => { setTargetUrlInput(targetUrl); setEditingTarget(true); }}
-                    className="ml-2 flex-shrink-0 text-[#4a6a8a] hover:text-[#d4a017] transition-colors"
-                    title="Change site URL"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <p className="text-xs text-[#d4a017] font-medium flex items-center gap-1.5">
-                    <Link className="w-3.5 h-3.5" />
-                    First, connect your community site
-                  </p>
-                  <p className="text-xs text-[#7a9cbf] mb-2">
-                    Enter the URL of the site Pillar will configure. You only need to do this once.
-                  </p>
-                  <input
-                    type="url"
-                    placeholder="https://myclub.org"
-                    value={targetUrlInput}
-                    onChange={e => setTargetUrlInput(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter") void saveTarget(); }}
-                    className="w-full bg-[#0f1a2e] border border-[#1e3a5f] rounded-lg px-3 py-2 text-sm text-white placeholder:text-[#4a6a8a] focus:outline-none focus:border-[#d4a017] transition-colors"
-                  />
-                  <div className="flex items-center gap-2">
-                    <KeyRound className="w-3 h-3 text-[#4a6a8a] flex-shrink-0" />
-                    <input
-                      type="password"
-                      placeholder="API key (optional)"
-                      value={targetKeyInput}
-                      onChange={e => setTargetKeyInput(e.target.value)}
-                      className="flex-1 bg-[#0f1a2e] border border-[#1e3a5f] rounded-lg px-3 py-2 text-sm text-white placeholder:text-[#4a6a8a] focus:outline-none focus:border-[#d4a017] transition-colors"
-                    />
-                  </div>
-                  {targetError && (
-                    <p className="text-xs text-red-400 flex items-center gap-1">
-                      <AlertCircle className="w-3 h-3" />{targetError}
-                    </p>
-                  )}
-                  <button
-                    onClick={() => void saveTarget()}
-                    disabled={savingTarget || !targetUrlInput.trim()}
-                    className="w-full flex items-center justify-center gap-2 bg-[#1e3a5f] hover:bg-[#2a4f7a] disabled:opacity-50 text-[#c8d8e8] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                  >
-                    {savingTarget ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                    Save & continue
-                  </button>
-                </div>
-              )}
-            </div>
-
             {logoPreview ? (
               <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg bg-[#0f1a2e] border border-[#1e3a5f]">
                 <img src={logoPreview} alt="Logo" className="w-8 h-8 rounded object-cover" />
@@ -860,11 +749,10 @@ export default function CommunityBuilder() {
               </button>
             )}
             <Button
-              className="bg-[#d4a017] hover:bg-[#b88a14] text-black font-semibold px-8 disabled:opacity-40"
+              className="bg-[#d4a017] hover:bg-[#b88a14] text-black font-semibold px-8"
               onClick={() => setStarted(true)}
-              disabled={!targetUrl || targetLoading}
             >
-              {!targetUrl && !targetLoading ? "Connect your site first" : "Let's get started"}
+              Let's get started
             </Button>
           </div>
         )}
