@@ -392,43 +392,50 @@ app.use(async (req, res, next) => {
   }
 
   if (orgSlug) {
-    // ── React template orgs: serve the Vite SPA when dist is present ──────────
-    // orgs with site_config use the React template (e.g. norwin-rotary-club).
+    // ── Determine if this org uses the React template ─────────────────────────
+    // React-template orgs have site_config set on the organizations row.
+    // We check this FIRST (before any fs or legacy-HTML checks) so that
+    // React-template orgs never accidentally fall through to the old HTML path.
+    const cfgCheck = await db.execute(
+      drizzleSql`SELECT (site_config IS NOT NULL) AS has_react_site FROM organizations WHERE slug = ${orgSlug} LIMIT 1`,
+    );
+    const cfgRow = cfgCheck.rows[0] as Record<string, unknown> | undefined;
+    const hasReactSite = Boolean(cfgRow?.has_react_site);
+
+    // ── React template orgs: serve the Vite SPA ───────────────────────────────
     // In production the built files live at artifacts/norwin-rotary/dist/public/.
-    // In dev the Vite dev server handles the React app; the dist won't exist.
-    if (!isPreview) {
+    // In dev the Vite dev server owns the app; dist won't exist, so we fall
+    // through and let the dev server handle it (it runs on a separate port).
+    if (!isPreview && hasReactSite) {
       const reactDistDir = path.resolve(process.cwd(), "artifacts/norwin-rotary/dist/public");
       const reactIndexHtml = path.join(reactDistDir, "index.html");
 
       if (fs.existsSync(reactIndexHtml)) {
-        // Quick DB check: org has site_config AND site is published
-        const cfgCheck = await db.execute(
-          drizzleSql`
-            SELECT (o.site_config IS NOT NULL) AS has_react_site,
-                   s.status AS site_status
-            FROM organizations o
-            LEFT JOIN sites s ON s.org_slug = o.slug AND s.deleted_at IS NULL
-            WHERE o.slug = ${orgSlug} LIMIT 1`,
-        );
-        const cfgRow = cfgCheck.rows[0] as Record<string, unknown> | undefined;
-        const hasReactSite =
-          Boolean(cfgRow?.has_react_site) && cfgRow?.site_status === "published";
-
-        if (hasReactSite) {
-          // Serve static assets (JS/CSS/images) directly; SPA fallback for all other paths
-          if (subPath.startsWith("/assets/") || subPath.match(/\.(ico|png|jpg|jpeg|svg|webp|woff2?|ttf|eot)$/i)) {
-            const assetPath = path.join(reactDistDir, subPath);
-            if (fs.existsSync(assetPath)) {
-              res.sendFile(assetPath);
-              return;
-            }
+        // Serve static assets (JS/CSS/images) directly; SPA fallback for all other paths
+        if (subPath.startsWith("/assets/") || subPath.match(/\.(ico|png|jpg|jpeg|svg|webp|woff2?|ttf|eot)$/i)) {
+          const assetPath = path.join(reactDistDir, subPath);
+          if (fs.existsSync(assetPath)) {
+            res.sendFile(assetPath);
+            return;
           }
-          // SPA: all non-asset paths get index.html (React Router handles navigation)
-          res.setHeader("Cache-Control", "no-cache, no-store");
-          res.sendFile(reactIndexHtml);
-          return;
         }
+        // SPA: all non-asset paths get index.html (React Router handles navigation)
+        res.setHeader("Cache-Control", "no-cache, no-store");
+        res.sendFile(reactIndexHtml);
+        return;
       }
+      // dist not built yet (local dev without a build) — fall through so the
+      // Vite dev server can handle it. In production this should never happen
+      // because build.mjs builds the frontend when CI=true.
+    }
+
+    // ── Legacy HTML handlers (only for orgs WITHOUT a React site_config) ────────
+    // React-template orgs return early above. Everything below is the old
+    // server-rendered HTML path and must never run for site_config orgs.
+    if (hasReactSite) {
+      // React site but dist wasn't built (shouldn't happen in production).
+      res.status(503).send("Site is building. Try again in a moment.");
+      return;
     }
 
     // ── Events listing page: <orgSlug>.mypillar.co/events ─────────────────────

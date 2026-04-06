@@ -1,0 +1,41 @@
+Good instinct to cross-check. The session plan covers the basics, but it's missing several things the framework already defines. Here's the gap analysis:
+
+What the session plan gets right:
+
+The three event fields (isTicketed, ticketPrice, ticketCapacity)
+The ticketPurchases table structure
+The three core endpoints (checkout, webhook, availability)
+The TicketPurchaseSection component with the right form fields
+The data-testid attributes requirement
+What it's missing — things the framework already specifies:
+
+1. Content hooks aren't wired. This is the biggest miss. The framework has four ticket-related hooks that should fire from the routes:
+
+ticket_sales.opened — when an event is created/updated with isTicketed = true
+ticket.purchased — after each purchase (internal, not posted)
+ticket_sales.milestone — when total sold crosses 10, 25, 50, 75, 100, 150, 200, 250, or 500
+ticket_sales.sold_out — when sold count reaches capacity
+The checkout endpoint needs to check these thresholds after every purchase and fire the right hooks. The admin event create/update routes need to fire ticket_sales.opened when an event becomes ticketed.
+
+2. Missing storage methods. The session plan only lists 3 methods. The framework defines 7:
+
+createTicketPurchase ✓ (in plan)
+getTicketPurchasesByEvent ✓ (in plan)
+getTicketsSoldForEvent ✓ (in plan)
+getTicketPurchase ✗ missing
+getTicketPurchaseByPaymentOrderId ✗ missing (needed for webhook)
+updateTicketPurchase ✗ missing (webhook updates status)
+deleteTicketPurchase ✗ missing
+3. No sold-out state. The frontend component in the framework shows a "sold out" message when remaining = 0. The session plan doesn't mention this state at all.
+
+4. No /payment-success page. The framework defines a conditional route at /payment-success for after Square redirects back. The session plan just says "redirects to Square" but doesn't handle the return.
+
+5. No bot protection. The framework requires honeypot field + timing check (reject submissions under 3 seconds) on every public form. The ticket purchase form is a public form.
+
+6. No registration window integration. The framework's registration window engine has specific rules: ticketed events disable vendor/sponsor auto-windows. The session plan doesn't connect to this system at all.
+
+7. Admin ticket management route is missing. The framework has GET /api/admin/ticket-purchases/:eventId so admins can see who bought tickets for each event. Not in the plan.
+
+8. Column naming. The plan says squareOrderId — which is fine for Discover Irwin specifically, but the framework uses paymentOrderId to stay payment-provider-agnostic. For DI this is a minor naming preference, not a functional gap.
+
+My recommendation: The plan needs a revision before you build it. The content hooks are the biggest miss — we just built that entire system and the ticket events are 4 of the 9 hook types. The milestone and sold-out detection logic is the core "smart" behavior that feeds Pillar's social automation ("50 tickets sold! Grab yours!" → "SOLD OUT!").
