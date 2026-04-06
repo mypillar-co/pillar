@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
 import { rm } from "node:fs/promises";
+import { execSync } from "node:child_process";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -12,6 +13,22 @@ const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = path.resolve(artifactDir, "../..");
 
 async function buildAll() {
+  // In CI / deployment, also build the frontend apps so their dist/public
+  // directories are present when the server starts. In dev mode these apps run
+  // their own Vite dev servers, so we skip the build to keep restarts fast.
+  if (process.env.CI === "true" || process.env.NODE_ENV === "production") {
+    console.log("CI detected — building frontend apps...");
+    const frontends = ["norwin-rotary", "steward"];
+    for (const app of frontends) {
+      console.log(`  Building artifacts/${app}...`);
+      execSync(`pnpm --filter @workspace/${app} run build`, {
+        cwd: workspaceRoot,
+        stdio: "inherit",
+        env: { ...process.env, BASE_PATH: "/" },
+      });
+    }
+  }
+
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
 
