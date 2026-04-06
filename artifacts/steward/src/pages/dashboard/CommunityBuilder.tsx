@@ -448,7 +448,7 @@ export default function CommunityBuilder() {
         ]);
       }
     } catch {
-      setError("Couldn't get a response — tap "Try again" to continue.");
+      setError("Couldn't get a response — tap 'Try again' to continue.");
       setLastFailedText(text);
     } finally {
       setLoading(false);
