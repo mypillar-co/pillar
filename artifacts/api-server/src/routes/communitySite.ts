@@ -51,7 +51,7 @@ If the customer mentions their own brand colors, use those instead of the defaul
 Payment provider is ALWAYS Stripe — do not offer or mention Square.`;
 
 const ORG_TYPE_FIELD = `What type of organization are you?
-Options: Main Street / Downtown Association | Chamber of Commerce | Rotary Club | Lions Club | VFW / American Legion | PTA / PTO | Community Foundation | Neighborhood Association | Arts Council | Other`;
+[OPTIONS: Main Street / Downtown Association | Chamber of Commerce | Rotary Club | Lions Club | VFW / American Legion | PTA / PTO | Community Foundation | Neighborhood Association | Arts Council | Other]`;
 
 // ── Starter payload shape ────────────────────────────────────────────────────
 const STARTER_PAYLOAD_SPEC = `
