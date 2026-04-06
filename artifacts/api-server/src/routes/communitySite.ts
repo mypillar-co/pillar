@@ -673,16 +673,29 @@ router.get("/target", async (req: Request, res: Response) => {
 
   try {
     const row = await db.execute(sql`
-      SELECT community_site_url, community_site_key FROM organizations WHERE id = ${org.id} LIMIT 1
+      SELECT community_site_url, community_site_key, site_config FROM organizations WHERE id = ${org.id} LIMIT 1
     `);
-    const r = row.rows[0] as Record<string, string | null> | undefined;
+    const r = row.rows[0] as Record<string, unknown> | undefined;
+    const config = r?.site_config as Record<string, unknown> | null | undefined;
+
+    // Return a lightweight summary for the management view
+    const configSummary = config ? {
+      orgName:      (config.orgName      as string | undefined) ?? null,
+      location:     (config.location     as string | undefined) ?? null,
+      primaryColor: (config.primaryColor as string | undefined) ?? null,
+      accentColor:  (config.accentColor  as string | undefined) ?? null,
+      tagline:      (config.tagline      as string | undefined) ?? null,
+    } : null;
+
     res.json({
-      url: r?.community_site_url ?? null,
-      hasKey: !!r?.community_site_key,
-      tier: (org as { tier?: string | null }).tier ?? null,
+      url:          (r?.community_site_url as string | null) ?? null,
+      hasKey:       !!(r?.community_site_key),
+      tier:         (org as { tier?: string | null }).tier ?? null,
+      isProvisioned: !!config,
+      configSummary,
     });
   } catch {
-    res.json({ url: null, hasKey: false, tier: null });
+    res.json({ url: null, hasKey: false, tier: null, isProvisioned: false, configSummary: null });
   }
 });
 
@@ -711,6 +724,68 @@ router.put("/target", async (req: Request, res: Response) => {
     res.json({ ok: true });
   } catch {
     res.status(500).json({ error: "Failed to save target config" });
+  }
+});
+
+// ── POST /api/community-site/ai-edit ────────────────────────────────────────
+// Takes a natural-language change request, applies it to the stored site_config,
+// and returns the updated payload for review before re-provisioning.
+router.post("/ai-edit", async (req: Request, res: Response) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+
+  const { changeRequest } = req.body as { changeRequest?: string };
+  if (!changeRequest?.trim()) {
+    res.status(400).json({ error: "changeRequest is required" });
+    return;
+  }
+
+  try {
+    const row = await db.execute(sql`
+      SELECT site_config FROM organizations WHERE id = ${org.id} LIMIT 1
+    `);
+    const r = row.rows[0] as Record<string, unknown> | undefined;
+    const currentConfig = r?.site_config as Record<string, unknown> | null | undefined;
+
+    if (!currentConfig) {
+      res.status(400).json({ error: "No site configuration found. Complete the interview first." });
+      return;
+    }
+
+    const prompt = `You are updating a community organization's website configuration.
+
+Current configuration (JSON):
+${JSON.stringify(currentConfig, null, 2)}
+
+The user wants to make this change:
+"${changeRequest.trim()}"
+
+Apply the change and return the COMPLETE updated configuration as a single valid JSON object.
+Keep all existing fields. Only modify what the user asked to change.
+Return only the JSON object, no markdown, no explanation.`;
+
+    const aiRaw = await Promise.race<string>([
+      callAI([{ role: "user", content: prompt }], 1200),
+      new Promise<string>((_, reject) => setTimeout(() => reject(new Error("timeout")), 20_000)),
+    ]);
+
+    const jsonStart = aiRaw.indexOf("{");
+    const jsonEnd   = aiRaw.lastIndexOf("}");
+    if (jsonStart === -1 || jsonEnd <= jsonStart) {
+      res.status(500).json({ error: "AI returned an unexpected response. Please try again." });
+      return;
+    }
+
+    const updatedPayload = JSON.parse(aiRaw.slice(jsonStart, jsonEnd + 1)) as Record<string, unknown>;
+
+    await db.update(organizationsTable)
+      .set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` })
+      .where(eq(organizationsTable.id, org.id));
+
+    res.json({ ok: true, payload: updatedPayload });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    res.status(500).json({ error: `Edit failed: ${msg}` });
   }
 });
 
@@ -1123,6 +1198,9 @@ router.post("/provision", async (req: Request, res: Response) => {
       }
     }
 
+    // isNewSite = true when the org didn't have a URL before this provision call
+    const isNewSite = !siteUrl;
+
     // ── mypillar.co publish: save config to DB and return success ──────────────
     if (isMypillar) {
       await db.execute(sql`
@@ -1131,7 +1209,7 @@ router.post("/provision", async (req: Request, res: Response) => {
             community_site_url = ${mypillarUrl}
         WHERE id = ${org.id}
       `);
-      res.json({ ok: true, siteUrl: mypillarUrl });
+      res.json({ ok: true, siteUrl: mypillarUrl, isNewSite });
       return;
     }
 
@@ -1160,7 +1238,14 @@ router.post("/provision", async (req: Request, res: Response) => {
       return;
     }
 
-    res.json({ ok: true, result: data, siteUrl });
+    // Save config to DB for external sites too (used by management view)
+    await db.execute(sql`
+      UPDATE organizations
+      SET site_config = ${JSON.stringify(finalPayload)}::jsonb
+      WHERE id = ${org.id}
+    `);
+
+    res.json({ ok: true, result: data, siteUrl, isNewSite });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     res.status(500).json({ error: `Provision failed: ${msg}` });

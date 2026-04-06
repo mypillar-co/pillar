@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import {
   Send, Bot, User, Loader2, AlertCircle, CheckCircle2,
   Globe, Rocket, ExternalLink, ChevronDown, ChevronUp,
-  ImagePlus, X, RefreshCw,
+  ImagePlus, X, RefreshCw, Wand2, RotateCcw, Copy,
 } from "lucide-react";
 import { Link } from "wouter";
 import { useGetOrganization } from "@workspace/api-client-react";
@@ -357,6 +357,224 @@ function UserBubble({ children }: { children: React.ReactNode }) {
   );
 }
 
+// ── Provision progress indicator ─────────────────────────────────────────────
+
+function ProvisionProgress({ isNewSite }: { isNewSite: boolean }) {
+  const [phase, setPhase] = useState(0);
+
+  const steps = isNewSite
+    ? [
+        "Creating your site…",
+        "Setting up your content…",
+        "Finalizing…",
+      ]
+    : ["Updating your site content…"];
+
+  useEffect(() => {
+    if (!isNewSite) return;
+    // Advance phases at 2s intervals — purely visual, API response ends the spinner
+    const id = setInterval(() => {
+      setPhase(p => Math.min(p + 1, steps.length - 1));
+    }, 2000);
+    return () => clearInterval(id);
+  }, [isNewSite, steps.length]);
+
+  return (
+    <div className="flex gap-3">
+      <div className="flex-shrink-0 w-7 h-7 rounded-full bg-[#d4a017]/20 flex items-center justify-center">
+        <Bot className="w-3.5 h-3.5 text-[#d4a017]" />
+      </div>
+      <div className="bg-[#0f1a2e] border border-[#1e3a5f] rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-[#c8d8e8] space-y-2 max-w-[85%]">
+        {steps.map((label, i) => {
+          const done    = i < phase;
+          const active  = i === phase;
+          const pending = i > phase;
+          return (
+            <div key={i} className={`flex items-center gap-2 ${pending ? "opacity-40" : ""}`}>
+              {done ? (
+                <CheckCircle2 className="w-3.5 h-3.5 text-green-400 flex-shrink-0" />
+              ) : active ? (
+                <Loader2 className="w-3.5 h-3.5 text-[#d4a017] animate-spin flex-shrink-0" />
+              ) : (
+                <div className="w-3.5 h-3.5 rounded-full border border-[#1e3a5f] flex-shrink-0" />
+              )}
+              <span className={active ? "text-white" : done ? "text-[#7aad6a]" : "text-[#4a6a8a]"}>
+                {label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Site status type ───────────────────────────────────────────────────────────
+
+interface SiteStatusData {
+  url: string | null;
+  isProvisioned: boolean;
+  configSummary: {
+    orgName: string | null;
+    location: string | null;
+    primaryColor: string | null;
+    accentColor: string | null;
+    tagline: string | null;
+  } | null;
+}
+
+// ── Site management view (shown on return visits after site is built) ─────────
+
+function SiteManagementView({
+  status,
+  onRestart,
+  onAiEdit,
+  aiLoading,
+  aiError,
+}: {
+  status: SiteStatusData;
+  onRestart: () => void;
+  onAiEdit: (req: string) => void;
+  aiLoading: boolean;
+  aiError: string | null;
+}) {
+  const [aiOpen, setAiOpen]   = useState(false);
+  const [aiInput, setAiInput] = useState("");
+  const [copied, setCopied]   = useState(false);
+
+  function copyUrl() {
+    if (!status.url) return;
+    void navigator.clipboard.writeText(status.url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="flex flex-col gap-5 py-6">
+
+      {/* Live site card */}
+      <div className="rounded-xl bg-green-500/10 border border-green-500/30 p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
+          <span className="text-sm font-semibold text-green-300">Your site is live</span>
+        </div>
+        {status.url && (
+          <div className="flex items-center gap-2 min-w-0">
+            <a
+              href={status.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-green-400 hover:text-green-300 underline underline-offset-2 truncate flex-1"
+            >
+              {status.url}
+            </a>
+            <a href={status.url} target="_blank" rel="noopener noreferrer" className="flex-shrink-0 text-green-400 hover:text-green-300">
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+            <button onClick={copyUrl} className="flex-shrink-0 text-green-400/60 hover:text-green-300 transition-colors" title="Copy URL">
+              {copied ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+        )}
+        <div className="pt-1 border-t border-green-500/20 flex items-center justify-between">
+          <p className="text-xs text-green-400/60">Want your own domain name?</p>
+          <Link to="/dashboard/domains" className="text-xs font-medium text-green-400 hover:text-green-300 underline underline-offset-2">
+            Connect a domain →
+          </Link>
+        </div>
+      </div>
+
+      {/* Config summary */}
+      {status.configSummary?.orgName && (
+        <div className="rounded-xl bg-[#0f1a2e] border border-[#1e3a5f] p-4 space-y-2">
+          <p className="text-xs text-[#7a9cbf] font-medium uppercase tracking-wide">Current configuration</p>
+          <p className="text-white font-semibold text-sm">{status.configSummary.orgName}</p>
+          {status.configSummary.tagline && (
+            <p className="text-xs text-[#7a9cbf] italic">"{status.configSummary.tagline}"</p>
+          )}
+          {status.configSummary.location && (
+            <p className="text-xs text-[#c8d8e8]">{status.configSummary.location}</p>
+          )}
+          {(status.configSummary.primaryColor || status.configSummary.accentColor) && (
+            <div className="flex items-center gap-3 pt-1">
+              {status.configSummary.primaryColor && (
+                <div className="flex items-center gap-1.5">
+                  <div className="w-4 h-4 rounded border border-white/20" style={{ backgroundColor: status.configSummary.primaryColor }} />
+                  <span className="text-xs text-[#4a6a8a] font-mono">{status.configSummary.primaryColor}</span>
+                </div>
+              )}
+              {status.configSummary.accentColor && (
+                <div className="flex items-center gap-1.5">
+                  <div className="w-4 h-4 rounded border border-white/20" style={{ backgroundColor: status.configSummary.accentColor }} />
+                  <span className="text-xs text-[#4a6a8a] font-mono">{status.configSummary.accentColor}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Update options */}
+      <div className="space-y-2">
+        <p className="text-xs text-[#7a9cbf] font-medium uppercase tracking-wide">Update your site</p>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={onRestart}
+            className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-[#1e3a5f] bg-[#0f1a2e] hover:bg-[#1e3a5f] text-sm text-[#c8d8e8] font-medium transition-colors"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-[#7a9cbf]" />
+            Redo the interview
+          </button>
+          <button
+            onClick={() => setAiOpen(!aiOpen)}
+            className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-[#d4a017]/30 bg-[#d4a017]/8 hover:bg-[#d4a017]/15 text-sm text-[#d4a017] font-medium transition-colors"
+          >
+            <Wand2 className="w-3.5 h-3.5" />
+            Ask AI to update
+          </button>
+        </div>
+
+        {/* AI edit form */}
+        {aiOpen && (
+          <div className="rounded-xl border border-[#d4a017]/30 bg-[#0f1a2e] p-4 space-y-3">
+            <p className="text-xs text-[#7a9cbf]">
+              Describe what you'd like to change and AI will update your site automatically.
+            </p>
+            <textarea
+              value={aiInput}
+              onChange={e => setAiInput(e.target.value)}
+              placeholder='e.g. "Change our meeting time to Wednesdays at 7pm" or "Add kayaking to our event categories"'
+              rows={3}
+              className="w-full bg-[#060f1e] border border-[#1e3a5f] rounded-lg px-3 py-2 text-sm text-white placeholder:text-[#4a6a8a] focus:outline-none focus:border-[#d4a017] resize-none transition-colors"
+            />
+            {aiError && (
+              <p className="text-xs text-red-400 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />{aiError}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => { setAiOpen(false); setAiInput(""); }}
+                className="text-xs text-[#7a9cbf] hover:text-white px-3 py-1.5 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { if (aiInput.trim()) onAiEdit(aiInput.trim()); }}
+                disabled={aiLoading || !aiInput.trim()}
+                className="flex items-center gap-1.5 bg-[#d4a017] hover:bg-[#b88a14] disabled:opacity-50 text-black text-xs font-semibold px-4 py-1.5 rounded-lg transition-colors"
+              >
+                {aiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
+                {aiLoading ? "Updating…" : "Apply changes"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function CommunityBuilder() {
@@ -378,16 +596,25 @@ export default function CommunityBuilder() {
   const [finalizeError, setFinalizeError] = useState(false);
   const [readyPayload, setReadyPayload] = useState<Record<string, unknown> | null>(null);
   const [provisioning, setProvisioning] = useState(false);
+  const [provisioningIsNew, setProvisioningIsNew] = useState(false);
   const [provisionResult, setProvisionResult] = useState<{
     ok: boolean;
     siteUrl?: string;
     error?: string;
     canRetry?: boolean;
+    isNewSite?: boolean;
   } | null>(null);
   const [logoPath, setLogoPath] = useState<string | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [logoUploading, setLogoUploading] = useState(false);
   const [crawling, setCrawling] = useState(false);
+
+  // ── Site status (loaded on mount) ───────────────────────────────────────────
+  const [siteStatus, setSiteStatus]               = useState<SiteStatusData | null>(null);
+  const [siteStatusLoading, setSiteStatusLoading] = useState(true);
+  const [editMode, setEditMode]                   = useState(false);
+  const [aiEditLoading, setAiEditLoading]         = useState(false);
+  const [aiEditError, setAiEditError]             = useState<string | null>(null);
 
   const chatEndRef   = useRef<HTMLDivElement>(null);
   const inputRef     = useRef<HTMLTextAreaElement>(null);
@@ -405,6 +632,42 @@ export default function CommunityBuilder() {
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [stepIndex, started, currentQuestion?.type]);
+
+  // Fetch site status on mount to detect return visits
+  useEffect(() => {
+    csrfFetch("/api/community-site/target")
+      .then(r => r.json())
+      .then((d: SiteStatusData) => {
+        setSiteStatus(d);
+        setSiteStatusLoading(false);
+      })
+      .catch(() => setSiteStatusLoading(false));
+  }, []);
+
+  async function submitAiEdit(changeRequest: string) {
+    setAiEditLoading(true);
+    setAiEditError(null);
+    try {
+      const res = await csrfFetch("/api/community-site/ai-edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ changeRequest }),
+      });
+      const d = await res.json() as { ok?: boolean; payload?: Record<string, unknown>; error?: string };
+      if (!res.ok || !d.ok || !d.payload) {
+        setAiEditError(d.error ?? "Something went wrong. Please try again.");
+      } else {
+        // Load the updated payload for review — PayloadPreview + Launch button appear automatically
+        setReadyPayload(d.payload);
+        setProvisionResult(null);
+        setEditMode(false);
+      }
+    } catch {
+      setAiEditError("Something went wrong. Please try again.");
+    } finally {
+      setAiEditLoading(false);
+    }
+  }
 
   // ── Ack fetch (fire-and-forget, never blocks progress) ──────────────────────
   async function fetchAck(fieldId: string, value: string, itemId: string) {
@@ -565,6 +828,9 @@ export default function CommunityBuilder() {
   // ── Provision ────────────────────────────────────────────────────────────────
   async function provision() {
     if (!readyPayload) return;
+    // Determine new vs update BEFORE the API call (for the progress UI)
+    const isNew = !siteStatus?.isProvisioned && !siteStatus?.url;
+    setProvisioningIsNew(isNew);
     setProvisioning(true);
     setProvisionResult(null);
     try {
@@ -574,7 +840,7 @@ export default function CommunityBuilder() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ payload }),
       });
-      const d = await res.json() as { ok?: boolean; siteUrl?: string; error?: string };
+      const d = await res.json() as { ok?: boolean; siteUrl?: string; error?: string; isNewSite?: boolean };
       if (!res.ok || !d.ok) {
         const canRetry = res.status !== 400;
         setProvisionResult({
@@ -583,7 +849,12 @@ export default function CommunityBuilder() {
           canRetry,
         });
       } else {
-        setProvisionResult({ ok: true, siteUrl: d.siteUrl });
+        setProvisionResult({ ok: true, siteUrl: d.siteUrl, isNewSite: d.isNewSite ?? isNew });
+        // Update local site status so management view reflects the new state
+        setSiteStatus(prev => prev
+          ? { ...prev, isProvisioned: true, url: d.siteUrl ?? prev.url }
+          : { url: d.siteUrl ?? null, isProvisioned: true, configSummary: null }
+        );
       }
     } catch {
       setProvisionResult({
@@ -609,6 +880,8 @@ export default function CommunityBuilder() {
     setReadyPayload(null);
     setProvisionResult(null);
     setCrawling(false);
+    setEditMode(false);
+    setAiEditError(null);
   }
 
   // ── Render ───────────────────────────────────────────────────────────────────
@@ -629,10 +902,14 @@ export default function CommunityBuilder() {
             </h1>
             <p className="text-sm text-[#7a9cbf] mt-0.5">
               {!started
-                ? "Answer a few questions and your site is ready to launch"
+                ? siteStatus?.isProvisioned && !editMode && !readyPayload
+                  ? "Manage your live site"
+                  : "Answer a few questions and your site is ready to launch"
                 : isInterviewDone
                   ? readyPayload
-                    ? "All set — review and launch below"
+                    ? provisioning
+                      ? provisioningIsNew ? "Setting up your site…" : "Updating your site…"
+                      : "All set — review and launch below"
                     : finalizingPayload
                       ? "Building your site configuration…"
                       : "Building your site configuration…"
@@ -666,17 +943,36 @@ export default function CommunityBuilder() {
           <div className="flex items-start gap-3">
             <CheckCircle2 className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-green-300">Your site is live!</p>
-              {provisionResult.siteUrl && (
-                <a
-                  href={provisionResult.siteUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-sm text-green-400 hover:text-green-300 underline underline-offset-2 mt-1 break-all"
-                >
-                  {provisionResult.siteUrl}
-                  <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
-                </a>
+              {provisionResult.isNewSite ? (
+                <>
+                  <p className="text-sm font-semibold text-green-300">Your site is live!</p>
+                  {provisionResult.siteUrl && (
+                    <a
+                      href={provisionResult.siteUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-sm text-green-400 hover:text-green-300 underline underline-offset-2 mt-1 break-all"
+                    >
+                      {provisionResult.siteUrl}
+                      <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
+                    </a>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-semibold text-green-300">Site updated — changes are live!</p>
+                  {provisionResult.siteUrl && (
+                    <a
+                      href={provisionResult.siteUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-sm text-green-400 hover:text-green-300 underline underline-offset-2 mt-1 break-all"
+                    >
+                      {provisionResult.siteUrl}
+                      <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
+                    </a>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -715,8 +1011,26 @@ export default function CommunityBuilder() {
       {/* ── Chat scroll area ── */}
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
 
-        {/* Not started yet */}
-        {!started && (
+        {/* Not started — management view (returning visitor, site already built) */}
+        {!started && !readyPayload && siteStatus?.isProvisioned && !editMode && (
+          <SiteManagementView
+            status={siteStatus}
+            onRestart={() => { setEditMode(true); setStarted(true); }}
+            onAiEdit={req => void submitAiEdit(req)}
+            aiLoading={aiEditLoading}
+            aiError={aiEditError}
+          />
+        )}
+
+        {/* Not started — loading (briefly while fetching site status) */}
+        {!started && !readyPayload && siteStatusLoading && (
+          <div className="flex justify-center items-center h-full">
+            <Loader2 className="w-5 h-5 animate-spin text-[#4a6a8a]" />
+          </div>
+        )}
+
+        {/* Not started — welcome screen (first-time or redo) */}
+        {!started && !readyPayload && !siteStatus?.isProvisioned && !siteStatusLoading && (
           <div className="flex flex-col items-center justify-center h-full text-center py-16">
             <div className="w-16 h-16 rounded-2xl bg-[#d4a017]/10 flex items-center justify-center mb-4">
               <Globe className="w-8 h-8 text-[#d4a017]" />
@@ -755,6 +1069,13 @@ export default function CommunityBuilder() {
               Let's get started
             </Button>
           </div>
+        )}
+
+        {/* Not started + readyPayload (from AI edit) — show review prompt */}
+        {!started && readyPayload && !provisioning && (
+          <BotBubble>
+            Done! Your site configuration has been updated. Review the changes below, then click <strong>Launch Site</strong> to apply them.
+          </BotBubble>
         )}
 
         {/* Completed chat items */}
@@ -796,10 +1117,15 @@ export default function CommunityBuilder() {
         )}
 
         {/* Payload ready message */}
-        {started && readyPayload && (
+        {started && readyPayload && !provisioning && (
           <BotBubble>
             I have everything I need! Review your configuration below, then click <strong>Launch Site</strong> to go live.
           </BotBubble>
+        )}
+
+        {/* Provision in-progress steps */}
+        {provisioning && (
+          <ProvisionProgress isNewSite={provisioningIsNew} />
         )}
 
         {/* Current question form */}
