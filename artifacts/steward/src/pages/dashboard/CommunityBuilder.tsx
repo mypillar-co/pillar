@@ -378,12 +378,12 @@ export default function CommunityBuilder() {
   const [provisionResult, setProvisionResult] = useState<{
     ok: boolean;
     siteUrl?: string;
-    savedLocally?: boolean;
     error?: string;
   } | null>(null);
   const [logoPath, setLogoPath] = useState<string | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [logoUploading, setLogoUploading] = useState(false);
+
 
   const chatEndRef   = useRef<HTMLDivElement>(null);
   const inputRef     = useRef<HTMLTextAreaElement>(null);
@@ -401,6 +401,7 @@ export default function CommunityBuilder() {
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [stepIndex, started, currentQuestion?.type]);
+
 
   // ── Ack fetch (fire-and-forget, never blocks progress) ──────────────────────
   async function fetchAck(fieldId: string, value: string, itemId: string) {
@@ -529,11 +530,11 @@ export default function CommunityBuilder() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ payload }),
       });
-      const d = await res.json() as { ok?: boolean; siteUrl?: string; savedLocally?: boolean; error?: string };
+      const d = await res.json() as { ok?: boolean; siteUrl?: string; error?: string };
       if (!res.ok || !d.ok) {
         setProvisionResult({ ok: false, error: d.error ?? "Launch failed" });
       } else {
-        setProvisionResult({ ok: true, siteUrl: d.siteUrl, savedLocally: d.savedLocally });
+        setProvisionResult({ ok: true, siteUrl: d.siteUrl });
       }
     } catch {
       setProvisionResult({ ok: false, error: "Network error during launch" });
@@ -541,6 +542,7 @@ export default function CommunityBuilder() {
       setProvisioning(false);
     }
   }
+
 
   // ── Reset ────────────────────────────────────────────────────────────────────
   function resetAll() {
@@ -609,14 +611,8 @@ export default function CommunityBuilder() {
         <div className="flex-shrink-0 mx-6 mt-4 p-4 rounded-xl bg-green-500/10 border border-green-500/30 flex items-start gap-3">
           <CheckCircle2 className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-semibold text-green-300">
-              {provisionResult.savedLocally ? "Configuration saved!" : "Your site is live!"}
-            </p>
-            {provisionResult.savedLocally ? (
-              <p className="text-xs text-green-300/70 mt-1">
-                Add a community site connection in Site Settings to publish to your external site.
-              </p>
-            ) : provisionResult.siteUrl ? (
+            <p className="text-sm font-semibold text-green-300">Your site is live!</p>
+            {provisionResult.siteUrl && (
               <a
                 href={provisionResult.siteUrl}
                 target="_blank"
@@ -626,7 +622,7 @@ export default function CommunityBuilder() {
                 {provisionResult.siteUrl}
                 <ExternalLink className="w-3.5 h-3.5" />
               </a>
-            ) : null}
+            )}
           </div>
         </div>
       )}
@@ -855,7 +851,7 @@ export default function CommunityBuilder() {
           <PayloadPreview payload={readyPayload} />
           <Button
             className="w-full bg-[#d4a017] hover:bg-[#b88a14] text-black font-semibold h-11 text-base"
-            onClick={provision}
+            onClick={() => void provision()}
             disabled={provisioning}
           >
             {provisioning ? (

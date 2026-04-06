@@ -949,14 +949,12 @@ router.post("/provision", async (req: Request, res: Response) => {
     const siteUrl = r?.community_site_url;
     const siteKey = r?.community_site_key;
 
-    // No external site configured — save the payload as site_config locally and succeed
-    if (!siteUrl || !siteKey) {
-      await db.execute(sql`
-        UPDATE organizations
-        SET site_config = ${JSON.stringify(payload)}::jsonb
-        WHERE id = ${org.id}
-      `);
-      res.json({ ok: true, savedLocally: true });
+    if (!siteUrl) {
+      res.status(400).json({ error: "No community site URL configured." });
+      return;
+    }
+    if (!siteKey) {
+      res.status(400).json({ error: "No service key configured." });
       return;
     }
 
