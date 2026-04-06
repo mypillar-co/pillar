@@ -27,6 +27,7 @@ const ORG_TYPES = [
   { value: "lodge", label: "Masonic Lodge" },
   { value: "rotary", label: "Rotary Club" },
   { value: "vfw", label: "VFW Post" },
+  { value: "fraternal", label: "Fraternal Organization" },
   { value: "hoa", label: "Homeowners Association (HOA)" },
   { value: "pta", label: "PTA / Parent Organization" },
   { value: "nonprofit", label: "Nonprofit Organization" },

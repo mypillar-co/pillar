@@ -42,6 +42,7 @@ const ORG_TYPE_OPTIONS = [
   "Rotary Club",
   "Lions Club",
   "VFW / American Legion",
+  "Fraternal Organization",
   "PTA / PTO",
   "Community Foundation",
   "Neighborhood Association",
