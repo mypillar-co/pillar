@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import {
   Send, Bot, User, Loader2, AlertCircle, CheckCircle2,
   Globe, Rocket, ExternalLink, ChevronDown, ChevronUp,
-  ImagePlus, X, RefreshCw,
+  ImagePlus, X, RefreshCw, Link, KeyRound, Pencil,
 } from "lucide-react";
 import { useGetOrganization } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -388,6 +388,14 @@ export default function CommunityBuilder() {
   const [logoUploading, setLogoUploading] = useState(false);
   const [crawling, setCrawling] = useState(false);
 
+  // ── Target site URL ──────────────────────────────────────────────────────────
+  const [targetUrl, setTargetUrl] = useState<string | null>(null);
+  const [targetLoading, setTargetLoading] = useState(true);
+  const [editingTarget, setEditingTarget] = useState(false);
+  const [targetUrlInput, setTargetUrlInput] = useState("");
+  const [targetKeyInput, setTargetKeyInput] = useState("");
+  const [savingTarget, setSavingTarget] = useState(false);
+  const [targetError, setTargetError] = useState<string | null>(null);
 
   const chatEndRef   = useRef<HTMLDivElement>(null);
   const inputRef     = useRef<HTMLTextAreaElement>(null);
@@ -406,6 +414,43 @@ export default function CommunityBuilder() {
     }
   }, [stepIndex, started, currentQuestion?.type]);
 
+  // Fetch existing target URL on mount
+  useEffect(() => {
+    csrfFetch("/api/community-site/target")
+      .then(r => r.json())
+      .then((d: { url: string | null }) => {
+        setTargetUrl(d.url ?? null);
+        if (!d.url) setEditingTarget(true);
+        setTargetLoading(false);
+      })
+      .catch(() => setTargetLoading(false));
+  }, []);
+
+  async function saveTarget() {
+    const url = targetUrlInput.trim();
+    if (!url) { setTargetError("Please enter your community site URL."); return; }
+    setSavingTarget(true);
+    setTargetError(null);
+    try {
+      const res = await csrfFetch("/api/community-site/target", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, key: targetKeyInput.trim() || undefined }),
+      });
+      const d = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok || !d.ok) {
+        setTargetError(d.error ?? "Failed to save. Please try again.");
+      } else {
+        setTargetUrl(url);
+        setEditingTarget(false);
+        setTargetError(null);
+      }
+    } catch {
+      setTargetError("Couldn't connect. Please check your URL and try again.");
+    } finally {
+      setSavingTarget(false);
+    }
+  }
 
   // ── Ack fetch (fire-and-forget, never blocks progress) ──────────────────────
   async function fetchAck(fieldId: string, value: string, itemId: string) {
@@ -717,7 +762,7 @@ export default function CommunityBuilder() {
 
         {/* Not started yet */}
         {!started && (
-          <div className="flex flex-col items-center justify-center h-full text-center py-16">
+          <div className="flex flex-col items-center justify-center h-full text-center py-12">
             <div className="w-16 h-16 rounded-2xl bg-[#d4a017]/10 flex items-center justify-center mb-4">
               <Globe className="w-8 h-8 text-[#d4a017]" />
             </div>
@@ -728,6 +773,72 @@ export default function CommunityBuilder() {
               I'll ask you {totalSteps} questions about your organization — name, location,
               contact info, and how you'd like your site to look. Takes about 5 minutes.
             </p>
+
+            {/* ── Community site URL step ── */}
+            <div className="w-full max-w-sm mb-5 text-left">
+              {targetLoading ? (
+                <div className="flex items-center gap-2 text-xs text-[#7a9cbf]">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Checking site configuration…
+                </div>
+              ) : targetUrl && !editingTarget ? (
+                <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-[#0f1a2e] border border-[#1e3a5f]">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-green-400 flex-shrink-0" />
+                    <span className="text-xs text-[#c8d8e8] truncate">{targetUrl}</span>
+                  </div>
+                  <button
+                    onClick={() => { setTargetUrlInput(targetUrl); setEditingTarget(true); }}
+                    className="ml-2 flex-shrink-0 text-[#4a6a8a] hover:text-[#d4a017] transition-colors"
+                    title="Change site URL"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-[#d4a017] font-medium flex items-center gap-1.5">
+                    <Link className="w-3.5 h-3.5" />
+                    First, connect your community site
+                  </p>
+                  <p className="text-xs text-[#7a9cbf] mb-2">
+                    Enter the URL of the site Pillar will configure. You only need to do this once.
+                  </p>
+                  <input
+                    type="url"
+                    placeholder="https://myclub.org"
+                    value={targetUrlInput}
+                    onChange={e => setTargetUrlInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") void saveTarget(); }}
+                    className="w-full bg-[#0f1a2e] border border-[#1e3a5f] rounded-lg px-3 py-2 text-sm text-white placeholder:text-[#4a6a8a] focus:outline-none focus:border-[#d4a017] transition-colors"
+                  />
+                  <div className="flex items-center gap-2">
+                    <KeyRound className="w-3 h-3 text-[#4a6a8a] flex-shrink-0" />
+                    <input
+                      type="password"
+                      placeholder="API key (optional)"
+                      value={targetKeyInput}
+                      onChange={e => setTargetKeyInput(e.target.value)}
+                      className="flex-1 bg-[#0f1a2e] border border-[#1e3a5f] rounded-lg px-3 py-2 text-sm text-white placeholder:text-[#4a6a8a] focus:outline-none focus:border-[#d4a017] transition-colors"
+                    />
+                  </div>
+                  {targetError && (
+                    <p className="text-xs text-red-400 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />{targetError}
+                    </p>
+                  )}
+                  <button
+                    onClick={() => void saveTarget()}
+                    disabled={savingTarget || !targetUrlInput.trim()}
+                    className="w-full flex items-center justify-center gap-2 bg-[#1e3a5f] hover:bg-[#2a4f7a] disabled:opacity-50 text-[#c8d8e8] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                  >
+                    {savingTarget ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                    Save & continue
+                  </button>
+                </div>
+              )}
+            </div>
+
             {logoPreview ? (
               <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg bg-[#0f1a2e] border border-[#1e3a5f]">
                 <img src={logoPreview} alt="Logo" className="w-8 h-8 rounded object-cover" />
@@ -749,10 +860,11 @@ export default function CommunityBuilder() {
               </button>
             )}
             <Button
-              className="bg-[#d4a017] hover:bg-[#b88a14] text-black font-semibold px-8"
+              className="bg-[#d4a017] hover:bg-[#b88a14] text-black font-semibold px-8 disabled:opacity-40"
               onClick={() => setStarted(true)}
+              disabled={!targetUrl || targetLoading}
             >
-              Let's get started
+              {!targetUrl && !targetLoading ? "Connect your site first" : "Let's get started"}
             </Button>
           </div>
         )}
