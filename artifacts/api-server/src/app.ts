@@ -152,6 +152,21 @@ const authLimiter = rateLimit({
   message: { error: "Too many authentication attempts — please try again in an hour" },
 });
 
+// ── Path-based proxy API passthrough ─────────────────────────────────────────
+// The Replit deployment proxy converts norwin-rotary-club.mypillar.co/api/foo
+// into /sites/norwin-rotary-club/api/foo.  Strip the /sites/:slug prefix early
+// so these requests reach the actual /api route handlers below.
+// This MUST run before any app.use("/api", ...) registration.
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  const m = /^\/sites\/[a-z0-9][a-z0-9-]*(\/.*)$/.exec(req.url ?? "");
+  if (m && m[1].startsWith("/api")) {
+    req.url = m[1];
+    // Clear Express's internal parsed-URL cache so the router sees the new path.
+    delete (req as Record<string, unknown>)._parsedUrl;
+  }
+  next();
+});
+
 app.use("/api/public/registrations", registrationLimiter);
 app.use("/api/public/registration-docs/upload-url", uploadLimiter);
 app.use("/api/public/", publicApiLimiter);
@@ -362,6 +377,15 @@ app.use(async (req, res, next) => {
     orgSlug = pathBasedMatch[1];
     subPath = pathBasedMatch[2] || "/";
     isPathBased = true;
+
+    // If the sub-path is an API call, strip the /sites/:slug prefix so the
+    // request falls through to the actual API route handlers (mounted at /api/).
+    // Without this, /sites/norwin-rotary-club/api/org/.../config would be caught
+    // by the site middleware and return index.html instead of JSON.
+    if (subPath.startsWith("/api/") || subPath === "/api") {
+      req.url = subPath + (req.url && req.url.includes("?") ? "?" + req.url.split("?").slice(1).join("?") : "");
+      return next();
+    }
   } else {
     // ── Pattern 2: Host-based routing (<slug>.mypillar.co or custom domain) ─
     const rawHost = (req.headers["x-forwarded-host"] ?? req.headers.host ?? "") as string;
