@@ -308,6 +308,8 @@ export default function CommunityBuilder() {
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [logoUploading, setLogoUploading] = useState(false);
 
+  const [lastFailedText, setLastFailedText] = useState<string | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -329,7 +331,13 @@ export default function CommunityBuilder() {
     userText: string,
     currentMessages: Message[],
   ): Promise<string | null> {
-    const history = currentMessages
+    // Exclude the current user message from history — the backend appends `message`
+    // separately, so including it here would cause it to appear twice in the AI context.
+    const last = currentMessages[currentMessages.length - 1];
+    const priorMessages = last?.role === "user"
+      ? currentMessages.slice(0, -1)
+      : currentMessages;
+    const history = priorMessages
       .slice(-20)
       .map(m => ({ role: m.role, content: m.content }));
 
@@ -429,6 +437,7 @@ export default function CommunityBuilder() {
     setInput("");
     setLoading(true);
     setError(null);
+    setLastFailedText(null);
 
     try {
       const reply = await callInterview(text, newMessages);
@@ -438,8 +447,33 @@ export default function CommunityBuilder() {
           { id: (Date.now() + 1).toString(), role: "assistant", content: reply },
         ]);
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Network error — please try again");
+    } catch {
+      setError("Couldn't get a response — tap "Try again" to continue.");
+      setLastFailedText(text);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function retryLastMessage() {
+    if (loading || !lastFailedText) return;
+    setLoading(true);
+    setError(null);
+    setLastFailedText(null);
+
+    try {
+      // `messages` already includes the failed user turn — pass it directly.
+      // callInterview will exclude that last user message from history automatically.
+      const reply = await callInterview(lastFailedText, messages);
+      if (reply) {
+        setMessages(prev => [
+          ...prev,
+          { id: (Date.now() + 1).toString(), role: "assistant", content: reply },
+        ]);
+      }
+    } catch {
+      setError("Still having trouble — please check your connection and try again.");
+      setLastFailedText(lastFailedText);
     } finally {
       setLoading(false);
     }
@@ -632,8 +666,17 @@ export default function CommunityBuilder() {
       {/* General error */}
       {error && (
         <div className="flex-shrink-0 mx-6 mb-2 flex items-center gap-2 text-sm text-red-400">
-          <AlertCircle className="w-4 h-4" />
-          {error}
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{error}</span>
+          {lastFailedText && (
+            <button
+              onClick={retryLastMessage}
+              disabled={loading}
+              className="ml-1 underline underline-offset-2 hover:text-red-300 disabled:opacity-50 whitespace-nowrap"
+            >
+              Try again
+            </button>
+          )}
         </div>
       )}
 

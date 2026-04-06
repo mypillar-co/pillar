@@ -519,10 +519,28 @@ router.post("/interview", async (req: Request, res: Response) => {
     systemPrompt += `\n\nPRE-FILLED FROM WEBSITE IMPORT (treat as already answered — skip these questions):\n${lines}`;
   }
 
+  // Normalize skip/decline inputs so the AI always gets a clear, actionable signal
+  // rather than a button-label string like "Skip — no Facebook page".
+  const SKIP_PATTERNS = [
+    /^skip\b/i,
+    /^none$/i,
+    /^n\/a$/i,
+    /^no[,.]?\s*$/i,
+    /^(skip|no)\s*[-—]\s*(no\s+)?(facebook|instagram|fb|ig|twitter|linkedin|youtube|tiktok|partners?|meetings?|sponsors?|vendors?|events?)\s*$/i,
+    /^same as my (physical|main|short)/i,
+    /^no (regular meetings|partners to list)/i,
+  ];
+  const isSkip = SKIP_PATTERNS.some(p => p.test(message.trim()));
+  const aiMessage = isSkip
+    ? `[USER SKIP] The user declined to provide this field (they sent: "${message.trim()}"). ` +
+      `Record null for whatever field was just asked, write one brief acknowledgment sentence ` +
+      `(e.g. "No problem — I'll leave that out."), then immediately ask the next unanswered question.`
+    : message;
+
   const messages: OpenAI.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
     ...trimmedHistory.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
-    { role: "user", content: message },
+    { role: "user", content: aiMessage },
   ];
 
   try {
