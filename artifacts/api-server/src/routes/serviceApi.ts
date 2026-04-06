@@ -13,6 +13,52 @@ import { db, organizationsTable, sitesTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import OpenAI from "openai";
 import { logger } from "../lib/logger";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+// Workspace root — same anchor pattern used everywhere in the API server
+const WORKSPACE_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../..",
+);
+
+// Directories the file-reading endpoint is allowed to serve.
+// Paths are relative to WORKSPACE_ROOT.
+const READABLE_ROOTS = [
+  "artifacts/api-server/src",
+  "artifacts/steward/src",
+  "artifacts/norwin-rotary/src",
+  "lib/site",
+  "lib/db",
+  "lib/api-zod",
+];
+
+function isReadablePath(relPath: string): boolean {
+  // Reject any traversal attempts
+  const normalized = path.normalize(relPath);
+  if (normalized.includes("..")) return false;
+  return READABLE_ROOTS.some(root => normalized.startsWith(root + "/") || normalized === root);
+}
+
+function walkDir(dir: string, base: string): string[] {
+  const results: string[] = [];
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      const rel = path.relative(base, full);
+      if (e.isDirectory()) {
+        results.push(...walkDir(full, base));
+      } else {
+        results.push(rel);
+      }
+    }
+  } catch {
+    // skip unreadable dirs
+  }
+  return results;
+}
 
 const router = Router();
 
@@ -69,6 +115,81 @@ function getOpenAIClient() {
 
 router.get("/health", (_req: Request, res: Response) => {
   res.json({ ok: true, service: "pillar-api", timestamp: new Date().toISOString() });
+});
+
+// ─── GET /api/service/files ───────────────────────────────────────────────────
+// Two modes controlled by query params:
+//
+//   ?path=artifacts/api-server/src/routes/siteEngine.ts
+//       → returns { path, content, size, lines } for that single file
+//
+//   ?dir=artifacts/api-server/src/routes
+//       → returns { dir, files: string[] } listing every file under that dir
+//
+//   (no params) → returns { roots: string[] } showing what's readable
+//
+// All paths are relative to workspace root. Path traversal is rejected.
+
+router.get("/files", (req: Request, res: Response) => {
+  const filePath  = typeof req.query.path === "string" ? req.query.path.trim() : null;
+  const dirPath   = typeof req.query.dir  === "string" ? req.query.dir.trim()  : null;
+
+  // ── No params: return the readable root listing ──────────────────────────
+  if (!filePath && !dirPath) {
+    res.json({ roots: READABLE_ROOTS });
+    return;
+  }
+
+  // ── Dir listing ───────────────────────────────────────────────────────────
+  if (dirPath) {
+    const normalized = path.normalize(dirPath);
+    if (normalized.includes("..") || !READABLE_ROOTS.some(r => normalized.startsWith(r + "/") || normalized === r || r.startsWith(normalized + "/"))) {
+      res.status(403).json({ error: "Path not in allowed roots", allowed: READABLE_ROOTS });
+      return;
+    }
+    const abs = path.join(WORKSPACE_ROOT, normalized);
+    if (!fs.existsSync(abs)) {
+      res.status(404).json({ error: "Directory not found", path: normalized });
+      return;
+    }
+    const stat = fs.statSync(abs);
+    if (!stat.isDirectory()) {
+      res.status(400).json({ error: "Path is a file, not a directory. Use ?path= to read files." });
+      return;
+    }
+    const files = walkDir(abs, WORKSPACE_ROOT);
+    res.json({ dir: normalized, files });
+    return;
+  }
+
+  // ── Single file read ──────────────────────────────────────────────────────
+  if (!isReadablePath(filePath!)) {
+    res.status(403).json({ error: "Path not in allowed roots", allowed: READABLE_ROOTS });
+    return;
+  }
+
+  const abs = path.join(WORKSPACE_ROOT, filePath!);
+  if (!fs.existsSync(abs)) {
+    res.status(404).json({ error: "File not found", path: filePath });
+    return;
+  }
+  if (fs.statSync(abs).isDirectory()) {
+    res.status(400).json({ error: "Path is a directory. Use ?dir= to list directories." });
+    return;
+  }
+
+  try {
+    const content = fs.readFileSync(abs, "utf8");
+    res.json({
+      path: filePath,
+      content,
+      size: Buffer.byteLength(content, "utf8"),
+      lines: content.split("\n").length,
+    });
+  } catch (err) {
+    logger.error({ err }, "Service API file read error");
+    res.status(500).json({ error: "Failed to read file" });
+  }
 });
 
 // ─── GET /api/service/org/:orgSlug ───────────────────────────────────────────
