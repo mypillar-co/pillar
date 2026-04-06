@@ -852,62 +852,6 @@ async function reconcilePendingTicketSales(): Promise<void> {
   }
 }
 
-// ─── NRC Ticket Purchase Reconciler ──────────────────────────────────────────
-//
-// The generic reconcilePendingTicketSales above covers the `ticket_sales` table.
-// NRC uses a separate `nrc_ticket_purchases` table for its legacy event flow.
-// This reconciler closes the gap: any NRC purchase stuck as "pending" after 2
-// hours gets looked up directly on Stripe and resolved.
-
-async function reconcileNrcTicketPurchases(): Promise<void> {
-  try {
-    const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000); // older than 2 hours
-    const pending = await db.execute(sql`
-      SELECT id, stripe_session_id, event_id, quantity
-      FROM nrc_ticket_purchases
-      WHERE status = 'pending'
-        AND stripe_session_id IS NOT NULL
-        AND created_at < ${cutoff.toISOString()}
-      LIMIT 50
-    `);
-
-    if (pending.rows.length === 0) return;
-    logger.info({ count: pending.rows.length }, "[nrc-reconciler] Checking stale NRC ticket purchases");
-
-    const stripe = await getUncachableStripeClient();
-
-    for (const row of pending.rows) {
-      const sale = row as { id: string; stripe_session_id: string; event_id: string; quantity: number };
-      if (!sale.stripe_session_id) continue;
-      try {
-        const session = await stripe.checkout.sessions.retrieve(sale.stripe_session_id);
-        if (session.payment_status === "paid") {
-          await db.execute(sql`
-            UPDATE nrc_ticket_purchases
-            SET status = 'completed'
-            WHERE id = ${sale.id} AND status = 'pending'
-          `);
-          await db.execute(sql`
-            UPDATE nrc_events
-            SET tickets_sold = tickets_sold + ${sale.quantity}
-            WHERE id = ${sale.event_id}
-          `);
-          logger.info({ saleId: sale.id }, "[nrc-reconciler] Recovered paid NRC ticket purchase");
-        } else if (session.status === "expired") {
-          await db.execute(sql`
-            UPDATE nrc_ticket_purchases SET status = 'expired' WHERE id = ${sale.id}
-          `);
-          logger.info({ saleId: sale.id }, "[nrc-reconciler] Marked expired NRC ticket purchase");
-        }
-      } catch (err) {
-        logger.warn({ saleId: sale.id, err }, "[nrc-reconciler] Failed to retrieve Stripe session");
-      }
-    }
-  } catch (err) {
-    logger.error({ err }, "[nrc-reconciler] Error reconciling NRC ticket purchases");
-  }
-}
-
 // ─── Document Reminders ───────────────────────────────────────────────────────
 
 const REMINDER_INTERVAL_MS = 24 * 60 * 60 * 1000; // every 24h
@@ -961,13 +905,13 @@ async function sendDocumentReminders(): Promise<void> {
       const raw = rawRow.rows?.[0] as Record<string, Date | null> | undefined;
 
       const [org] = await db
-        .select({ name: organizationsTable.name, senderEmail: organizationsTable.senderEmail })
+        .select({ name: organizationsTable.name, senderEmail: organizationsTable.senderEmail, slug: organizationsTable.slug })
         .from(organizationsTable)
         .where(eq(organizationsTable.id, reg.orgId));
       if (!org) continue;
 
       const fromEmail = org.senderEmail ?? "noreply@mypillar.co";
-      const uploadUrl = `https://norwin-rotary-club.mypillar.co/events/${event.slug}/vendor-apply`;
+      const uploadUrl = `https://${org.slug ?? ""}.mypillar.co/events/${event.slug}/vendor-apply`;
 
       if (needsServSafe) {
         const lastReminder = raw?.last_servsafe_reminder;
@@ -1043,10 +987,6 @@ export function startScheduler(): void {
   // Payment reconciler — catches missed webhooks, runs every 30 min
   locked("ticket-reconciler", RECONCILE_INTERVAL_MS, reconcilePendingTicketSales)();
   setInterval(locked("ticket-reconciler", RECONCILE_INTERVAL_MS, reconcilePendingTicketSales), RECONCILE_INTERVAL_MS);
-
-  // NRC ticket purchase reconciler — covers nrc_ticket_purchases (legacy NRC table)
-  locked("nrc-ticket-reconciler", RECONCILE_INTERVAL_MS, reconcileNrcTicketPurchases)();
-  setInterval(locked("nrc-ticket-reconciler", RECONCILE_INTERVAL_MS, reconcileNrcTicketPurchases), RECONCILE_INTERVAL_MS);
 
   // Site updates, recurring events, and automation rules every 30 minutes
   setInterval(() => {

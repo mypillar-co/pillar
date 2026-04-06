@@ -28,7 +28,6 @@ const WORKSPACE_ROOT = path.resolve(
 const READABLE_ROOTS = [
   "artifacts/api-server/src",
   "artifacts/steward/src",
-  "artifacts/norwin-rotary/src",
   "lib/site",
   "lib/db",
   "lib/api-zod",

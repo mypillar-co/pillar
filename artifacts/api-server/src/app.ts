@@ -153,8 +153,8 @@ const authLimiter = rateLimit({
 });
 
 // ── Path-based proxy API passthrough ─────────────────────────────────────────
-// The Replit deployment proxy converts norwin-rotary-club.mypillar.co/api/foo
-// into /sites/norwin-rotary-club/api/foo.  Strip the /sites/:slug prefix early
+// The Replit deployment proxy converts <slug>.mypillar.co/api/foo
+// into /sites/<slug>/api/foo.  Strip the /sites/:slug prefix early
 // so these requests reach the actual /api route handlers below.
 // This MUST run before any app.use("/api", ...) registration.
 app.use((req: Request, _res: Response, next: NextFunction) => {
@@ -305,18 +305,6 @@ function sendSiteHtml(res: express.Response, html: string, pathBasedOrgSlug?: st
 }
 
 const SITE_NOT_FOUND_HTML = `<!DOCTYPE html><html><head><title>Site Not Found</title><style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#0f172a;color:#94a3b8;text-align:center}.box{max-width:400px;padding:2rem}.title{color:#fff;font-size:1.5rem;margin-bottom:.5rem}</style></head><body><div class="box"><div class="title">Site not found</div><p>This organization hasn't published their site yet.</p><a href="/" style="color:#f59e0b;text-decoration:none">← Pillar Home</a></div></body></html>`;
-
-// Temporary: diagnostic endpoint to verify production DB access
-app.get("/sites/__diag", async (_req, res) => {
-  try {
-    const result = await db.execute(drizzleSql`SELECT id, org_slug, status, length(generated_html) as html_len FROM sites WHERE org_slug = 'norwin-rotary-club' LIMIT 1`);
-    const allSites = await db.execute(drizzleSql`SELECT id, org_slug, status FROM sites LIMIT 10`);
-    res.json({ found: result.rows, allSites: allSites.rows });
-  } catch (e: unknown) {
-    res.status(500).json({ error: String(e) });
-  }
-});
-
 
 // Reserved subdomains that must never map to an org site
 const RESERVED_SUBDOMAINS = new Set([

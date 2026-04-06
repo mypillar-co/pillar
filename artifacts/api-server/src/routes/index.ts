@@ -28,7 +28,6 @@ import managementRouter from "./management";
 import publicEventFormsRouter, { publicQueryRouter } from "./publicEventForms";
 import eventAdminRouter from "./eventAdmin";
 import siteHooksRouter from "./siteHooks";
-import nrcRouter from "./nrc";
 import publicOrgRouter from "./public";
 import serviceApiRouter from "./serviceApi";
 
@@ -64,7 +63,6 @@ router.use("/public", publicEventFormsRouter);
 router.use(publicQueryRouter);
 router.use("/management", eventAdminRouter);
 router.use("/hooks", siteHooksRouter);
-router.use(nrcRouter);
 router.use("/org", publicOrgRouter);
 router.use("/service", serviceApiRouter);
 
