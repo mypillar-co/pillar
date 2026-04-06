@@ -83,11 +83,7 @@ PAYLOAD JSON — output immediately after [PAYLOAD_READY] with NO extra text bef
     { "value": "100+", "label": "Active Members" },
     { "value": "100%", "label": "Volunteer Run" }
   ],
-  "programs": [],
   "partners": [{ "name": "<name>", "description": "<description>", "website": null }],
-  "sponsorshipLevels": [],
-  "events": [],
-  "sponsors": [],
   "siteContent": {
     "home_tagline": "<tagline>",
     "home_intro": "<mission>",
@@ -101,7 +97,8 @@ PAYLOAD JSON — output immediately after [PAYLOAD_READY] with NO extra text bef
     "community_partners": "<JSON-stringified partners array>"
   }
 }
-NOTE for stats: Since stats were not explicitly asked, use reasonable defaults based on the org type (e.g. 12+ events, 500+ attendees, 100+ members). Adapt labels appropriately (Active Members vs Local Businesses).`;
+NOTE: Do NOT add events, sponsors, businesses, sponsorshipLevels, or programs arrays — Starter does not include those features.
+NOTE for stats: Use reasonable defaults based on org type (e.g. 12+ events, 500+ attendees, 100+ members). Adapt labels appropriately (Active Members vs Local Businesses).`;
 
 // ── Autopilot payload shape (extends Starter) ────────────────────────────────
 const AUTOPILOT_PAYLOAD_SPEC = `
@@ -138,11 +135,7 @@ Full payload:
     { "value": "<members_or_businesses>", "label": "<Active Members OR Local Businesses>" },
     { "value": "100%", "label": "Volunteer Run" }
   ],
-  "programs": [],
   "partners": [{ "name": "<name>", "description": "<description>", "website": null }],
-  "sponsorshipLevels": [],
-  "events": [],
-  "sponsors": [],
   "siteContent": {
     "home_tagline": "<tagline>",
     "home_intro": "<mission>",
@@ -158,7 +151,8 @@ Full payload:
     "has_newsletter": "true",
     "pillarWebhookUrl": "__PILLAR_WEBHOOK_URL__"
   }
-}`;
+}
+NOTE: Do NOT add events, sponsors, businesses, sponsorshipLevels, or programs arrays — Autopilot does not include those features.`;
 
 // ── Events/Total Ops payload shape (full) ────────────────────────────────────
 const EVENTS_PAYLOAD_SPEC = `

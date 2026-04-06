@@ -1,0 +1,61 @@
+Replace the Website button with the Community Site button. Remove the old Website flow entirely.
+
+Rename "Community Site" to "Website" in the sidebar. One button, one flow. The community platform handles everything from a basic website to full event operations — you control what the customer gets by which interview questions Steward asks and which fields it includes in the setup payload.
+
+Here's exactly what Steward should do per tier:
+
+Starter ($29/mo):
+
+Ask only these questions: org name, short name, tagline, org type, city, state, address, mailing address, phone, email, Facebook URL, Instagram URL, logo initials, partners
+Hard-set these answers without asking: sponsors=no, vendors=no, ticketed events=no, blog=no, newsletter=no
+Build the payload with: orgName, shortName, tagline, orgType, location, primaryColor, accentColor, contactEmail, contactPhone, contactAddress, mailingAddress, website, socialFacebook, socialInstagram, meetingDay, meetingTime, meetingLocation, stats (4 items), partners, footerText, metaDescription
+Do NOT include: events, sponsors, businesses, or siteContent keys for blog/newsletter
+Include siteContent with only: home_tagline, home_intro, home_subtitle, contact_address, contact_phone, contact_email, social_facebook, social_instagram, about_mission, community_partners
+Result: The customer gets a homepage, about page, contact page, and gallery. No events page, no business directory, no tickets, no blog, no newsletter signup.
+Autopilot ($59/mo):
+
+Ask everything Starter asks, plus: "Do you want a News & Updates section?" (answer is always yes at this tier), "Do you want newsletter signup?" (always yes)
+Hard-set: sponsors=no, vendors=no, ticketed events=no
+Add to payload: blog=yes content, newsletter=yes content
+Set the pillarWebhookUrl field in siteContent so the content hooks fire back to Pillar for social media automation
+Result: Everything in Starter, plus a blog/news section, newsletter signup, and content hooks feeding Pillar's autopilot for Facebook/Instagram/X posting.
+Events ($99/mo):
+
+Ask the full 24 questions. Nothing is skipped.
+Ask: sponsors yes/no, vendors yes/no, ticketed events yes/no, payment provider (always Stripe — never offer Square), event categories, sponsorship levels if applicable
+Include in payload: events array with any events they mentioned, sponsors array, businesses array if they're a business-focused org (Main Street, Chamber, Downtown Association), all siteContent keys
+Set isTicketed: true, ticketPrice, and ticketCapacity on events they said sell tickets
+Result: Full community platform. Events page, ticket sales via Stripe, vendor registration, sponsor display, business directory (if applicable), blog, newsletter, content hooks.
+Total Operations ($149/mo):
+
+Identical setup payload to Events tier. Same interview, same questions, same payload.
+The difference is on Pillar's side: autopilot runs everything autonomously — event scheduling, social content calendar, website refreshes. That's Pillar logic, not a setup API difference.
+Color selection by org type — use these exact hex values:
+
+Org Type	primaryColor	accentColor
+Main Street / Downtown Association	#c25038	#2b7ab5
+Chamber of Commerce	#1a4a8a	#d4a017
+Rotary Club	#003DA5	#d4a017
+Lions Club	#d4a017	#1a4a8a
+VFW / American Legion	#8b1a1a	#2b5797
+PTA / PTO	#339966	#7a3d9e
+Community Foundation	#2d8a57	#2b7ab5
+Neighborhood Association	#c26a17	#338899
+Arts Council	#7a3d9e	#cc3366
+Other	#2b7ab5	#338899
+If the customer has their own brand colors, use those instead.
+
+Payment provider: Always Stripe. Never offer Square as an option. The interview question for payment provider should be removed. Stripe is the only option.
+
+What to change in the sidebar:
+
+Remove the "Website" button and its route (/dashboard/site) entirely
+Rename "Community Site" to "Website"
+Move it to wherever "Website" currently sits in the nav
+The route can stay at /dashboard/community or change to /dashboard/site — your call
+What to change in the interview flow:
+
+Before starting the interview, check the customer's subscription tier
+Skip questions for features not included in their tier (see above)
+For skipped features, hard-set the answer to "no" — don't include those fields in the payload
+Everything else stays exactly as you already built it
