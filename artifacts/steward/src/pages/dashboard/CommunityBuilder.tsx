@@ -29,6 +29,7 @@ type QuestionType = "text" | "textarea" | "select" | "boolean";
 interface IntakeQuestion {
   id: string;
   text: string;
+  textFn?: (answers: Record<string, string | boolean | null>) => string;
   type: QuestionType;
   optional?: boolean;
   options?: string[];
@@ -61,187 +62,122 @@ const ORG_TYPE_OPTIONS = [
   "Other",
 ];
 
+const BUSINESS_FOCUSED_TYPES = new Set([
+  "Main Street / Downtown Association",
+  "Chamber of Commerce",
+  "Neighborhood Association",
+]);
+
 const INTAKE_QUESTIONS: IntakeQuestion[] = [
-  {
-    id: "orgName",
-    text: "What is the full name of your organization?",
-    type: "text",
-    hint: "e.g. Riverside Rotary Club",
-  },
-  {
-    id: "shortName",
-    text: 'What short name or abbreviation do you use? (e.g. "NRC", "IBPA", "VFW Post 1")',
-    type: "text",
-    optional: true,
-    hint: "e.g. NRC",
-    skipLabel: "Auto-generate from name",
-  },
-  {
-    id: "tagline",
-    text: "What is your tagline or one-sentence mission statement?",
-    type: "text",
-    hint: "e.g. Service Above Self",
-  },
-  {
-    id: "orgType",
-    text: "What type of organization are you?",
-    type: "select",
-    options: ORG_TYPE_OPTIONS,
-  },
-  {
-    id: "city",
-    text: "What city and state are you based in?",
-    type: "text",
-    hint: "e.g. Springfield, IL",
-  },
-  {
-    id: "physicalAddress",
-    text: "What is your physical address?",
-    type: "text",
-    hint: "e.g. 123 Main St, Springfield, IL 62701",
-  },
-  {
-    id: "mailingAddress",
-    text: "Is your mailing address different from your physical address? If so, enter it here.",
-    type: "text",
-    optional: true,
-    hint: "Leave blank if same as above",
-    skipLabel: "Same as physical address",
-  },
-  {
-    id: "contactPhone",
-    text: "What is your main contact phone number?",
-    type: "text",
-    hint: "e.g. (217) 555-1234",
-  },
-  {
-    id: "contactEmail",
-    text: "What is your main contact email address?",
-    type: "text",
-    hint: "e.g. contact@yourorg.org",
-  },
-  {
-    id: "eventsEmail",
-    text: "Do you have a separate email address for event inquiries?",
-    type: "text",
-    optional: true,
-    hint: "e.g. events@yourorg.org",
-    skipLabel: "Same as main email",
-    tiers: ["tier2", "tier3"],
-  },
-  {
-    id: "socialFacebook",
-    text: "What is your Facebook page URL?",
-    type: "text",
-    optional: true,
-    hint: "e.g. facebook.com/yourorg",
-    skipLabel: "No Facebook page",
-  },
-  {
-    id: "socialInstagram",
-    text: "What is your Instagram URL or handle?",
-    type: "text",
-    optional: true,
-    hint: "e.g. instagram.com/yourorg or @yourorg",
-    skipLabel: "No Instagram",
-  },
-  {
-    id: "logoInitials",
-    text: 'What 2–3 letters should appear on your logo badge? (e.g. "DI" for Discover Irwin)',
-    type: "text",
-    optional: true,
-    hint: "e.g. NRC",
-    skipLabel: "Use my short name",
-  },
-  {
-    id: "annualEvents",
-    text: "About how many events do you host per year?",
-    type: "text",
-    hint: "Approximate number, e.g. 12",
-    tiers: ["tier1a", "tier2", "tier3"],
-  },
-  {
-    id: "annualAttendees",
-    text: "About how many total attendees across all your events?",
-    type: "text",
-    hint: "Approximate total, e.g. 500",
-    tiers: ["tier1a", "tier2", "tier3"],
-  },
+  // Q1
+  { id: "orgName",        text: "What is the full name of your organization?", type: "text", hint: "e.g. Norwin Rotary Club" },
+  // Q2
+  { id: "shortName",      text: 'What short name or abbreviation do you use? (e.g. "NRC", "IBPA", "VFW Post 1")', type: "text", optional: true, hint: "e.g. NRC", skipLabel: "Auto-generate from name" },
+  // Q3
+  { id: "tagline",        text: "What is your tagline or one-sentence mission statement?", type: "text", hint: "e.g. Service Above Self" },
+  // Q4 — optional, triggers website crawl when answered
+  { id: "website",        text: "Do you have an existing website? If so, what's the URL?", type: "text", optional: true, hint: "e.g. norwinrotary.org", skipLabel: "No website" },
+  // Q5
+  { id: "city",           text: "What city is your organization based in?", type: "text", hint: "e.g. North Huntingdon" },
+  // Q6
+  { id: "state",          text: "What state?", type: "text", hint: "e.g. Pennsylvania" },
+  // Q7
+  { id: "contactAddress", text: "What is your organization's physical address?", type: "text", hint: "e.g. 123 Main St, North Huntingdon, PA 15642" },
+  // Q8
+  { id: "mailingAddress", text: "Do you have a separate mailing address, or is it the same?", type: "text", optional: true, hint: "e.g. PO Box 100, Irwin, PA 15642", skipLabel: "Same as physical address" },
+  // Q9
+  { id: "contactPhone",   text: "What is your main phone number?", type: "text", hint: "e.g. (724) 555-0100" },
+  // Q10
+  { id: "contactEmail",   text: "What is your main contact email?", type: "text", hint: "e.g. info@norwinrotary.org" },
+  // Q11 — all tiers
+  { id: "eventsEmail",    text: "Do you have a separate email for event inquiries?", type: "text", optional: true, hint: "e.g. events@norwinrotary.org", skipLabel: "Skip" },
+  // Q12
+  { id: "socialFacebook", text: "What is your Facebook page URL?", type: "text", optional: true, hint: "e.g. https://www.facebook.com/NorwinRotary", skipLabel: "No Facebook page" },
+  // Q13
+  { id: "socialInstagram", text: "What is your Instagram URL?", type: "text", optional: true, hint: "e.g. instagram.com/norwinrotary", skipLabel: "No Instagram" },
+  // Q14
+  { id: "logoInitials",   text: "What 2–3 letters should appear on your logo badge?", type: "text", optional: true, hint: "e.g. NR", skipLabel: "Use my short name" },
+  // Q15
+  { id: "orgType",        text: "What type of organization are you?", type: "select", options: ORG_TYPE_OPTIONS },
+  // Q16 — all tiers
+  { id: "annualEvents",   text: "Approximately how many events do you host per year?", type: "text", hint: "e.g. 12+" },
+  // Q17 — all tiers
+  { id: "annualAttendees", text: "Approximately how many total attendees across all events?", type: "text", hint: "e.g. 500+" },
+  // Q18 — all tiers, label depends on orgType
   {
     id: "membersOrBusinesses",
-    text: "How many active members (or local businesses) does your organization have?",
+    text: "How many active members does your organization have?",
+    textFn: (ans) => {
+      const orgType = ans.orgType as string | null;
+      return BUSINESS_FOCUSED_TYPES.has(orgType ?? "")
+        ? "How many local businesses are in your area or directory?"
+        : "How many active members does your organization have?";
+    },
     type: "text",
-    hint: "e.g. 120 members or 200 businesses",
-    tiers: ["tier1a", "tier2", "tier3"],
+    hint: "e.g. 75+ members",
   },
-  {
-    id: "hasSponsors",
-    text: "Do you accept event sponsors?",
-    type: "boolean",
-    tiers: ["tier2", "tier3"],
-  },
-  {
-    id: "hasVendors",
-    text: "Do your events have vendor or exhibitor registration?",
-    type: "boolean",
-    tiers: ["tier2", "tier3"],
-  },
-  {
-    id: "hasTicketedEvents",
-    text: "Do any of your events sell tickets? (Stripe checkout)",
-    type: "boolean",
-    tiers: ["tier2", "tier3"],
-  },
-  {
-    id: "hasBlog",
-    text: "Do you want a News & Updates / Blog section on your site?",
-    type: "boolean",
-    tiers: ["tier2", "tier3"],
-  },
-  {
-    id: "hasNewsletter",
-    text: "Do you want an email newsletter signup on your site?",
-    type: "boolean",
-    tiers: ["tier2", "tier3"],
-  },
+  // Q19 — Events / Total Ops only (Starter + Autopilot: auto-set false in getAutoAnswers)
+  { id: "hasSponsors",       text: "Do you accept event sponsors?", type: "boolean", tiers: ["tier2", "tier3"] },
+  // Q20
+  { id: "hasVendors",        text: "Do your events have vendor registration?", type: "boolean", tiers: ["tier2", "tier3"] },
+  // Q21
+  { id: "hasTicketedEvents", text: "Do any of your events sell tickets?", type: "boolean", tiers: ["tier2", "tier3"] },
+  // Q22 — Events/Total Ops ask; Autopilot auto-yes; Starter auto-no
+  { id: "hasBlog",       text: "Do you want a News & Updates / Blog section on your site?", type: "boolean", tiers: ["tier2", "tier3"] },
+  // Q23
+  { id: "hasNewsletter", text: "Do you want email newsletter signup on your site?", type: "boolean", tiers: ["tier2", "tier3"] },
+  // Q24 — all tiers
   {
     id: "partners",
-    text: "List any community partners — name and one-line description each (one per line)",
+    text: "List any community partners — name and a one-line description each.",
     type: "textarea",
     optional: true,
-    hint: "e.g. Springfield Library — books and resources for all ages",
+    hint: "e.g. Norwin School District - Education partner; Rotary District 7330 - Regional leadership",
     skipLabel: "No partners to list",
   },
-  {
-    id: "eventCategories",
-    text: "What categories do your events fall into?",
-    type: "text",
-    optional: true,
-    hint: "e.g. Festival, Fundraiser, Meeting, Holiday",
-    skipLabel: "Use standard categories",
-    tiers: ["tier2", "tier3"],
-  },
+  // Q25 — all tiers, required
+  { id: "eventCategories", text: "What categories do your events fall into?", type: "text", hint: "e.g. Fundraisers, Community Service, Social, Meetings" },
+  // Q26 — all tiers
   {
     id: "meetingSchedule",
     text: "What is your regular meeting schedule? Include day, time, and location.",
     type: "text",
     optional: true,
-    hint: "e.g. Every Tuesday, 7:00 PM, Springfield City Hall",
+    hint: "e.g. Every Wednesday at 12:00 PM, Norwin Hills Country Club",
     skipLabel: "No regular meetings",
   },
 ];
 
 const SKIP_ACKS: Record<string, string> = {
   shortName:        "I'll auto-generate initials from your org name.",
+  website:          "No problem — I'll continue without a website URL.",
   mailingAddress:   "Got it — I'll use your physical address for mail.",
   eventsEmail:      "Got it — event inquiries will go to your main email.",
   socialFacebook:   "No problem — I'll leave Facebook out.",
   socialInstagram:  "Got it — no Instagram.",
   logoInitials:     "I'll use your short name for the logo badge.",
   partners:         "No partners to list — that's fine.",
-  eventCategories:  "I'll use standard event categories.",
   meetingSchedule:  "Got it — no regular meetings.",
 };
+
+// Returns answers that are auto-set (not asked) based on tier.
+function getAutoAnswers(tier: string | null): Record<string, string | boolean | null> {
+  const t = tier ?? "tier1";
+  const result: Record<string, string | boolean | null> = {};
+  if (t === "tier1" || t === "tier1a") {
+    result.hasSponsors       = false;
+    result.hasVendors        = false;
+    result.hasTicketedEvents = false;
+  }
+  if (t === "tier1") {
+    result.hasBlog       = false;
+    result.hasNewsletter = false;
+  } else if (t === "tier1a") {
+    result.hasBlog       = true;
+    result.hasNewsletter = true;
+  }
+  return result;
+}
 
 function getFilteredQuestions(tier: string | null): IntakeQuestion[] {
   const effectiveTier = tier ?? "tier1";
@@ -249,6 +185,10 @@ function getFilteredQuestions(tier: string | null): IntakeQuestion[] {
     if (!q.tiers) return true;
     return q.tiers.includes(effectiveTier);
   });
+}
+
+function getQuestionText(q: IntakeQuestion, answers: Record<string, string | boolean | null>): string {
+  return q.textFn ? q.textFn(answers) : q.text;
 }
 
 // ── Payload helpers ────────────────────────────────────────────────────────────
@@ -269,32 +209,20 @@ function extractPayload(text: string): Record<string, unknown> | null {
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
 function PayloadPreview({ payload }: { payload: Record<string, unknown> }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
 
-  const rows: { label: string; value: unknown }[] = [
-    { label: "Org Name",     value: payload.orgName },
-    { label: "Short Name",   value: payload.shortName },
-    { label: "Type",         value: payload.orgType },
-    { label: "Tagline",      value: payload.tagline },
-    { label: "Location",     value: payload.location },
-    { label: "Primary Color", value: payload.primaryColor },
-    { label: "Accent Color",  value: payload.accentColor },
-    { label: "Email",        value: payload.contactEmail },
-    { label: "Phone",        value: payload.contactPhone },
-    { label: "Facebook",     value: payload.socialFacebook },
-    {
-      label: "Meeting",
-      value: payload.meetingDay && payload.meetingTime
-        ? `${payload.meetingDay} · ${payload.meetingTime}`
-        : null,
-    },
-    {
-      label: "Partners",
-      value: Array.isArray(payload.partners) && payload.partners.length > 0
-        ? `${(payload.partners as unknown[]).length} listed`
-        : null,
-    },
-  ];
+  const primaryColor = payload.primaryColor as string | undefined;
+  const accentColor  = payload.accentColor  as string | undefined;
+  const stats   = payload.stats   as { value: string; label: string }[] | undefined;
+  const partners = payload.partners as { name: string }[] | undefined;
+  const sc = payload.siteContent as Record<string, string> | undefined;
+
+  const features: string[] = [];
+  if (sc?.has_blog === "true")       features.push("News & Blog");
+  if (sc?.has_newsletter === "true") features.push("Newsletter");
+  if (payload.hasSponsors === true || payload.hasSponsors === "Yes")           features.push("Sponsors");
+  if (payload.hasVendors === true || payload.hasVendors === "Yes")             features.push("Vendors");
+  if (payload.hasTicketedEvents === true || payload.hasTicketedEvents === "Yes") features.push("Ticketed Events");
 
   return (
     <div className="rounded-xl border border-[#d4a017]/30 bg-[#0f1a2e] overflow-hidden">
@@ -309,14 +237,86 @@ function PayloadPreview({ payload }: { payload: Record<string, unknown> }) {
         {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
       </button>
       {expanded && (
-        <div className="px-4 pb-4 space-y-0 max-h-56 overflow-y-auto">
-          {rows.map(({ label, value }) =>
-            value ? (
-              <div key={label} className="flex gap-2 text-sm py-1 border-b border-white/5">
-                <span className="text-[#7a9cbf] min-w-[120px] flex-shrink-0">{label}</span>
-                <span className="text-[#c8d8e8] break-all">{String(value)}</span>
+        <div className="px-4 pb-4 space-y-3 max-h-72 overflow-y-auto">
+          {/* Identity */}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs pt-1">
+            <div>
+              <span className="text-[#7a9cbf] block">Org Name</span>
+              <span className="text-white font-medium">{String(payload.orgName ?? "")}</span>
+            </div>
+            <div>
+              <span className="text-[#7a9cbf] block">Short Name</span>
+              <span className="text-white font-medium">{String(payload.shortName ?? "")}</span>
+            </div>
+            <div className="mt-1">
+              <span className="text-[#7a9cbf] block">Location</span>
+              <span className="text-[#c8d8e8]">{String(payload.location ?? "")}</span>
+            </div>
+            <div className="mt-1">
+              <span className="text-[#7a9cbf] block">Contact</span>
+              <span className="text-[#c8d8e8] break-all">{String(payload.contactEmail ?? "")}</span>
+              {payload.contactPhone ? <span className="text-[#c8d8e8] block">{String(payload.contactPhone)}</span> : null}
+            </div>
+          </div>
+
+          {/* Brand Colors */}
+          {(primaryColor || accentColor) && (
+            <div>
+              <span className="text-[#7a9cbf] text-xs block mb-1.5">Brand Colors</span>
+              <div className="flex items-center gap-4">
+                {primaryColor && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded border border-white/20 flex-shrink-0" style={{ backgroundColor: primaryColor }} />
+                    <span className="text-xs text-[#c8d8e8] font-mono">{primaryColor}</span>
+                  </div>
+                )}
+                {accentColor && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded border border-white/20 flex-shrink-0" style={{ backgroundColor: accentColor }} />
+                    <span className="text-xs text-[#c8d8e8] font-mono">{accentColor}</span>
+                  </div>
+                )}
               </div>
-            ) : null,
+            </div>
+          )}
+
+          {/* Stats */}
+          {stats && stats.length > 0 && (
+            <div>
+              <span className="text-[#7a9cbf] text-xs block mb-1.5">Stats</span>
+              <div className="grid grid-cols-4 gap-1.5">
+                {stats.map((s, i) => (
+                  <div key={i} className="text-center bg-[#1e3a5f]/50 rounded-lg p-1.5">
+                    <div className="text-[#d4a017] font-bold text-sm leading-tight">{s.value}</div>
+                    <div className="text-[#7a9cbf] text-[10px] leading-tight mt-0.5">{s.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Partners */}
+          {partners && partners.length > 0 && (
+            <div>
+              <span className="text-[#7a9cbf] text-xs block mb-1">Partners</span>
+              <div className="flex flex-wrap gap-1">
+                {partners.map((p, i) => (
+                  <span key={i} className="text-xs bg-[#1e3a5f] text-[#c8d8e8] px-2 py-0.5 rounded-full">{p.name}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Features Enabled */}
+          {features.length > 0 && (
+            <div>
+              <span className="text-[#7a9cbf] text-xs block mb-1">Features Enabled</span>
+              <div className="flex flex-wrap gap-1">
+                {features.map((f, i) => (
+                  <span key={i} className="text-xs bg-green-500/10 border border-green-500/30 text-green-300 px-2 py-0.5 rounded-full">{f}</span>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -366,9 +366,11 @@ export default function CommunityBuilder() {
   const filteredQuestions = getFilteredQuestions(tier);
   const totalSteps = filteredQuestions.length;
 
+  const autoAnswers = getAutoAnswers(tier);
+
   const [started, setStarted] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, string | boolean | null>>({});
+  const [answers, setAnswers] = useState<Record<string, string | boolean | null>>(autoAnswers);
   const [chatItems, setChatItems] = useState<ChatItem[]>([]);
   const [input, setInput] = useState("");
   const [finalizingPayload, setFinalizingPayload] = useState(false);
@@ -379,10 +381,12 @@ export default function CommunityBuilder() {
     ok: boolean;
     siteUrl?: string;
     error?: string;
+    canRetry?: boolean;
   } | null>(null);
   const [logoPath, setLogoPath] = useState<string | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [logoUploading, setLogoUploading] = useState(false);
+  const [crawling, setCrawling] = useState(false);
 
 
   const chatEndRef   = useRef<HTMLDivElement>(null);
@@ -425,18 +429,17 @@ export default function CommunityBuilder() {
   }
 
   // ── Submit an answer ────────────────────────────────────────────────────────
-  function submitAnswer(value: string | null, isSkip: boolean) {
+  async function submitAnswer(value: string | null, isSkip: boolean) {
     const q = filteredQuestions[stepIndex];
     if (!q) return;
 
     const displayValue = value === null ? (q.skipLabel ?? "Skipped") : value;
-
     const itemId = `${Date.now()}-${q.id}`;
     const ackText = isSkip ? (SKIP_ACKS[q.id] ?? "Got it — skipped.") : null;
 
     const item: ChatItem = {
       id: itemId,
-      questionText: q.text,
+      questionText: getQuestionText(q, answers),
       userAnswer: displayValue,
       ackText,
       ackLoading: !isSkip,
@@ -446,6 +449,48 @@ export default function CommunityBuilder() {
     setAnswers(newAnswers);
     setChatItems(prev => [...prev, item]);
     setInput("");
+
+    // Q4 website crawl — fire before advancing so we can merge extracted data
+    if (q.id === "website" && !isSkip && value?.trim()) {
+      setCrawling(true);
+      try {
+        const res = await csrfFetch("/api/community-site/crawl", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: value.trim() }),
+        });
+        if (res.ok) {
+          const { extracted } = await res.json() as { extracted: Record<string, string> };
+          const fields = ["contactPhone", "contactEmail", "socialFacebook", "socialInstagram"] as const;
+          const merged: Record<string, string | boolean | null> = { ...newAnswers };
+          let count = 0;
+          for (const f of fields) {
+            if (extracted[f] && !merged[f]) { merged[f] = extracted[f]; count++; }
+          }
+          if (count > 0) {
+            setAnswers(merged);
+            setChatItems(prev => prev.map(i =>
+              i.id === itemId
+                ? { ...i, ackText: `Got it! Pre-filled ${count} field${count !== 1 ? "s" : ""} from your site.`, ackLoading: false }
+                : i,
+            ));
+            setCrawling(false);
+            const nextIndex = stepIndex + 1;
+            setStepIndex(nextIndex);
+            if (nextIndex >= totalSteps) void finalizePayload(merged);
+            return;
+          }
+        }
+      } catch { /* non-fatal */ }
+      setCrawling(false);
+      setChatItems(prev => prev.map(i =>
+        i.id === itemId ? { ...i, ackText: "Got it!", ackLoading: false } : i,
+      ));
+      const nextIdx = stepIndex + 1;
+      setStepIndex(nextIdx);
+      if (nextIdx >= totalSteps) void finalizePayload(newAnswers);
+      return;
+    }
 
     const nextIndex = stepIndex + 1;
     setStepIndex(nextIndex);
@@ -463,9 +508,9 @@ export default function CommunityBuilder() {
     const val = input.trim();
     if (!val && !currentQuestion?.optional) return;
     if (!val && currentQuestion?.optional) {
-      submitAnswer(null, true);
+      void submitAnswer(null, true);
     } else {
-      submitAnswer(val, false);
+      void submitAnswer(val, false);
     }
   }
 
@@ -532,12 +577,31 @@ export default function CommunityBuilder() {
       });
       const d = await res.json() as { ok?: boolean; siteUrl?: string; error?: string };
       if (!res.ok || !d.ok) {
-        setProvisionResult({ ok: false, error: d.error ?? "Launch failed" });
+        let error: string;
+        let canRetry = false;
+        if (res.status === 401) {
+          error = "Authentication failed. The service key doesn't match the deployed site. Contact support.";
+        } else if (res.status === 400) {
+          error = d.error?.includes("No community site")
+            ? (d.error ?? "No community site configured.")
+            : "Invalid configuration data. Please try the interview again.";
+        } else if (res.status >= 500) {
+          error = "The site encountered an error during setup. Please try again in a few minutes.";
+          canRetry = true;
+        } else {
+          error = d.error ?? "Launch failed";
+          canRetry = true;
+        }
+        setProvisionResult({ ok: false, error, canRetry });
       } else {
         setProvisionResult({ ok: true, siteUrl: d.siteUrl });
       }
     } catch {
-      setProvisionResult({ ok: false, error: "Network error during launch" });
+      setProvisionResult({
+        ok: false,
+        error: "Couldn't reach your site. It may still be deploying. Please try again in a few minutes.",
+        canRetry: true,
+      });
     } finally {
       setProvisioning(false);
     }
@@ -548,13 +612,14 @@ export default function CommunityBuilder() {
   function resetAll() {
     setStarted(false);
     setStepIndex(0);
-    setAnswers({});
+    setAnswers(getAutoAnswers(tier));
     setChatItems([]);
     setInput("");
     setFinalizingPayload(false);
     setFinalizeError(false);
     setReadyPayload(null);
     setProvisionResult(null);
+    setCrawling(false);
   }
 
   // ── Render ───────────────────────────────────────────────────────────────────
@@ -629,9 +694,21 @@ export default function CommunityBuilder() {
 
       {/* ── Launch error ── */}
       {provisionResult && !provisionResult.ok && (
-        <div className="flex-shrink-0 mx-6 mt-4 p-3 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center gap-2 text-sm text-red-300">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" />
-          {provisionResult.error}
+        <div className="flex-shrink-0 mx-6 mt-4 p-3 rounded-xl bg-red-500/10 border border-red-500/30 flex items-start gap-2 text-sm text-red-300">
+          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p>{provisionResult.error}</p>
+            {provisionResult.canRetry && (
+              <button
+                onClick={() => void provision()}
+                disabled={provisioning}
+                className="mt-1.5 flex items-center gap-1 text-xs text-red-400 hover:text-red-200 underline underline-offset-2 disabled:opacity-50"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Retry
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -693,6 +770,9 @@ export default function CommunityBuilder() {
           </div>
         ))}
 
+        {/* Crawling (Q4 website check) */}
+        {crawling && <BotBubble loading />}
+
         {/* Finalizing */}
         {started && isInterviewDone && finalizingPayload && (
           <BotBubble loading />
@@ -725,7 +805,7 @@ export default function CommunityBuilder() {
         {/* Current question form */}
         {started && currentQuestion && !isInterviewDone && (
           <div className="space-y-3">
-            <BotBubble>{currentQuestion.text}</BotBubble>
+            <BotBubble>{getQuestionText(currentQuestion, answers)}</BotBubble>
 
             {/* SELECT — button grid */}
             {currentQuestion.type === "select" && currentQuestion.options && (
@@ -734,7 +814,7 @@ export default function CommunityBuilder() {
                   {currentQuestion.options.map(opt => (
                     <button
                       key={opt}
-                      onClick={() => submitAnswer(opt, false)}
+                      onClick={() => void submitAnswer(opt, false)}
                       className="px-3 py-1.5 rounded-lg text-xs font-medium border border-[#d4a017]/40 text-[#d4a017] bg-[#d4a017]/8 hover:bg-[#d4a017]/20 hover:border-[#d4a017]/70 transition-all"
                     >
                       {opt}
@@ -748,13 +828,13 @@ export default function CommunityBuilder() {
             {currentQuestion.type === "boolean" && (
               <div className="pl-10 flex gap-3">
                 <button
-                  onClick={() => submitAnswer("Yes", false)}
+                  onClick={() => void submitAnswer("Yes", false)}
                   className="px-6 py-2 rounded-lg text-sm font-medium border border-green-500/40 text-green-400 bg-green-500/8 hover:bg-green-500/20 transition-all"
                 >
                   Yes
                 </button>
                 <button
-                  onClick={() => submitAnswer("No", false)}
+                  onClick={() => void submitAnswer("No", false)}
                   className="px-6 py-2 rounded-lg text-sm font-medium border border-[#4a6a8a]/40 text-[#7a9cbf] bg-white/3 hover:bg-white/8 transition-all"
                 >
                   No
@@ -814,7 +894,7 @@ export default function CommunityBuilder() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => submitAnswer(null, true)}
+                      onClick={() => void submitAnswer(null, true)}
                       className="text-[#7a9cbf] hover:text-white text-xs h-8"
                     >
                       {currentQuestion.skipLabel ?? "Skip"}

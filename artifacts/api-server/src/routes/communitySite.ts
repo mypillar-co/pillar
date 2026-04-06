@@ -3,6 +3,7 @@ import { db, organizationsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { resolveFullOrg } from "../lib/resolveOrg";
 import OpenAI from "openai";
+import { load as cheerioLoad } from "cheerio";
 
 const SIDECAR = "http://127.0.0.1:1106";
 
@@ -120,10 +121,12 @@ const ORG_TYPE_COLORS_MAP: Record<string, { primaryColor: string; accentColor: s
   "Rotary Club":                        { primaryColor: "#003DA5", accentColor: "#d4a017" },
   "Lions Club":                         { primaryColor: "#d4a017", accentColor: "#1a4a8a" },
   "VFW / American Legion":              { primaryColor: "#8b1a1a", accentColor: "#2b5797" },
+  "Fraternal Organization":             { primaryColor: "#1a3a5c", accentColor: "#c5a030" },
   "PTA / PTO":                          { primaryColor: "#339966", accentColor: "#7a3d9e" },
   "Community Foundation":               { primaryColor: "#2d8a57", accentColor: "#2b7ab5" },
   "Neighborhood Association":           { primaryColor: "#c26a17", accentColor: "#338899" },
   "Arts Council":                       { primaryColor: "#7a3d9e", accentColor: "#cc3366" },
+  "Other":                              { primaryColor: "#2b7ab5", accentColor: "#338899" },
 };
 
 function generateInitials(name: string): string {
@@ -132,17 +135,87 @@ function generateInitials(name: string): string {
   return words.map(w => w[0].toUpperCase()).join("").slice(0, 4);
 }
 
+const STATE_ABBREVS: Record<string, string> = {
+  "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR",
+  "California": "CA", "Colorado": "CO", "Connecticut": "CT", "Delaware": "DE",
+  "Florida": "FL", "Georgia": "GA", "Hawaii": "HI", "Idaho": "ID",
+  "Illinois": "IL", "Indiana": "IN", "Iowa": "IA", "Kansas": "KS",
+  "Kentucky": "KY", "Louisiana": "LA", "Maine": "ME", "Maryland": "MD",
+  "Massachusetts": "MA", "Michigan": "MI", "Minnesota": "MN", "Mississippi": "MS",
+  "Missouri": "MO", "Montana": "MT", "Nebraska": "NE", "Nevada": "NV",
+  "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
+  "North Carolina": "NC", "North Dakota": "ND", "Ohio": "OH", "Oklahoma": "OK",
+  "Oregon": "OR", "Pennsylvania": "PA", "Rhode Island": "RI", "South Carolina": "SC",
+  "South Dakota": "SD", "Tennessee": "TN", "Texas": "TX", "Utah": "UT",
+  "Vermont": "VT", "Virginia": "VA", "Washington": "WA", "West Virginia": "WV",
+  "Wisconsin": "WI", "Wyoming": "WY", "District of Columbia": "DC",
+};
+
+function getStateAbbrev(state: string): string {
+  if (!state?.trim()) return "";
+  const t = state.trim();
+  if (/^[A-Za-z]{2}$/.test(t)) return t.toUpperCase();
+  return STATE_ABBREVS[t] ?? t.slice(0, 2).toUpperCase();
+}
+
+const BUSINESS_FOCUSED_TYPES = new Set([
+  "Main Street / Downtown Association",
+  "Chamber of Commerce",
+  "Neighborhood Association",
+]);
+
+const ORG_TYPE_SUBTITLE_MAP: Record<string, string> = {
+  "Main Street / Downtown Association": "Downtown Association",
+  "Chamber of Commerce":                "Chamber of Commerce",
+  "Rotary Club":                        "Civic Organization",
+  "Lions Club":                         "Civic Organization",
+  "VFW / American Legion":              "Veterans Organization",
+  "Fraternal Organization":             "Fraternal Organization",
+  "PTA / PTO":                          "Parent-Teacher Organization",
+  "Community Foundation":               "Community Foundation",
+  "Neighborhood Association":           "Neighborhood Association",
+  "Arts Council":                       "Arts Organization",
+  "Other":                              "Community Organization",
+};
+
+function parseMeetingSchedule(text: string | null | undefined): {
+  meetingDay: string | null;
+  meetingTime: string | null;
+  meetingLocation: string | null;
+} {
+  if (!text?.trim()) return { meetingDay: null, meetingTime: null, meetingLocation: null };
+  const parts = text.trim().split(",").map(p => p.trim()).filter(Boolean);
+  const timeRe = /\b(\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm))\b/;
+  let meetingDay: string | null = null;
+  let meetingTime: string | null = null;
+  let meetingLocation: string | null = null;
+  for (let i = 0; i < parts.length; i++) {
+    const m = parts[i].match(timeRe);
+    if (m) {
+      meetingTime = m[1].trim();
+      const dayPart = parts[i].replace(/\s+at\s+.+/i, "").trim();
+      if (dayPart) meetingDay = dayPart;
+      if (i + 1 < parts.length) meetingLocation = parts.slice(i + 1).join(", ");
+      break;
+    }
+  }
+  if (!meetingTime && parts.length > 0) {
+    meetingDay = parts[0];
+    if (parts.length > 1) meetingLocation = parts.slice(1).join(", ");
+  }
+  return { meetingDay: meetingDay || null, meetingTime: meetingTime || null, meetingLocation: meetingLocation || null };
+}
+
 function parsePartners(text: string | null | undefined): { name: string; description: string; website: null }[] {
-  if (!text || text.trim().length === 0) return [];
+  if (!text?.trim()) return [];
   return text
-    .split("\n")
+    .split(/[;\n]/)
     .map(l => l.trim())
     .filter(Boolean)
     .map(line => {
-      const sep = line.search(/[,—–-]/);
-      const name = sep > 0 ? line.slice(0, sep).trim() : line;
-      const description = sep > 0 ? line.slice(sep + 1).trim() : "Community partner";
-      return { name, description, website: null };
+      const match = line.match(/^(.+?)\s+[-—–]\s+(.+)$/);
+      if (match) return { name: match[1].trim(), description: match[2].trim(), website: null };
+      return { name: line, description: "Community partner", website: null };
     })
     .filter(p => p.name.length > 0);
 }
@@ -151,68 +224,85 @@ function buildFallbackPayload(
   answers: Record<string, string | boolean | null | undefined>,
   tier: string | null,
 ): Record<string, unknown> {
-  const orgType  = (answers.orgType  as string | null) ?? "Other";
-  const orgName  = (answers.orgName  as string | null) ?? "";
-  const tagline  = (answers.tagline  as string | null) ?? "";
-  const city     = (answers.city     as string | null) ?? "";
-  const colors   = ORG_TYPE_COLORS_MAP[orgType] ?? { primaryColor: "#2b7ab5", accentColor: "#338899" };
-  const shortName = (answers.shortName as string | null) || generateInitials(orgName);
+  const orgType      = (answers.orgType   as string | null) ?? "Other";
+  const orgName      = (answers.orgName   as string | null) ?? "";
+  const tagline      = (answers.tagline   as string | null) ?? "";
+  const city         = (answers.city      as string | null) ?? "";
+  const state        = (answers.state     as string | null) ?? "";
+  const stateAbbrev  = getStateAbbrev(state);
+  const location     = stateAbbrev ? `${city}, ${stateAbbrev}` : city;
+  const colors       = ORG_TYPE_COLORS_MAP[orgType] ?? { primaryColor: "#2b7ab5", accentColor: "#338899" };
+  const shortName    = (answers.shortName    as string | null) || generateInitials(orgName);
   const logoInitials = (answers.logoInitials as string | null) || shortName;
-  const partners  = parsePartners(answers.partners as string | null);
+  const partners     = parsePartners(answers.partners as string | null);
+  const businessFocused = BUSINESS_FOCUSED_TYPES.has(orgType);
+  const stat3Label   = businessFocused ? "Local Businesses" : "Active Members";
+  const stat3Default = businessFocused ? "50+" : "100+";
+  const homeSubtitle = ORG_TYPE_SUBTITLE_MAP[orgType] ?? "Community Organization";
+  const meeting      = parseMeetingSchedule(answers.meetingSchedule as string | null);
+  const contactEmail = (answers.contactEmail as string | null) ?? "";
+  const eventsEmail  = (answers.eventsEmail  as string | null) ?? null;
 
   const boolVal = (v: unknown) => v === true || v === "Yes";
 
   const siteContent: Record<string, string> = {
-    home_tagline:        tagline,
-    home_intro:          tagline,
-    home_subtitle:       orgType,
-    contact_address:     (answers.physicalAddress as string | null) ?? "",
-    contact_phone:       (answers.contactPhone    as string | null) ?? "",
-    contact_email:       (answers.contactEmail    as string | null) ?? "",
-    social_facebook:     (answers.socialFacebook  as string | null) ?? "",
-    social_instagram:    (answers.socialInstagram as string | null) ?? "",
-    about_mission:       tagline,
-    community_partners:  JSON.stringify(partners),
-    logo_initials:       logoInitials,
+    home_tagline:          tagline,
+    home_intro:            tagline,
+    home_subtitle:         homeSubtitle,
+    contact_address:       (answers.contactAddress as string | null) ?? "",
+    contact_phone:         (answers.contactPhone   as string | null) ?? "",
+    contact_email:         contactEmail,
+    meeting_contact_email: eventsEmail ?? contactEmail,
+    social_facebook:       (answers.socialFacebook  as string | null) ?? "",
+    social_instagram:      (answers.socialInstagram as string | null) ?? "",
+    about_mission:         tagline,
+    community_partners:    JSON.stringify(partners),
+    logo_initials:         logoInitials,
   };
 
   if (tier === "tier1a") {
-    siteContent.has_blog        = "true";
-    siteContent.has_newsletter  = "true";
+    siteContent.has_blog         = "true";
+    siteContent.has_newsletter   = "true";
     siteContent.pillarWebhookUrl = "__PILLAR_WEBHOOK_URL__";
-  }
-  if (tier === "tier2" || tier === "tier3") {
+  } else if (tier === "tier2" || tier === "tier3") {
     siteContent.has_blog         = String(boolVal(answers.hasBlog));
     siteContent.has_newsletter   = String(boolVal(answers.hasNewsletter));
     siteContent.pillarWebhookUrl = "__PILLAR_WEBHOOK_URL__";
     siteContent.event_categories = (answers.eventCategories as string | null) ?? "Community, Fundraiser, Social";
+  } else {
+    siteContent.has_blog        = "false";
+    siteContent.has_newsletter  = "false";
   }
 
   const payload: Record<string, unknown> = {
     orgName,
     shortName,
-    orgType:        ORG_TYPE_SLUG_MAP[orgType] ?? "community",
+    orgType:         ORG_TYPE_SLUG_MAP[orgType] ?? "community",
     tagline,
-    mission:        tagline,
-    location:       city,
-    primaryColor:   colors.primaryColor,
-    accentColor:    colors.accentColor,
-    contactEmail:   answers.contactEmail   ?? null,
-    contactPhone:   answers.contactPhone   ?? null,
-    contactAddress: answers.physicalAddress ?? null,
-    mailingAddress: answers.mailingAddress  ?? null,
-    website:        null,
-    socialFacebook: answers.socialFacebook  ?? null,
-    socialInstagram: answers.socialInstagram ?? null,
-    meetingDay:     null,
-    meetingTime:    null,
-    meetingLocation: null,
-    footerText:      `${shortName} — ${tagline}`,
-    metaDescription: `${orgName} — ${tagline}`,
+    mission:         tagline,
+    location,
+    primaryColor:    colors.primaryColor,
+    accentColor:     colors.accentColor,
+    contactEmail:    contactEmail || null,
+    contactPhone:    (answers.contactPhone   as string | null) ?? null,
+    contactAddress:  (answers.contactAddress as string | null) ?? null,
+    mailingAddress:  (answers.mailingAddress as string | null) ?? (answers.contactAddress as string | null) ?? null,
+    website:         (answers.website        as string | null) ?? null,
+    socialFacebook:  (answers.socialFacebook  as string | null) ?? null,
+    socialInstagram: (answers.socialInstagram as string | null) ?? null,
+    socialTwitter:   null,
+    socialLinkedin:  null,
+    meetingDay:      meeting.meetingDay,
+    meetingTime:     meeting.meetingTime,
+    meetingLocation: meeting.meetingLocation,
+    logoUrl:         null,
+    heroImageUrl:    null,
+    footerText:      `${orgName} is a volunteer organization serving the ${location} community.`,
+    metaDescription: `${orgName} — ${tagline}. Community events, programs, and more in ${location}.`,
     stats: [
-      { value: answers.annualEvents    ? String(answers.annualEvents)        : "12+",  label: "Annual Events"   },
-      { value: answers.annualAttendees ? String(answers.annualAttendees)      : "500+", label: "Annual Attendees" },
-      { value: answers.membersOrBusinesses ? String(answers.membersOrBusinesses) : "100+", label: "Active Members" },
+      { value: answers.annualEvents        ? String(answers.annualEvents)        : "12+",        label: "Annual Events"   },
+      { value: answers.annualAttendees     ? String(answers.annualAttendees)     : "500+",       label: "Annual Attendees" },
+      { value: answers.membersOrBusinesses ? String(answers.membersOrBusinesses) : stat3Default, label: stat3Label },
       { value: "100%", label: "Volunteer Run" },
     ],
     partners,
@@ -220,11 +310,9 @@ function buildFallbackPayload(
   };
 
   if (tier === "tier2" || tier === "tier3") {
-    payload.programs          = [];
-    payload.sponsorshipLevels = [];
-    payload.events            = [];
-    payload.sponsors          = [];
-    payload.businesses        = [];
+    payload.events    = [];
+    payload.sponsors  = [];
+    payload.businesses = [];
   }
 
   return payload;
@@ -653,6 +741,61 @@ router.post("/logo-upload-url", async (req: Request, res: Response) => {
   }
 });
 
+// ── POST /api/community-site/crawl ───────────────────────────────────────────
+// Fetches the org's existing website and extracts pre-fill data for the interview.
+// Always returns 200 — errors return empty extracted object.
+router.post("/crawl", async (req: Request, res: Response) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+
+  const { url } = req.body as { url?: string };
+  if (!url?.trim()) { res.json({ extracted: {} }); return; }
+
+  const lower = url.toLowerCase();
+  if (lower.includes("facebook.com") || lower.includes("instagram.com") ||
+      lower.includes("twitter.com")  || lower.includes("linkedin.com")  ||
+      lower.includes("tiktok.com")   || lower.includes("youtube.com")) {
+    res.json({ extracted: {} });
+    return;
+  }
+
+  try {
+    const normalized = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+    const resp = await fetch(normalized, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; PillarBot/1.0; +https://mypillar.co)",
+        "Accept": "text/html",
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!resp.ok) { res.json({ extracted: {} }); return; }
+
+    const html = await resp.text();
+    const $ = cheerioLoad(html);
+    const extracted: Record<string, string> = {};
+
+    const phoneLink = $("a[href^='tel:']").first().attr("href");
+    if (phoneLink) extracted.contactPhone = phoneLink.replace("tel:", "").trim();
+
+    const emailLink = $("a[href^='mailto:']").first().attr("href");
+    if (emailLink) extracted.contactEmail = emailLink.replace("mailto:", "").trim().split("?")[0];
+
+    $("a[href]").each((_i, el) => {
+      const href = $(el).attr("href") ?? "";
+      if (!extracted.socialFacebook && href.includes("facebook.com") && !href.includes("sharer")) {
+        extracted.socialFacebook = href;
+      }
+      if (!extracted.socialInstagram && href.includes("instagram.com")) {
+        extracted.socialInstagram = href;
+      }
+    });
+
+    res.json({ extracted });
+  } catch {
+    res.json({ extracted: {} });
+  }
+});
+
 // ── POST /api/community-site/ack ─────────────────────────────────────────────
 // Returns a brief conversational acknowledgment for a form-based interview step.
 // Always returns 200 — AI is optional and wrapped in try/catch with static fallback.
@@ -682,9 +825,10 @@ router.post("/ack", async (req: Request, res: Response) => {
     orgName:             v => `Got it — "${v}"!`,
     shortName:           v => `"${v}" — perfect.`,
     tagline:             _v => `Great tagline!`,
-    orgType:             v => `${v} — noted.`,
+    website:             v => `Got it — I'll note "${v}" as your existing site.`,
     city:                v => `${v} — got it.`,
-    physicalAddress:     _v => `Address saved.`,
+    state:               v => `${v} — noted.`,
+    contactAddress:      _v => `Address saved.`,
     mailingAddress:      _v => `Mailing address saved.`,
     contactPhone:        _v => `Phone number saved.`,
     contactEmail:        _v => `Email saved.`,
@@ -692,6 +836,7 @@ router.post("/ack", async (req: Request, res: Response) => {
     socialFacebook:      _v => `Facebook page saved.`,
     socialInstagram:     _v => `Instagram saved.`,
     logoInitials:        v => `Logo badge: "${v}".`,
+    orgType:             v => `${v} — noted.`,
     annualEvents:        v => `${v} events per year — noted.`,
     annualAttendees:     v => `${v} attendees — great.`,
     membersOrBusinesses: v => `Got it — ${v}.`,

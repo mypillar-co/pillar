@@ -1,0 +1,415 @@
+Complete Integration Spec: Customer Signup → Interview → Website Live
+
+This is the full end-to-end flow. Every step, every question, every field, every error case.
+
+Phase 1: Customer Signs Up
+Step 1.1: Customer creates a Pillar account and picks a plan.
+They choose one of: Starter ($29/mo), Autopilot ($59/mo), Events ($99/mo), or Total Operations ($149/mo). Store the plan tier on their org record in Pillar's database.
+
+Step 1.2: Pillar generates a subdomain.
+Take the org name they provided during signup. Slugify it: "Norwin Rotary Club" → norwinrotary. Assign the subdomain norwinrotary.mypillar.co. Store this URL in Pillar's database on the org record.
+
+Step 1.3: Pillar deploys a copy of the community platform.
+Deploy the Discover Irwin codebase (the Express/React/Vite/PostgreSQL app) to norwinrotary.mypillar.co. This deployment needs these environment variables set:
+
+DATABASE_URL — a fresh PostgreSQL database for this org
+SESSION_SECRET — generate a random 64-character string
+PILLAR_SERVICE_KEY — generate a random 64-character string. Save this same value in Pillar's database on the org record.
+At this point the site is deployed but unconfigured — it shows generic defaults because there's no org_config row in the database yet.
+
+Step 1.4: Pillar sets additional env vars based on the plan tier.
+
+If Autopilot, Events, or Total Operations tier: set SENDGRID_API_KEY (for newsletter and ticket confirmation emails)
+Stripe keys are set later if/when the customer enables ticketed events during the interview
+Step 1.5: The customer lands on their Pillar dashboard.
+They see the "Website" button in the sidebar. They click it. This opens the interview page.
+
+Phase 2: The Interview
+Step 2.1: Check the customer's plan tier.
+Before showing any questions, read the customer's plan tier from Pillar's database. This determines which questions to ask and which to skip.
+
+Step 2.2: Show the welcome screen.
+Display: "Let's set up [Org Name]" with a "Start the interview" button. The org name comes from their signup data.
+
+Step 2.3: Ask the questions in this exact order.
+Each question is one step. The customer answers and the next question appears. If they skip an optional question, set the value to null and move on immediately — do not send skips to the AI model. The question sequence is fixed and hardcoded. The AI model never decides which question comes next. Each question is asked exactly once and never repeated.
+
+Question 1 — Org Name (required)
+"What is the full name of your organization?"
+Example: "Norwin Rotary Club"
+→ Save as orgName
+
+Question 2 — Short Name (required)
+"What is the short name or abbreviation? (e.g. NRC, IBPA, VFW Post 1)"
+Example: "NRC"
+→ Save as shortName
+→ If skipped or blank: auto-generate from orgName initials. "Norwin Rotary Club" → "NRC". "Irwin Business & Professional Association" → "IBPA".
+
+Question 3 — Tagline (required)
+"What is your tagline or one-sentence mission statement?"
+Example: "Service Above Self"
+→ Save as tagline
+
+Question 4 — Website URL (optional)
+"Do you have an existing website? If so, what's the URL?"
+Example: "norwinrotary.org"
+→ If they provide a URL: crawl it with Cheerio. Extract any info you can find (address, phone, email, social links, about text, event listings). Pre-fill the remaining questions with whatever the crawl found. Skip any question the crawl already answered.
+→ If blank or "no": continue asking all remaining questions normally.
+→ Save as website
+→ IMPORTANT: Only crawl actual website URLs here. Do NOT crawl Facebook, Instagram, or other social media URLs — those are handled in later questions.
+
+Question 5 — City (required)
+"What city is your organization based in?"
+Example: "North Huntingdon"
+→ Save as city
+
+Question 6 — State (required)
+"What state?"
+Example: "Pennsylvania"
+→ Save as state
+→ Also derive stateAbbrev: "Pennsylvania" → "PA"
+→ Combine into location: "North Huntingdon, PA"
+
+Question 7 — Physical Address (required)
+"What is your organization's physical address?"
+Example: "123 Main St, North Huntingdon, PA 15642"
+→ Save as contactAddress
+
+Question 8 — Mailing Address (optional)
+"Do you have a separate mailing address, or is it the same?"
+Show a "Same as physical" button alongside the text input.
+Example: "PO Box 100, Irwin, PA 15642"
+→ If "same" or skipped: copy contactAddress
+→ Save as mailingAddress
+
+Question 9 — Phone (required)
+"What is your main phone number?"
+Example: "(724) 555-0100"
+→ Save as contactPhone
+
+Question 10 — Contact Email (required)
+"What is your main contact email?"
+Example: "info@norwinrotary.org"
+→ Save as contactEmail
+
+Question 11 — Events Email (optional)
+"Do you have a separate email for event inquiries?"
+Show a "Skip" button.
+→ If skipped: set to null
+→ Save into siteContent as meeting_contact_email
+
+Question 12 — Facebook (optional)
+"What is your Facebook page URL?"
+Show a "Skip" button.
+Example: "https://www.facebook.com/NorwinRotary"
+→ If skipped: set to null
+→ Save as socialFacebook
+→ DO NOT trigger a website crawl on this URL. It is a social link, not a website.
+
+Question 13 — Instagram (optional)
+"What is your Instagram URL?"
+Show a "Skip" button.
+→ If skipped: set to null
+→ Save as socialInstagram
+→ DO NOT trigger a website crawl on this URL.
+
+Question 14 — Logo Initials (optional)
+"What 2-3 letter abbreviation should appear on your logo badge?"
+Show a "Skip" button.
+Example: "NR"
+→ If skipped: use the value from shortName
+→ This controls the initials shown in the nav and footer when no logo image is provided
+
+Question 15 — Org Type (required)
+"What type of organization are you?"
+Show as a dropdown or button list with these exact options:
+
+Main Street / Downtown Association
+Chamber of Commerce
+Rotary Club
+Lions Club
+VFW / American Legion
+Fraternal Organization (Elks, Moose, Eagles, Knights of Columbus, Masons)
+PTA / PTO
+Community Foundation
+Neighborhood Association
+Arts Council
+Other
+→ Save as orgType
+→ Use this to look up colors in Step 3.2
+→ Use this to determine whether Question 18 asks about businesses or members
+→ Business-focused org types (show "Local Businesses" stat, include business directory): Main Street / Downtown Association, Chamber of Commerce, Neighborhood Association
+→ Member-focused org types (show "Active Members" stat, no business directory): Rotary Club, Lions Club, VFW / American Legion, Fraternal Organization, PTA / PTO, Community Foundation, Arts Council, Other
+Question 16 — Annual Events (required)
+"Approximately how many events do you host per year?"
+Example: "12+"
+→ Save as stat value #1 with label "Annual Events"
+
+Question 17 — Annual Attendees (required)
+"Approximately how many total attendees across all events?"
+Example: "500+"
+→ Save as stat value #2 with label "Annual Attendees"
+
+Question 18 — Members or Businesses (required)
+If orgType is business-focused (Main Street, Chamber, Neighborhood Association):
+"How many local businesses are in your area or directory?"
+Example: "50+"
+→ Save as stat value #3 with label "Local Businesses"
+
+If orgType is member-focused (everything else):
+"How many active members does your organization have?"
+Example: "75+"
+→ Save as stat value #3 with label "Active Members"
+
+Question 19 — Sponsors (conditional)
+Skip entirely if Starter tier. Hard-set answer to "no."
+"Do you accept event sponsors?"
+→ Show Yes and No buttons
+→ Save as hasSponsors (boolean, not included in payload — controls feature decisions only)
+
+Question 20 — Vendors (conditional)
+Skip entirely if Starter or Autopilot tier. Hard-set answer to "no."
+"Do your events have vendor registration?"
+→ Show Yes and No buttons
+→ Save as hasVendors (boolean, feature decision only)
+
+Question 21 — Ticketed Events (conditional)
+Skip entirely if Starter or Autopilot tier. Hard-set answer to "no."
+"Do any of your events sell tickets?"
+→ Show Yes and No buttons
+→ If Yes: payment provider is always Stripe. Do not ask which provider.
+→ Save as hasTicketedEvents (boolean, feature decision only)
+
+Question 22 — Blog (conditional)
+Skip if Starter tier. Hard-set based on tier: Autopilot and above = yes.
+"Do you want a News & Updates / Blog section on your site?"
+→ Show Yes and No buttons
+→ Save as hasBlog (boolean, feature decision only)
+
+Question 23 — Newsletter (conditional)
+Skip if Starter tier. Hard-set based on tier: Autopilot and above = yes.
+"Do you want email newsletter signup on your site?"
+→ Show Yes and No buttons
+→ Save as hasNewsletter (boolean, feature decision only)
+
+Question 24 — Partners (optional)
+"List any community partners — name and a one-line description each."
+Show a "Skip" button.
+Example: "Norwin School District - Education partner; Rotary District 7330 - Regional leadership"
+→ If skipped: empty array
+→ Parse into array of {name, description} objects. Split on semicolons or newlines. For each entry, split on the first " - " or " — " to get name and description.
+→ Save as partners
+
+Question 25 — Event Categories (required)
+"What categories do your events fall into?"
+Example: "Fundraisers, Community Service, Social, Meetings"
+→ Save as eventCategories (not sent in payload — used for feature decisions only)
+
+Question 26 — Meeting Schedule (optional)
+"What is your regular meeting schedule? Include day, time, and location."
+Show a "Skip" button.
+Example: "Every Wednesday at 12:00 PM, Norwin Hills Country Club"
+→ Parse into three fields:
+
+meetingDay: "Every Wednesday"
+meetingTime: "12:00 PM"
+meetingLocation: "Norwin Hills Country Club"
+→ If skipped: all three set to null
+The interview is now complete. Every question has been asked exactly once.
+
+Handling skips and unexpected answers — mandatory behavior for every question:
+
+If the customer clicks "Skip," types "no," "none," "skip," "n/a," "don't have one," or leaves the input blank on any optional question: set the field to null, do NOT send the input to the AI model, and immediately show the next question.
+If the customer gives an unexpected answer to a required question (e.g. types "?" or "idk"): the AI can ask once for clarification. If they still don't provide a valid answer, use a placeholder like "TBD" and move on.
+The AI model is only used to make acknowledgments sound conversational (e.g. "Got it — NRC!"). If the AI model returns an empty response or an error, use a plain fallback: "Saved. Next question:" and show the next question. The interview must never crash.
+Every skip button must work without any network call. Set the value to null in local state and advance to the next question. Zero chance of failure.
+Phase 3: Build the Payload
+Step 3.1: Assemble the org config fields.
+
+{
+  "orgName": "[Q1 answer]",
+  "shortName": "[Q2 answer, or auto-generated initials]",
+  "orgType": "[Q15 answer, lowercased — e.g. 'rotary club', 'chamber of commerce']",
+  "tagline": "[Q3 answer]",
+  "mission": "[auto-generate: expand the tagline into 1-2 sentences about the org's purpose using the org name and location]",
+  "location": "[city + stateAbbrev from Q5+Q6, e.g. 'North Huntingdon, PA']",
+  "contactEmail": "[Q10]",
+  "contactPhone": "[Q9]",
+  "contactAddress": "[Q7]",
+  "mailingAddress": "[Q8, or copy of Q7 if 'same']",
+  "website": "[Q4 or null]",
+  "socialFacebook": "[Q12 or null]",
+  "socialInstagram": "[Q13 or null]",
+  "socialTwitter": null,
+  "socialLinkedin": null,
+  "meetingDay": "[parsed from Q26 or null]",
+  "meetingTime": "[parsed from Q26 or null]",
+  "meetingLocation": "[parsed from Q26 or null]",
+  "logoUrl": null,
+  "heroImageUrl": null,
+  "footerText": "[auto-generate: '{orgName} is a volunteer organization serving the {location} community.']",
+  "metaDescription": "[auto-generate: '{orgName} — {tagline}. Community events, programs, and more in {location}.']"
+}
+
+Step 3.2: Set colors based on org type.
+Look up the org type from Q15 and use these exact hex values:
+
+Org Type	primaryColor	accentColor
+Main Street / Downtown Association	#c25038	#2b7ab5
+Chamber of Commerce	#1a4a8a	#d4a017
+Rotary Club	#003DA5	#d4a017
+Lions Club	#d4a017	#1a4a8a
+VFW / American Legion	#8b1a1a	#2b5797
+Fraternal Organization	#1a3a5c	#c5a030
+PTA / PTO	#339966	#7a3d9e
+Community Foundation	#2d8a57	#2b7ab5
+Neighborhood Association	#c26a17	#338899
+Arts Council	#7a3d9e	#cc3366
+Other	#2b7ab5	#338899
+If the customer provided their own brand colors at any point, use those instead.
+
+Step 3.3: Build the stats array. Always exactly 4 items.
+
+"stats": [
+  { "value": "[Q16 answer]", "label": "Annual Events" },
+  { "value": "[Q17 answer]", "label": "Annual Attendees" },
+  { "value": "[Q18 answer]", "label": "[Local Businesses OR Active Members — depends on org type]" },
+  { "value": "100%", "label": "Volunteer Run" }
+]
+
+If the org is not volunteer-run or didn't mention it, replace the 4th stat with something relevant:
+
+{"value": "40+", "label": "Years Active"} or
+{"value": "10+", "label": "Programs Offered"}
+Pick whichever makes sense based on the interview answers. Always 4 stats, never fewer, never more.
+
+Step 3.4: Build the partners array.
+
+"partners": [
+  { "name": "Norwin School District", "description": "Education partner" },
+  { "name": "Rotary District 7330", "description": "Regional leadership" }
+]
+
+If the customer skipped Q24: "partners": []
+
+Step 3.5: Build the siteContent object.
+
+"siteContent": {
+  "home_tagline": "[Q3 — tagline]",
+  "home_intro": "[auto-generate: 2-3 sentences about what the org does, using org name, location, tagline, and key features from the interview]",
+  "home_subtitle": "[org type label — e.g. 'Civic Organization', 'Downtown Association', 'Fraternal Organization']",
+  "contact_address": "[Q7]",
+  "contact_phone": "[Q9]",
+  "contact_email": "[Q10]",
+  "meeting_contact_email": "[Q11 if provided, otherwise Q10]",
+  "social_facebook": "[Q12 or empty string]",
+  "social_instagram": "[Q13 or empty string]",
+  "about_mission": "[auto-generate: 2-3 paragraphs about the org. Use org name, tagline, location, how many events they host, how many members/businesses, partners, whether they're volunteer-run. Make it sound like a real About page.]",
+  "community_partners": "[JSON.stringify of the partners array from Step 3.4]"
+}
+
+Step 3.6: Seed data arrays.
+
+"events": [],
+"sponsors": [],
+"businesses": []
+
+Leave these empty. The customer adds events, sponsors, and businesses through their admin panel after launch. Only include pre-populated entries if the customer specifically mentioned upcoming events during the interview.
+
+Step 3.7: Fields NOT in the payload (feature decisions only).
+These boolean answers from the interview are NOT sent in the setup payload. They control what Pillar enables on its side:
+
+hasSponsors — determines if sponsorship features are active
+hasVendors — determines if vendor registration is active
+hasTicketedEvents — determines if Stripe needs to be configured
+hasBlog — determines if blog section is enabled
+hasNewsletter — determines if newsletter signup is shown
+eventCategories — stored in Pillar for reference
+Phase 4: Preview and Launch
+Step 4.1: Show the customer a preview of their configuration.
+Display a summary card showing:
+
+Org name: [orgName]
+Short name: [shortName]
+Colors: [show two small color swatches — primary and accent]
+Location: [location]
+Contact: [email, phone]
+Stats: [the 4 stat labels and values]
+Partners: [list of partner names]
+Features enabled: [list which of blog, newsletter, sponsors, vendors, tickets are on]
+Step 4.2: Show the "Launch Site" button.
+This button must appear immediately when the payload is ready. No loading states, no conditional logic, no dependency on any other UI element.
+
+Step 4.3: Customer clicks "Launch Site."
+When clicked, show a loading spinner on the button and do this:
+
+Read the customer's community_site_url and community_site_key from Pillar's database. These were stored in Phase 1, Steps 1.2 and 1.3.
+Send the HTTP request:
+POST {community_site_url}/api/pillar/setup
+Headers:
+  Content-Type: application/json
+  X-Pillar-Key: {community_site_key}
+Body: [the complete JSON payload from Phase 3]
+
+Wait for the response. Timeout after 30 seconds.
+Step 4.4: Handle the response.
+
+If 200 with {"ok": true, "orgConfig": {...}, "seeded": {...}}:
+
+Hide the loading spinner
+Show a green success banner: "Your site is live!"
+Show a clickable link to {community_site_url}
+Show a "Visit your site" button that opens the URL in a new tab
+If 401:
+
+Show: "Authentication failed. The service key doesn't match the deployed site. Contact support."
+If 400:
+
+Show: "Invalid configuration data. Please try the interview again."
+If 500:
+
+Show: "The site encountered an error during setup. Please try again in a few minutes."
+Show a "Retry" button that sends the same payload again
+If network error or timeout:
+
+Show: "Couldn't reach your site. It may still be deploying. Please try again in a few minutes."
+Show a "Retry" button
+Phase 5: Post-Launch
+Step 5.1: The customer's site is now live.
+They can visit norwinrotary.mypillar.co and see their fully branded site with their colors, org name, stats, partners, contact info, and all homepage content.
+
+Step 5.2: The customer manages content through the admin panel.
+They go to {community_site_url}/admin/login, log in with default credentials set during deployment, and can:
+
+Create and edit events
+Add sponsors (if enabled)
+Add businesses to the directory (if enabled)
+Write blog posts (if blog enabled)
+Edit homepage text, about page, contact info
+Upload images
+Manage newsletter subscribers (if enabled)
+Step 5.3: Custom domain connection.
+If the customer adds a custom domain (e.g. norwinrotary.org), Pillar updates DNS, configures the domain on the deployment, and updates the stored community_site_url in Pillar's database to the custom domain.
+
+Step 5.4: Re-running the interview.
+The customer can click "Website" in the sidebar and go through the interview again at any time. Clicking "Launch Site" calls the setup API again. The org config is upserted (overwritten). Events, sponsors, and businesses are additive — new entries are created, old ones are not deleted.
+
+Tier Summary — What Gets Asked and What Gets Sent
+Starter $29	Autopilot $59	Events $99	Total Ops $149
+Org identity questions (Q1-Q14)	All	All	All	All
+Org type (Q15)	Ask	Ask	Ask	Ask
+Stats (Q16-Q18)	Ask	Ask	Ask	Ask
+Sponsors (Q19)	Skip, set no	Skip, set no	Ask	Ask
+Vendors (Q20)	Skip, set no	Skip, set no	Ask	Ask
+Ticketed events (Q21)	Skip, set no	Skip, set no	Ask	Ask
+Blog (Q22)	Skip, set no	Skip, set yes	Ask	Ask
+Newsletter (Q23)	Skip, set no	Skip, set yes	Ask	Ask
+Partners (Q24)	Ask	Ask	Ask	Ask
+Event categories (Q25)	Ask	Ask	Ask	Ask
+Meeting schedule (Q26)	Ask	Ask	Ask	Ask
+Payload includes events/sponsors/businesses arrays	No	No	Yes (empty)	Yes (empty)
+Content hooks (webhooks to Pillar)	No	Yes	Yes	Yes
+Stripe setup needed	No	No	If ticketed=yes	If ticketed=yes
+SendGrid setup needed	No	Yes	Yes	Yes
+That is every step. There are no other steps. There are no other questions. There are no other fields.
+
