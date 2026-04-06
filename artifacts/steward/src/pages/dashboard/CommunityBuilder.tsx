@@ -50,19 +50,19 @@ const ORG_TYPE_OPTIONS = [
 ];
 
 function extractOptions(text: string): { cleanText: string; options: string[] } {
-  // Method 1: AI output the explicit [OPTIONS: A | B | C] marker
-  const markerMatch = text.match(/\[OPTIONS:\s*([^\]]+)\]/);
+  const t = text;
+
+  // ── 1. Explicit [OPTIONS: A | B | C] marker ─────────────────────────────────
+  const markerMatch = t.match(/\[OPTIONS:\s*([^\]]+)\]/);
   if (markerMatch) {
     const options = markerMatch[1].split("|").map(s => s.trim()).filter(Boolean);
-    return { cleanText: text.replace(markerMatch[0], "").trim(), options };
+    return { cleanText: t.replace(markerMatch[0], "").trim(), options };
   }
 
-  // Method 2: AI listed the org type options in plain text — detect by presence of ≥3 known values
-  const hits = ORG_TYPE_OPTIONS.filter(o => text.includes(o));
-  if (hits.length >= 3) {
-    // Remove every line that contains any org type option (handles both single-per-line
-    // bullet format and pipe-separated single-line format)
-    const cleaned = text
+  // ── 2. Org type — detect by ≥3 known org-type names ────────────────────────
+  const orgHits = ORG_TYPE_OPTIONS.filter(o => t.includes(o));
+  if (orgHits.length >= 3) {
+    const cleaned = t
       .split("\n")
       .filter(line => !ORG_TYPE_OPTIONS.some(o => line.includes(o)))
       .join("\n")
@@ -72,7 +72,58 @@ function extractOptions(text: string): { cleanText: string; options: string[] } 
     return { cleanText: cleaned, options: ORG_TYPE_OPTIONS };
   }
 
-  return { cleanText: text, options: [] };
+  // ── 3. Yes / No questions ────────────────────────────────────────────────────
+  if (/\(yes\/no\)/i.test(t) || /\byes or no\b/i.test(t)) {
+    return {
+      cleanText: t.replace(/\s*\(yes\/no\)/gi, "").trim(),
+      options: ["Yes", "No"],
+    };
+  }
+
+  // ── 4. Mailing address ───────────────────────────────────────────────────────
+  if (/mailing address/i.test(t)) {
+    return { cleanText: t, options: ["Same as my physical address"] };
+  }
+
+  // ── 5. Logo badge / initials ─────────────────────────────────────────────────
+  if (/logo badge/i.test(t) || /logo.*initial/i.test(t) || /abbreviation.*logo/i.test(t)) {
+    return { cleanText: t, options: ["Same as my short name"] };
+  }
+
+  // ── 6. Separate events / inquiry email ──────────────────────────────────────
+  if (/event.*email/i.test(t) || /inquiry.*email/i.test(t) || /separate email/i.test(t)) {
+    return { cleanText: t, options: ["Same as my main email"] };
+  }
+
+  // ── 7. Facebook URL ──────────────────────────────────────────────────────────
+  if (/facebook/i.test(t) && /(url|page|optional|link)/i.test(t)) {
+    return { cleanText: t, options: ["Skip — no Facebook page"] };
+  }
+
+  // ── 8. Instagram URL ─────────────────────────────────────────────────────────
+  if (/instagram/i.test(t) && /(url|optional|link)/i.test(t)) {
+    return { cleanText: t, options: ["Skip — no Instagram"] };
+  }
+
+  // ── 9. Community partners ────────────────────────────────────────────────────
+  if (/community partner/i.test(t)) {
+    return { cleanText: t, options: ["No partners to list"] };
+  }
+
+  // ── 10. Meeting schedule ─────────────────────────────────────────────────────
+  if (/meeting schedule/i.test(t) || /regular meeting/i.test(t)) {
+    return { cleanText: t, options: ["No regular meetings"] };
+  }
+
+  // ── 11. Event categories ─────────────────────────────────────────────────────
+  if (/event categor/i.test(t) || /categor.*event/i.test(t)) {
+    return {
+      cleanText: t,
+      options: ["Festival", "Fundraiser", "Community", "Social", "Meeting", "Holiday", "Workshop", "Use defaults"],
+    };
+  }
+
+  return { cleanText: t, options: [] };
 }
 
 function PayloadPreview({ payload }: { payload: Record<string, unknown> }) {
