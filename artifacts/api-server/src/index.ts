@@ -181,6 +181,10 @@ async function runMigrations() {
     // Universal React site template — site_config JSONB on organizations
     await db.execute(sql`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS site_config jsonb`);
 
+    // Community platform provisioning — target site URL and service key
+    await db.execute(sql`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS community_site_url text`);
+    await db.execute(sql`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS community_site_key text`);
+
     logger.info("Startup migrations complete");
   } catch (err) {
     logger.warn({ err }, "Startup migration warning — continuing");

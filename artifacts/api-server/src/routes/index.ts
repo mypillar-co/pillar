@@ -30,6 +30,7 @@ import eventAdminRouter from "./eventAdmin";
 import siteHooksRouter from "./siteHooks";
 import publicOrgRouter from "./public";
 import serviceApiRouter from "./serviceApi";
+import communitySiteRouter from "./communitySite";
 
 const router: IRouter = Router();
 
@@ -65,5 +66,6 @@ router.use("/management", eventAdminRouter);
 router.use("/hooks", siteHooksRouter);
 router.use("/org", publicOrgRouter);
 router.use("/service", serviceApiRouter);
+router.use("/community-site", communitySiteRouter);
 
 export default router;
