@@ -1,0 +1,24 @@
+The React app at artifacts/norwin-rotary/ needs to be built and served on the subdomain norwin-rotary-club.mypillar.co instead of the static HTML from compileSite().
+
+The app already has everything — events, blog, tickets, admin, newsletter, sponsors. The static HTML path is a downgrade. Here's what to do:
+
+Build the Vite app — Run vite build on artifacts/norwin-rotary/. This produces static assets in dist/.
+Serve the built app on the subdomain — When a request comes in for norwin-rotary-club.mypillar.co, serve the built React app instead of the generatedHtml string. The React app handles its own routing via Wouter.
+Make sure the API routes are working — The React app calls:
+GET /api/org/norwin-rotary-club/config → returns the site_config JSON from organizations.site_config
+GET /api/org/norwin-rotary-club/events → returns published events
+GET /api/org/norwin-rotary-club/blog → returns published blog posts
+GET /api/org/norwin-rotary-club/sponsors → returns active sponsors
+POST /api/org/norwin-rotary-club/newsletter/subscribe → subscribes email
+POST /api/org/norwin-rotary-club/contact → submits contact message
+POST /api/org/norwin-rotary-club/checkout → creates Stripe checkout session
+GET /api/nrc/auth/me, POST /api/nrc/auth/login → admin auth
+GET/POST/PUT/DELETE /api/nrc/admin/* → admin CRUD for events, blog, sponsors, newsletter, messages
+Populate site_config — The buildAndSaveSiteConfig function in siteEngine.ts already does this. Make sure it ran for Norwin Rotary. The config needs:
+primaryColor: "#003366" (Rotary blue)
+accentColor: "#F7A81B" (Rotary gold)
+stats: [{ value: "8", label: "Annual Events" }, { value: "500+", label: "Attendees" }, { value: "70", label: "Years of Service" }, { value: "100%", label: "Volunteer Run" }]
+Real programs (Backpack, Scholarship, Dictionary, Garden)
+Real contact info ((724) 555-0199, norwinrotary@gmail.com, PO Box 1234 Irwin PA)
+Seed test data — Create a few events (Golf Outing $125, Chili Cookoff $10, Weekly Meetings, Community Clean-up) and blog posts in the database so the React app has content to display.
+The React app loads everything dynamically from the API. Once the config and data are in the database and the API routes are serving, the site will be fully functional with ticket purchasing, admin management, blog, and everything else — no more static HTML.
