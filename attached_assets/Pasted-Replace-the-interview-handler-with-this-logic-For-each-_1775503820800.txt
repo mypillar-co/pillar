@@ -1,0 +1,36 @@
+Replace the interview handler with this logic:
+
+For each question in the INTAKE_QUESTIONS list:
+  1. Check if this question should be skipped based on the customer's tier
+     - If yes, set the field to its default value and go to the next question
+  
+  2. Check if the question is optional (events_email, social_facebook, 
+     social_instagram, mailing_address, logo_initials, partners)
+     - If yes, show a "Skip" button alongside the text input
+  
+  3. When the customer responds:
+     a. If they clicked "Skip" OR typed "no", "none", "skip", "n/a", 
+        or left it blank:
+        - Do NOT send this to the AI model
+        - Set the field to null (or the default value)
+        - Immediately return the next question as the response
+        - Example response: {"message": "No problem. [next question text]", 
+          "currentField": "[next field id]", "answersCollected": {...}}
+     
+     b. If they gave an actual answer:
+        - Save the answer to the collected answers object
+        - Return the next question
+        - The AI model is only needed to make the conversation feel 
+          natural, not to decide what question comes next
+  
+  4. The question order is fixed and predetermined (the list from 
+     INTAKE_QUESTIONS.ts). The AI model should never decide which 
+     question to ask next. It only makes the acknowledgment sound 
+     conversational.
+  5. When all questions are answered, build the payload from the 
+     collected answers and return it with a [PAYLOAD_READY] marker.
+
+The key change: The question sequence is hardcoded, not AI-driven. The AI model adds conversational polish to acknowledgments ("Got it — NRC works great!") but does not control which question comes next, does not decide whether to skip questions, and is never called at all when the customer skips an optional field.
+
+Test: Run the full interview and skip every single optional question. It must complete with zero errors and produce a valid payload with null values for all skipped fields.
+

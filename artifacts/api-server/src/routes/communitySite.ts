@@ -98,6 +98,144 @@ Payment provider is ALWAYS Stripe — do not offer or mention Square.`;
 const ORG_TYPE_FIELD = `What type of organization are you?
 [OPTIONS: Main Street / Downtown Association | Chamber of Commerce | Rotary Club | Lions Club | VFW / American Legion | PTA / PTO | Community Foundation | Neighborhood Association | Arts Council | Other]`;
 
+// ── Hardcoded intake helpers (form-based interview) ──────────────────────────
+
+const ORG_TYPE_SLUG_MAP: Record<string, string> = {
+  "Main Street / Downtown Association": "civic",
+  "Chamber of Commerce": "chamber",
+  "Rotary Club": "rotary",
+  "Lions Club": "lions",
+  "VFW / American Legion": "vfw",
+  "Fraternal Organization": "fraternal",
+  "PTA / PTO": "pta",
+  "Community Foundation": "foundation",
+  "Neighborhood Association": "neighborhood",
+  "Arts Council": "arts",
+  "Other": "community",
+};
+
+const ORG_TYPE_COLORS_MAP: Record<string, { primaryColor: string; accentColor: string }> = {
+  "Main Street / Downtown Association": { primaryColor: "#c25038", accentColor: "#2b7ab5" },
+  "Chamber of Commerce":               { primaryColor: "#1a4a8a", accentColor: "#d4a017" },
+  "Rotary Club":                        { primaryColor: "#003DA5", accentColor: "#d4a017" },
+  "Lions Club":                         { primaryColor: "#d4a017", accentColor: "#1a4a8a" },
+  "VFW / American Legion":              { primaryColor: "#8b1a1a", accentColor: "#2b5797" },
+  "PTA / PTO":                          { primaryColor: "#339966", accentColor: "#7a3d9e" },
+  "Community Foundation":               { primaryColor: "#2d8a57", accentColor: "#2b7ab5" },
+  "Neighborhood Association":           { primaryColor: "#c26a17", accentColor: "#338899" },
+  "Arts Council":                       { primaryColor: "#7a3d9e", accentColor: "#cc3366" },
+};
+
+function generateInitials(name: string): string {
+  const words = name.split(/\s+/).filter(w => w.length > 2);
+  if (words.length === 0) return name.slice(0, 3).toUpperCase();
+  return words.map(w => w[0].toUpperCase()).join("").slice(0, 4);
+}
+
+function parsePartners(text: string | null | undefined): { name: string; description: string; website: null }[] {
+  if (!text || text.trim().length === 0) return [];
+  return text
+    .split("\n")
+    .map(l => l.trim())
+    .filter(Boolean)
+    .map(line => {
+      const sep = line.search(/[,—–-]/);
+      const name = sep > 0 ? line.slice(0, sep).trim() : line;
+      const description = sep > 0 ? line.slice(sep + 1).trim() : "Community partner";
+      return { name, description, website: null };
+    })
+    .filter(p => p.name.length > 0);
+}
+
+function buildFallbackPayload(
+  answers: Record<string, string | boolean | null | undefined>,
+  tier: string | null,
+): Record<string, unknown> {
+  const orgType  = (answers.orgType  as string | null) ?? "Other";
+  const orgName  = (answers.orgName  as string | null) ?? "";
+  const tagline  = (answers.tagline  as string | null) ?? "";
+  const city     = (answers.city     as string | null) ?? "";
+  const colors   = ORG_TYPE_COLORS_MAP[orgType] ?? { primaryColor: "#2b7ab5", accentColor: "#338899" };
+  const shortName = (answers.shortName as string | null) || generateInitials(orgName);
+  const logoInitials = (answers.logoInitials as string | null) || shortName;
+  const partners  = parsePartners(answers.partners as string | null);
+
+  const boolVal = (v: unknown) => v === true || v === "Yes";
+
+  const siteContent: Record<string, string> = {
+    home_tagline:        tagline,
+    home_intro:          tagline,
+    home_subtitle:       orgType,
+    contact_address:     (answers.physicalAddress as string | null) ?? "",
+    contact_phone:       (answers.contactPhone    as string | null) ?? "",
+    contact_email:       (answers.contactEmail    as string | null) ?? "",
+    social_facebook:     (answers.socialFacebook  as string | null) ?? "",
+    social_instagram:    (answers.socialInstagram as string | null) ?? "",
+    about_mission:       tagline,
+    community_partners:  JSON.stringify(partners),
+    logo_initials:       logoInitials,
+  };
+
+  if (tier === "tier1a") {
+    siteContent.has_blog        = "true";
+    siteContent.has_newsletter  = "true";
+    siteContent.pillarWebhookUrl = "__PILLAR_WEBHOOK_URL__";
+  }
+  if (tier === "tier2" || tier === "tier3") {
+    siteContent.has_blog         = String(boolVal(answers.hasBlog));
+    siteContent.has_newsletter   = String(boolVal(answers.hasNewsletter));
+    siteContent.pillarWebhookUrl = "__PILLAR_WEBHOOK_URL__";
+    siteContent.event_categories = (answers.eventCategories as string | null) ?? "Community, Fundraiser, Social";
+  }
+
+  const payload: Record<string, unknown> = {
+    orgName,
+    shortName,
+    orgType:        ORG_TYPE_SLUG_MAP[orgType] ?? "community",
+    tagline,
+    mission:        tagline,
+    location:       city,
+    primaryColor:   colors.primaryColor,
+    accentColor:    colors.accentColor,
+    contactEmail:   answers.contactEmail   ?? null,
+    contactPhone:   answers.contactPhone   ?? null,
+    contactAddress: answers.physicalAddress ?? null,
+    mailingAddress: answers.mailingAddress  ?? null,
+    website:        null,
+    socialFacebook: answers.socialFacebook  ?? null,
+    socialInstagram: answers.socialInstagram ?? null,
+    meetingDay:     null,
+    meetingTime:    null,
+    meetingLocation: null,
+    footerText:      `${shortName} — ${tagline}`,
+    metaDescription: `${orgName} — ${tagline}`,
+    stats: [
+      { value: answers.annualEvents    ? String(answers.annualEvents)        : "12+",  label: "Annual Events"   },
+      { value: answers.annualAttendees ? String(answers.annualAttendees)      : "500+", label: "Annual Attendees" },
+      { value: answers.membersOrBusinesses ? String(answers.membersOrBusinesses) : "100+", label: "Active Members" },
+      { value: "100%", label: "Volunteer Run" },
+    ],
+    partners,
+    siteContent,
+  };
+
+  if (tier === "tier2" || tier === "tier3") {
+    payload.programs          = [];
+    payload.sponsorshipLevels = [];
+    payload.events            = [];
+    payload.sponsors          = [];
+    payload.businesses        = [];
+  }
+
+  return payload;
+}
+
+function getPayloadSpecForTier(tier: string | null): string {
+  if (!tier || tier === "tier1") return STARTER_PAYLOAD_SPEC;
+  if (tier === "tier1a")         return AUTOPILOT_PAYLOAD_SPEC;
+  return EVENTS_PAYLOAD_SPEC;
+}
+
 // ── Starter payload shape ────────────────────────────────────────────────────
 const STARTER_PAYLOAD_SPEC = `
 PAYLOAD JSON — output immediately after [PAYLOAD_READY] with NO extra text before or after the JSON:
@@ -513,6 +651,164 @@ router.post("/logo-upload-url", async (req: Request, res: Response) => {
   } catch (err) {
     res.status(500).json({ error: `Could not generate upload URL: ${err instanceof Error ? err.message : String(err)}` });
   }
+});
+
+// ── POST /api/community-site/ack ─────────────────────────────────────────────
+// Returns a brief conversational acknowledgment for a form-based interview step.
+// Always returns 200 — AI is optional and wrapped in try/catch with static fallback.
+router.post("/ack", async (req: Request, res: Response) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+
+  const { fieldId, value, isSkip } = req.body as {
+    fieldId: string;
+    value: string;
+    isSkip?: boolean;
+  };
+
+  const SKIP_ACKS: Record<string, string> = {
+    shortName:        "I'll auto-generate initials from your org name.",
+    mailingAddress:   "Got it — I'll use your physical address for mail.",
+    eventsEmail:      "Got it — event inquiries will go to your main email.",
+    socialFacebook:   "No problem — I'll leave Facebook out.",
+    socialInstagram:  "Got it — no Instagram.",
+    logoInitials:     "I'll use your short name for the logo badge.",
+    partners:         "No partners to list — that's fine.",
+    eventCategories:  "I'll use standard event categories.",
+    meetingSchedule:  "Got it — no regular meetings.",
+  };
+
+  const ANSWER_ACKS: Record<string, (v: string) => string> = {
+    orgName:             v => `Got it — "${v}"!`,
+    shortName:           v => `"${v}" — perfect.`,
+    tagline:             _v => `Great tagline!`,
+    orgType:             v => `${v} — noted.`,
+    city:                v => `${v} — got it.`,
+    physicalAddress:     _v => `Address saved.`,
+    mailingAddress:      _v => `Mailing address saved.`,
+    contactPhone:        _v => `Phone number saved.`,
+    contactEmail:        _v => `Email saved.`,
+    eventsEmail:         _v => `Event inquiry email saved.`,
+    socialFacebook:      _v => `Facebook page saved.`,
+    socialInstagram:     _v => `Instagram saved.`,
+    logoInitials:        v => `Logo badge: "${v}".`,
+    annualEvents:        v => `${v} events per year — noted.`,
+    annualAttendees:     v => `${v} attendees — great.`,
+    membersOrBusinesses: v => `Got it — ${v}.`,
+    hasSponsors:         v => v === "Yes" ? "Sponsor options noted." : "Got it — no sponsors.",
+    hasVendors:          v => v === "Yes" ? "Vendor registration noted." : "Got it — no vendors.",
+    hasTicketedEvents:   v => v === "Yes" ? "Ticketed events via Stripe — noted." : "Got it — no ticketing.",
+    hasBlog:             v => v === "Yes" ? "Blog section noted." : "Got it — no blog.",
+    hasNewsletter:       v => v === "Yes" ? "Newsletter signup noted." : "Got it — no newsletter.",
+    partners:            _v => `Community partners saved.`,
+    eventCategories:     _v => `Event categories saved.`,
+    meetingSchedule:     _v => `Meeting schedule saved.`,
+  };
+
+  if (isSkip) {
+    res.json({ ack: SKIP_ACKS[fieldId] ?? "Got it — skipped." });
+    return;
+  }
+
+  const staticAck = ANSWER_ACKS[fieldId]?.(value ?? "") ?? "Got it.";
+
+  try {
+    const aiAck = await Promise.race<string>([
+      callAI([{
+        role: "user",
+        content: `Write a brief, warm 1-sentence acknowledgment (8 words max) for this intake form answer.
+Field: ${fieldId}
+Value: ${value ?? ""}
+Output only the acknowledgment sentence, nothing else.`,
+      }], 40),
+      new Promise<string>((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
+    ]);
+    const trimmed = aiAck?.trim();
+    if (trimmed && trimmed.length > 2 && trimmed.length < 120) {
+      res.json({ ack: trimmed });
+      return;
+    }
+  } catch { /* fall through */ }
+
+  res.json({ ack: staticAck });
+});
+
+// ── POST /api/community-site/finalize ────────────────────────────────────────
+// Builds the complete site payload from collected form answers.
+//
+// Strategy:
+//   1. Always build a complete base payload synchronously (zero latency).
+//   2. Try AI enrichment for narrative fields only (mission, footerText, etc.)
+//      with a hard 15-second timeout. If it times out or fails, the base
+//      payload is returned immediately — the interview never hangs.
+router.post("/finalize", async (req: Request, res: Response) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+
+  const { answers } = req.body as {
+    answers: Record<string, string | boolean | null | undefined>;
+  };
+  if (!answers || typeof answers !== "object") {
+    res.status(400).json({ error: "answers is required" });
+    return;
+  }
+
+  const tier = (org as { tier?: string | null }).tier ?? null;
+
+  // Step 1: build the complete base payload synchronously (always works).
+  const base = buildFallbackPayload(answers, tier);
+
+  // Step 2: ask AI to fill in ONLY the narrative text fields.
+  // Keep the prompt small (< 600 tokens) and cap output at 400 tokens.
+  const orgName  = (answers.orgName  as string | null) ?? "";
+  const orgType  = (answers.orgType  as string | null) ?? "Civic Organization";
+  const tagline  = (answers.tagline  as string | null) ?? "";
+  const shortName = (base.shortName as string) ?? "";
+
+  const narrativePrompt = `Org: ${orgName} (${orgType})
+Tagline: ${tagline}
+Short name: ${shortName}
+
+Write these four fields as a valid JSON object (no markdown, no extra keys):
+{
+  "mission": "<1-2 sentences expanding the tagline into a mission statement>",
+  "footerText": "<10-word footer description of the org>",
+  "metaDescription": "<25-word SEO description>",
+  "about_mission": "<2 short paragraphs describing the org mission and history>"
+}`;
+
+  try {
+    const aiRaw = await Promise.race<string>([
+      callAI([{ role: "user", content: narrativePrompt }], 400),
+      new Promise<string>((_, reject) => setTimeout(() => reject(new Error("timeout")), 15_000)),
+    ]);
+
+    const jsonStart = aiRaw.indexOf("{");
+    const jsonEnd   = aiRaw.lastIndexOf("}");
+    if (jsonStart !== -1 && jsonEnd > jsonStart) {
+      const narrative = JSON.parse(aiRaw.slice(jsonStart, jsonEnd + 1)) as {
+        mission?: string;
+        footerText?: string;
+        metaDescription?: string;
+        about_mission?: string;
+      };
+      if (narrative.mission)        base.mission       = narrative.mission;
+      if (narrative.footerText)     base.footerText    = narrative.footerText;
+      if (narrative.metaDescription) base.metaDescription = narrative.metaDescription;
+      if (narrative.about_mission && base.siteContent) {
+        (base.siteContent as Record<string, string>).about_mission = narrative.about_mission;
+      }
+
+      await db.update(organizationsTable)
+        .set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` })
+        .where(eq(organizationsTable.id, org.id));
+    }
+  } catch {
+    // AI enrichment failed or timed out — proceed with the base payload.
+  }
+
+  const reply = `I have everything I need! Click Launch Site to go live.\n[PAYLOAD_READY]\n${JSON.stringify(base)}`;
+  res.json({ reply });
 });
 
 // ── POST /api/community-site/interview ──────────────────────────────────────
