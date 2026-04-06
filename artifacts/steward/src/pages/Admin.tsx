@@ -80,7 +80,7 @@ export default function Admin() {
   const { isAuthenticated, isLoading } = useAuth();
   const [, navigate] = useLocation();
 
-  const [tab, setTab] = useState<"overview" | "financials" | "subscribers" | "churn" | "health" | "support" | "agents" | "trials">("overview");
+  const [tab, setTab] = useState<"overview" | "financials" | "subscribers" | "churn" | "health" | "support" | "agents" | "trials" | "devlab">("overview");
   const [overview, setOverview] = useState<any>(null);
   const [financials, setFinancials] = useState<any>(null);
   const [subscribers, setSubscribers] = useState<any[]>([]);
@@ -106,6 +106,16 @@ export default function Admin() {
   const [grantingTrial, setGrantingTrial] = useState(false);
   const [grantTrialMsg, setGrantTrialMsg] = useState<string | null>(null);
 
+  // Dev Lab state
+  const [myOrgs, setMyOrgs] = useState<any[]>([]);
+  const [devOrgId, setDevOrgId] = useState<string | null>(() => {
+    try { return localStorage.getItem("pillar_dev_org_id"); } catch { return null; }
+  });
+  const [devCreateForm, setDevCreateForm] = useState({ name: "", type: "civic", tier: "tier1" });
+  const [devCreating, setDevCreating] = useState(false);
+  const [devDeleting, setDevDeleting] = useState<string | null>(null);
+  const [devMsg, setDevMsg] = useState<string | null>(null);
+
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       navigate("/");
@@ -126,8 +136,9 @@ export default function Admin() {
       apiFetch("/api/admin/prospects"),
       apiFetch("/api/admin/agents/logs?limit=100"),
       apiFetch("/api/admin/orgs"),
+      apiFetch("/api/admin/my-orgs"),
     ])
-      .then(([ov, fin, subs, ch, he, tix, ag, cq, pros, logs, orgs]) => {
+      .then(([ov, fin, subs, ch, he, tix, ag, cq, pros, logs, orgs, myOrgsData]) => {
         setOverview(ov);
         setFinancials(fin);
         setSubscribers(subs);
@@ -139,6 +150,7 @@ export default function Admin() {
         setProspects(pros ?? []);
         setAgentLogs(logs ?? []);
         setAllOrgs(Array.isArray(orgs) ? orgs : []);
+        setMyOrgs(Array.isArray(myOrgsData) ? myOrgsData : []);
         setLoading(false);
       })
       .catch((err) => {
@@ -160,6 +172,7 @@ export default function Admin() {
     { key: "agents", label: "AI Agents" },
     { key: "health", label: "Server Health" },
     { key: "support", label: `Support${tickets.filter(t => t.status === "open").length > 0 ? ` (${tickets.filter(t => t.status === "open").length})` : ""}` },
+    { key: "devlab", label: `🧪 Dev Lab${devOrgId ? " ●" : ""}` },
   ] as const;
 
   const styles = {
@@ -332,6 +345,24 @@ export default function Admin() {
           Pillar
         </div>
         <span style={styles.adminBadge}>Admin Console</span>
+        {devOrgId && (() => {
+          const activeOrg = myOrgs.find(o => o.id === devOrgId);
+          return (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#7c3aed22", border: "1px solid #7c3aed55", borderRadius: 8, padding: "4px 12px", fontSize: 12 }}>
+              <span style={{ color: "#a78bfa" }}>🧪 Viewing as:</span>
+              <span style={{ color: "#e2e8f0", fontWeight: 600 }}>{activeOrg?.name ?? devOrgId.slice(0, 8) + "…"}</span>
+              {activeOrg?.tier && <span style={{ color: TIER_COLORS[activeOrg.tier] ?? "#8b9ab5", fontSize: 11 }}>{activeOrg.tier}</span>}
+              <button
+                onClick={() => {
+                  try { localStorage.removeItem("pillar_dev_org_id"); } catch {}
+                  setDevOrgId(null);
+                }}
+                style={{ background: "transparent", border: "none", color: "#8b9ab5", cursor: "pointer", padding: 0, fontSize: 14, lineHeight: 1 }}
+                title="Clear dev org override"
+              >✕</button>
+            </div>
+          );
+        })()}
         <nav style={styles.nav}>
           {tabs.map((t) => (
             <button
