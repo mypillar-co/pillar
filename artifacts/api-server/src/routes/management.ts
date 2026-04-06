@@ -1324,7 +1324,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       const contactDetails = `<address style="font-style:normal;line-height:2">
         <div>📍 Irwin, PA 15642</div>
         <div>📞 (724) 555-0142</div>
-        <div>✉️ info@norwinrotary.org</div>
+        <div>✉️ info@testorg.pillar.co</div>
         <div>📅 Every Tuesday, 12:00 PM — Irwin Fire Hall, 221 Main St</div>
       </address>`;
 
@@ -1332,7 +1332,7 @@ router.post("/chat", async (req: Request, res: Response) => {
         <h4>Contact</h4>
         <p>Irwin, PA 15642</p>
         <p>(724) 555-0142</p>
-        <p>info@norwinrotary.org</p>
+        <p>info@testorg.pillar.co</p>
       </div>`;
 
       const statsSection = `<section class="stats-strip reveal">
@@ -1376,9 +1376,9 @@ router.post("/chat", async (req: Request, res: Response) => {
         contactIntro:       "Whether you&#8217;re curious about membership or want to partner with us, we&#8217;d love to connect. Our doors are open to all who share our values.",
         contactCardHeading: "Ready to get involved?",
         contactCardText:    "Getting started is easy. Reach out and we&#8217;ll personally connect you with the right program or membership pathway.",
-        contactEmail:       "info@norwinrotary.org",
+        contactEmail:       "info@testorg.pillar.co",
         contactDetails,
-        contactRightPanel:  `<div class="contact-right"><div class="contact-card"><h4>Ready to get involved?</h4><p>Getting started is easy. Reach out and we&#8217;ll personally connect you with the right program or membership pathway.</p><a href="mailto:info@norwinrotary.org" class="btn-primary">Send Us a Message</a></div></div>`,
+        contactRightPanel:  `<div class="contact-right"><div class="contact-card"><h4>Ready to get involved?</h4><p>Getting started is easy. Reach out and we&#8217;ll personally connect you with the right program or membership pathway.</p><a href="mailto:info@testorg.pillar.co" class="btn-primary">Send Us a Message</a></div></div>`,
         footerContact,
         navLogo:            `<div class="nav-logo">Norwin Rotary Club</div>`,
         heroLogoBadge:      "",

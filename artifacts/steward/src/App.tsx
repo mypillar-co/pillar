@@ -29,7 +29,6 @@ import Vendors from "./pages/dashboard/Vendors";
 import Sponsors from "./pages/dashboard/Sponsors";
 import Contacts from "./pages/dashboard/Contacts";
 import Payments from "./pages/dashboard/Payments";
-import SiteBuilder from "./pages/dashboard/SiteBuilder";
 import CommunityBuilder from "./pages/dashboard/CommunityBuilder";
 import Domains from "./pages/dashboard/Domains";
 import DashboardSettings from "./pages/dashboard/DashboardSettings";
@@ -118,8 +117,7 @@ function AppRouter() {
       <Route path="/dashboard/sponsors"><DB><Sponsors /></DB></Route>
       <Route path="/dashboard/contacts"><DB><Contacts /></DB></Route>
       <Route path="/dashboard/payments"><DB><Payments /></DB></Route>
-      <Route path="/dashboard/site"><DB><SiteBuilder /></DB></Route>
-      <Route path="/dashboard/community"><DB><CommunityBuilder /></DB></Route>
+      <Route path="/dashboard/site"><DB><CommunityBuilder /></DB></Route>
       <Route path="/dashboard/domains"><DB><Domains /></DB></Route>
       <Route path="/dashboard/settings"><DB><DashboardSettings /></DB></Route>
       <Route path="/dashboard/social"><DB><Social /></DB></Route>

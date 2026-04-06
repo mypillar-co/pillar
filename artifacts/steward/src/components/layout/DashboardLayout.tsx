@@ -80,7 +80,6 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Presence",
     items: [
       { label: "Website", href: "/dashboard/site", icon: Globe, tourId: "site-builder" },
-      { label: "Community Site", href: "/dashboard/community", icon: Building2 },
       { label: "Domain", href: "/dashboard/domains", icon: LinkIcon },
     ],
   },
