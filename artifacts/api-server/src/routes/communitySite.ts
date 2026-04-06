@@ -7,7 +7,7 @@ import OpenAI from "openai";
 const router = Router();
 
 const CONTEXT_TURNS = 12;
-const MAX_INTERVIEW_TOKENS = 600;
+const MAX_INTERVIEW_TOKENS = 750;
 const MAX_PAYLOAD_TOKENS = 2200;
 
 function getOpenAIClient() {
@@ -228,9 +228,26 @@ BUSINESS DIRECTORY: If org is Main Street, Chamber, or Downtown Association, inc
 function buildSystemPrompt(tier: string | null): string {
   const base = `You are a friendly site setup specialist for Pillar — an AI platform that configures community organization websites.
 
-You are running the intake interview for a new organization. Ask questions ONE AT A TIME. Keep responses under 60 words. Acknowledge each answer in one brief sentence, then ask the next question. Skip any question the user has already answered.
+You are running the intake interview for a new organization. Ask questions ONE AT A TIME. Keep responses under 60 words. Acknowledge each answer in one brief sentence, then ask the next question.
 
-If the user mentions they have an existing website URL at ANY point, stop and say: "Great — use the **Import from website** button to pull your content automatically."`;
+If the user mentions they have an existing website URL at ANY point, stop and say: "Great — use the **Import from website** button to pull your content automatically."
+
+━━━ CRITICAL RULES — apply on EVERY turn ━━━
+
+RULE 1 — ALWAYS RESPOND. You must ALWAYS return a non-empty reply. "no", "none", "skip", blank, or any short answer is still a valid answer. Acknowledge it, apply the default below, and move to the next unanswered question. Never return silence.
+
+RULE 2 — DEFAULT VALUES when the customer skips or says no/none/N/A:
+• Short name / abbreviation → auto-generate from org name initials (e.g. "Norwin Rotary Club" → "NRC")
+• Logo initials → same as short name
+• Mailing address → copy physical address; say "Got it — I'll use your physical address for mailings."
+• Events inquiry email → copy main contact email
+• Facebook URL → null (say "No problem — I'll leave that out.")
+• Instagram URL → null (say "Got it — no Instagram.")
+• Community partners → empty array (that's fine)
+• Event categories → ["Community", "Fundraiser", "Social"]
+• Meeting schedule → null (skip cleanly)
+
+RULE 3 — TRACK PROGRESS. Before asking question N, scan the FULL conversation history above. If the customer already answered that question at any point (even early in the conversation), mark it done and skip it. Each numbered question is asked EXACTLY ONCE. Never repeat a question that has already been answered.`;
 
   // Starter: tier1 or null/default
   if (!tier || tier === "tier1") {
@@ -460,8 +477,28 @@ router.post("/interview", async (req: Request, res: Response) => {
     );
     const maxTokens = alreadyEmittedPayload ? MAX_PAYLOAD_TOKENS : MAX_INTERVIEW_TOKENS;
 
-    const reply = await callAI(messages, maxTokens);
-    if (!reply) { res.status(500).json({ error: "Empty AI response" }); return; }
+    let reply = await callAI(messages, maxTokens);
+
+    // If the model returns empty (can happen for very short inputs like "no", "skip"),
+    // retry once with an explicit nudge injected into the system prompt.
+    if (!reply || reply.trim().length < 5) {
+      const retryMessages: OpenAI.ChatCompletionMessageParam[] = [
+        {
+          role: "system",
+          content: systemPrompt +
+            "\n\nURGENT: Your last response was empty or too short. " +
+            "You MUST reply now. Acknowledge the customer's last message, " +
+            "apply the relevant default value if needed, and ask the next unanswered question.",
+        },
+        ...messages.slice(1),
+      ];
+      reply = await callAI(retryMessages, maxTokens);
+    }
+
+    if (!reply || reply.trim().length < 5) {
+      res.status(500).json({ error: "Something went wrong — please try again" });
+      return;
+    }
 
     await db.update(organizationsTable)
       .set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` })

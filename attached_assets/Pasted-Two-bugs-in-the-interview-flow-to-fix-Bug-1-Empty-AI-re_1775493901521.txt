@@ -1,0 +1,42 @@
+Two bugs in the interview flow to fix:
+
+Bug 1: "Empty AI response" when the customer gives non-standard answers. When the customer types "no," "none," "skip," "no abbreviation," or leaves the input blank, the AI returns nothing and the chat shows "Empty AI response" in red. This breaks the interview completely.
+
+Fix: Every customer answer — including "no," blank, or anything unexpected — must produce a response. The AI should acknowledge the answer, apply a sensible default, and ask the next question. Defaults to use when the customer skips:
+
+Short name → auto-generate from org name initials ("Norwin Rotary" → "NR")
+Mailing address → copy the physical address
+Events email → copy the main contact email
+Facebook/Instagram URL → null in the payload
+Logo initials → same as short name
+Partners → empty array
+Event categories → default to ["Community", "Fundraiser", "Social"]
+Example: Customer says "no abbreviation" → AI responds: "Got it — I'll use 'NR' based on your org name. What type of organization are you?"
+
+Bug 2: The interview is asking questions it already asked. The tagline/mission statement question was already asked at the beginning of the interview, but it came up again after the short name question. The interview is not tracking which questions have already been answered.
+
+Fix: The interview must maintain a list of which questions have been completed. Before asking the next question, check if it's already been answered. If it has, skip it and move to the next unanswered question. The question order should be:
+
+Full org name
+Short name / abbreviation
+Tagline / mission statement
+City
+State
+Physical address
+Mailing address (or "same")
+Phone number
+Contact email
+Events email (optional)
+Facebook URL (optional)
+Instagram URL (optional)
+Logo initials
+Org type (dropdown)
+Annual events count
+Annual attendees count
+Active members or local businesses count (depends on org type)
+Sponsors yes/no (skip if Starter tier)
+Vendors yes/no (skip if Starter or Autopilot tier)
+Ticketed events yes/no (skip if Starter or Autopilot tier)
+Community partners list
+Event categories
+Each question gets asked exactly once. Once answered, it's marked done and never asked again. If the customer already provided the info earlier in the conversation (or via the website crawl), skip that question entirely.
