@@ -310,6 +310,7 @@ export default function CommunityBuilder() {
   const [logoUploading, setLogoUploading] = useState(false);
 
   const [lastFailedText, setLastFailedText] = useState<string | null>(null);
+  const [lastFailedIsSkip, setLastFailedIsSkip] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -328,9 +329,26 @@ export default function CommunityBuilder() {
 
   const isInterviewComplete = readyPayload !== null;
 
+  // Patterns that should bypass the AI entirely (direct skip path on backend).
+  // Keep in sync with SKIP_PATTERNS in communitySite.ts.
+  const SKIP_PATTERNS_FE = [
+    /^skip\b/i,
+    /^none$/i,
+    /^n\/a$/i,
+    /^no[,.]?\s*$/i,
+    /^no\s+(abbreviation|badge|initials|logo|facebook|instagram|fb|ig|twitter|linkedin|youtube|tiktok|partners?|meetings?|sponsors?|vendors?|events?|email)\b/i,
+    /^(skip|no)\s*[-—]\s*(no\s+)?(facebook|instagram|fb|ig|twitter|linkedin|youtube|tiktok|partners?|meetings?|sponsors?|vendors?|events?)\s*$/i,
+    /^no (regular meetings|partners to list)\s*$/i,
+  ];
+
+  function isSkipText(text: string): boolean {
+    return SKIP_PATTERNS_FE.some(p => p.test(text.trim()));
+  }
+
   async function callInterview(
     userText: string,
     currentMessages: Message[],
+    isSkip?: boolean,
   ): Promise<string | null> {
     // Exclude the current user message from history — the backend appends `message`
     // separately, so including it here would cause it to appear twice in the AI context.
@@ -345,7 +363,7 @@ export default function CommunityBuilder() {
     const res = await csrfFetch("/api/community-site/interview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: userText, history }),
+      body: JSON.stringify({ message: userText, history, isSkip: isSkip ?? false }),
     });
 
     if (!res.ok) {
@@ -432,6 +450,7 @@ export default function CommunityBuilder() {
     const text = (overrideText ?? input).trim();
     if (!text || loading) return;
 
+    const skip = isSkipText(text);
     const userMsg: Message = { id: Date.now().toString(), role: "user", content: text };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
@@ -439,9 +458,10 @@ export default function CommunityBuilder() {
     setLoading(true);
     setError(null);
     setLastFailedText(null);
+    setLastFailedIsSkip(false);
 
     try {
-      const reply = await callInterview(text, newMessages);
+      const reply = await callInterview(text, newMessages, skip);
       if (reply) {
         setMessages(prev => [
           ...prev,
@@ -451,6 +471,7 @@ export default function CommunityBuilder() {
     } catch {
       setError("Couldn't get a response — tap 'Try again' to continue.");
       setLastFailedText(text);
+      setLastFailedIsSkip(skip);
     } finally {
       setLoading(false);
     }
@@ -461,11 +482,12 @@ export default function CommunityBuilder() {
     setLoading(true);
     setError(null);
     setLastFailedText(null);
+    setLastFailedIsSkip(false);
 
     try {
       // `messages` already includes the failed user turn — pass it directly.
       // callInterview will exclude that last user message from history automatically.
-      const reply = await callInterview(lastFailedText, messages);
+      const reply = await callInterview(lastFailedText, messages, lastFailedIsSkip);
       if (reply) {
         setMessages(prev => [
           ...prev,
@@ -473,8 +495,9 @@ export default function CommunityBuilder() {
         ]);
       }
     } catch {
-      setError("Still having trouble — please check your connection and try again.");
+      setError("Couldn't get a response — please tap 'Try again'.");
       setLastFailedText(lastFailedText);
+      setLastFailedIsSkip(lastFailedIsSkip);
     } finally {
       setLoading(false);
     }

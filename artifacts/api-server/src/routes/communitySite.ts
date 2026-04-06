@@ -498,10 +498,11 @@ router.post("/interview", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
 
-  const { message, history = [], prefilled } = req.body as {
+  const { message, history = [], prefilled, isSkip: clientIsSkip } = req.body as {
     message: string;
     history: { role: string; content: string }[];
     prefilled?: Record<string, string>;
+    isSkip?: boolean;
   };
 
   if (!message?.trim()) { res.status(400).json({ error: "message is required" }); return; }
@@ -519,28 +520,58 @@ router.post("/interview", async (req: Request, res: Response) => {
     systemPrompt += `\n\nPRE-FILLED FROM WEBSITE IMPORT (treat as already answered — skip these questions):\n${lines}`;
   }
 
-  // Normalize skip/decline inputs so the AI always gets a clear, actionable signal
-  // rather than a button-label string like "Skip — no Facebook page".
-  const SKIP_PATTERNS = [
+  // Server-side skip detection as a fallback (catches typed "skip", "none", etc.)
+  const SKIP_PATTERNS_SERVER = [
     /^skip\b/i,
     /^none$/i,
     /^n\/a$/i,
     /^no[,.]?\s*$/i,
+    /^no\s+(abbreviation|badge|initials|logo|facebook|instagram|fb|ig|twitter|linkedin|youtube|tiktok|partners?|meetings?|sponsors?|vendors?|events?|email)\b/i,
     /^(skip|no)\s*[-—]\s*(no\s+)?(facebook|instagram|fb|ig|twitter|linkedin|youtube|tiktok|partners?|meetings?|sponsors?|vendors?|events?)\s*$/i,
-    /^same as my (physical|main|short)/i,
-    /^no (regular meetings|partners to list)/i,
+    /^no (regular meetings|partners to list)\s*$/i,
   ];
-  const isSkip = SKIP_PATTERNS.some(p => p.test(message.trim()));
-  const aiMessage = isSkip
-    ? `[USER SKIP] The user declined to provide this field (they sent: "${message.trim()}"). ` +
-      `Record null for whatever field was just asked, write one brief acknowledgment sentence ` +
-      `(e.g. "No problem — I'll leave that out."), then immediately ask the next unanswered question.`
-    : message;
+  const isSkip = clientIsSkip === true || SKIP_PATTERNS_SERVER.some(p => p.test(message.trim()));
 
+  // ── SKIP PATH — never send the skip text to the AI ──────────────────────────
+  // Instead we inject a synthetic ack + ask the AI only to produce the next question.
+  // This is guaranteed to return a non-empty response because the AI only has to ask
+  // one question — it never has to "process" or "understand" the skip input.
+  if (isSkip) {
+    const alreadyEmittedPayloadSkip = trimmedHistory.some(
+      m => m.role === "assistant" && m.content.includes("[PAYLOAD_READY]"),
+    );
+    const skipMessages: OpenAI.ChatCompletionMessageParam[] = [
+      { role: "system", content: systemPrompt },
+      ...trimmedHistory.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
+      // Synthetic skip — the AI sees a clean "user declined" signal, not the button label
+      { role: "user", content: "[OPTIONAL FIELD — user skipped]" },
+      { role: "assistant", content: "No problem — I'll leave that blank." },
+      // Ask for the next question only; this cannot produce an empty response
+      { role: "user", content: "Please continue with the next unanswered question." },
+    ];
+    try {
+      const skipMaxTokens = alreadyEmittedPayloadSkip ? MAX_PAYLOAD_TOKENS : MAX_INTERVIEW_TOKENS;
+      const skipReply = await callAI(skipMessages, skipMaxTokens);
+      if (!skipReply || skipReply.trim().length < 2) {
+        res.status(500).json({ error: "Something went wrong — please try again" });
+        return;
+      }
+      await db.update(organizationsTable)
+        .set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` })
+        .where(eq(organizationsTable.id, org.id));
+      res.json({ reply: skipReply });
+      return;
+    } catch {
+      res.status(500).json({ error: "Something went wrong — please try again" });
+      return;
+    }
+  }
+
+  // ── NORMAL PATH ──────────────────────────────────────────────────────────────
   const messages: OpenAI.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
     ...trimmedHistory.map(m => ({ role: m.role as "user" | "assistant", content: m.content })),
-    { role: "user", content: aiMessage },
+    { role: "user", content: message },
   ];
 
   try {
@@ -551,17 +582,13 @@ router.post("/interview", async (req: Request, res: Response) => {
 
     let reply = await callAI(messages, maxTokens);
 
-    // If the model returns empty/very short (can happen for skip/no/none answers),
-    // retry once with a forceful nudge.
     if (!reply || reply.trim().length < 2) {
       const retryMessages: OpenAI.ChatCompletionMessageParam[] = [
         {
           role: "system",
           content: systemPrompt +
             "\n\nCRITICAL: Your previous response was empty or too short. " +
-            "The user likely sent a skip or negative response for an optional field. " +
-            "You MUST respond with at least one full sentence: " +
-            "acknowledge the user's input, record null for that field, and immediately ask the next unanswered question.",
+            "You MUST respond with at least one full sentence and ask the next unanswered question.",
         },
         ...messages.slice(1),
       ];
