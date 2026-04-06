@@ -36,12 +36,43 @@ function extractPayload(text: string): Record<string, unknown> | null {
   }
 }
 
+const ORG_TYPE_OPTIONS = [
+  "Main Street / Downtown Association",
+  "Chamber of Commerce",
+  "Rotary Club",
+  "Lions Club",
+  "VFW / American Legion",
+  "PTA / PTO",
+  "Community Foundation",
+  "Neighborhood Association",
+  "Arts Council",
+  "Other",
+];
+
 function extractOptions(text: string): { cleanText: string; options: string[] } {
-  const match = text.match(/\[OPTIONS:\s*([^\]]+)\]/);
-  if (!match) return { cleanText: text, options: [] };
-  const options = match[1].split("|").map(s => s.trim()).filter(Boolean);
-  const cleanText = text.replace(match[0], "").trim();
-  return { cleanText, options };
+  // Method 1: AI output the explicit [OPTIONS: A | B | C] marker
+  const markerMatch = text.match(/\[OPTIONS:\s*([^\]]+)\]/);
+  if (markerMatch) {
+    const options = markerMatch[1].split("|").map(s => s.trim()).filter(Boolean);
+    return { cleanText: text.replace(markerMatch[0], "").trim(), options };
+  }
+
+  // Method 2: AI listed the org type options in plain text — detect by presence of ≥3 known values
+  const hits = ORG_TYPE_OPTIONS.filter(o => text.includes(o));
+  if (hits.length >= 3) {
+    // Remove every line that contains any org type option (handles both single-per-line
+    // bullet format and pipe-separated single-line format)
+    const cleaned = text
+      .split("\n")
+      .filter(line => !ORG_TYPE_OPTIONS.some(o => line.includes(o)))
+      .join("\n")
+      .replace(/Options?:?\s*$/im, "")
+      .replace(/\|\s*$/, "")
+      .trim();
+    return { cleanText: cleaned, options: ORG_TYPE_OPTIONS };
+  }
+
+  return { cleanText: text, options: [] };
 }
 
 function PayloadPreview({ payload }: { payload: Record<string, unknown> }) {
