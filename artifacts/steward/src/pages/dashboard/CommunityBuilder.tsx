@@ -378,6 +378,7 @@ export default function CommunityBuilder() {
   const [provisionResult, setProvisionResult] = useState<{
     ok: boolean;
     siteUrl?: string;
+    savedLocally?: boolean;
     error?: string;
   } | null>(null);
   const [logoPath, setLogoPath] = useState<string | null>(null);
@@ -528,11 +529,11 @@ export default function CommunityBuilder() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ payload }),
       });
-      const d = await res.json() as { ok?: boolean; siteUrl?: string; error?: string };
+      const d = await res.json() as { ok?: boolean; siteUrl?: string; savedLocally?: boolean; error?: string };
       if (!res.ok || !d.ok) {
         setProvisionResult({ ok: false, error: d.error ?? "Launch failed" });
       } else {
-        setProvisionResult({ ok: true, siteUrl: d.siteUrl });
+        setProvisionResult({ ok: true, siteUrl: d.siteUrl, savedLocally: d.savedLocally });
       }
     } catch {
       setProvisionResult({ ok: false, error: "Network error during launch" });
@@ -608,8 +609,14 @@ export default function CommunityBuilder() {
         <div className="flex-shrink-0 mx-6 mt-4 p-4 rounded-xl bg-green-500/10 border border-green-500/30 flex items-start gap-3">
           <CheckCircle2 className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-semibold text-green-300">Your site is live!</p>
-            {provisionResult.siteUrl && (
+            <p className="text-sm font-semibold text-green-300">
+              {provisionResult.savedLocally ? "Configuration saved!" : "Your site is live!"}
+            </p>
+            {provisionResult.savedLocally ? (
+              <p className="text-xs text-green-300/70 mt-1">
+                Add a community site connection in Site Settings to publish to your external site.
+              </p>
+            ) : provisionResult.siteUrl ? (
               <a
                 href={provisionResult.siteUrl}
                 target="_blank"
@@ -619,7 +626,7 @@ export default function CommunityBuilder() {
                 {provisionResult.siteUrl}
                 <ExternalLink className="w-3.5 h-3.5" />
               </a>
-            )}
+            ) : null}
           </div>
         </div>
       )}

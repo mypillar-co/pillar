@@ -949,12 +949,14 @@ router.post("/provision", async (req: Request, res: Response) => {
     const siteUrl = r?.community_site_url;
     const siteKey = r?.community_site_key;
 
-    if (!siteUrl) {
-      res.status(400).json({ error: "No community site URL configured. Add it using the Site Connection settings above." });
-      return;
-    }
-    if (!siteKey) {
-      res.status(400).json({ error: "No service key configured. Add the PILLAR_SERVICE_KEY in Site Connection settings." });
+    // No external site configured — save the payload as site_config locally and succeed
+    if (!siteUrl || !siteKey) {
+      await db.execute(sql`
+        UPDATE organizations
+        SET site_config = ${JSON.stringify(payload)}::jsonb
+        WHERE id = ${org.id}
+      `);
+      res.json({ ok: true, savedLocally: true });
       return;
     }
 
