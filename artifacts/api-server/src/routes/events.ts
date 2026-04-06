@@ -711,6 +711,53 @@ router.get("/", async (req: Request, res: Response) => {
   res.json(result);
 });
 
+// GET /api/events/:id/ticket-purchases — admin view of all ticket purchases for an event
+router.get("/:id/ticket-purchases", async (req: Request, res: Response) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+
+  const eventId = String(req.params.id);
+  const [event] = await db
+    .select({ id: eventsTable.id, name: eventsTable.name, orgId: eventsTable.orgId })
+    .from(eventsTable)
+    .where(and(eq(eventsTable.id, eventId), eq(eventsTable.orgId, org.id)));
+
+  if (!event) {
+    res.status(404).json({ error: "Event not found" });
+    return;
+  }
+
+  const sales = await db
+    .select()
+    .from(ticketSalesTable)
+    .where(and(eq(ticketSalesTable.eventId, eventId), eq(ticketSalesTable.orgId, org.id)))
+    .orderBy(desc(ticketSalesTable.createdAt));
+
+  const totalRevenue = sales.filter(s => s.paymentStatus === "paid").reduce((s, r) => s + r.amountPaid, 0);
+  const totalTickets = sales.filter(s => s.paymentStatus === "paid").reduce((s, r) => s + r.quantity, 0);
+
+  res.json({
+    eventId: event.id,
+    eventName: event.name,
+    totalRevenue,
+    totalTickets,
+    purchases: sales.map(s => ({
+      id: s.id,
+      attendeeName: s.attendeeName,
+      attendeeEmail: s.attendeeEmail,
+      attendeePhone: s.attendeePhone,
+      ticketTypeId: s.ticketTypeId,
+      quantity: s.quantity,
+      amountPaid: s.amountPaid,
+      paymentStatus: s.paymentStatus,
+      paymentMethod: s.paymentMethod,
+      stripeCheckoutSessionId: s.stripeCheckoutSessionId,
+      confirmation: (s.stripeCheckoutSessionId ?? s.id).slice(-8).toUpperCase(),
+      createdAt: s.createdAt,
+    })),
+  });
+});
+
 // GET /api/events/:id (with related data)
 router.get("/:id", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);

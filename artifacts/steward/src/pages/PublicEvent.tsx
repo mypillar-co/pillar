@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { useRoute, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
@@ -65,7 +65,9 @@ async function startCheckout(slug: string, data: {
   attendeeName: string;
   attendeeEmail?: string;
   attendeePhone?: string;
-}): Promise<{ checkoutUrl: string }> {
+  _hp: string;
+  _ts: number;
+}): Promise<{ checkoutUrl: string; saleId?: string; free?: boolean }> {
   const res = await fetch(`/api/public/events/${slug}/checkout`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -113,6 +115,9 @@ export default function PublicEvent() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
 
+  // Bot protection: record when the form first rendered
+  const formLoadedAt = useRef<number>(Date.now());
+
   const checkoutMutation = useMutation({
     mutationFn: () => startCheckout(slug, {
       ticketTypeId: selectedTicket!,
@@ -120,12 +125,14 @@ export default function PublicEvent() {
       attendeeName: name,
       attendeeEmail: email || undefined,
       attendeePhone: phone || undefined,
+      _hp: "",   // honeypot — always empty for real users
+      _ts: formLoadedAt.current,
     }),
     onSuccess: (result) => {
       if (result.checkoutUrl) {
         window.location.href = result.checkoutUrl;
       } else {
-        window.location.href = `/events/${slug}/tickets/success`;
+        window.location.href = `/events/${slug}/tickets/success?saleId=${result.saleId ?? ""}`;
       }
     },
   });
@@ -153,6 +160,11 @@ export default function PublicEvent() {
   const { event, ticketTypes, organization } = data;
   const selectedType = ticketTypes.find(t => t.id === selectedTicket);
   const total = selectedType ? selectedType.price * quantity : 0;
+
+  // Sold-out: every ticket type with a finite capacity is fully sold
+  const allSoldOut =
+    ticketTypes.length > 0 &&
+    ticketTypes.every((tt) => tt.available !== null && tt.available <= 0);
 
   return (
     <div className="min-h-screen bg-[hsl(224,30%,8%)]">
@@ -212,6 +224,14 @@ export default function PublicEvent() {
               <AlertCircle className="w-8 h-8 text-yellow-400 mx-auto mb-3" />
               <p className="text-white font-medium mb-1">Online ticket sales are not yet enabled</p>
               <p className="text-sm text-muted-foreground">Please contact {organization.name} directly to purchase tickets.</p>
+            </CardContent>
+          </Card>
+        ) : allSoldOut ? (
+          <Card className="border-red-500/20 bg-red-500/5">
+            <CardContent className="py-8 text-center">
+              <Ticket className="w-8 h-8 text-red-400 mx-auto mb-3" />
+              <p className="text-white font-semibold text-lg mb-1">Sold Out</p>
+              <p className="text-sm text-muted-foreground">All tickets for this event have been sold. Check back in case of cancellations.</p>
             </CardContent>
           </Card>
         ) : (

@@ -3,6 +3,7 @@ import { db, organizationsTable, eventsTable, ticketTypesTable, ticketSalesTable
 import { eq, and, sum, sql } from "drizzle-orm";
 import { getUncachableStripeClient, getStripePublishableKey } from "../stripeClient";
 import { resolveFullOrg } from "../lib/resolveOrg";
+import { checkAndFirePostPurchaseHooks, getTotalTicketsSold } from "../ticketHooks";
 
 const router = Router();
 
@@ -139,13 +140,32 @@ router.post("/connect/update-nonprofit", async (req: Request, res: Response) => 
 
 router.post("/public/events/:slug/checkout", async (req: Request, res: Response) => {
   const { slug } = req.params;
-  const { ticketTypeId, quantity, attendeeName, attendeeEmail, attendeePhone } = req.body as {
+  const {
+    ticketTypeId, quantity, attendeeName, attendeeEmail, attendeePhone,
+    _hp,       // honeypot field — must be empty
+    _ts,       // form load timestamp (ms since epoch) — bot timing check
+  } = req.body as {
     ticketTypeId: string;
     quantity: number;
     attendeeName: string;
     attendeeEmail?: string;
     attendeePhone?: string;
+    _hp?: string;
+    _ts?: number;
   };
+
+  // ── Bot protection ────────────────────────────────────────────────────────
+  // 1. Honeypot: any bot that fills the hidden _hp field is silently rejected.
+  if (_hp) {
+    res.status(400).json({ error: "Invalid submission" });
+    return;
+  }
+  // 2. Timing: legitimate humans take at least 1.5 s to fill the form.
+  if (_ts && Date.now() - _ts < 1500) {
+    res.status(400).json({ error: "Please take a moment before submitting" });
+    return;
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   if (!ticketTypeId || !quantity || quantity < 1 || !attendeeName) {
     res.status(400).json({ error: "Missing required fields: ticketTypeId, quantity, attendeeName" });
@@ -161,6 +181,14 @@ router.post("/public/events/:slug/checkout", async (req: Request, res: Response)
     res.status(404).json({ error: "Event not found or not published" });
     return;
   }
+
+  // ── Registration window check ─────────────────────────────────────────────
+  // If the event's registration window is closed (and not force-overridden), reject.
+  if (event.registrationClosed && !event.registrationForceOpen) {
+    res.status(400).json({ error: "Ticket sales for this event are currently closed" });
+    return;
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   const [ticketType] = await db
     .select()
@@ -202,6 +230,9 @@ router.post("/public/events/:slug/checkout", async (req: Request, res: Response)
   }
 
   if (totalAmountCents === 0) {
+    // Snapshot total sold BEFORE this purchase for milestone detection
+    const previousSold = await getTotalTicketsSold(event.id);
+
     const [sale] = await db
       .insert(ticketSalesTable)
       .values({
@@ -217,6 +248,21 @@ router.post("/public/events/:slug/checkout", async (req: Request, res: Response)
         paymentStatus: "paid",
       })
       .returning();
+
+    // Fire ticket lifecycle hooks (non-blocking)
+    checkAndFirePostPurchaseHooks({
+      orgId: org.id,
+      eventId: event.id,
+      eventName: event.name,
+      saleId: sale.id,
+      ticketTypeId,
+      ticketTypeName: ticketType.name,
+      attendeeName,
+      attendeeEmail: attendeeEmail ?? null,
+      quantity,
+      amountPaid: 0,
+      previousSold,
+    }).catch(() => {});
 
     res.json({ checkoutUrl: null, saleId: sale.id, free: true });
     return;
@@ -406,6 +452,104 @@ router.get("/public/events/:slug", async (req: Request, res: Response) => {
       acceptsPayments,
     },
   });
+});
+
+/**
+ * GET /api/public/events/:slug/tickets/verify?session_id=xxx
+ *
+ * Called by the TicketSuccess page after Stripe redirects back.
+ * Looks up the Stripe session, verifies payment status, and returns
+ * the confirmation details for display. Marks the sale as paid if
+ * the webhook hasn't arrived yet (belt-and-suspenders).
+ */
+router.get("/public/events/:slug/tickets/verify", async (req: Request, res: Response) => {
+  const { slug } = req.params;
+  const sessionId = req.query.session_id as string | undefined;
+
+  if (!sessionId) {
+    res.status(400).json({ error: "session_id is required" });
+    return;
+  }
+
+  // Find the sale by Stripe session ID
+  const [sale] = await db
+    .select()
+    .from(ticketSalesTable)
+    .where(eq(ticketSalesTable.stripeCheckoutSessionId, sessionId));
+
+  if (!sale) {
+    // Session not found — could be a free ticket or a bad session ID
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+
+  // Optimistic: if already paid (webhook fired first), return immediately
+  if (sale.paymentStatus === "paid") {
+    const [event] = await db.select({ name: eventsTable.name, startDate: eventsTable.startDate, location: eventsTable.location }).from(eventsTable).where(eq(eventsTable.id, sale.eventId));
+    res.json({
+      verified: true,
+      saleId: sale.id,
+      attendeeName: sale.attendeeName,
+      attendeeEmail: sale.attendeeEmail,
+      quantity: sale.quantity,
+      amountPaid: sale.amountPaid,
+      eventName: event?.name ?? "Event",
+      eventDate: event?.startDate ?? null,
+      eventLocation: event?.location ?? null,
+      confirmation: (sale.stripeCheckoutSessionId ?? sale.id).slice(-8).toUpperCase(),
+    });
+    return;
+  }
+
+  // Belt-and-suspenders: verify with Stripe directly (webhook may not have arrived yet)
+  try {
+    const stripe = await getUncachableStripeClient();
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+    if (session.payment_status !== "paid") {
+      res.json({ verified: false, status: session.payment_status });
+      return;
+    }
+
+    const paymentIntentId = typeof session.payment_intent === "string"
+      ? session.payment_intent
+      : (session.payment_intent as { id?: string })?.id ?? null;
+
+    // Mark as paid (idempotent — webhook may do this again later, that's fine)
+    await db
+      .update(ticketSalesTable)
+      .set({ paymentStatus: "paid", stripePaymentIntentId: paymentIntentId ?? undefined })
+      .where(and(eq(ticketSalesTable.id, sale.id), sql`${ticketSalesTable.paymentStatus} != 'paid'`));
+
+    const [event] = await db.select({ name: eventsTable.name, startDate: eventsTable.startDate, location: eventsTable.location }).from(eventsTable).where(eq(eventsTable.id, sale.eventId));
+    res.json({
+      verified: true,
+      saleId: sale.id,
+      attendeeName: sale.attendeeName,
+      attendeeEmail: sale.attendeeEmail,
+      quantity: sale.quantity,
+      amountPaid: sale.amountPaid,
+      eventName: event?.name ?? "Event",
+      eventDate: event?.startDate ?? null,
+      eventLocation: event?.location ?? null,
+      confirmation: sessionId.slice(-8).toUpperCase(),
+    });
+  } catch {
+    // Stripe unavailable — return what we have with unverified flag
+    const [event] = await db.select({ name: eventsTable.name, startDate: eventsTable.startDate, location: eventsTable.location }).from(eventsTable).where(eq(eventsTable.id, sale.eventId));
+    res.json({
+      verified: false,
+      saleId: sale.id,
+      attendeeName: sale.attendeeName,
+      attendeeEmail: sale.attendeeEmail,
+      quantity: sale.quantity,
+      amountPaid: sale.amountPaid,
+      eventName: event?.name ?? "Event",
+      eventDate: event?.startDate ?? null,
+      eventLocation: event?.location ?? null,
+      confirmation: sessionId.slice(-8).toUpperCase(),
+    });
+  }
 });
 
 router.get("/connect/transactions", async (req: Request, res: Response) => {

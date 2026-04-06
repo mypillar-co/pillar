@@ -402,9 +402,26 @@ app.use(async (req, res, next) => {
             return;
           }
         }
-        // SPA: all non-asset paths get index.html (React Router handles navigation)
+        // SPA: all non-asset paths get index.html (React Router handles navigation).
+        //
+        // IMPORTANT — path-based routing asset rewrite:
+        // Replit's proxy only rewrites the root path of a custom domain to /sites/<slug>.
+        // Sub-paths (e.g. /assets/index-xxx.js) are NOT rewritten and go to the Steward
+        // static handler at "/" instead, causing 404s and a blank white page.
+        // Fix: before sending index.html, rewrite all root-relative static references
+        // (assets/, favicon, manifest) to /sites/<slug>/... so the browser requests them
+        // via paths that ARE routed to this API server.
+        let html = fs.readFileSync(reactIndexHtml, "utf-8");
+        if (isPathBased) {
+          const base = `/sites/${orgSlug}`;
+          // Rewrite src="/assets/ and href="/assets/
+          html = html.replace(/(src|href)="\/assets\//g, `$1="${base}/assets/`);
+          // Rewrite standalone /favicon.svg, /favicon.ico, /manifest.json at root
+          html = html.replace(/(src|href)="\/(favicon\.|manifest\.)/g, `$1="${base}/$2`);
+        }
         res.setHeader("Cache-Control", "no-cache, no-store");
-        res.sendFile(reactIndexHtml);
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.send(html);
         return;
       }
       // dist not built yet (local dev without a build) — fall through so the

@@ -523,7 +523,7 @@ async function main() {
     logger.warn({ err }, "Stripe sync init failed — billing features may be limited");
   }
 
-  app.listen(port, (err) => {
+  const server = app.listen(port, (err) => {
     if (err) {
       logger.error({ err }, "Error listening on port");
       process.exit(1);
@@ -531,6 +531,24 @@ async function main() {
     logger.info({ port }, "Server listening");
     startScheduler();
   });
+
+  // Graceful shutdown — drain in-flight requests before exiting.
+  // Prevents EADDRINUSE on rapid restarts by ensuring the port is released
+  // before the next process tries to bind it.
+  const shutdown = (signal: string) => {
+    logger.info({ signal }, "Shutdown signal received — closing server");
+    server.close(() => {
+      logger.info("Server closed — exiting cleanly");
+      process.exit(0);
+    });
+    // Force-exit after 10 s if connections don't drain
+    setTimeout(() => {
+      logger.warn("Shutdown timeout — forcing exit");
+      process.exit(1);
+    }, 10_000).unref();
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT",  () => shutdown("SIGINT"));
 }
 
 main().catch((err) => {

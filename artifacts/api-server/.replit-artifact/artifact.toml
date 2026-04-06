@@ -21,8 +21,8 @@ args = ["sh", "-c", "BASE_PATH=/ pnpm --filter @workspace/norwin-rotary run buil
 NODE_ENV = "production"
 
 [services.production.run]
-# we don't run through pnpm to make startup faster in production
-args = ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
+# Kill any stale process on port, then exec node directly (SIGTERM goes straight to node).
+args = ["sh", "-c", "fuser -k 8080/tcp 2>/dev/null || true; sleep 0.5; exec node --enable-source-maps artifacts/api-server/dist/index.mjs"]
 
 [services.production.run.env]
 PORT = "8080"
