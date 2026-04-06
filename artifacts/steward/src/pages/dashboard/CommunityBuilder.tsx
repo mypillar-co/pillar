@@ -95,14 +95,18 @@ function extractOptions(text: string): { cleanText: string; options: string[]; a
     return { cleanText: t, options: ["Same as my main email"] };
   }
 
-  // ── 7. Facebook URL ──────────────────────────────────────────────────────────
-  if (/facebook/i.test(t) && /(url|page|optional|link)/i.test(t)) {
-    return { cleanText: t, options: ["Skip — no Facebook page"] };
+  // ── 7 & 8. Social platform skip buttons ─────────────────────────────────────
+  // IMPORTANT: check the LAST sentence only — the AI often acks the previous
+  // answer ("Got your Facebook URL.") before asking about the next platform.
+  // Checking the full text would match the wrong platform.
+  const lastSentence = (t.split(/[.!?]+\s+/).pop() ?? t).trim();
+
+  if (/instagram/i.test(lastSentence) && /(url|optional|link)/i.test(lastSentence)) {
+    return { cleanText: t, options: ["Skip — no Instagram"] };
   }
 
-  // ── 8. Instagram URL ─────────────────────────────────────────────────────────
-  if (/instagram/i.test(t) && /(url|optional|link)/i.test(t)) {
-    return { cleanText: t, options: ["Skip — no Instagram"] };
+  if (/facebook/i.test(lastSentence) && /(url|page|optional|link)/i.test(lastSentence)) {
+    return { cleanText: t, options: ["Skip — no Facebook page"] };
   }
 
   // ── 9. Community partners ────────────────────────────────────────────────────
