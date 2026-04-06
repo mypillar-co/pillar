@@ -82,7 +82,7 @@ PAYLOAD JSON — output immediately after [PAYLOAD_READY] with NO extra text bef
 {
   "orgName": "<full name>",
   "shortName": "<abbreviation>",
-  "orgType": "<civic|chamber|rotary|lions|vfw|pta|foundation|neighborhood|arts|community>",
+  "orgType": "<civic|chamber|rotary|lions|vfw|pta|foundation|neighborhood|arts|community|fraternal>",
   "tagline": "<tagline>",
   "mission": "<expand tagline to 1-2 sentences>",
   "location": "<City, ST>",
@@ -134,7 +134,7 @@ Full payload:
 {
   "orgName": "<full name>",
   "shortName": "<abbreviation>",
-  "orgType": "<civic|chamber|rotary|lions|vfw|pta|foundation|neighborhood|arts|community>",
+  "orgType": "<civic|chamber|rotary|lions|vfw|pta|foundation|neighborhood|arts|community|fraternal>",
   "tagline": "<tagline>",
   "mission": "<expand tagline to 1-2 sentences>",
   "location": "<City, ST>",
@@ -184,7 +184,7 @@ Full platform payload:
 {
   "orgName": "<full name>",
   "shortName": "<abbreviation>",
-  "orgType": "<civic|chamber|rotary|lions|vfw|pta|foundation|neighborhood|arts|community>",
+  "orgType": "<civic|chamber|rotary|lions|vfw|pta|foundation|neighborhood|arts|community|fraternal>",
   "tagline": "<tagline>",
   "mission": "<expand tagline to 1-2 sentences>",
   "location": "<City, ST>",

@@ -1151,9 +1151,12 @@ function getOrgTypeColors(orgName: string, orgType: string): { primaryHex: strin
   // Primary: Midnight #12233e | Accent: Cornflower #5b7db1 (NOT gold — these are the official PA GL spec)
   if (/\bmasonic?\b|\bmasonry\b|lodge\s*#?\d+|f\.?\s*[&a]\.?\s*m\.?\b|free\s*(and|&)\s*accepted/.test(n))
     return { primaryHex: "#12233e", accentHex: "#5b7db1", primaryRgb: "18,35,62" };
-  // Other Fraternal (Elks, Eagles, Moose, Knights of Columbus, Odd Fellows, Shriners)
+  // Other Named Fraternal (Elks, Eagles, Moose, Knights of Columbus, Odd Fellows, Shriners)
   if (/\belks\b|moose\s*(lodge)?\b|eagles\s*(lodge|club)?|knights\s*of\s*columbus|odd\s*fellows|shriners/.test(n))
     return { primaryHex: "#1a2d4a", accentHex: "#c9a84c", primaryRgb: "26,45,74" };
+  // Generic Fraternal Organization — deep navy + antique gold (traditional fraternal palette)
+  if (/\bfraternal\b|\bbrotherhood\b|\bfraternity\b|\bsorority\b/.test(n))
+    return { primaryHex: "#1e3050", accentHex: "#c8a94a", primaryRgb: "30,48,80" };
   // Veterans
   if (/\bvfw\b|veteran(s)?|american\s*legion|amvets|\bdav\b|foreign\s*wars|military\s*(post|club)?/.test(n))
     return { primaryHex: "#162d55", accentHex: "#c0392b", primaryRgb: "22,45,85" };
