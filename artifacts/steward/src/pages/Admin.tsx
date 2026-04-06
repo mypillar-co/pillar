@@ -714,6 +714,185 @@ export default function Admin() {
           </>
         )}
 
+        {tab === "devlab" && (
+          <>
+            <div style={{ fontSize: 13, color: "#8b9ab5", marginBottom: 20, lineHeight: 1.7 }}>
+              Create test organizations to preview the dashboard at any tier. Clicking <strong style={{ color: "#e2e8f0" }}>Switch</strong> sets your browser to view Pillar as that org — all API calls route to it until you clear the override.
+            </div>
+
+            {/* Create new test org */}
+            <div style={{ ...styles.card, marginBottom: 24 }}>
+              <div style={{ ...styles.sectionTitle, marginBottom: 16 }}>Create Test Organization</div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <label style={{ fontSize: 11, color: "#8b9ab5", textTransform: "uppercase", letterSpacing: "0.05em" }}>Org Name</label>
+                  <input
+                    style={{ ...styles.input, width: 220, marginBottom: 0 }}
+                    placeholder="e.g. Test Rotary Club"
+                    value={devCreateForm.name}
+                    onChange={(e) => setDevCreateForm(f => ({ ...f, name: e.target.value }))}
+                    onKeyDown={(e) => { if (e.key === "Enter") document.getElementById("dev-create-btn")?.click(); }}
+                  />
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <label style={{ fontSize: 11, color: "#8b9ab5", textTransform: "uppercase", letterSpacing: "0.05em" }}>Org Type</label>
+                  <select
+                    style={{ ...styles.input, width: 180, marginBottom: 0 }}
+                    value={devCreateForm.type}
+                    onChange={(e) => setDevCreateForm(f => ({ ...f, type: e.target.value }))}
+                  >
+                    <option value="civic">Civic Association</option>
+                    <option value="chamber">Chamber of Commerce</option>
+                    <option value="rotary">Rotary Club</option>
+                    <option value="lions">Lions Club</option>
+                    <option value="vfw">VFW Post</option>
+                    <option value="pta">PTA / PTO</option>
+                    <option value="foundation">Foundation</option>
+                    <option value="neighborhood">Neighborhood Assoc.</option>
+                    <option value="arts">Arts Organization</option>
+                    <option value="community">Community Group</option>
+                  </select>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <label style={{ fontSize: 11, color: "#8b9ab5", textTransform: "uppercase", letterSpacing: "0.05em" }}>Tier</label>
+                  <select
+                    style={{ ...styles.input, width: 190, marginBottom: 0 }}
+                    value={devCreateForm.tier}
+                    onChange={(e) => setDevCreateForm(f => ({ ...f, tier: e.target.value }))}
+                  >
+                    <option value="">No tier (free)</option>
+                    <option value="tier1">Starter</option>
+                    <option value="tier1a">Autopilot</option>
+                    <option value="tier2">Events</option>
+                    <option value="tier3">Total Operations</option>
+                  </select>
+                </div>
+                <button
+                  id="dev-create-btn"
+                  disabled={devCreating || !devCreateForm.name.trim()}
+                  onClick={async () => {
+                    setDevCreating(true);
+                    setDevMsg(null);
+                    try {
+                      await apiFetch("/api/admin/my-orgs", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(devCreateForm),
+                      });
+                      setDevCreateForm(f => ({ ...f, name: "" }));
+                      const updated = await apiFetch("/api/admin/my-orgs");
+                      setMyOrgs(Array.isArray(updated) ? updated : []);
+                      setDevMsg("✓ Test org created");
+                    } catch (err: any) {
+                      setDevMsg(`Error: ${err.message}`);
+                    } finally {
+                      setDevCreating(false);
+                    }
+                  }}
+                  style={{ background: "#e8b84b", color: "#0c1526", border: "none", borderRadius: 8, padding: "9px 20px", fontWeight: 700, fontSize: 13, cursor: "pointer", alignSelf: "flex-end" }}
+                >
+                  {devCreating ? "Creating…" : "+ Create"}
+                </button>
+              </div>
+              {devMsg && (
+                <div style={{ marginTop: 12, fontSize: 13, color: devMsg.startsWith("Error") ? "#f87171" : "#4ade80" }}>{devMsg}</div>
+              )}
+            </div>
+
+            {/* Org list */}
+            <div style={styles.card}>
+              <div style={{ ...styles.sectionTitle, marginBottom: 0 }}>Your Test Organizations ({myOrgs.length})</div>
+              {myOrgs.length === 0 ? (
+                <div style={{ color: "#8b9ab5", fontSize: 13, padding: "24px 0", textAlign: "center" }}>No test orgs yet — create one above.</div>
+              ) : (
+                <table style={{ ...styles.table, marginTop: 16 }}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>Name</th>
+                      <th style={styles.th}>Type</th>
+                      <th style={styles.th}>Tier</th>
+                      <th style={styles.th}>Slug</th>
+                      <th style={styles.th}>Created</th>
+                      <th style={styles.th}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {myOrgs.map((o) => (
+                      <tr key={o.id} style={{ background: devOrgId === o.id ? "rgba(124,58,237,0.08)" : undefined }}>
+                        <td style={styles.td}>
+                          <div style={{ fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+                            {devOrgId === o.id && <span style={{ fontSize: 10, background: "#7c3aed", color: "#fff", borderRadius: 4, padding: "1px 5px", fontWeight: 700 }}>ACTIVE</span>}
+                            {o.name}
+                          </div>
+                        </td>
+                        <td style={{ ...styles.td, color: "#8b9ab5" }}>{o.type ?? "—"}</td>
+                        <td style={styles.td}>
+                          {o.tier ? (
+                            <span style={{ color: TIER_COLORS[o.tier] ?? "#8b9ab5", fontWeight: 600, fontSize: 12 }}>{o.tier}</span>
+                          ) : <span style={{ color: "#8b9ab5" }}>—</span>}
+                        </td>
+                        <td style={{ ...styles.td, color: "#8b9ab5", fontFamily: "monospace", fontSize: 12 }}>{o.slug ?? "—"}</td>
+                        <td style={{ ...styles.td, color: "#8b9ab5" }}>{new Date(o.createdAt).toLocaleDateString()}</td>
+                        <td style={{ ...styles.td }}>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            {devOrgId === o.id ? (
+                              <button
+                                onClick={() => {
+                                  try { localStorage.removeItem("pillar_dev_org_id"); } catch {}
+                                  setDevOrgId(null);
+                                }}
+                                style={{ background: "#7c3aed33", color: "#a78bfa", border: "1px solid #7c3aed55", borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer" }}
+                              >
+                                Clear
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  try { localStorage.setItem("pillar_dev_org_id", o.id); } catch {}
+                                  setDevOrgId(o.id);
+                                  navigate("/dashboard");
+                                }}
+                                style={{ background: "#e8b84b22", color: "#e8b84b", border: "1px solid #e8b84b44", borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}
+                              >
+                                Switch →
+                              </button>
+                            )}
+                            <button
+                              disabled={devDeleting === o.id}
+                              onClick={async () => {
+                                if (!confirm(`Delete "${o.name}"? This cannot be undone.`)) return;
+                                setDevDeleting(o.id);
+                                setDevMsg(null);
+                                try {
+                                  await apiFetch(`/api/admin/my-orgs/${o.id}`, { method: "DELETE" });
+                                  if (devOrgId === o.id) {
+                                    try { localStorage.removeItem("pillar_dev_org_id"); } catch {}
+                                    setDevOrgId(null);
+                                  }
+                                  const updated = await apiFetch("/api/admin/my-orgs");
+                                  setMyOrgs(Array.isArray(updated) ? updated : []);
+                                  setDevMsg(`✓ Deleted "${o.name}"`);
+                                } catch (err: any) {
+                                  setDevMsg(`Error: ${err.message}`);
+                                } finally {
+                                  setDevDeleting(null);
+                                }
+                              }}
+                              style={{ background: "#dc262611", color: "#f87171", border: "1px solid #dc262633", borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer" }}
+                            >
+                              {devDeleting === o.id ? "…" : "Delete"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </>
+        )}
+
         {tab === "churn" && churn && (
           <>
             <div style={styles.section}>
