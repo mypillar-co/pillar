@@ -18,13 +18,21 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 function getOrgId(req: Request): string {
+  // x-org-id header takes priority (dev overrides and reverse-proxy setups)
+  const headerOrgId = req.headers["x-org-id"] as string;
+  if (headerOrgId) return headerOrgId;
+
+  // In production: extract subdomain only if it looks like a real mypillar.co slug
   const host = (req.headers["x-forwarded-host"] as string || req.headers.host || "").replace(/:\d+$/, "");
   const parts = host.split(".");
   if (parts.length >= 3) {
     const subdomain = parts[0];
-    if (subdomain && subdomain !== "www") return subdomain;
+    // Skip UUID-like identifiers (Replit dev domains) — only accept short slugs
+    if (subdomain && subdomain !== "www" && subdomain.length <= 64 && !subdomain.includes("replit")) {
+      return subdomain;
+    }
   }
-  return req.headers["x-org-id"] as string || "default";
+  return "default";
 }
 
 function hexToHsl(hex: string): string {

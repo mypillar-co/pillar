@@ -1201,7 +1201,7 @@ router.post("/provision", async (req: Request, res: Response) => {
     // isNewSite = true when the org didn't have a URL before this provision call
     const isNewSite = !siteUrl;
 
-    // ── mypillar.co publish: save config to DB and return success ──────────────
+    // ── mypillar.co publish: save config to DB + push to shared community platform ─
     if (isMypillar) {
       await db.execute(sql`
         UPDATE organizations
@@ -1209,6 +1209,28 @@ router.post("/provision", async (req: Request, res: Response) => {
             community_site_url = ${mypillarUrl}
         WHERE id = ${org.id}
       `);
+
+      // Push to shared community platform so it can serve {slug}.mypillar.co
+      const cpBaseUrl = process.env.COMMUNITY_PLATFORM_URL || "http://localhost:5001";
+      const cpKey = process.env.PILLAR_SERVICE_KEY;
+      if (cpKey && orgSlug) {
+        try {
+          const cpEndpoint = `${cpBaseUrl.replace(/\/$/, "")}/api/pillar/setup`;
+          await fetch(cpEndpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-pillar-service-key": cpKey,
+            },
+            body: JSON.stringify({ ...finalPayload, orgId: orgSlug }),
+            signal: AbortSignal.timeout(15_000),
+          });
+        } catch (cpErr) {
+          // Non-fatal — site_config is saved, CP will get it on next retry
+          console.warn("[provision] Community platform push failed (non-fatal):", cpErr);
+        }
+      }
+
       res.json({ ok: true, siteUrl: mypillarUrl, isNewSite });
       return;
     }
@@ -1226,8 +1248,9 @@ router.post("/provision", async (req: Request, res: Response) => {
       headers: {
         "Content-Type": "application/json",
         "X-Pillar-Key": siteKey,
+        "x-pillar-service-key": siteKey,
       },
-      body: JSON.stringify(finalPayload),
+      body: JSON.stringify({ ...finalPayload, orgId: orgSlug }),
       signal: AbortSignal.timeout(30_000),
     });
 
