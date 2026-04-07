@@ -11,11 +11,22 @@ I want to prioritize concise and clear communication. For development, I prefer 
 ### Monorepo Structure
 The project is organized as a monorepo containing several distinct packages:
 - `artifacts/steward/`: React + Vite frontend application (Pillar admin dashboard).
-- `artifacts/api-server/`: Express API server.
+- `artifacts/api-server/`: Express API server (port 8080).
+- `artifacts/community-platform/`: Multi-tenant community site platform. Serves `*.mypillar.co` subdomains (port 5001). Contains full Express+Vite stack with per-tenant isolation.
 - `artifacts/norwin-rotary/`: Universal React+Vite org site template.
 - `lib/api-spec/`: OpenAPI specification.
 - `lib/db/`: Drizzle ORM schema and PostgreSQL client.
 - `lib/site/`: Site Engine package for deterministic site-building.
+
+### Community Platform (`artifacts/community-platform/`)
+Multi-tenant Express + React/Vite app that serves as the actual community site engine for `*.mypillar.co` subdomains. Key details:
+- **Port**: 5001. Cloudflare wildcard DNS routes `*.mypillar.co` → Replit.
+- **Multi-tenancy**: `Host` header (or `x-forwarded-host`) is parsed to extract the subdomain slug as `orgId`. All DB tables are prefixed `cs_*` and scoped by `org_id`.
+- **Setup**: `POST /api/pillar/setup` provisions an org. Requires `x-pillar-key` matching the org's `community_site_key` in the `organizations` table.
+- **Admin**: `/admin/login` → `/admin` (email/password auth, bcrypt hashed).
+- **DB driver**: `drizzle-orm/neon-serverless` with WebSocket support (`ws` package).
+- **Pages**: Home, Events, Event Detail, About, Contact, Gallery, Blog, Admin Login, Admin Dashboard, Payment Success.
+- **Admin sections**: Events, Sponsors, Business Directory, Blog/News, Contact Messages, Newsletter Subscribers.
 
 ### React Template Architecture (Org Sites)
 Organizations with `site_config` are served via a universal React template. This involves API routes for public data, dynamic org slug detection, an `OrgConfigContext` for global configuration, and production serving of static React SPA files.

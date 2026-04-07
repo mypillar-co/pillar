@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+:root {
+  --primary-hex: #c25038;
+  --accent-hex: #2563eb;
+}
+
+@theme {
+  --color-primary: var(--primary-hex);
+  --color-accent: var(--accent-hex);
+  --font-sans: Montserrat, sans-serif;
+  --font-serif: "Libre Baskerville", serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: Montserrat, sans-serif;
+  margin: 0;
+  padding: 0;
+  background: #ffffff;
+  color: #111827;
+}
+
+.font-serif {
+  font-family: "Libre Baskerville", serif;
+}
+
+.font-sans {
+  font-family: Montserrat, sans-serif;
+}
+
+.bg-primary { background-color: var(--primary-hex); }
+.text-primary { color: var(--primary-hex); }
+.border-primary { border-color: var(--primary-hex); }
+.bg-accent { background-color: var(--accent-hex); }
+.text-accent { color: var(--accent-hex); }
+.hover\:bg-primary:hover { background-color: var(--primary-hex); }
+
+.line-clamp-2 { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.line-clamp-3 { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
