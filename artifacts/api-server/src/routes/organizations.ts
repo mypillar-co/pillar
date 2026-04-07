@@ -33,7 +33,7 @@ import {
   subscriptionsTable,
   sitesTable,
 } from "@workspace/db";
-import { eq, desc, asc, isNotNull, and } from "drizzle-orm";
+import { eq, desc, asc, isNotNull, and, sql } from "drizzle-orm";
 import { syncOrgConfigPatchToPillar } from "../lib/pillarOrgSync.js";
 
 const router: IRouter = Router();
@@ -50,23 +50,30 @@ function generateSlug(name: string): string {
 function isAdminUser(req: Request): boolean {
   if (!req.isAuthenticated()) return false;
   const adminEmails = new Set(
-    (process.env.ADMIN_EMAILS ?? "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean),
+    (process.env.ADMIN_EMAILS ?? "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
   );
   const adminIds = new Set(
-    (process.env.ADMIN_USER_IDS ?? "").split(",").map(s => s.trim()).filter(Boolean),
+    (process.env.ADMIN_USER_IDS ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
   );
-  return adminEmails.has((req.user.email ?? "").toLowerCase()) || adminIds.has(req.user.id);
+  return (
+    adminEmails.has((req.user.email ?? "").toLowerCase()) ||
+    adminIds.has(req.user.id)
+  );
 }
 
-// GET /api/organizations — get current user's org
+// GET /api/organizations
 router.get("/organizations", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
 
-  // Admin dev-org override: if an admin has selected a specific org to test as,
-  // return that org instead of their default one.
   const devOrgId = req.headers["x-dev-org-id"] as string | undefined;
   if (devOrgId && isAdminUser(req)) {
     const [overrideOrg] = await db
@@ -75,7 +82,12 @@ router.get("/organizations", async (req: Request, res: Response) => {
       .where(eq(organizationsTable.id, devOrgId))
       .limit(1);
     if (overrideOrg) {
-      res.json({ organization: { ...overrideOrg, createdAt: overrideOrg.createdAt.toISOString() } });
+      res.json({
+        organization: {
+          ...overrideOrg,
+          createdAt: overrideOrg.createdAt.toISOString(),
+        },
+      });
       return;
     }
   }
@@ -84,45 +96,48 @@ router.get("/organizations", async (req: Request, res: Response) => {
     .select()
     .from(organizationsTable)
     .where(eq(organizationsTable.userId, req.user.id))
-    .orderBy(desc(isNotNull(organizationsTable.tier)), asc(organizationsTable.createdAt))
+    .orderBy(
+      desc(isNotNull(organizationsTable.tier)),
+      asc(organizationsTable.createdAt),
+    )
     .limit(1);
 
   res.json({
     organization: org
-      ? {
-          ...org,
-          createdAt: org.createdAt.toISOString(),
-        }
+      ? { ...org, createdAt: org.createdAt.toISOString() }
       : null,
   });
 });
 
-// POST /api/organizations — create or update current user's org
+// POST /api/organizations
 router.post("/organizations", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
 
-  const { name, type, category } = req.body as { name?: string; type?: string; category?: string };
-
+  const { name, type, category } = req.body as {
+    name?: string;
+    type?: string;
+    category?: string;
+  };
   if (!name || !type) {
     res.status(400).json({ error: "name and type are required" });
     return;
   }
 
   const userId = req.user.id;
-
-  // Check for existing org (prefer one with a tier set)
   const [existing] = await db
     .select()
     .from(organizationsTable)
     .where(eq(organizationsTable.userId, userId))
-    .orderBy(desc(isNotNull(organizationsTable.tier)), asc(organizationsTable.createdAt))
+    .orderBy(
+      desc(isNotNull(organizationsTable.tier)),
+      asc(organizationsTable.createdAt),
+    )
     .limit(1);
 
   let org;
-
   if (existing) {
     [org] = await db
       .update(organizationsTable)
@@ -130,10 +145,8 @@ router.post("/organizations", async (req: Request, res: Response) => {
       .where(eq(organizationsTable.userId, userId))
       .returning();
   } else {
-    // Generate a unique slug
     const baseSlug = generateSlug(name);
     const slug = `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`;
-
     [org] = await db
       .insert(organizationsTable)
       .values({
@@ -148,14 +161,11 @@ router.post("/organizations", async (req: Request, res: Response) => {
   }
 
   res.json({
-    organization: {
-      ...org,
-      createdAt: org.createdAt.toISOString(),
-    },
+    organization: { ...org, createdAt: org.createdAt.toISOString() },
   });
 });
 
-// PUT /api/organizations — update current user's org (name, type, and branding fields)
+// PUT /api/organizations — update name, type, slug, and branding fields
 router.put("/organizations", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
@@ -163,10 +173,20 @@ router.put("/organizations", async (req: Request, res: Response) => {
   }
 
   const {
-    name, type,
-    primaryColor, accentColor, tagline, mission, logoUrl,
-    contactEmail, contactPhone, contactAddress,
-    meetingDay, meetingTime, meetingLocation,
+    name,
+    type,
+    slug,
+    primaryColor,
+    accentColor,
+    tagline,
+    mission,
+    logoUrl,
+    contactEmail,
+    contactPhone,
+    contactAddress,
+    meetingDay,
+    meetingTime,
+    meetingLocation,
   } = req.body as Record<string, string | undefined>;
 
   if (!name) {
@@ -175,15 +195,47 @@ router.put("/organizations", async (req: Request, res: Response) => {
   }
 
   const userId = req.user.id;
-  const [existing] = await db.select().from(organizationsTable).where(eq(organizationsTable.userId, userId));
-
+  const [existing] = await db
+    .select()
+    .from(organizationsTable)
+    .where(eq(organizationsTable.userId, userId));
   if (!existing) {
     res.status(404).json({ error: "Organization not found" });
     return;
   }
 
+  // Validate slug if provided and changed
+  if (slug && slug !== existing.slug) {
+    if (!/^[a-z0-9][a-z0-9-]{2,49}$/.test(slug)) {
+      res
+        .status(400)
+        .json({
+          error:
+            "URL must be 3-50 characters, lowercase letters, numbers, and hyphens only",
+        });
+      return;
+    }
+    const [taken] = await db
+      .select({ id: organizationsTable.id })
+      .from(organizationsTable)
+      .where(
+        and(
+          eq(organizationsTable.slug, slug),
+          sql`${organizationsTable.id} != ${existing.id}`,
+        ),
+      )
+      .limit(1);
+    if (taken) {
+      res
+        .status(409)
+        .json({ error: "That URL is already taken. Please choose another." });
+      return;
+    }
+  }
+
   const updates: Record<string, unknown> = { name };
   if (type) updates.type = type;
+  if (slug && slug !== existing.slug) updates.slug = slug;
 
   const [org] = await db
     .update(organizationsTable)
@@ -191,12 +243,39 @@ router.put("/organizations", async (req: Request, res: Response) => {
     .where(eq(organizationsTable.userId, userId))
     .returning();
 
+  // If slug changed, update community_site_url and all cs_* references
+  const slugChanged = !!(slug && slug !== existing.slug);
+  if (slugChanged) {
+    const newUrl = `https://${slug}.mypillar.co`;
+    await db.execute(
+      sql`UPDATE organizations SET community_site_url = ${newUrl} WHERE id = ${existing.id}`,
+    );
+    await db.execute(
+      sql`UPDATE cs_org_configs SET org_id = ${slug} WHERE org_id = ${existing.slug}`,
+    );
+    await db.execute(
+      sql`UPDATE cs_events SET org_id = ${slug} WHERE org_id = ${existing.slug}`,
+    );
+    await db.execute(
+      sql`UPDATE cs_admin_users SET org_id = ${slug} WHERE org_id = ${existing.slug}`,
+    );
+    await db.execute(
+      sql`UPDATE sites SET org_slug = ${slug} WHERE org_slug = ${existing.slug}`,
+    );
+  }
+
   // Sync branding to live community tenant if published
-  if (org.slug) {
+  const effectiveSlug = slugChanged ? slug! : org.slug;
+  if (effectiveSlug) {
     const [publishedSite] = await db
       .select({ id: sitesTable.id })
       .from(sitesTable)
-      .where(and(eq(sitesTable.orgId, existing.id), eq(sitesTable.status, "published")))
+      .where(
+        and(
+          eq(sitesTable.orgId, existing.id),
+          eq(sitesTable.status, "published"),
+        ),
+      )
       .limit(1);
     if (publishedSite) {
       const patch: Record<string, string | undefined> = { orgName: name };
@@ -212,21 +291,25 @@ router.put("/organizations", async (req: Request, res: Response) => {
       if (meetingTime) patch.meetingTime = meetingTime;
       if (meetingLocation) patch.meetingLocation = meetingLocation;
       try {
-        await syncOrgConfigPatchToPillar({ orgId: org.slug, ...patch });
+        await syncOrgConfigPatchToPillar({ orgId: effectiveSlug, ...patch });
       } catch (syncErr: any) {
-        console.error("[organizations] local update OK but live Pillar org-config sync failed", syncErr);
-        return res.status(502).json({
-          error: "Organization settings were saved but failed to sync to the live Pillar site",
-          localOnly: true,
-        });
+        console.error("[organizations] sync failed", syncErr);
+        return res
+          .status(502)
+          .json({
+            error: "Settings saved but failed to sync to live site",
+            localOnly: true,
+          });
       }
     }
   }
 
-  res.json({ organization: { ...org, createdAt: org.createdAt.toISOString() } });
+  res.json({
+    organization: { ...org, createdAt: org.createdAt.toISOString() },
+  });
 });
 
-// DELETE /api/organizations — permanently delete the organization and all its data
+// DELETE /api/organizations
 router.delete("/organizations", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
@@ -234,68 +317,88 @@ router.delete("/organizations", async (req: Request, res: Response) => {
   }
 
   const userId = req.user.id;
-  const [org] = await db.select().from(organizationsTable).where(eq(organizationsTable.userId, userId));
-
+  const [org] = await db
+    .select()
+    .from(organizationsTable)
+    .where(eq(organizationsTable.userId, userId));
   if (!org) {
     res.status(404).json({ error: "Organization not found" });
     return;
   }
 
   const orgId = org.id;
-
-  // Board approval votes require the link IDs first (no orgId on votes table)
   const linkIds = await db
     .select({ id: boardApprovalLinksTable.id })
     .from(boardApprovalLinksTable)
     .where(eq(boardApprovalLinksTable.orgId, orgId));
 
-  // Delete everything in dependency order (children before parents) in a transaction
   await db.transaction(async (tx) => {
-    // Board approval votes (only linkId, no orgId) → then the links
     for (const { id: lid } of linkIds) {
-      await tx.delete(boardApprovalVotesTable).where(eq(boardApprovalVotesTable.linkId, lid));
+      await tx
+        .delete(boardApprovalVotesTable)
+        .where(eq(boardApprovalVotesTable.linkId, lid));
     }
-    await tx.delete(boardApprovalLinksTable).where(eq(boardApprovalLinksTable.orgId, orgId));
-
-    // Events and all child tables (all have orgId)
+    await tx
+      .delete(boardApprovalLinksTable)
+      .where(eq(boardApprovalLinksTable.orgId, orgId));
     await tx.delete(ticketSalesTable).where(eq(ticketSalesTable.orgId, orgId));
     await tx.delete(ticketTypesTable).where(eq(ticketTypesTable.orgId, orgId));
-    await tx.delete(eventVendorsTable).where(eq(eventVendorsTable.orgId, orgId));
-    await tx.delete(eventSponsorsTable).where(eq(eventSponsorsTable.orgId, orgId));
-    await tx.delete(eventApprovalsTable).where(eq(eventApprovalsTable.orgId, orgId));
-    await tx.delete(eventCommunicationsTable).where(eq(eventCommunicationsTable.orgId, orgId));
+    await tx
+      .delete(eventVendorsTable)
+      .where(eq(eventVendorsTable.orgId, orgId));
+    await tx
+      .delete(eventSponsorsTable)
+      .where(eq(eventSponsorsTable.orgId, orgId));
+    await tx
+      .delete(eventApprovalsTable)
+      .where(eq(eventApprovalsTable.orgId, orgId));
+    await tx
+      .delete(eventCommunicationsTable)
+      .where(eq(eventCommunicationsTable.orgId, orgId));
     await tx.delete(paymentsTable).where(eq(paymentsTable.orgId, orgId));
-    await tx.delete(recurringEventTemplatesTable).where(eq(recurringEventTemplatesTable.orgId, orgId));
+    await tx
+      .delete(recurringEventTemplatesTable)
+      .where(eq(recurringEventTemplatesTable.orgId, orgId));
     await tx.delete(eventsTable).where(eq(eventsTable.orgId, orgId));
-
-    // Social
     await tx.delete(socialPostsTable).where(eq(socialPostsTable.orgId, orgId));
-    await tx.delete(automationRulesTable).where(eq(automationRulesTable.orgId, orgId));
-    await tx.delete(contentStrategyTable).where(eq(contentStrategyTable.orgId, orgId));
+    await tx
+      .delete(automationRulesTable)
+      .where(eq(automationRulesTable.orgId, orgId));
+    await tx
+      .delete(contentStrategyTable)
+      .where(eq(contentStrategyTable.orgId, orgId));
     await tx.delete(oauthStatesTable).where(eq(oauthStatesTable.orgId, orgId));
-    await tx.delete(socialAccountsTable).where(eq(socialAccountsTable.orgId, orgId));
-
-    // Site content
-    await tx.delete(siteNavItemsTable).where(eq(siteNavItemsTable.orgId, orgId));
+    await tx
+      .delete(socialAccountsTable)
+      .where(eq(socialAccountsTable.orgId, orgId));
+    await tx
+      .delete(siteNavItemsTable)
+      .where(eq(siteNavItemsTable.orgId, orgId));
     await tx.delete(siteBlocksTable).where(eq(siteBlocksTable.orgId, orgId));
     await tx.delete(sitePagesTable).where(eq(sitePagesTable.orgId, orgId));
     await tx.delete(sitesTable).where(eq(sitesTable.orgId, orgId));
-    await tx.delete(siteUpdateSchedulesTable).where(eq(siteUpdateSchedulesTable.orgId, orgId));
-    await tx.delete(websiteSpecsTable).where(eq(websiteSpecsTable.orgId, orgId));
-
-    // Studio, notifications, contacts, vendors, sponsors, domains
-    await tx.delete(studioOutputsTable).where(eq(studioOutputsTable.orgId, orgId));
-    await tx.delete(notificationsTable).where(eq(notificationsTable.orgId, orgId));
+    await tx
+      .delete(siteUpdateSchedulesTable)
+      .where(eq(siteUpdateSchedulesTable.orgId, orgId));
+    await tx
+      .delete(websiteSpecsTable)
+      .where(eq(websiteSpecsTable.orgId, orgId));
+    await tx
+      .delete(studioOutputsTable)
+      .where(eq(studioOutputsTable.orgId, orgId));
+    await tx
+      .delete(notificationsTable)
+      .where(eq(notificationsTable.orgId, orgId));
     await tx.delete(contactsTable).where(eq(contactsTable.orgId, orgId));
     await tx.delete(vendorsTable).where(eq(vendorsTable.orgId, orgId));
     await tx.delete(sponsorsTable).where(eq(sponsorsTable.orgId, orgId));
     await tx.delete(domainsTable).where(eq(domainsTable.orgId, orgId));
-
-    // Subscriptions (linked by userId)
-    await tx.delete(subscriptionsTable).where(eq(subscriptionsTable.userId, userId));
-
-    // Finally, the organization itself
-    await tx.delete(organizationsTable).where(eq(organizationsTable.userId, userId));
+    await tx
+      .delete(subscriptionsTable)
+      .where(eq(subscriptionsTable.userId, userId));
+    await tx
+      .delete(organizationsTable)
+      .where(eq(organizationsTable.userId, userId));
   });
 
   res.json({ success: true });
