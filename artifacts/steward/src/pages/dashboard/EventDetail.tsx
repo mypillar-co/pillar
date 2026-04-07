@@ -250,6 +250,10 @@ export default function EventDetailPage() {
     },
     enabled: !!id,
   });
+  const { data: orgData } = useQuery<{ slug: string }>({
+    queryKey: ["org-info"],
+    queryFn: () => fetch("/api/organizations", { credentials: "include" }).then(r => r.json()),
+  });
 
   const detail = data as EventDetail | undefined;
   const event = detail?.event;
@@ -407,15 +411,9 @@ export default function EventDetailPage() {
   const canSubmit = event.status === "draft" && !hasPendingApproval;
   const canApproveReject = event.status === "pending_approval" && hasPendingApproval;
   const pendingRegs = (registrations as Registration[]).filter(r => r.status === "pending_approval");
-  const { data: orgData } = useQuery<{ slug: string }>({
-    queryKey: ["org-info"],
-    queryFn: () => fetch("/api/organizations", { credentials: "include" }).then(r => r.json()),
-  });
-
   const publicEventUrl = event.slug && orgData?.slug
     ? `https://${orgData.slug}.mypillar.co/events/${event.slug}`
     : null;
-
   const TABS: { key: Tab; label: string; icon: React.ElementType; count?: number }[] = [
     { key: "overview", label: "Overview", icon: Calendar },
     { key: "registrations", label: "Registrations", icon: ClipboardList, count: pendingRegs.length || undefined },
