@@ -713,11 +713,17 @@ export default function SiteBuilder() {
         credentials: "include",
         body: JSON.stringify({ publish }),
       });
-      if (!res.ok) throw new Error("Failed");
-      const data = await res.json() as { site: Site };
-      setSite(data.site);
+      const data = await res.json() as { site?: Site; siteUrl?: string; error?: string };
+      if (!res.ok) {
+        alert(data.error ?? "Failed to update site status.");
+        return;
+      }
+      if (data.site) setSite(data.site);
+      if (publish && data.siteUrl) {
+        setOrgSlug(data.siteUrl.replace("https://", "").replace(".mypillar.co", ""));
+      }
     } catch {
-      alert("Failed to update site status.");
+      alert("Failed to update site status. Please try again.");
     } finally {
       setPublishing(false);
     }

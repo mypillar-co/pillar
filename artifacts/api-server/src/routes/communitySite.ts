@@ -1143,6 +1143,35 @@ router.post("/interview", async (req: Request, res: Response) => {
       .set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` })
       .where(eq(organizationsTable.id, org.id));
 
+    // ── Extract [PAYLOAD_READY] JSON and store durably in organizations.site_config ──
+    // This is the only place the structured payload enters durable storage so that
+    // PUT /api/sites/my/publish can provision the tenant without depending on React state.
+    if (reply.includes("[PAYLOAD_READY]")) {
+      try {
+        const afterMarker = reply.slice(reply.indexOf("[PAYLOAD_READY]") + "[PAYLOAD_READY]".length).trim();
+        // Strip optional markdown code fences (```json … ```)
+        const jsonRaw = afterMarker
+          .replace(/^```json\s*/i, "")
+          .replace(/^```\s*/i, "")
+          .replace(/\s*```\s*$/, "")
+          .trim();
+        const parsed = JSON.parse(jsonRaw) as Record<string, unknown>;
+        if (parsed && typeof parsed === "object" && typeof parsed.orgName === "string" && parsed.orgName) {
+          await db.execute(sql`
+            UPDATE organizations
+            SET site_config = ${JSON.stringify(parsed)}::jsonb
+            WHERE id = ${org.id}
+          `);
+          console.log(`[interview] [PAYLOAD_READY] stored site_config for org ${org.id} (orgName="${parsed.orgName}")`);
+        } else {
+          console.warn(`[interview] [PAYLOAD_READY] JSON missing orgName — site_config not stored`);
+        }
+      } catch (parseErr) {
+        // Non-fatal: the user can still see the reply; next interview turn may produce a valid payload
+        console.warn(`[interview] [PAYLOAD_READY] JSON parse failed — site_config not stored:`, parseErr);
+      }
+    }
+
     res.json({ reply, tier });
   } catch (normalErr) {
     console.error("[interview normal-path error]", normalErr);

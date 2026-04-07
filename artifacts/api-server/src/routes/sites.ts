@@ -2861,11 +2861,103 @@ router.put("/my/publish", async (req: Request, res: Response) => {
   if (!existing) { res.status(404).json({ error: "No site found" }); return; }
   if (!existing.generatedHtml) { res.status(400).json({ error: "Site has no generated content" }); return; }
 
+  // ── PUBLISH: provision community-platform tenant first, then mark published ──
+  if (publish) {
+    // 1. Read site_config and slug from organizations (stored by interview route on [PAYLOAD_READY])
+    const orgRow = await db.execute(sql`
+      SELECT site_config, slug FROM organizations WHERE id = ${org.id} LIMIT 1
+    `);
+    const orgData = (orgRow as any).rows?.[0] as
+      | { site_config: Record<string, unknown> | null; slug: string | null }
+      | undefined;
+
+    const siteConfig = orgData?.site_config;
+    const orgSlug = orgData?.slug ?? existing.orgSlug;
+
+    console.log(`[publish] org=${org.id} slug=${orgSlug} hasConfig=${!!siteConfig}`);
+
+    if (!siteConfig || typeof siteConfig !== "object") {
+      return res.status(400).json({
+        error: "Site configuration not found. Complete the AI interview first — the interview builds your site data.",
+      });
+    }
+
+    if (!orgSlug) {
+      return res.status(400).json({
+        error: "A URL slug is required before publishing. Set your site URL first.",
+      });
+    }
+
+    const mypillarUrl = `https://${orgSlug}.mypillar.co`;
+    const cpBaseUrl = (process.env.COMMUNITY_PLATFORM_URL || "http://localhost:5001").replace(/\/$/, "");
+    const cpKey = process.env.PILLAR_SERVICE_KEY;
+
+    if (!cpKey) {
+      console.error(`[publish] PILLAR_SERVICE_KEY not set — cannot provision tenant`);
+      return res.status(500).json({ error: "Provisioning service is not configured on this server." });
+    }
+
+    // 2. Push structured config to community platform
+    console.log(`[publish] Provisioning tenant "${orgSlug}" → ${cpBaseUrl}/api/pillar/setup`);
+    let cpOk = false;
+    try {
+      const cpRes = await fetch(`${cpBaseUrl}/api/pillar/setup`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-pillar-service-key": cpKey,
+        },
+        body: JSON.stringify({ ...siteConfig, orgId: orgSlug }),
+        signal: AbortSignal.timeout(20_000),
+      });
+
+      if (!cpRes.ok) {
+        const cpBody = await cpRes.text().catch(() => "(no body)");
+        console.error(`[publish] Community platform returned ${cpRes.status}: ${cpBody}`);
+        return res.status(502).json({
+          error: `Provisioning failed (${cpRes.status}). Please try again or contact support.`,
+        });
+      }
+
+      const cpData = await cpRes.json() as { ok?: boolean; seeded?: unknown };
+      cpOk = cpData.ok === true;
+      console.log(`[publish] Tenant "${orgSlug}" provisioned — seeded:`, JSON.stringify(cpData.seeded));
+    } catch (fetchErr) {
+      console.error(`[publish] Community platform request failed:`, fetchErr);
+      return res.status(502).json({
+        error: "Could not reach the provisioning service. Please try again.",
+      });
+    }
+
+    if (!cpOk) {
+      return res.status(502).json({ error: "Provisioning service returned an unexpected response. Please try again." });
+    }
+
+    // 3. Save community_site_url to organizations
+    await db.execute(sql`
+      UPDATE organizations
+      SET community_site_url = ${mypillarUrl}
+      WHERE id = ${org.id}
+    `);
+    console.log(`[publish] community_site_url set to ${mypillarUrl} for org ${org.id}`);
+
+    // 4. Mark the site published — only after provision succeeded
+    const [site] = await db.update(sitesTable)
+      .set({ status: "published", publishedAt: new Date(), updatedAt: new Date() })
+      .where(eq(sitesTable.orgId, org.id))
+      .returning();
+
+    console.log(`[publish] Org "${orgSlug}" (${org.id}) is now LIVE at ${mypillarUrl}`);
+    return res.json({ site: { ...site, proposedHtml: undefined }, siteUrl: mypillarUrl });
+  }
+
+  // ── UNPUBLISH: just flip the status flag ──────────────────────────────────
   const [site] = await db.update(sitesTable)
-    .set({ status: publish ? "published" : "draft", publishedAt: publish ? new Date() : null, updatedAt: new Date() })
+    .set({ status: "draft", publishedAt: null, updatedAt: new Date() })
     .where(eq(sitesTable.orgId, org.id))
     .returning();
 
+  console.log(`[publish] Org ${org.id} unpublished`);
   res.json({ site: { ...site, proposedHtml: undefined } });
 });
 
