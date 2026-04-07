@@ -1,4 +1,4 @@
-import { Switch, Route, Router } from "wouter";
+import { Switch, Route } from "wouter";
 import { ConfigProvider, useConfig } from "./config-context";
 import Navigation from "./components/Navigation";
 import Footer from "./components/Footer";
@@ -43,28 +43,26 @@ function AppContent() {
     <div className="min-h-screen flex flex-col">
       <Navigation />
       <main className="flex-1">
-        <Router>
-          <Switch>
-            <Route path="/" component={HomePage} />
-            <Route path="/events" component={EventsPage} />
-            <Route path="/events/:slug" component={EventDetailPage} />
-            <Route path="/about" component={AboutPage} />
-            <Route path="/contact" component={ContactPage} />
-            <Route path="/gallery" component={GalleryPage} />
-            <Route path="/blog" component={BlogPage} />
-            <Route path="/blog/:slug" component={BlogPostPage} />
-            <Route path="/admin/login" component={AdminLoginPage} />
-            <Route path="/admin" component={AdminPage} />
-            <Route path="/payment-success" component={PaymentSuccessPage} />
-            <Route>
-              <div className="max-w-3xl mx-auto px-4 py-24 text-center">
-                <h1 className="text-4xl font-bold font-serif mb-4">404</h1>
-                <p className="text-gray-500 mb-6">Page not found.</p>
-                <a href="/" className="px-5 py-2 rounded-md text-white text-sm" style={{ backgroundColor: "var(--primary-hex)" }}>Go Home</a>
-              </div>
-            </Route>
-          </Switch>
-        </Router>
+        <Switch>
+          <Route path="/" component={HomePage} />
+          <Route path="/events" component={EventsPage} />
+          <Route path="/events/:slug" component={EventDetailPage} />
+          <Route path="/about" component={AboutPage} />
+          <Route path="/contact" component={ContactPage} />
+          <Route path="/gallery" component={GalleryPage} />
+          <Route path="/blog" component={BlogPage} />
+          <Route path="/blog/:slug" component={BlogPostPage} />
+          <Route path="/admin/login" component={AdminLoginPage} />
+          <Route path="/admin" component={AdminPage} />
+          <Route path="/payment-success" component={PaymentSuccessPage} />
+          <Route>
+            <div className="max-w-3xl mx-auto px-4 py-24 text-center">
+              <h1 className="text-4xl font-bold font-serif mb-4">404</h1>
+              <p className="text-gray-500 mb-6">Page not found.</p>
+              <a href="/" className="px-5 py-2 rounded-md text-white text-sm" style={{ backgroundColor: "var(--primary-hex)" }}>Go Home</a>
+            </div>
+          </Route>
+        </Switch>
       </main>
       <Footer />
     </div>
