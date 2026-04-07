@@ -7,6 +7,7 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import httpModule from "http";
+import httpProxy from "http-proxy";
 import { authMiddleware } from "./middlewares/authMiddleware";
 import { csrfMiddleware } from "./lib/csrf";
 import { sendErrorAlert } from "./lib/errorAlert";
@@ -40,6 +41,26 @@ const WORKSPACE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const app: Express = express();
 
 app.set("trust proxy", 1);
+
+// ── x-pillar-slug: top-level community platform proxy ────────────────────────
+// The Cloudflare Worker sets x-pillar-slug on every request so the API server
+// knows which org to serve, without needing to parse the Host header.
+const proxy = httpProxy.createProxyServer({});
+proxy.on("error", (err, _req, res) => {
+  console.error("[x-pillar-slug proxy error]", (err as Error).message);
+  const r = res as httpModule.ServerResponse;
+  if (!r.headersSent) { r.writeHead(502); r.end("Community platform unavailable"); }
+});
+
+app.use((req, res, next) => {
+  const slug = req.headers["x-pillar-slug"] as string;
+  if (!slug) return next();
+
+  proxy.web(req, res, {
+    target: "http://localhost:5001",
+    headers: { "x-org-id": slug },
+  });
+});
 
 // ── Community platform pipe proxy ────────────────────────────────────────────
 // Streams the request/response directly to localhost:5001 with no buffering,
