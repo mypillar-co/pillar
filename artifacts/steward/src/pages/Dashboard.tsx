@@ -76,7 +76,7 @@ function useCommandCenterData() {
         fetch(`${BASE}/api/notifications`, { credentials: "include" }),
         fetch(`${BASE}/api/events`, { credentials: "include" }),
         fetch(`${BASE}/api/stats`, { credentials: "include" }),
-        fetch(`${BASE}/api/sites`, { credentials: "include" }),
+        fetch(`${BASE}/api/community-site/status`, { credentials: "include" }),
       ]);
 
       const notifData = notifRes.status === "fulfilled" && notifRes.value.ok
@@ -91,9 +91,9 @@ function useCommandCenterData() {
         ? (await statsRes.value.json()) as DashboardData["stats"]
         : { activeEvents: 0, totalVendors: 0, totalSponsors: 0, totalRevenue: 0, totalContacts: 0 };
 
-      const sitesData = sitesRes.status === "fulfilled" && sitesRes.value.ok
-        ? (await sitesRes.value.json()) as { site?: { generatedHtml?: string } }
-        : { site: null };
+      const siteStatusData = sitesRes.status === "fulfilled" && sitesRes.value.ok
+        ? (await sitesRes.value.json()) as { url?: string | null }
+        : { url: null };
 
       const now = new Date();
       const upcoming = (eventsData.events ?? [])
@@ -106,7 +106,7 @@ function useCommandCenterData() {
         notifications: (notifData.notifications ?? []).filter(n => !n.isRead).slice(0, 5),
         upcomingEvents: upcoming,
         stats: statsData,
-        hasSite: !!(sitesData.site?.generatedHtml),
+        hasSite: !!(siteStatusData.url),
       });
     } catch {
       // Gracefully degrade

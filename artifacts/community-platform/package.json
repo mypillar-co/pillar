@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx --tsconfig tsconfig.server.json server/index.ts",
-    "build": "vite build && tsc -p tsconfig.server.json --noEmit",
-    "start": "NODE_ENV=production node dist/server/index.js"
+    "build": "node build.mjs",
+    "start": "NODE_ENV=production node dist/server/server.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",
@@ -38,6 +38,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.4",
+    "esbuild": "^0.27.3",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "^5.8.3",
