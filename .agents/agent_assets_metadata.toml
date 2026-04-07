@@ -53,3 +53,9 @@ id = "wdtNdd1CIgzv2g6Wl2-_a"
 uri = "file://exports/pillar-platform-source.tar.gz"
 type = "unspecified"
 title = "pillar-platform-source.tar.gz (updated Apr 7 2026)"
+
+[[outputs]]
+id = "GHgO2QRNZ5NR0625lyPe7"
+uri = "file://exports/DEPLOYMENT_CHECKLIST.md"
+type = "text"
+title = "DEPLOYMENT_CHECKLIST.md"
