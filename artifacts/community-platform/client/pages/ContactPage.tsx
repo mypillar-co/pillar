@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useConfig } from "../config-context";
+import { apiFetch } from "../lib/api";
 
 export default function ContactPage() {
   const config = useConfig();
@@ -18,7 +19,7 @@ export default function ContactPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      await fetch("/api/contact", {
+      await apiFetch("/api/contact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, email, subject, message, website: honeypot, formTiming: Date.now() - formLoadedAt }),

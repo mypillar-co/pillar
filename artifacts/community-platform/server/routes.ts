@@ -2,10 +2,11 @@ import type { Express, Request, Response, NextFunction } from "express";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { z } from "zod";
+import { sql as neonSql } from "drizzle-orm";
 import * as storage from "./storage.js";
+import { db } from "./db.js";
 import { computeRegistrationWindow } from "./registration-window-engine.js";
 import { createContentHook } from "./content-hooks.js";
-import { neon } from "@neondatabase/serverless";
 
 function generateSlug(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
@@ -408,14 +409,21 @@ export function registerRoutes(app: Express) {
 
   app.post("/api/pillar/setup", async (req, res) => {
     try {
-      const orgId = getOrgId(req);
-      const serviceKey = req.headers["x-pillar-key"] as string;
+      const orgId = req.body?.orgId || getOrgId(req);
+      const serviceKey = (req.headers["x-pillar-service-key"] || req.headers["x-pillar-key"]) as string;
 
-      const sql = neon(process.env.DATABASE_URL!);
-      const orgRows = await sql`SELECT community_site_key FROM organizations WHERE slug = ${orgId} LIMIT 1`;
-      if (!orgRows[0]) return res.status(401).json({ error: "Organization not found" });
-      if (orgRows[0].community_site_key && orgRows[0].community_site_key !== serviceKey) {
-        return res.status(401).json({ error: "Invalid or missing service key" });
+      const envKey = process.env.PILLAR_SERVICE_KEY;
+      if (!envKey || serviceKey !== envKey) {
+        try {
+          const result = await db.execute(neonSql`SELECT community_site_key FROM organizations WHERE slug = ${orgId} LIMIT 1`);
+          const row = (result as any).rows?.[0] || (result as any)[0];
+          if (!row) return res.status(401).json({ error: "Organization not found" });
+          if (row.community_site_key && row.community_site_key !== serviceKey) {
+            return res.status(401).json({ error: "Invalid service key" });
+          }
+        } catch {
+          if (!serviceKey) return res.status(401).json({ error: "Service key required" });
+        }
       }
 
       if (!req.body || typeof req.body !== "object") return res.status(400).json({ error: "Request body must be a JSON object" });

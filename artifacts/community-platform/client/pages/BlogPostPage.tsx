@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "wouter";
+import { apiFetch } from "../lib/api";
 
 interface Post {
   id: number;
@@ -18,7 +19,7 @@ export default function BlogPostPage() {
   const { data: post, isLoading } = useQuery<Post>({
     queryKey: ["/api/blog", slug],
     queryFn: async () => {
-      const res = await fetch(`/api/blog/${slug}`);
+      const res = await apiFetch(`/api/blog/${slug}`);
       if (!res.ok) throw new Error("Post not found");
       return res.json();
     },

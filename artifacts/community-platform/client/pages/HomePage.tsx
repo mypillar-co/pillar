@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useConfig } from "../config-context";
+import { apiFetch } from "../lib/api";
 
 interface Event {
   id: number;
@@ -160,7 +161,7 @@ function NewsletterSection({ orgName, location }: { orgName: string; location?: 
             const form = e.currentTarget;
             const email = (form.querySelector('[name="email"]') as HTMLInputElement)?.value;
             if (!email) return;
-            await fetch("/api/newsletter/subscribe", {
+            await apiFetch("/api/newsletter/subscribe", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ email, formTiming: 5000 }),

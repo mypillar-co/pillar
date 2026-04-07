@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { apiFetch } from "../lib/api";
 import { useState } from "react";
 
 interface Album { id: number; title: string; description: string | null; coverPhotoUrl: string | null; }
@@ -13,7 +14,7 @@ export default function GalleryPage() {
   const { data: photos } = useQuery<Photo[]>({
     queryKey: ["/api/photo-albums", selectedAlbum?.id, "photos"],
     queryFn: async () => {
-      const res = await fetch(`/api/photo-albums/${selectedAlbum!.id}/photos`);
+      const res = await apiFetch(`/api/photo-albums/${selectedAlbum!.id}/photos`);
       return res.json();
     },
     enabled: !!selectedAlbum,

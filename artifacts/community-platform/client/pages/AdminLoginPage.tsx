@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useConfig } from "../config-context";
+import { apiFetch } from "../lib/api";
 
 export default function AdminLoginPage() {
   const config = useConfig();
@@ -15,11 +16,10 @@ export default function AdminLoginPage() {
     setError("");
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/login", {
+      const res = await apiFetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
-        credentials: "include",
       });
       if (res.ok) {
         setLocation("/admin");

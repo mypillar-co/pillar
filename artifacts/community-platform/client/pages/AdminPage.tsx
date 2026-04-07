@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useConfig } from "../config-context";
+import { apiFetch } from "../lib/api";
 
 type Tab = "events" | "sponsors" | "businesses" | "blog" | "messages" | "newsletter";
 
@@ -14,7 +15,7 @@ export default function AdminPage() {
   const { data: user, isLoading: authLoading } = useQuery<any>({
     queryKey: ["/api/auth/me"],
     queryFn: async () => {
-      const res = await fetch("/api/auth/me", { credentials: "include" });
+      const res = await apiFetch("/api/auth/me");
       if (!res.ok) throw new Error("Not authenticated");
       return res.json();
     },
@@ -26,7 +27,7 @@ export default function AdminPage() {
   }, [user, authLoading]);
 
   const logout = async () => {
-    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    await apiFetch("/api/auth/logout", { method: "POST" });
     setLocation("/admin/login");
   };
 
@@ -82,7 +83,7 @@ export default function AdminPage() {
 
 function EventsAdmin() {
   const qc = useQueryClient();
-  const { data: events } = useQuery<any[]>({ queryKey: ["/api/events"], queryFn: async () => { const r = await fetch("/api/events?all=true"); return r.json(); } });
+  const { data: events } = useQuery<any[]>({ queryKey: ["/api/events"], queryFn: async () => { const r = await apiFetch("/api/events?all=true"); return r.json(); } });
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<any>({ title: "", description: "", date: "", time: "", location: "", category: "Community", featured: false, isActive: true, isTicketed: false });
@@ -90,7 +91,7 @@ function EventsAdmin() {
   const save = async () => {
     const method = editingId ? "PATCH" : "POST";
     const url = editingId ? `/api/admin/events/${editingId}` : "/api/admin/events";
-    await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(form), credentials: "include" });
+    await apiFetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
     qc.invalidateQueries({ queryKey: ["/api/events"] });
     setShowForm(false); setEditingId(null);
     setForm({ title: "", description: "", date: "", time: "", location: "", category: "Community", featured: false, isActive: true, isTicketed: false });
@@ -98,7 +99,7 @@ function EventsAdmin() {
 
   const del = async (id: number) => {
     if (!confirm("Delete this event?")) return;
-    await fetch(`/api/admin/events/${id}`, { method: "DELETE", credentials: "include" });
+    await apiFetch(`/api/admin/events/${id}`, { method: "DELETE" });
     qc.invalidateQueries({ queryKey: ["/api/events"] });
   };
 
@@ -174,7 +175,7 @@ function SponsorsAdmin() {
   const [form, setForm] = useState({ name: "", level: "Gold Sponsor", websiteUrl: "", logoUrl: "", eventType: "general" });
 
   const save = async () => {
-    await fetch("/api/admin/sponsors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form), credentials: "include" });
+    await apiFetch("/api/admin/sponsors", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
     qc.invalidateQueries({ queryKey: ["/api/sponsors"] });
     setShowForm(false);
     setForm({ name: "", level: "Gold Sponsor", websiteUrl: "", logoUrl: "", eventType: "general" });
@@ -182,7 +183,7 @@ function SponsorsAdmin() {
 
   const del = async (id: number) => {
     if (!confirm("Remove this sponsor?")) return;
-    await fetch(`/api/admin/sponsors/${id}`, { method: "DELETE", credentials: "include" });
+    await apiFetch(`/api/admin/sponsors/${id}`, { method: "DELETE" });
     qc.invalidateQueries({ queryKey: ["/api/sponsors"] });
   };
 
@@ -231,7 +232,7 @@ function BusinessesAdmin() {
   const [form, setForm] = useState({ name: "", description: "", address: "", phone: "", website: "", category: "" });
 
   const save = async () => {
-    await fetch("/api/admin/businesses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form), credentials: "include" });
+    await apiFetch("/api/admin/businesses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
     qc.invalidateQueries({ queryKey: ["/api/businesses"] });
     setShowForm(false);
     setForm({ name: "", description: "", address: "", phone: "", website: "", category: "" });
@@ -239,7 +240,7 @@ function BusinessesAdmin() {
 
   const del = async (id: number) => {
     if (!confirm("Remove this business?")) return;
-    await fetch(`/api/admin/businesses/${id}`, { method: "DELETE", credentials: "include" });
+    await apiFetch(`/api/admin/businesses/${id}`, { method: "DELETE" });
     qc.invalidateQueries({ queryKey: ["/api/businesses"] });
   };
 
@@ -284,7 +285,7 @@ function BusinessesAdmin() {
 
 function BlogAdmin() {
   const qc = useQueryClient();
-  const { data: posts } = useQuery<any[]>({ queryKey: ["/api/admin/blog"], queryFn: async () => { const r = await fetch("/api/admin/blog", { credentials: "include" }); return r.json(); } });
+  const { data: posts } = useQuery<any[]>({ queryKey: ["/api/admin/blog"], queryFn: async () => { const r = await apiFetch("/api/admin/blog"); return r.json(); } });
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<number|null>(null);
   const [form, setForm] = useState({ title: "", excerpt: "", content: "", category: "News", author: "", published: false });
@@ -292,7 +293,7 @@ function BlogAdmin() {
   const save = async () => {
     const method = editId ? "PATCH" : "POST";
     const url = editId ? `/api/admin/blog/${editId}` : "/api/admin/blog";
-    await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(form), credentials: "include" });
+    await apiFetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
     qc.invalidateQueries({ queryKey: ["/api/admin/blog"] });
     qc.invalidateQueries({ queryKey: ["/api/blog"] });
     setShowForm(false); setEditId(null);
@@ -301,7 +302,7 @@ function BlogAdmin() {
 
   const del = async (id: number) => {
     if (!confirm("Delete post?")) return;
-    await fetch(`/api/admin/blog/${id}`, { method: "DELETE", credentials: "include" });
+    await apiFetch(`/api/admin/blog/${id}`, { method: "DELETE" });
     qc.invalidateQueries({ queryKey: ["/api/admin/blog"] });
   };
 
@@ -349,7 +350,7 @@ function BlogAdmin() {
 }
 
 function MessagesAdmin() {
-  const { data: messages } = useQuery<any[]>({ queryKey: ["/api/admin/contact-messages"], queryFn: async () => { const r = await fetch("/api/admin/contact-messages", { credentials: "include" }); return r.json(); } });
+  const { data: messages } = useQuery<any[]>({ queryKey: ["/api/admin/contact-messages"], queryFn: async () => { const r = await apiFetch("/api/admin/contact-messages"); return r.json(); } });
   return (
     <div>
       <h2 className="text-lg font-semibold mb-4">Contact Messages ({messages?.length || 0})</h2>
@@ -371,7 +372,7 @@ function MessagesAdmin() {
 }
 
 function NewsletterAdmin() {
-  const { data: subscribers } = useQuery<any[]>({ queryKey: ["/api/admin/newsletter-subscribers"], queryFn: async () => { const r = await fetch("/api/admin/newsletter-subscribers", { credentials: "include" }); return r.json(); } });
+  const { data: subscribers } = useQuery<any[]>({ queryKey: ["/api/admin/newsletter-subscribers"], queryFn: async () => { const r = await apiFetch("/api/admin/newsletter-subscribers"); return r.json(); } });
   const active = subscribers?.filter(s => s.status === "active") || [];
   return (
     <div>

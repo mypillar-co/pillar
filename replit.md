@@ -22,7 +22,7 @@ The project is organized as a monorepo containing several distinct packages:
 Multi-tenant Express + React/Vite app that serves as the actual community site engine for `*.mypillar.co` subdomains. Key details:
 - **Port**: 5001. Cloudflare wildcard DNS routes `*.mypillar.co` → Replit.
 - **Multi-tenancy**: `Host` header (or `x-forwarded-host`) is parsed to extract the subdomain slug as `orgId`. All DB tables are prefixed `cs_*` and scoped by `org_id`.
-- **Setup**: `POST /api/pillar/setup` provisions an org. Requires `x-pillar-key` matching the org's `community_site_key` in the `organizations` table.
+- **Setup**: `POST /api/pillar/setup` provisions an org. Requires `x-pillar-service-key` header matching `PILLAR_SERVICE_KEY` env var, or falling back to `community_site_key` in the `organizations` table. Accepts `orgId` in body or extracted from host/`x-org-id` header.
 - **Admin**: `/admin/login` → `/admin` (email/password auth, bcrypt hashed).
 - **DB driver**: `drizzle-orm/neon-serverless` with WebSocket support (`ws` package).
 - **Pages**: Home, Events, Event Detail, About, Contact, Gallery, Blog, Admin Login, Admin Dashboard, Payment Success.

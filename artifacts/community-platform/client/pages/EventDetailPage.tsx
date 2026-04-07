@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "wouter";
 import { useState } from "react";
 import { useConfig } from "../config-context";
+import { apiFetch, apiUrl } from "../lib/api";
 
 export default function EventDetailPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -9,7 +10,7 @@ export default function EventDetailPage() {
   const { data: event, isLoading } = useQuery<any>({
     queryKey: ["/api/events/slug", slug],
     queryFn: async () => {
-      const res = await fetch(`/api/events/slug/${slug}`);
+      const res = await apiFetch(`/api/events/slug/${slug}`);
       if (!res.ok) throw new Error("Event not found");
       return res.json();
     },
@@ -95,7 +96,7 @@ function TicketSection({ slug, eventTitle }: { slug: string; eventTitle: string 
   const { data: avail } = useQuery<any>({
     queryKey: ["/api/events", slug, "ticket-availability"],
     queryFn: async () => {
-      const res = await fetch(`/api/events/${slug}/ticket-availability`);
+      const res = await apiFetch(`/api/events/${slug}/ticket-availability`);
       if (!res.ok) throw new Error("Not available");
       return res.json();
     },
@@ -122,7 +123,7 @@ function TicketSection({ slug, eventTitle }: { slug: string; eventTitle: string 
     if (!name.trim() || !email.trim()) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/events/${slug}/ticket-checkout`, {
+      const res = await apiFetch(`/api/events/${slug}/ticket-checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ buyerName: name, buyerEmail: email, quantity: qty }),

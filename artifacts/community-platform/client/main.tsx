@@ -4,11 +4,19 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import "./index.css";
 
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+function apiUrl(path: string): string {
+  if (path.startsWith("/api")) return `${base}${path}`;
+  return path;
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       queryFn: async ({ queryKey }) => {
-        const url = (queryKey as string[]).join("/");
+        const path = (queryKey as string[]).join("/");
+        const url = apiUrl(path);
         const res = await fetch(url, { credentials: "include" });
         if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
         return res.json();

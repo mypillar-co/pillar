@@ -17,6 +17,16 @@ app.set("trust proxy", 1);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
+const basePath = (process.env.BASE_PATH || "/").replace(/\/$/, "");
+if (basePath) {
+  app.use((req, _res, next) => {
+    if (req.url.startsWith(basePath)) {
+      req.url = req.url.slice(basePath.length) || "/";
+    }
+    next();
+  });
+}
+
 app.use(
   session({
     secret: process.env.SESSION_SECRET || "community-platform-secret-key-change-in-prod",
