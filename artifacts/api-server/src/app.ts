@@ -468,9 +468,30 @@ app.use(async (req, res, next) => {
     // Uses the same pipeToCommunityPlatform helper as the host-based proxy
     // above, so assets stream with correct Content-Type (no buffering issues).
     if (!isPreview && isCpSite) {
-      // Rewrite req.url so the CP server sees only the sub-path (strip the
-      // /sites/:slug prefix that Replit's proxy added).
-      req.url = subPath + (req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "");
+      const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+      const cpPath = subPath + qs;
+
+      // Root HTML request: fetch and inject <base href="/sites/{slug}/"> so the
+      // browser resolves all relative asset URLs to /sites/{slug}/assets/... —
+      // paths that the API server handles, strips, and proxies back to the CP.
+      if (subPath === "/" || subPath === "" || subPath === "/index.html") {
+        try {
+          const cpFetchRes = await fetch(`http://localhost:5001/${qs}`, {
+            headers: { "x-org-id": cpOrgSlug },
+          });
+          let html = await cpFetchRes.text();
+          html = html.replace("<head>", `<head><base href="/sites/${orgSlug}/">`);
+          res.setHeader("Content-Type", "text/html; charset=utf-8");
+          res.setHeader("Cache-Control", "no-cache, no-store");
+          res.send(html);
+        } catch {
+          res.status(502).send("Community platform unavailable");
+        }
+        return;
+      }
+
+      // All other paths (assets, API calls within CP): stream directly.
+      req.url = cpPath;
       pipeToCommunityPlatform(req, res, cpOrgSlug);
       return;
     }
