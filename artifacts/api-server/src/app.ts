@@ -6,6 +6,7 @@ import rateLimit from "express-rate-limit";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
+import httpModule from "http";
 import { authMiddleware } from "./middlewares/authMiddleware";
 import { csrfMiddleware } from "./lib/csrf";
 import { sendErrorAlert } from "./lib/errorAlert";
@@ -39,6 +40,49 @@ const WORKSPACE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const app: Express = express();
 
 app.set("trust proxy", 1);
+
+// ── Community platform pipe proxy ────────────────────────────────────────────
+// Streams the request/response directly to localhost:5001 with no buffering,
+// so assets (JS/CSS) get the correct Content-Type from the CP Express static
+// server and the React SPA loads correctly.
+function pipeToCommunityPlatform(req: Request, res: Response, orgSlug: string): void {
+  const options: httpModule.RequestOptions = {
+    hostname: "localhost",
+    port: 5001,
+    path: req.url,
+    method: req.method,
+    headers: { ...req.headers, "x-org-id": orgSlug, host: "localhost:5001" },
+  };
+  const proxyReq = httpModule.request(options, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode ?? 200, proxyRes.headers as httpModule.OutgoingHttpHeaders);
+    proxyRes.pipe(res, { end: true });
+  });
+  proxyReq.on("error", (err) => {
+    console.error(`[CP proxy] ${orgSlug}: ${err.message}`);
+    if (!res.headersSent) { res.writeHead(502); res.end("Community platform unavailable"); }
+  });
+  req.pipe(proxyReq, { end: true });
+}
+
+// ── Top-level: host-based proxy for *.mypillar.co ───────────────────────────
+// Must run before body parsers so the raw request stream can be piped.
+// When Cloudflare forwards tenant traffic directly with the Host header intact,
+// we proxy everything (HTML, /assets/*, /api/*) straight to the community
+// platform. The CP server reads x-org-id and serves the correct org.
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const rawHost = (req.headers["x-forwarded-host"] as string) || (req.headers.host as string) || "";
+  const hostname = rawHost.split(":")[0].toLowerCase();
+  if (
+    hostname.endsWith(".mypillar.co") &&
+    hostname !== "www.mypillar.co" &&
+    hostname !== "api.mypillar.co"
+  ) {
+    const slug = hostname.split(".")[0];
+    pipeToCommunityPlatform(req, res, slug);
+    return;
+  }
+  next();
+});
 
 app.use(
   pinoHttp({
@@ -391,38 +435,15 @@ app.use(async (req, res, next) => {
     const communitySiteUrl = (cfgRow?.community_site_url as string | null) ?? null;
     const isCpSite = !!(communitySiteUrl?.includes(".mypillar.co"));
 
-    // ── Community platform orgs: proxy ALL requests to the CP server ───────────
-    // These orgs have community_site_url set to *.mypillar.co. We forward every
-    // request (HTML, assets, and API calls) to localhost:5001 with x-org-id so
-    // the community platform can serve the correct org's React SPA and API.
+    // ── Community platform orgs: pipe ALL requests to the CP server ───────────
+    // Uses the same pipeToCommunityPlatform helper as the host-based proxy
+    // above, so assets stream with correct Content-Type (no buffering issues).
     if (!isPreview && isCpSite) {
-      const cpBaseUrl = process.env.COMMUNITY_PLATFORM_URL || "http://localhost:5001";
-      const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
-      const targetUrl = `${cpBaseUrl}${subPath}${qs}`;
-      try {
-        const cpHeaders: Record<string, string> = { "x-org-id": orgSlug };
-        if (req.headers["content-type"]) cpHeaders["Content-Type"] = req.headers["content-type"] as string;
-        if (req.headers["accept"]) cpHeaders["Accept"] = req.headers["accept"] as string;
-        if (req.headers["cookie"]) cpHeaders["Cookie"] = req.headers["cookie"] as string;
-        if (req.headers["authorization"]) cpHeaders["Authorization"] = req.headers["authorization"] as string;
-        const cpRes = await fetch(targetUrl, {
-          method: req.method,
-          headers: cpHeaders,
-          body: req.method !== "GET" && req.method !== "HEAD" ? JSON.stringify(req.body) : undefined,
-          signal: AbortSignal.timeout(15_000),
-        });
-        res.status(cpRes.status);
-        const contentType = cpRes.headers.get("content-type");
-        if (contentType) res.setHeader("Content-Type", contentType);
-        const setCookie = cpRes.headers.get("set-cookie");
-        if (setCookie) res.setHeader("Set-Cookie", setCookie);
-        res.send(Buffer.from(await cpRes.arrayBuffer()));
-        return;
-      } catch (err) {
-        console.error(`[sites] CP proxy error for ${orgSlug}:`, err);
-        res.status(503).send("Site is temporarily unavailable. Please try again shortly.");
-        return;
-      }
+      // Rewrite req.url so the CP server sees only the sub-path (strip the
+      // /sites/:slug prefix that Replit's proxy added).
+      req.url = subPath + (req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "");
+      pipeToCommunityPlatform(req, res, orgSlug);
+      return;
     }
 
     // ── API early-return for path-based non-CP orgs ────────────────────────────
