@@ -17,6 +17,18 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+function requirePillarServiceKey(req: Request, res: Response, next: NextFunction) {
+  const expected = process.env.PILLAR_SERVICE_KEY;
+  const provided = req.headers["x-pillar-service-key"] as string | undefined;
+  if (!expected) {
+    return res.status(500).json({ ok: false, error: "PILLAR_SERVICE_KEY not configured on server" });
+  }
+  if (provided !== expected) {
+    return res.status(401).json({ ok: false, error: "Unauthorized" });
+  }
+  next();
+}
+
 function getOrgId(req: Request): string {
   // x-org-id header takes priority (dev overrides and reverse-proxy setups)
   const headerOrgId = req.headers["x-org-id"] as string;
@@ -531,4 +543,103 @@ export function registerRoutes(app: Express) {
   });
 
   app.get("/api/healthz", (_req, res) => res.json({ ok: true }));
+
+  // ─── Internal service-to-service sync routes (Pillar dashboard → live tenant) ─
+
+  app.post("/api/internal/events", requirePillarServiceKey, async (req: Request, res: Response) => {
+    try {
+      const { orgId, title, description, date, time, location, category, slug, imageUrl,
+              isTicketed, ticketPrice, ticketCapacity, isActive } = req.body ?? {};
+      if (!orgId || !title) {
+        return res.status(400).json({ ok: false, error: "orgId and title are required" });
+      }
+      const eventSlug = slug || generateSlug(title);
+      const created = await storage.createEvent(orgId, {
+        title,
+        description: description ?? "",
+        date: date ?? "",
+        time: time ?? "",
+        location: location ?? "",
+        category: category ?? "general",
+        slug: eventSlug,
+        imageUrl: imageUrl ?? null,
+        isTicketed: isTicketed ?? false,
+        ticketPrice: ticketPrice ?? null,
+        ticketCapacity: ticketCapacity ?? null,
+        isActive: isActive !== false,
+      });
+      console.log(`[internal-events] created for org=${orgId} slug=${eventSlug}`);
+      return res.status(201).json({ ok: true, event: created });
+    } catch (error: any) {
+      console.error("[internal-events] create failed", error);
+      return res.status(500).json({ ok: false, error: error?.message ?? "Unknown error" });
+    }
+  });
+
+  app.patch("/api/internal/events/slug/:slug", requirePillarServiceKey, async (req: Request, res: Response) => {
+    try {
+      const { orgId, title, description, date, time, location, category, imageUrl,
+              isTicketed, ticketPrice, ticketCapacity, isActive } = req.body ?? {};
+      if (!orgId) {
+        return res.status(400).json({ ok: false, error: "orgId is required" });
+      }
+      const updated = await storage.updateEventBySlug(orgId, req.params.slug, {
+        ...(title !== undefined && { title }),
+        ...(description !== undefined && { description }),
+        ...(date !== undefined && { date }),
+        ...(time !== undefined && { time }),
+        ...(location !== undefined && { location }),
+        ...(category !== undefined && { category }),
+        ...(imageUrl !== undefined && { imageUrl }),
+        ...(isTicketed !== undefined && { isTicketed }),
+        ...(ticketPrice !== undefined && { ticketPrice }),
+        ...(ticketCapacity !== undefined && { ticketCapacity }),
+        ...(isActive !== undefined && { isActive }),
+      });
+      if (!updated) {
+        return res.status(404).json({ ok: false, error: "Event not found" });
+      }
+      console.log(`[internal-events] updated org=${orgId} slug=${req.params.slug}`);
+      return res.json({ ok: true, event: updated });
+    } catch (error: any) {
+      console.error("[internal-events] update failed", error);
+      return res.status(500).json({ ok: false, error: error?.message ?? "Unknown error" });
+    }
+  });
+
+  app.delete("/api/internal/events/slug/:slug", requirePillarServiceKey, async (req: Request, res: Response) => {
+    try {
+      const { orgId } = req.body ?? {};
+      if (!orgId) {
+        return res.status(400).json({ ok: false, error: "orgId is required" });
+      }
+      const deleted = await storage.deleteEventBySlug(orgId, req.params.slug);
+      if (!deleted) {
+        return res.status(404).json({ ok: false, error: "Event not found" });
+      }
+      console.log(`[internal-events] deleted org=${orgId} slug=${req.params.slug}`);
+      return res.json({ ok: true });
+    } catch (error: any) {
+      console.error("[internal-events] delete failed", error);
+      return res.status(500).json({ ok: false, error: error?.message ?? "Unknown error" });
+    }
+  });
+
+  app.patch("/api/internal/org-config", requirePillarServiceKey, async (req: Request, res: Response) => {
+    try {
+      const { orgId, ...patch } = req.body ?? {};
+      if (!orgId) {
+        return res.status(400).json({ ok: false, error: "orgId is required" });
+      }
+      const updated = await storage.patchOrgConfig(orgId, patch);
+      if (!updated) {
+        return res.status(404).json({ ok: false, error: "Org config not found — site may not be provisioned yet" });
+      }
+      console.log(`[internal-org-config] patched org=${orgId}`);
+      return res.json({ ok: true, config: updated });
+    } catch (error: any) {
+      console.error("[internal-org-config] patch failed", error);
+      return res.status(500).json({ ok: false, error: error?.message ?? "Unknown error" });
+    }
+  });
 }

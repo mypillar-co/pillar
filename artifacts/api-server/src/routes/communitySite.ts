@@ -1031,6 +1031,47 @@ Write these four fields as a valid JSON object (no markdown, no extra keys):
   res.json({ reply });
 });
 
+// ── [PAYLOAD_READY] durable storage helper ───────────────────────────────────
+async function storePayloadReadyIfPresent(reply: string, orgId: string) {
+  if (!reply.includes("[PAYLOAD_READY]")) return;
+
+  try {
+    const marker = "[PAYLOAD_READY]";
+    const afterMarker = reply.slice(reply.indexOf(marker) + marker.length).trim();
+
+    // Prefer fenced JSON block if present
+    const fencedMatch = afterMarker.match(/```json\s*([\s\S]*?)\s*```/i);
+    let candidate = fencedMatch ? fencedMatch[1].trim() : afterMarker;
+
+    // Isolate the first complete JSON object — strip any trailing prose
+    const firstBrace = candidate.indexOf("{");
+    const lastBrace = candidate.lastIndexOf("}");
+    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+      throw new Error("Could not isolate JSON object after [PAYLOAD_READY]");
+    }
+    candidate = candidate.slice(firstBrace, lastBrace + 1).trim();
+
+    const parsed = JSON.parse(candidate) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("Parsed payload is not an object");
+    }
+    if (typeof parsed.orgName !== "string" || !parsed.orgName.trim()) {
+      throw new Error("Payload missing required orgName");
+    }
+
+    await db.execute(sql`
+      UPDATE organizations
+      SET site_config = ${JSON.stringify(parsed)}::jsonb
+      WHERE id = ${orgId}
+    `);
+    console.log(
+      `[interview] [PAYLOAD_READY] stored site_config for org ${orgId} (orgName="${parsed.orgName}")`,
+    );
+  } catch (err) {
+    console.warn(`[interview] [PAYLOAD_READY] parse/store failed for org ${orgId}:`, err);
+  }
+}
+
 // ── POST /api/community-site/interview ──────────────────────────────────────
 router.post("/interview", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);
@@ -1097,6 +1138,7 @@ router.post("/interview", async (req: Request, res: Response) => {
       await db.update(organizationsTable)
         .set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` })
         .where(eq(organizationsTable.id, org.id));
+      await storePayloadReadyIfPresent(skipReply, org.id);
       res.json({ reply: skipReply });
       return;
     } catch (skipErr) {
@@ -1143,34 +1185,7 @@ router.post("/interview", async (req: Request, res: Response) => {
       .set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` })
       .where(eq(organizationsTable.id, org.id));
 
-    // ── Extract [PAYLOAD_READY] JSON and store durably in organizations.site_config ──
-    // This is the only place the structured payload enters durable storage so that
-    // PUT /api/sites/my/publish can provision the tenant without depending on React state.
-    if (reply.includes("[PAYLOAD_READY]")) {
-      try {
-        const afterMarker = reply.slice(reply.indexOf("[PAYLOAD_READY]") + "[PAYLOAD_READY]".length).trim();
-        // Strip optional markdown code fences (```json … ```)
-        const jsonRaw = afterMarker
-          .replace(/^```json\s*/i, "")
-          .replace(/^```\s*/i, "")
-          .replace(/\s*```\s*$/, "")
-          .trim();
-        const parsed = JSON.parse(jsonRaw) as Record<string, unknown>;
-        if (parsed && typeof parsed === "object" && typeof parsed.orgName === "string" && parsed.orgName) {
-          await db.execute(sql`
-            UPDATE organizations
-            SET site_config = ${JSON.stringify(parsed)}::jsonb
-            WHERE id = ${org.id}
-          `);
-          console.log(`[interview] [PAYLOAD_READY] stored site_config for org ${org.id} (orgName="${parsed.orgName}")`);
-        } else {
-          console.warn(`[interview] [PAYLOAD_READY] JSON missing orgName — site_config not stored`);
-        }
-      } catch (parseErr) {
-        // Non-fatal: the user can still see the reply; next interview turn may produce a valid payload
-        console.warn(`[interview] [PAYLOAD_READY] JSON parse failed — site_config not stored:`, parseErr);
-      }
-    }
+    await storePayloadReadyIfPresent(reply, org.id);
 
     res.json({ reply, tier });
   } catch (normalErr) {

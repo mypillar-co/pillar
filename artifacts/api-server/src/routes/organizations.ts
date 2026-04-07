@@ -31,8 +31,10 @@ import {
   studioOutputsTable,
   websiteSpecsTable,
   subscriptionsTable,
+  sitesTable,
 } from "@workspace/db";
-import { eq, desc, asc, isNotNull } from "drizzle-orm";
+import { eq, desc, asc, isNotNull, and } from "drizzle-orm";
+import { syncOrgConfigPatchToPillar } from "../lib/pillarOrgSync.js";
 
 const router: IRouter = Router();
 
@@ -153,14 +155,20 @@ router.post("/organizations", async (req: Request, res: Response) => {
   });
 });
 
-// PUT /api/organizations — update current user's org
+// PUT /api/organizations — update current user's org (name, type, and branding fields)
 router.put("/organizations", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
 
-  const { name, type } = req.body as { name?: string; type?: string };
+  const {
+    name, type,
+    primaryColor, accentColor, tagline, mission, logoUrl,
+    contactEmail, contactPhone, contactAddress,
+    meetingDay, meetingTime, meetingLocation,
+  } = req.body as Record<string, string | undefined>;
+
   if (!name) {
     res.status(400).json({ error: "name is required" });
     return;
@@ -182,6 +190,38 @@ router.put("/organizations", async (req: Request, res: Response) => {
     .set(updates)
     .where(eq(organizationsTable.userId, userId))
     .returning();
+
+  // Sync branding to live community tenant if published
+  if (org.slug) {
+    const [publishedSite] = await db
+      .select({ id: sitesTable.id })
+      .from(sitesTable)
+      .where(and(eq(sitesTable.orgId, existing.id), eq(sitesTable.status, "published")))
+      .limit(1);
+    if (publishedSite) {
+      const patch: Record<string, string | undefined> = { orgName: name };
+      if (primaryColor) patch.primaryColor = primaryColor;
+      if (accentColor) patch.accentColor = accentColor;
+      if (tagline) patch.tagline = tagline;
+      if (mission) patch.mission = mission;
+      if (logoUrl) patch.logoUrl = logoUrl;
+      if (contactEmail) patch.contactEmail = contactEmail;
+      if (contactPhone) patch.contactPhone = contactPhone;
+      if (contactAddress) patch.contactAddress = contactAddress;
+      if (meetingDay) patch.meetingDay = meetingDay;
+      if (meetingTime) patch.meetingTime = meetingTime;
+      if (meetingLocation) patch.meetingLocation = meetingLocation;
+      try {
+        await syncOrgConfigPatchToPillar({ orgId: org.slug, ...patch });
+      } catch (syncErr: any) {
+        console.error("[organizations] local update OK but live Pillar org-config sync failed", syncErr);
+        return res.status(502).json({
+          error: "Organization settings were saved but failed to sync to the live Pillar site",
+          localOnly: true,
+        });
+      }
+    }
+  }
 
   res.json({ organization: { ...org, createdAt: org.createdAt.toISOString() } });
 });

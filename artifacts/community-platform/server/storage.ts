@@ -22,6 +22,18 @@ export async function upsertOrgConfig(orgId: string, data: Partial<typeof csOrgC
   return getOrgConfig(orgId);
 }
 
+export async function patchOrgConfig(
+  orgId: string,
+  data: Partial<typeof csOrgConfigs.$inferInsert>,
+) {
+  const rows = await db
+    .update(csOrgConfigs)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(csOrgConfigs.orgId, orgId))
+    .returning();
+  return rows[0] || null;
+}
+
 export async function getAdminUser(orgId: string, username: string) {
   const rows = await db.select().from(csAdminUsers).where(and(eq(csAdminUsers.orgId, orgId), eq(csAdminUsers.username, username))).limit(1);
   return rows[0] || null;
@@ -63,6 +75,27 @@ export async function updateEvent(orgId: string, id: number, data: Partial<typeo
 
 export async function deleteEvent(orgId: string, id: number) {
   const rows = await db.delete(csEvents).where(and(eq(csEvents.orgId, orgId), eq(csEvents.id, id))).returning();
+  return rows.length > 0;
+}
+
+export async function updateEventBySlug(
+  orgId: string,
+  slug: string,
+  data: Partial<typeof csEvents.$inferInsert>,
+) {
+  const rows = await db
+    .update(csEvents)
+    .set(data)
+    .where(and(eq(csEvents.orgId, orgId), eq(csEvents.slug, slug)))
+    .returning();
+  return rows[0] || null;
+}
+
+export async function deleteEventBySlug(orgId: string, slug: string) {
+  const rows = await db
+    .delete(csEvents)
+    .where(and(eq(csEvents.orgId, orgId), eq(csEvents.slug, slug)))
+    .returning();
   return rows.length > 0;
 }
 

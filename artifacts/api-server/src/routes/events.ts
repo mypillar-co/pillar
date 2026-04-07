@@ -3,6 +3,7 @@ import {
   db,
   eventsTable,
   organizationsTable,
+  sitesTable,
   ticketTypesTable,
   ticketSalesTable,
   eventApprovalsTable,
@@ -14,6 +15,11 @@ import OpenAI from "openai";
 import { refreshSiteEventsSection } from "./sites";
 import { resolveFullOrg, getFullOrgForUser } from "../lib/resolveOrg";
 import { scheduleSiteAutoUpdate } from "../lib/scheduleSiteAutoUpdate";
+import {
+  syncCreateEventToPillar,
+  syncUpdateEventToPillar,
+  syncDeleteEventToPillar,
+} from "../lib/pillarEventSync.js";
 
 const router = Router();
 
@@ -833,8 +839,28 @@ router.post("/", async (req: Request, res: Response) => {
       isActive: true,
     })
     .returning();
+  // Sync to live community site if published
+  if (org.slug) {
+    const [publishedSite] = await db
+      .select({ id: sitesTable.id })
+      .from(sitesTable)
+      .where(and(eq(sitesTable.orgId, org.id), eq(sitesTable.status, "published")))
+      .limit(1);
+    if (publishedSite) {
+      try {
+        await syncCreateEventToPillar(event, org.slug);
+      } catch (syncErr: any) {
+        console.error("[events] local create OK but live Pillar sync failed", syncErr);
+        return res.status(502).json({
+          error: "Event was saved but failed to sync to the live Pillar site",
+          localOnly: true,
+        });
+      }
+    }
+  }
+
   res.status(201).json(event);
-  // Fire-and-forget: new event may affect the public site's events display
+  // Fire-and-forget: update static HTML preview blob
   scheduleSiteAutoUpdate(org.id).catch(() => {});
 });
 
@@ -871,8 +897,27 @@ router.put("/:id", async (req: Request, res: Response) => {
     res.status(404).json({ error: "Event not found" });
     return;
   }
+  // Sync to live community site if published
+  if (org.slug) {
+    const [publishedSite] = await db
+      .select({ id: sitesTable.id })
+      .from(sitesTable)
+      .where(and(eq(sitesTable.orgId, org.id), eq(sitesTable.status, "published")))
+      .limit(1);
+    if (publishedSite) {
+      try {
+        await syncUpdateEventToPillar(updated, org.slug);
+      } catch (syncErr: any) {
+        console.error("[events] local update OK but live Pillar sync failed", syncErr);
+        return res.status(502).json({
+          error: "Event was updated but failed to sync to the live Pillar site",
+          localOnly: true,
+        });
+      }
+    }
+  }
   res.json(updated);
-  // Fire-and-forget: event changes may affect the public site
+  // Fire-and-forget: update static HTML preview blob
   scheduleSiteAutoUpdate(org.id).catch(() => {});
 });
 
@@ -880,9 +925,37 @@ router.put("/:id", async (req: Request, res: Response) => {
 router.delete("/:id", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
+
+  // Pre-fetch the event slug before deletion — needed for live sync
+  const [eventToDelete] = await db
+    .select({ id: eventsTable.id, slug: eventsTable.slug })
+    .from(eventsTable)
+    .where(and(eq(eventsTable.id, String(req.params.id)), eq(eventsTable.orgId, org.id)));
+
   await db
     .delete(eventsTable)
     .where(and(eq(eventsTable.id, String(req.params.id)), eq(eventsTable.orgId, org.id)));
+
+  // Sync deletion to live community site if published
+  if (org.slug && eventToDelete?.slug) {
+    const [publishedSite] = await db
+      .select({ id: sitesTable.id })
+      .from(sitesTable)
+      .where(and(eq(sitesTable.orgId, org.id), eq(sitesTable.status, "published")))
+      .limit(1);
+    if (publishedSite) {
+      try {
+        await syncDeleteEventToPillar(eventToDelete.slug, org.slug);
+      } catch (syncErr: any) {
+        console.error("[events] local delete OK but live Pillar sync failed", syncErr);
+        return res.status(502).json({
+          error: "Event was deleted locally but failed to sync to the live Pillar site",
+          localOnly: true,
+        });
+      }
+    }
+  }
+
   res.status(204).send();
 });
 

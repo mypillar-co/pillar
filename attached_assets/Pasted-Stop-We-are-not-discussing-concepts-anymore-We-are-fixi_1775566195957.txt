@@ -1,0 +1,72 @@
+Stop. We are not discussing concepts anymore. We are fixing Pillar with explicit code changes.
+
+The intended behavior is:
+
+1. AI interview stores a structured payload durably in organizations.site_config
+2. Publish provisions the tenant into the community platform
+3. After publish, Pillar dashboard changes must sync to the live Pillar tenant
+4. The live site at https://{slug}.mypillar.co must not depend on generatedHtml
+5. Events and branding must update live without full reprovision
+
+Right now the main remaining problems are:
+- [PAYLOAD_READY] is only stored on the normal interview path, not the skip path
+- [PAYLOAD_READY] parsing is brittle
+- There are no internal service routes for syncing events or org config to the community platform
+- The live site and the dashboard are still disconnected after publish
+
+Implement the following EXACTLY.
+
+==================================================
+PHASE 1 — FIX [PAYLOAD_READY] STORAGE ROBUSTLY
+==================================================
+
+FILE:
+artifacts/api-server/src/routes/communitySite.ts
+
+Add this helper ABOVE the /interview route (or near other helpers in the same file):
+
+```ts
+async function storePayloadReadyIfPresent(reply: string, orgId: string) {
+  if (!reply.includes("[PAYLOAD_READY]")) return;
+
+  try {
+    const marker = "[PAYLOAD_READY]";
+    const markerIndex = reply.indexOf(marker);
+    const afterMarker = reply.slice(markerIndex + marker.length).trim();
+
+    // Prefer fenced json if present
+    const fencedMatch = afterMarker.match(/```json\s*([\s\S]*?)\s*```/i);
+    let candidate = fencedMatch ? fencedMatch[1].trim() : afterMarker;
+
+    // If there is extra text before/after JSON, isolate the first full object
+    const firstBrace = candidate.indexOf("{");
+    const lastBrace = candidate.lastIndexOf("}");
+    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+      throw new Error("Could not isolate JSON object after [PAYLOAD_READY]");
+    }
+
+    candidate = candidate.slice(firstBrace, lastBrace + 1).trim();
+
+    const parsed = JSON.parse(candidate) as Record<string, unknown>;
+
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("Parsed payload is not an object");
+    }
+
+    if (typeof parsed.orgName !== "string" || !parsed.orgName.trim()) {
+      throw new Error("Payload missing required orgName");
+    }
+
+    await db.execute(sql`
+      UPDATE organizations
+      SET site_config = ${JSON.stringify(parsed)}::jsonb
+      WHERE id = ${orgId}
+    `);
+
+    console.log(
+      `[interview] [PAYLOAD_READY] stored site_config for org ${orgId} (orgName="${parsed.orgName}")`
+    );
+  } catch (err) {
+    console.warn(`[interview] [PAYLOAD_READY] parse/store failed for org ${orgId}:`, err);
+  }
+}

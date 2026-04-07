@@ -1,0 +1,749 @@
+
+# Pillar full implementation message for Replit
+
+Paste this to Replit exactly:
+
+Stop. We are not discussing concepts anymore. We are fixing Pillar with explicit code changes.
+
+The intended behavior is:
+
+1. AI interview stores a structured payload durably in organizations.site_config
+2. Publish provisions the tenant into the community platform
+3. After publish, Pillar dashboard changes must sync to the live Pillar tenant
+4. The live site at https://{slug}.mypillar.co must not depend on generatedHtml
+5. Events and branding must update live without full reprovision
+
+Right now the main remaining problems are:
+- [PAYLOAD_READY] is only stored on the normal interview path, not the skip path
+- [PAYLOAD_READY] parsing is brittle
+- There are no internal service routes for syncing events or org config to the community platform
+- The live site and the dashboard are still disconnected after publish
+
+Implement the following EXACTLY.
+
+==================================================
+PHASE 1 — FIX [PAYLOAD_READY] STORAGE ROBUSTLY
+==================================================
+
+FILE:
+artifacts/api-server/src/routes/communitySite.ts
+
+Add this helper ABOVE the /interview route (or near other helpers in the same file):
+
+```ts
+async function storePayloadReadyIfPresent(reply: string, orgId: string) {
+  if (!reply.includes("[PAYLOAD_READY]")) return;
+
+  try {
+    const marker = "[PAYLOAD_READY]";
+    const markerIndex = reply.indexOf(marker);
+    const afterMarker = reply.slice(markerIndex + marker.length).trim();
+
+    // Prefer fenced json if present
+    const fencedMatch = afterMarker.match(/```json\s*([\s\S]*?)\s*```/i);
+    let candidate = fencedMatch ? fencedMatch[1].trim() : afterMarker;
+
+    // If there is extra text before/after JSON, isolate the first full object
+    const firstBrace = candidate.indexOf("{");
+    const lastBrace = candidate.lastIndexOf("}");
+    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+      throw new Error("Could not isolate JSON object after [PAYLOAD_READY]");
+    }
+
+    candidate = candidate.slice(firstBrace, lastBrace + 1).trim();
+
+    const parsed = JSON.parse(candidate) as Record<string, unknown>;
+
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("Parsed payload is not an object");
+    }
+
+    if (typeof parsed.orgName !== "string" || !parsed.orgName.trim()) {
+      throw new Error("Payload missing required orgName");
+    }
+
+    await db.execute(sql`
+      UPDATE organizations
+      SET site_config = ${JSON.stringify(parsed)}::jsonb
+      WHERE id = ${orgId}
+    `);
+
+    console.log(
+      `[interview] [PAYLOAD_READY] stored site_config for org ${orgId} (orgName="${parsed.orgName}")`
+    );
+  } catch (err) {
+    console.warn(`[interview] [PAYLOAD_READY] parse/store failed for org ${orgId}:`, err);
+  }
+}
+```
+
+NOW CHANGE THE /interview ROUTE SO BOTH PATHS CALL THIS HELPER.
+
+A) In the SKIP path, after aiMessagesUsed is incremented and before res.json({ reply: skipReply }), add:
+
+```ts
+await storePayloadReadyIfPresent(skipReply, org.id);
+```
+
+So the skip branch becomes:
+
+```ts
+      await db.update(organizationsTable)
+        .set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` })
+        .where(eq(organizationsTable.id, org.id));
+
+      await storePayloadReadyIfPresent(skipReply, org.id);
+
+      res.json({ reply: skipReply });
+      return;
+```
+
+B) In the NORMAL path, DELETE the current inline [PAYLOAD_READY] parsing block and replace it with:
+
+```ts
+    await storePayloadReadyIfPresent(reply, org.id);
+```
+
+So after aiMessagesUsed is incremented, it should look like:
+
+```ts
+    await db.update(organizationsTable)
+      .set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` })
+      .where(eq(organizationsTable.id, org.id));
+
+    await storePayloadReadyIfPresent(reply, org.id);
+
+    res.json({ reply, tier });
+```
+
+==================================================
+PHASE 2 — ADD INTERNAL SERVICE-KEY MIDDLEWARE
+==================================================
+
+FILE:
+artifacts/community-platform/server/routes.ts
+
+Add this middleware near the top of the file, before the internal routes:
+
+```ts
+function requirePillarServiceKey(req: Request, res: Response, next: NextFunction) {
+  const expected = process.env.PILLAR_SERVICE_KEY;
+  const provided = req.headers["x-pillar-service-key"];
+
+  if (!expected) {
+    return res.status(500).json({ ok: false, error: "PILLAR_SERVICE_KEY not configured" });
+  }
+
+  if (provided !== expected) {
+    return res.status(401).json({ ok: false, error: "Unauthorized" });
+  }
+
+  next();
+}
+```
+
+Make sure Request/Response/NextFunction are imported if not already:
+
+```ts
+import type { Request, Response, NextFunction } from "express";
+```
+
+==================================================
+PHASE 3 — ADD INTERNAL EVENT SYNC ROUTES
+==================================================
+
+FILE:
+artifacts/community-platform/server/routes.ts
+
+Add these routes BELOW the existing /api/pillar/setup route or near other write routes.
+
+IMPORTANT:
+These routes are for service-to-service sync from Pillar dashboard to the live tenant data store.
+
+```ts
+app.post("/api/internal/events", requirePillarServiceKey, async (req: Request, res: Response) => {
+  try {
+    const {
+      orgId,
+      title,
+      description,
+      location,
+      startDate,
+      endDate,
+      imageUrl,
+      status,
+      ticketUrl,
+      priceCents,
+    } = req.body ?? {};
+
+    if (!orgId || !title) {
+      return res.status(400).json({ ok: false, error: "orgId and title are required" });
+    }
+
+    const created = await storage.createEvent(orgId, {
+      title,
+      description: description ?? "",
+      location: location ?? "",
+      startDate: startDate ?? null,
+      endDate: endDate ?? null,
+      imageUrl: imageUrl ?? "",
+      status: status ?? "draft",
+      ticketUrl: ticketUrl ?? "",
+      priceCents: priceCents ?? 0,
+    });
+
+    console.log(`[internal-events] created event for org=${orgId} eventId=${created?.id ?? "unknown"}`);
+    return res.json({ ok: true, event: created });
+  } catch (error: any) {
+    console.error("[internal-events] create failed", error);
+    return res.status(500).json({ ok: false, error: error?.message ?? "Unknown error" });
+  }
+});
+
+app.patch("/api/internal/events/:id", requirePillarServiceKey, async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    const {
+      orgId,
+      title,
+      description,
+      location,
+      startDate,
+      endDate,
+      imageUrl,
+      status,
+      ticketUrl,
+      priceCents,
+    } = req.body ?? {};
+
+    if (!orgId || !Number.isFinite(id)) {
+      return res.status(400).json({ ok: false, error: "orgId and numeric id are required" });
+    }
+
+    const updated = await storage.updateEvent(orgId, id, {
+      title,
+      description,
+      location,
+      startDate,
+      endDate,
+      imageUrl,
+      status,
+      ticketUrl,
+      priceCents,
+    });
+
+    if (!updated) {
+      return res.status(404).json({ ok: false, error: "Event not found" });
+    }
+
+    console.log(`[internal-events] updated event for org=${orgId} eventId=${id}`);
+    return res.json({ ok: true, event: updated });
+  } catch (error: any) {
+    console.error("[internal-events] update failed", error);
+    return res.status(500).json({ ok: false, error: error?.message ?? "Unknown error" });
+  }
+});
+
+app.delete("/api/internal/events/:id", requirePillarServiceKey, async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    const { orgId } = req.body ?? {};
+
+    if (!orgId || !Number.isFinite(id)) {
+      return res.status(400).json({ ok: false, error: "orgId and numeric id are required" });
+    }
+
+    const deleted = await storage.deleteEvent(orgId, id);
+
+    if (!deleted) {
+      return res.status(404).json({ ok: false, error: "Event not found" });
+    }
+
+    console.log(`[internal-events] deleted event for org=${orgId} eventId=${id}`);
+    return res.json({ ok: true });
+  } catch (error: any) {
+    console.error("[internal-events] delete failed", error);
+    return res.status(500).json({ ok: false, error: error?.message ?? "Unknown error" });
+  }
+});
+```
+
+==================================================
+PHASE 4 — ADD INTERNAL ORG CONFIG PATCH ROUTE
+==================================================
+
+FILE:
+artifacts/community-platform/server/routes.ts
+
+Add this route below the internal events routes:
+
+```ts
+app.patch("/api/internal/org-config", requirePillarServiceKey, async (req: Request, res: Response) => {
+  try {
+    const { orgId, ...patch } = req.body ?? {};
+
+    if (!orgId) {
+      return res.status(400).json({ ok: false, error: "orgId is required" });
+    }
+
+    const updated = await storage.patchOrgConfig(orgId, patch);
+
+    if (!updated) {
+      return res.status(404).json({ ok: false, error: "Org config not found" });
+    }
+
+    console.log(`[internal-org-config] patched org config for org=${orgId}`);
+    return res.json({ ok: true, config: updated });
+  } catch (error: any) {
+    console.error("[internal-org-config] patch failed", error);
+    return res.status(500).json({ ok: false, error: error?.message ?? "Unknown error" });
+  }
+});
+```
+
+==================================================
+PHASE 5 — ADD patchOrgConfig STORAGE METHOD
+==================================================
+
+FILE:
+artifacts/community-platform/server/storage.ts
+
+Add this method near getOrgConfig / upsertOrgConfig:
+
+```ts
+export async function patchOrgConfig(
+  orgId: string,
+  data: Partial<typeof csOrgConfigs.$inferInsert>
+) {
+  const rows = await db
+    .update(csOrgConfigs)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(csOrgConfigs.orgId, orgId))
+    .returning();
+
+  return rows[0] || null;
+}
+```
+
+Make sure it is exported in whatever storage object/module pattern the file uses.
+
+If this file exports a storage object literal instead of standalone functions, add patchOrgConfig to that object too.
+
+==================================================
+PHASE 6 — ADD API SERVER SYNC HELPER
+==================================================
+
+FILE:
+artifacts/api-server/src/lib/pillarSync.ts
+
+Create this new file:
+
+```ts
+type PillarMethod = "POST" | "PATCH" | "PUT" | "DELETE";
+
+export async function pillarRequest(path: string, method: PillarMethod, body?: unknown) {
+  const baseUrl = process.env.COMMUNITY_PLATFORM_URL;
+  const serviceKey = process.env.PILLAR_SERVICE_KEY;
+
+  if (!baseUrl) {
+    throw new Error("COMMUNITY_PLATFORM_URL is not set");
+  }
+
+  if (!serviceKey) {
+    throw new Error("PILLAR_SERVICE_KEY is not set");
+  }
+
+  const response = await fetch(`${baseUrl}${path}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      "x-pillar-service-key": serviceKey,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const text = await response.text();
+  let data: any = null;
+
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = { raw: text };
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Pillar sync failed ${method} ${path}: ${response.status} ${JSON.stringify(data)}`
+    );
+  }
+
+  return data;
+}
+```
+
+If this runtime requires node-fetch instead of global fetch, add the needed import.
+
+==================================================
+PHASE 7 — ADD EVENT SYNC HELPERS IN API SERVER
+==================================================
+
+FILE:
+artifacts/api-server/src/lib/pillarEventSync.ts
+
+Create this new file:
+
+```ts
+import { pillarRequest } from "./pillarSync";
+
+type SyncableEvent = {
+  id: number | string;
+  orgId: string;
+  title: string;
+  description?: string | null;
+  location?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  imageUrl?: string | null;
+  status?: string | null;
+  ticketUrl?: string | null;
+  priceCents?: number | null;
+};
+
+export async function syncCreateEventToPillar(event: SyncableEvent, orgSlug: string) {
+  console.log(`[pillar-sync] create event org=${orgSlug} event=${event.id}`);
+
+  return pillarRequest("/api/internal/events", "POST", {
+    orgId: orgSlug,
+    title: event.title,
+    description: event.description ?? "",
+    location: event.location ?? "",
+    startDate: event.startDate ?? null,
+    endDate: event.endDate ?? null,
+    imageUrl: event.imageUrl ?? "",
+    status: event.status ?? "draft",
+    ticketUrl: event.ticketUrl ?? "",
+    priceCents: event.priceCents ?? 0,
+  });
+}
+
+export async function syncUpdateEventToPillar(event: SyncableEvent, orgSlug: string) {
+  console.log(`[pillar-sync] update event org=${orgSlug} event=${event.id}`);
+
+  return pillarRequest(`/api/internal/events/${event.id}`, "PATCH", {
+    orgId: orgSlug,
+    title: event.title,
+    description: event.description ?? "",
+    location: event.location ?? "",
+    startDate: event.startDate ?? null,
+    endDate: event.endDate ?? null,
+    imageUrl: event.imageUrl ?? "",
+    status: event.status ?? "draft",
+    ticketUrl: event.ticketUrl ?? "",
+    priceCents: event.priceCents ?? 0,
+  });
+}
+
+export async function syncDeleteEventToPillar(eventId: number | string, orgSlug: string) {
+  console.log(`[pillar-sync] delete event org=${orgSlug} event=${eventId}`);
+
+  return pillarRequest(`/api/internal/events/${eventId}`, "DELETE", {
+    orgId: orgSlug,
+  });
+}
+```
+
+==================================================
+PHASE 8 — ADD ORG CONFIG SYNC HELPER IN API SERVER
+==================================================
+
+FILE:
+artifacts/api-server/src/lib/pillarOrgSync.ts
+
+Create this new file:
+
+```ts
+import { pillarRequest } from "./pillarSync";
+
+export async function syncOrgConfigPatchToPillar(payload: {
+  orgId: string;
+  orgName?: string;
+  shortName?: string;
+  primaryColor?: string;
+  accentColor?: string;
+  tagline?: string;
+  mission?: string;
+  logoUrl?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  contactAddress?: string;
+  meetingDay?: string;
+  meetingTime?: string;
+  meetingLocation?: string;
+}) {
+  console.log(`[pillar-sync] org-config patch org=${payload.orgId}`);
+  return pillarRequest("/api/internal/org-config", "PATCH", payload);
+}
+```
+
+==================================================
+PHASE 9 — WIRE EVENT CREATE/UPDATE/DELETE TO LIVE PILLAR SYNC
+==================================================
+
+FILE:
+artifacts/api-server/src/routes/events.ts
+
+Add these imports at the top:
+
+```ts
+import { syncCreateEventToPillar, syncUpdateEventToPillar, syncDeleteEventToPillar } from "../lib/pillarEventSync";
+```
+
+You already have local event CRUD. KEEP the local write as the source action.
+
+For each route:
+- write local DB first
+- get org slug from organizations table
+- call sync helper
+- if remote sync fails, return a loud error instead of pretending the live site updated
+
+A) POST /api/events
+
+After the local DB insert succeeds and you have the created event row, add this pattern BEFORE the final success response:
+
+```ts
+const orgRow = await db.query.organizations.findFirst({
+  where: (t, { eq }) => eq(t.id, createdEvent.orgId),
+  columns: { slug: true },
+});
+
+if (!orgRow?.slug) {
+  return res.status(500).json({ error: "Organization slug not found for live Pillar sync" });
+}
+
+try {
+  await syncCreateEventToPillar(createdEvent, orgRow.slug);
+} catch (error: any) {
+  console.error("[events] local create succeeded but live Pillar sync failed", {
+    orgId: createdEvent.orgId,
+    eventId: createdEvent.id,
+    error: error?.message,
+  });
+
+  return res.status(502).json({
+    error: "Event was saved locally but failed to sync to the live Pillar site",
+    localOnly: true,
+  });
+}
+```
+
+B) PUT /api/events/:id
+
+After the local DB update succeeds and you have the updated event row, add:
+
+```ts
+const orgRow = await db.query.organizations.findFirst({
+  where: (t, { eq }) => eq(t.id, updatedEvent.orgId),
+  columns: { slug: true },
+});
+
+if (!orgRow?.slug) {
+  return res.status(500).json({ error: "Organization slug not found for live Pillar sync" });
+}
+
+try {
+  await syncUpdateEventToPillar(updatedEvent, orgRow.slug);
+} catch (error: any) {
+  console.error("[events] local update succeeded but live Pillar sync failed", {
+    orgId: updatedEvent.orgId,
+    eventId: updatedEvent.id,
+    error: error?.message,
+  });
+
+  return res.status(502).json({
+    error: "Event was updated locally but failed to sync to the live Pillar site",
+    localOnly: true,
+  });
+}
+```
+
+C) DELETE /api/events/:id
+
+Before deleting locally, fetch the existing event so you still know orgId and id.
+Then after the local delete succeeds, add:
+
+```ts
+const orgRow = await db.query.organizations.findFirst({
+  where: (t, { eq }) => eq(t.id, eventToDelete.orgId),
+  columns: { slug: true },
+});
+
+if (!orgRow?.slug) {
+  return res.status(500).json({ error: "Organization slug not found for live Pillar sync" });
+}
+
+try {
+  await syncDeleteEventToPillar(eventToDelete.id, orgRow.slug);
+} catch (error: any) {
+  console.error("[events] local delete succeeded but live Pillar sync failed", {
+    orgId: eventToDelete.orgId,
+    eventId: eventToDelete.id,
+    error: error?.message,
+  });
+
+  return res.status(502).json({
+    error: "Event was deleted locally but failed to sync to the live Pillar site",
+    localOnly: true,
+  });
+}
+```
+
+IMPORTANT:
+Use the actual local variable names from the current file:
+- createdEvent / insertedEvent / savedEvent / updatedEvent / eventToDelete
+Adapt to the current implementation, but keep the above logic exactly.
+
+==================================================
+PHASE 10 — WIRE ORG SETTINGS TO LIVE ORG CONFIG SYNC
+==================================================
+
+FILE:
+artifacts/api-server/src/routes/organizations.ts
+
+Add this import at the top:
+
+```ts
+import { syncOrgConfigPatchToPillar } from "../lib/pillarOrgSync";
+```
+
+Find the org settings update route (PUT or PATCH /api/organizations).
+
+After the local organization update succeeds and you have the updated org row, add:
+
+```ts
+if (!updatedOrganization?.slug) {
+  return res.status(500).json({ error: "Organization slug not found for live Pillar sync" });
+}
+
+try {
+  await syncOrgConfigPatchToPillar({
+    orgId: updatedOrganization.slug,
+    orgName: req.body.orgName ?? req.body.name,
+    shortName: req.body.shortName,
+    primaryColor: req.body.primaryColor,
+    accentColor: req.body.accentColor,
+    tagline: req.body.tagline,
+    mission: req.body.mission,
+    logoUrl: req.body.logoUrl,
+    contactEmail: req.body.contactEmail,
+    contactPhone: req.body.contactPhone,
+    contactAddress: req.body.contactAddress,
+    meetingDay: req.body.meetingDay,
+    meetingTime: req.body.meetingTime,
+    meetingLocation: req.body.meetingLocation,
+  });
+} catch (error: any) {
+  console.error("[organizations] local update succeeded but live Pillar org-config sync failed", {
+    orgId: updatedOrganization.id,
+    slug: updatedOrganization.slug,
+    error: error?.message,
+  });
+
+  return res.status(502).json({
+    error: "Organization settings were saved locally but failed to sync to the live Pillar site",
+    localOnly: true,
+  });
+}
+```
+
+IMPORTANT:
+The current settings screen only writes name/type/category.
+Expand the server-side accepted fields and the client payload so this route can actually receive and persist:
+- primaryColor
+- accentColor
+- tagline
+- mission
+- logoUrl
+- contactEmail
+- contactPhone
+- contactAddress
+- meetingDay
+- meetingTime
+- meetingLocation
+
+If the organizations table does not contain all of these fields locally, that is okay.
+The minimum requirement is:
+- accept them in the route
+- sync them to the community platform live org config
+- do not block live branding updates just because the local table is narrower
+
+==================================================
+PHASE 11 — WHAT TO VERIFY AFTER IMPLEMENTATION
+==================================================
+
+After coding, verify all of these with exact proof:
+
+1. Interview normal path:
+   - AI emits [PAYLOAD_READY]
+   - organizations.site_config is written
+
+2. Interview skip path:
+   - AI emits [PAYLOAD_READY]
+   - organizations.site_config is still written
+
+3. Publish:
+   - reads organizations.site_config
+   - calls /api/pillar/setup
+   - returns https://{slug}.mypillar.co
+
+4. Event create:
+   - POST /api/events writes local DB
+   - syncs to POST /api/internal/events
+   - live tenant GET /api/events shows new event
+
+5. Event update:
+   - PUT/PATCH /api/events/:id writes local DB
+   - syncs to PATCH /api/internal/events/:id
+   - live tenant shows updated event
+
+6. Event delete:
+   - DELETE /api/events/:id deletes local DB
+   - syncs to DELETE /api/internal/events/:id
+   - live tenant removes event
+
+7. Org branding update:
+   - org settings route accepts branding fields
+   - syncs to PATCH /api/internal/org-config
+   - live tenant updates colors/name/tagline/logo without reprovision
+
+==================================================
+ABSOLUTE RULES
+==================================================
+
+- Do not redesign architecture
+- Do not create a new standalone site generator
+- Do not use generatedHtml as the live source of truth
+- Do not leave the dashboard and live tenant unsynced after publish
+- Keep this as a thin service-to-service sync layer
+- Use the exact existing file paths above
+- If a route name or variable differs slightly, adapt to the codebase but keep the logic exactly the same
+
+==================================================
+FINAL REPORT FORMAT
+==================================================
+
+After implementation, report back with:
+
+1. Exact files changed
+2. Exact routes added/changed
+3. Exact storage methods added/changed
+4. Exact request flow for:
+   - interview payload storage
+   - publish
+   - event create/update/delete sync
+   - org branding sync
+5. One proof trace showing:
+   - create event in Pillar dashboard
+   - event appears on https://{slug}.mypillar.co/events without reprovision
+6. One proof trace showing:
+   - update branding in Pillar dashboard
+   - colors/tagline/logo update on live tenant without reprovision
