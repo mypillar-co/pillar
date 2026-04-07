@@ -56,6 +56,11 @@ app.use((req, res, next) => {
   const slug = req.headers["x-pillar-slug"] as string;
   if (!slug) return next();
 
+  // Strip /sites/{slug} prefix added by the Cloudflare Worker
+  if (req.url.startsWith(`/sites/${slug}`)) {
+    req.url = req.url.slice(`/sites/${slug}`.length) || "/";
+  }
+
   proxy.web(req, res, {
     target: "http://localhost:5001",
     headers: { "x-org-id": slug },
@@ -84,26 +89,6 @@ function pipeToCommunityPlatform(req: Request, res: Response, orgSlug: string): 
   });
   req.pipe(proxyReq, { end: true });
 }
-
-// ── Top-level: host-based proxy for *.mypillar.co ───────────────────────────
-// Must run before body parsers so the raw request stream can be piped.
-// When Cloudflare forwards tenant traffic directly with the Host header intact,
-// we proxy everything (HTML, /assets/*, /api/*) straight to the community
-// platform. The CP server reads x-org-id and serves the correct org.
-app.use((req: Request, res: Response, next: NextFunction) => {
-  const rawHost = (req.headers["x-forwarded-host"] as string) || (req.headers.host as string) || "";
-  const hostname = rawHost.split(":")[0].toLowerCase();
-  if (
-    hostname.endsWith(".mypillar.co") &&
-    hostname !== "www.mypillar.co" &&
-    hostname !== "api.mypillar.co"
-  ) {
-    const slug = hostname.split(".")[0];
-    pipeToCommunityPlatform(req, res, slug);
-    return;
-  }
-  next();
-});
 
 app.use(
   pinoHttp({
@@ -465,33 +450,10 @@ app.use(async (req, res, next) => {
     const cpOrgSlug = (cfgRow?.slug as string | null) ?? orgSlug;
 
     // ── Community platform orgs: pipe ALL requests to the CP server ───────────
-    // Uses the same pipeToCommunityPlatform helper as the host-based proxy
-    // above, so assets stream with correct Content-Type (no buffering issues).
     if (!isPreview && isCpSite) {
-      const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
-      const cpPath = subPath + qs;
-
-      // Root HTML request: fetch and inject <base href="/sites/{slug}/"> so the
-      // browser resolves all relative asset URLs to /sites/{slug}/assets/... —
-      // paths that the API server handles, strips, and proxies back to the CP.
-      if (subPath === "/" || subPath === "" || subPath === "/index.html") {
-        try {
-          const cpFetchRes = await fetch(`http://localhost:5001/${qs}`, {
-            headers: { "x-org-id": cpOrgSlug },
-          });
-          let html = await cpFetchRes.text();
-          html = html.replace("<head>", `<head><base href="/sites/${orgSlug}/">`);
-          res.setHeader("Content-Type", "text/html; charset=utf-8");
-          res.setHeader("Cache-Control", "no-cache, no-store");
-          res.send(html);
-        } catch {
-          res.status(502).send("Community platform unavailable");
-        }
-        return;
-      }
-
-      // All other paths (assets, API calls within CP): stream directly.
-      req.url = cpPath;
+      // Rewrite req.url so the CP server sees only the sub-path (strip the
+      // /sites/:slug prefix that Replit's proxy added).
+      req.url = subPath + (req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "");
       pipeToCommunityPlatform(req, res, cpOrgSlug);
       return;
     }
