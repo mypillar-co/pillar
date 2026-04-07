@@ -427,13 +427,21 @@ app.use(async (req, res, next) => {
 
   if (orgSlug) {
     // ── Determine if this org uses the community platform, React template, or legacy HTML
+    // The URL slug (subdomain) may differ from the org's DB slug, so we match by
+    // either: direct slug match OR community_site_url containing the subdomain.
     const cfgCheck = await db.execute(
-      drizzleSql`SELECT (site_config IS NOT NULL) AS has_react_site, community_site_url FROM organizations WHERE slug = ${orgSlug} LIMIT 1`,
+      drizzleSql`SELECT slug, (site_config IS NOT NULL) AS has_react_site, community_site_url
+                 FROM organizations
+                 WHERE slug = ${orgSlug}
+                    OR community_site_url LIKE ${"%" + orgSlug + ".mypillar.co%"}
+                 LIMIT 1`,
     );
     const cfgRow = cfgCheck.rows[0] as Record<string, unknown> | undefined;
     const hasReactSite = Boolean(cfgRow?.has_react_site);
     const communitySiteUrl = (cfgRow?.community_site_url as string | null) ?? null;
     const isCpSite = !!(communitySiteUrl?.includes(".mypillar.co"));
+    // Use the actual DB slug so the CP can find the org in cs_org_configs.
+    const cpOrgSlug = (cfgRow?.slug as string | null) ?? orgSlug;
 
     // ── Community platform orgs: pipe ALL requests to the CP server ───────────
     // Uses the same pipeToCommunityPlatform helper as the host-based proxy
@@ -442,7 +450,7 @@ app.use(async (req, res, next) => {
       // Rewrite req.url so the CP server sees only the sub-path (strip the
       // /sites/:slug prefix that Replit's proxy added).
       req.url = subPath + (req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "");
-      pipeToCommunityPlatform(req, res, orgSlug);
+      pipeToCommunityPlatform(req, res, cpOrgSlug);
       return;
     }
 
