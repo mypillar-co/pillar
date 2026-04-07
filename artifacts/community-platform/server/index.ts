@@ -297,23 +297,16 @@ async function startServer() {
     const staticPath = path.join(__dirname, "../public");
     const indexHtmlPath = path.join(staticPath, "index.html");
 
-    // Serve static assets (JS/CSS) as-is — their paths already contain /sites/placeholder/
-    // and the API server strips /sites/{slug} before proxying here, so express.static
-    // will find them at the correct path under dist/public/.
+    // Serve static assets (JS/CSS/images) — Vite builds them at /assets/...
+    // The API server strips /sites/{slug} before proxying, so these arrive as /assets/...
     app.use(express.static(staticPath));
 
-    // Catch-all: serve index.html with the base href patched to the real org slug
-    // so the browser resolves all asset and route URLs to /sites/{orgSlug}/...
-    app.get("*", (req, res) => {
-      const orgSlug = (req.headers["x-org-id"] as string | undefined) || "placeholder";
+    // Catch-all: serve index.html for all SPA routes
+    app.get("*", (_req, res) => {
       try {
-        const html = fs.readFileSync(indexHtmlPath, "utf-8");
-        // Vite bakes /sites/placeholder/ into every asset src/href — replace them
-        // all so the browser requests assets from the correct /sites/{orgSlug}/ prefix.
-        const patched = html.replaceAll("/sites/placeholder/", `/sites/${orgSlug}/`);
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         res.setHeader("Cache-Control", "no-cache, no-store");
-        res.send(patched);
+        res.sendFile(indexHtmlPath);
       } catch {
         res.status(500).send("Failed to load application");
       }
