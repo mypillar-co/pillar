@@ -463,8 +463,17 @@ app.use(async (req, res, next) => {
     const cpOrgSlug = (cfgRow?.slug as string | null) ?? orgSlug;
 
     // ── Community platform orgs: pipe ALL requests to the CP server ───────────
-    // This includes HTML, assets, and /api/* calls (e.g. /api/org-config).
-    if (!isPreview && isCpSite) {
+    // Covers host-based CP sites (community_site_url set) AND any path-based
+    // request from the Cloudflare Worker that isn't a React-template org.
+    // API calls for non-CP path-based orgs are passed through to the Pillar router.
+    const routeToCp =
+      !isPreview &&
+      (isCpSite ||
+        (!hasReactSite &&
+          isPathBased &&
+          !(subPath.startsWith("/api/") || subPath === "/api")));
+
+    if (routeToCp) {
       req.url =
         subPath +
         (req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "");

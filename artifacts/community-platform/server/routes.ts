@@ -73,18 +73,110 @@ export function registerRoutes(app: Express) {
     res.json(config);
   });
 
+  // Fetch events from the Pillar events table (shared DB) as a fallback
+  // when cs_events has no entries for this org.
+  async function getPillarEvents(orgSlug: string) {
+    try {
+      const result = await db.execute(neonSql`
+        SELECT e.id, e.name, e.slug, e.description, e.event_type,
+               e.start_date, e.start_time, e.location,
+               e.is_ticketed, e.ticket_price::text, e.ticket_capacity,
+               e.is_active, e.featured, e.image_url,
+               e.has_registration, e.show_on_public_site
+        FROM events e
+        JOIN organizations o ON e.org_id = o.id
+        WHERE o.slug = ${orgSlug}
+          AND (e.show_on_public_site = true OR e.show_on_public_site IS NULL)
+          AND e.is_active IS NOT FALSE
+        ORDER BY e.start_date ASC
+      `);
+      return (result.rows as Record<string, unknown>[]).map((row, idx) => ({
+        id: idx + 1,
+        orgId: orgSlug,
+        title: (row.name as string) || "",
+        slug: (row.slug as string) || null,
+        description: (row.description as string) || "",
+        date: (row.start_date as string) || "",
+        time: (row.start_time as string) || "",
+        location: (row.location as string) || "",
+        category: (row.event_type as string) || "General",
+        imageUrl: (row.image_url as string) || null,
+        posterImageUrl: null,
+        featured: Boolean(row.featured),
+        isActive: row.is_active !== false,
+        isTicketed: Boolean(row.is_ticketed),
+        ticketPrice: (row.ticket_price as string) || null,
+        ticketCapacity: (row.ticket_capacity as number) || null,
+        hasRegistration: Boolean(row.has_registration),
+        showInNav: false,
+        externalLink: null,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  async function getPillarEventBySlug(orgSlug: string, slug: string) {
+    try {
+      const result = await db.execute(neonSql`
+        SELECT e.id, e.name, e.slug, e.description, e.event_type,
+               e.start_date, e.start_time, e.location,
+               e.is_ticketed, e.ticket_price::text, e.ticket_capacity,
+               e.is_active, e.featured, e.image_url, e.has_registration
+        FROM events e
+        JOIN organizations o ON e.org_id = o.id
+        WHERE o.slug = ${orgSlug}
+          AND e.slug = ${slug}
+        LIMIT 1
+      `);
+      const row = (result.rows as Record<string, unknown>[])[0];
+      if (!row) return null;
+      return {
+        id: 1,
+        orgId: orgSlug,
+        title: (row.name as string) || "",
+        slug: (row.slug as string) || null,
+        description: (row.description as string) || "",
+        date: (row.start_date as string) || "",
+        time: (row.start_time as string) || "",
+        location: (row.location as string) || "",
+        category: (row.event_type as string) || "General",
+        imageUrl: (row.image_url as string) || null,
+        posterImageUrl: null,
+        featured: Boolean(row.featured),
+        isActive: row.is_active !== false,
+        isTicketed: Boolean(row.is_ticketed),
+        ticketPrice: (row.ticket_price as string) || null,
+        ticketCapacity: (row.ticket_capacity as number) || null,
+        hasRegistration: Boolean(row.has_registration),
+        showInNav: false,
+        externalLink: null,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   app.get("/api/events", async (req, res) => {
     res.set("Cache-Control", "no-cache, no-store, must-revalidate");
     const orgId = getOrgId(req);
-    const events = await storage.getEvents(orgId);
     const includeAll = req.query.all === "true";
+    let events = await storage.getEvents(orgId);
+    // Fall back to Pillar events table if cs_events has nothing for this org
+    if (events.length === 0) {
+      events = await getPillarEvents(orgId) as typeof events;
+    }
     res.json(includeAll ? events : events.filter(e => e.isActive !== false));
   });
 
   app.get("/api/events/slug/:slug", async (req, res) => {
     res.set("Cache-Control", "no-cache, no-store, must-revalidate");
     const orgId = getOrgId(req);
-    const event = await storage.getEventBySlug(orgId, req.params.slug);
+    let event = await storage.getEventBySlug(orgId, req.params.slug);
+    // Fall back to Pillar events table if not found in cs_events
+    if (!event) {
+      event = await getPillarEventBySlug(orgId, req.params.slug) as typeof event;
+    }
     if (!event) return res.status(404).json({ error: "Event not found" });
     res.json(event);
   });
