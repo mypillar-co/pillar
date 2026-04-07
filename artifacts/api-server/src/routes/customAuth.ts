@@ -510,4 +510,46 @@ router.get("/providers", (_req: Request, res: Response) => {
   });
 });
 
+// ── Dev-only auto-login (NEVER available in production) ─────────────────────
+// Used by the Playwright test environment to bypass bot-check and CSRF.
+// Navigating to /auth/dev-login?email=... sets a session and redirects to /dashboard.
+router.get("/dev-login", async (req: Request, res: Response) => {
+  if (process.env.NODE_ENV !== "development") {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  const email = (req.query.email as string | undefined)?.toLowerCase();
+  if (!email) {
+    res.status(400).json({ error: "email query param required" });
+    return;
+  }
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email)).limit(1);
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  const adminEmails = getAdminEmails();
+  const sessionData: SessionData = {
+    user: {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      profileImageUrl: user.profileImageUrl,
+      isAdmin: adminEmails.has(email),
+    },
+  };
+  const sid = await createSession(sessionData);
+  // secure:false so cookie is usable over http://localhost in dev/test
+  res.cookie(SESSION_COOKIE, sid, {
+    httpOnly: true,
+    secure: false,
+    sameSite: "lax",
+    path: "/",
+    maxAge: SESSION_TTL,
+  });
+  const redirectTo = getSafeReturnTo(req.query.redirect as string | undefined);
+  res.redirect(redirectTo);
+});
+
 export { router as customAuthRouter };
