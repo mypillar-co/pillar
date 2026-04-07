@@ -14,8 +14,6 @@ import AdminLoginPage from "./pages/AdminLoginPage";
 import AdminPage from "./pages/AdminPage";
 import PaymentSuccessPage from "./pages/PaymentSuccessPage";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-
 function AppContent() {
   const config = useConfig();
   if (!config) {
@@ -45,7 +43,7 @@ function AppContent() {
     <div className="min-h-screen flex flex-col">
       <Navigation />
       <main className="flex-1">
-        <Router base={BASE}>
+        <Router>
           <Switch>
             <Route path="/" component={HomePage} />
             <Route path="/events" component={EventsPage} />
