@@ -366,14 +366,9 @@ app.use(async (req, res, next) => {
     subPath = pathBasedMatch[2] || "/";
     isPathBased = true;
 
-    // If the sub-path is an API call, strip the /sites/:slug prefix so the
-    // request falls through to the actual API route handlers (mounted at /api/).
-    // Without this, /sites/norwin-rotary-club/api/org/.../config would be caught
-    // by the site middleware and return index.html instead of JSON.
-    if (subPath.startsWith("/api/") || subPath === "/api") {
-      req.url = subPath + (req.url && req.url.includes("?") ? "?" + req.url.split("?").slice(1).join("?") : "");
-      return next();
-    }
+    // Note: API early-return is deferred into `if (orgSlug)` below so that
+    // community-platform orgs can be proxied first (they need /api/* forwarded
+    // to the community platform server, not the Pillar API server).
   } else {
     // ── Pattern 2: Host-based routing (<slug>.mypillar.co or custom domain) ─
     const rawHost = (req.headers["x-forwarded-host"] ?? req.headers.host ?? "") as string;
@@ -387,15 +382,61 @@ app.use(async (req, res, next) => {
   }
 
   if (orgSlug) {
-    // ── Determine if this org uses the React template ─────────────────────────
-    // React-template orgs have site_config set on the organizations row.
-    // We check this FIRST (before any fs or legacy-HTML checks) so that
-    // React-template orgs never accidentally fall through to the old HTML path.
+    // ── Determine if this org uses the community platform, React template, or legacy HTML
     const cfgCheck = await db.execute(
-      drizzleSql`SELECT (site_config IS NOT NULL) AS has_react_site FROM organizations WHERE slug = ${orgSlug} LIMIT 1`,
+      drizzleSql`SELECT (site_config IS NOT NULL) AS has_react_site, community_site_url FROM organizations WHERE slug = ${orgSlug} LIMIT 1`,
     );
     const cfgRow = cfgCheck.rows[0] as Record<string, unknown> | undefined;
     const hasReactSite = Boolean(cfgRow?.has_react_site);
+    const communitySiteUrl = (cfgRow?.community_site_url as string | null) ?? null;
+    const isCpSite = !!(communitySiteUrl?.includes(".mypillar.co"));
+
+    // ── Community platform orgs: proxy ALL requests to the CP server ───────────
+    // These orgs have community_site_url set to *.mypillar.co. We forward every
+    // request (HTML, assets, and API calls) to localhost:5001 with x-org-id so
+    // the community platform can serve the correct org's React SPA and API.
+    if (!isPreview && isCpSite) {
+      const cpBaseUrl = process.env.COMMUNITY_PLATFORM_URL || "http://localhost:5001";
+      const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+      const targetUrl = `${cpBaseUrl}${subPath}${qs}`;
+      try {
+        const cpHeaders: Record<string, string> = { "x-org-id": orgSlug };
+        if (req.headers["content-type"]) cpHeaders["Content-Type"] = req.headers["content-type"] as string;
+        if (req.headers["accept"]) cpHeaders["Accept"] = req.headers["accept"] as string;
+        if (req.headers["cookie"]) cpHeaders["Cookie"] = req.headers["cookie"] as string;
+        if (req.headers["authorization"]) cpHeaders["Authorization"] = req.headers["authorization"] as string;
+        const cpRes = await fetch(targetUrl, {
+          method: req.method,
+          headers: cpHeaders,
+          body: req.method !== "GET" && req.method !== "HEAD" ? JSON.stringify(req.body) : undefined,
+          signal: AbortSignal.timeout(15_000),
+        });
+        res.status(cpRes.status);
+        const contentType = cpRes.headers.get("content-type");
+        if (contentType) res.setHeader("Content-Type", contentType);
+        const setCookie = cpRes.headers.get("set-cookie");
+        if (setCookie) res.setHeader("Set-Cookie", setCookie);
+        res.send(Buffer.from(await cpRes.arrayBuffer()));
+        return;
+      } catch (err) {
+        console.error(`[sites] CP proxy error for ${orgSlug}:`, err);
+        res.status(503).send("Site is temporarily unavailable. Please try again shortly.");
+        return;
+      }
+    }
+
+    // ── API early-return for path-based non-CP orgs ────────────────────────────
+    // Strip /sites/:slug prefix so Pillar API route handlers receive the request.
+    // CP orgs are already handled above.
+    if (isPathBased && (subPath.startsWith("/api/") || subPath === "/api")) {
+      req.url = subPath + (req.url && req.url.includes("?") ? "?" + req.url.split("?").slice(1).join("?") : "");
+      return next();
+    }
+
+    // ── React template orgs: serve the Vite SPA ───────────────────────────────
+    // React-template orgs have site_config set on the organizations row.
+    // We check this FIRST (before any fs or legacy-HTML checks) so that
+    // React-template orgs never accidentally fall through to the old HTML path.
 
     // ── React template orgs: serve the Vite SPA ───────────────────────────────
     // In production the built files live at artifacts/norwin-rotary/dist/public/.
