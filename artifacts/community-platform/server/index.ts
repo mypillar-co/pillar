@@ -5,6 +5,7 @@ import { sql as neonSql } from "drizzle-orm";
 import { db } from "./db.js";
 import { registerRoutes } from "./routes.js";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -294,9 +295,28 @@ async function startServer() {
 
   if (process.env.NODE_ENV === "production") {
     const staticPath = path.join(__dirname, "../public");
+    const indexHtmlPath = path.join(staticPath, "index.html");
+
+    // Serve static assets (JS/CSS) as-is — their paths already contain /sites/placeholder/
+    // and the API server strips /sites/{slug} before proxying here, so express.static
+    // will find them at the correct path under dist/public/.
     app.use(express.static(staticPath));
-    app.get("*", (_req, res) => {
-      res.sendFile(path.join(staticPath, "index.html"));
+
+    // Catch-all: serve index.html with the base href patched to the real org slug
+    // so the browser resolves all asset and route URLs to /sites/{orgSlug}/...
+    app.get("*", (req, res) => {
+      const orgSlug = (req.headers["x-org-id"] as string | undefined) || "placeholder";
+      try {
+        const html = fs.readFileSync(indexHtmlPath, "utf-8");
+        // Vite bakes /sites/placeholder/ into every asset src/href — replace them
+        // all so the browser requests assets from the correct /sites/{orgSlug}/ prefix.
+        const patched = html.replaceAll("/sites/placeholder/", `/sites/${orgSlug}/`);
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.setHeader("Cache-Control", "no-cache, no-store");
+        res.send(patched);
+      } catch {
+        res.status(500).send("Failed to load application");
+      }
     });
   } else {
     const { createServer: createViteServer } = await import("vite");
