@@ -46,10 +46,10 @@ title = "Pillar — Team Roles, Job Descriptions & Daily Tasks"
 id = "rCRl-eSG9zxDNmmM_FXct"
 uri = "file://exports/PILLAR_PLATFORM_OVERVIEW.md"
 type = "text"
-title = "Pillar Platform — Overview & Architecture (Markdown)"
+title = "PILLAR_PLATFORM_OVERVIEW.md (updated Apr 7 2026)"
 
 [[outputs]]
 id = "wdtNdd1CIgzv2g6Wl2-_a"
 uri = "file://exports/pillar-platform-source.tar.gz"
 type = "unspecified"
-title = "Pillar Platform — Full Source Code (tar.gz, 43 MB)"
+title = "pillar-platform-source.tar.gz (updated Apr 7 2026)"
