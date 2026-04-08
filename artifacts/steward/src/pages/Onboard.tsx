@@ -30,7 +30,12 @@ import {
   ChevronRight,
   ChevronLeft,
   RefreshCw,
+  ImageIcon,
+  Upload,
+  Wand2,
+  X,
 } from "lucide-react";
+import { uploadImage, isImageFile, ACCEPTED_IMAGE_TYPES } from "@/lib/uploadImage";
 import { Link } from "wouter";
 import { toast } from "sonner";
 
@@ -77,13 +82,25 @@ const TIER_ICONS: Record<string, React.ElementType> = {
   tier3: Shield,
 };
 
-type Step = 1 | 2 | 3;
+type Step = 1 | "hero" | 2 | 3;
 
-const STEP_LABELS = [
+const ALL_STEPS: Step[] = [1, "hero", 2, 3];
+const STEP_LABELS: { step: Step; label: string }[] = [
   { step: 1, label: "Your Organization" },
+  { step: "hero", label: "Your Homepage" },
   { step: 2, label: "Choose a Plan" },
   { step: 3, label: "All Set" },
 ];
+function stepToIndex(s: Step) { return ALL_STEPS.indexOf(s); }
+
+interface UnsplashPhoto {
+  id: string;
+  thumbUrl: string;
+  previewUrl: string;
+  downloadLocation: string;
+  photographer: string;
+  photographerUrl: string;
+}
 
 export default function Onboard() {
   const [, setLocation] = useLocation();
@@ -99,6 +116,15 @@ export default function Onboard() {
   const [slugEdited, setSlugEdited] = useState(false);
   const [slugStatus, setSlugStatus] = useState<"idle" | "checking" | "available" | "taken" | "invalid">("idle");
   const slugTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Hero step state
+  type HeroPhase = "choice" | "uploading" | "picking" | "approving" | "saving";
+  const [heroPhase, setHeroPhase] = useState<HeroPhase>("choice");
+  const [heroPhotos, setHeroPhotos] = useState<UnsplashPhoto[]>([]);
+  const [heroQuery, setHeroQuery] = useState("");
+  const [heroError, setHeroError] = useState<string | null>(null);
+  const [heroSaving, setHeroSaving] = useState(false);
+  const heroFileRef = useRef<HTMLInputElement>(null);
 
   const checkSlug = useCallback((value: string) => {
     if (slugTimerRef.current) clearTimeout(slugTimerRef.current);
@@ -170,7 +196,9 @@ export default function Onboard() {
           // Invalidate org query so DashboardLayout finds the new org when navigating there
           void queryClient.invalidateQueries({ queryKey: getGetOrganizationQueryKey() });
           setCreatedOrgName(data.name);
-          setCurrentStep(2);
+          setHeroPhase("choice");
+          setHeroError(null);
+          setCurrentStep("hero");
         },
         onError: (err: unknown) => {
           const msg = (err as { message?: string })?.message;
@@ -223,22 +251,22 @@ export default function Onboard() {
       <div className="w-full max-w-2xl relative z-10">
         {/* Progress steps */}
         <div className="flex items-center justify-center gap-3 mb-10">
-          {STEP_LABELS.map(({ step, label }) => (
-            <React.Fragment key={step}>
+          {STEP_LABELS.map(({ step, label }, idx) => (
+            <React.Fragment key={String(step)}>
               <div className="flex items-center gap-2">
                 <div
                   className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
-                    currentStep > step
+                    stepToIndex(currentStep) > idx
                       ? "bg-primary text-primary-foreground"
                       : currentStep === step
                         ? "bg-primary text-primary-foreground ring-4 ring-primary/20"
                         : "bg-secondary text-muted-foreground"
                   }`}
                 >
-                  {currentStep > step ? (
+                  {stepToIndex(currentStep) > idx ? (
                     <CheckCircle2 className="w-4 h-4" />
                   ) : (
-                    step
+                    idx + 1
                   )}
                 </div>
                 <span
@@ -249,10 +277,10 @@ export default function Onboard() {
                   {label}
                 </span>
               </div>
-              {step < 3 && (
+              {idx < STEP_LABELS.length - 1 && (
                 <div
                   className={`flex-1 h-px max-w-12 transition-all ${
-                    currentStep > step ? "bg-primary" : "bg-white/10"
+                    stepToIndex(currentStep) > idx ? "bg-primary" : "bg-white/10"
                   }`}
                 />
               )}
@@ -419,6 +447,208 @@ export default function Onboard() {
                       )}
                     </Button>
                   </form>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {currentStep === "hero" && (
+            <motion.div
+              key="hero"
+              custom={1}
+              variants={slideVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+            >
+              <Card className="border-white/10 shadow-2xl bg-card/80 backdrop-blur-xl">
+                <CardHeader className="text-center pb-4">
+                  <div className="mx-auto w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
+                    <ImageIcon className="w-7 h-7 text-primary" />
+                  </div>
+                  <CardTitle className="text-2xl">Set your homepage banner</CardTitle>
+                  <CardDescription>
+                    Choose a background image for your community site's hero section, or keep the default color scheme.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4 pb-8">
+
+                  {/* Phase: choice */}
+                  {heroPhase === "choice" && (
+                    <>
+                      {[
+                        {
+                          icon: X,
+                          label: "No thanks — keep the color scheme",
+                          sub: "Uses your brand colors. You can always change this later.",
+                          action: () => setCurrentStep(2),
+                          iconBg: "bg-secondary/60",
+                          iconColor: "text-muted-foreground",
+                        },
+                        {
+                          icon: Upload,
+                          label: "Upload my own photo",
+                          sub: "JPG, PNG, or WebP. Max 10MB.",
+                          action: () => {
+                            setHeroPhase("uploading");
+                            setTimeout(() => heroFileRef.current?.click(), 50);
+                          },
+                          iconBg: "bg-blue-500/10",
+                          iconColor: "text-blue-400",
+                        },
+                        {
+                          icon: Wand2,
+                          label: "You pick — AI chooses for me",
+                          sub: "AI picks a search query based on your org, then you approve a photo.",
+                          action: async () => {
+                            setHeroPhase("picking");
+                            setHeroError(null);
+                            try {
+                              const res = await fetch(`${BASE}/api/organizations/hero-image/suggest`, { credentials: "include" });
+                              const data = await res.json() as { query?: string; photos?: UnsplashPhoto[]; error?: string };
+                              if (!res.ok) throw new Error(data.error || "Failed to load suggestions");
+                              setHeroQuery(data.query || "");
+                              setHeroPhotos(data.photos || []);
+                              setHeroPhase("approving");
+                            } catch (err) {
+                              setHeroError((err as Error).message);
+                              setHeroPhase("choice");
+                            }
+                          },
+                          iconBg: "bg-purple-500/10",
+                          iconColor: "text-purple-400",
+                        },
+                      ].map(({ icon: Icon, label, sub, action, iconBg, iconColor }) => (
+                        <button
+                          key={label}
+                          onClick={action}
+                          className="w-full flex items-center gap-4 p-4 rounded-xl border border-white/10 hover:border-white/20 hover:bg-white/5 transition-all text-left group"
+                        >
+                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${iconBg}`}>
+                            <Icon className={`w-5 h-5 ${iconColor}`} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-white text-sm">{label}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-white transition-colors shrink-0" />
+                        </button>
+                      ))}
+                      {heroError && <p className="text-sm text-destructive text-center">{heroError}</p>}
+                    </>
+                  )}
+
+                  {/* Phase: uploading — file picker */}
+                  {heroPhase === "uploading" && (
+                    <div className="text-center space-y-4 py-4">
+                      <input
+                        ref={heroFileRef}
+                        type="file"
+                        accept={ACCEPTED_IMAGE_TYPES}
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) { setHeroPhase("choice"); return; }
+                          if (!isImageFile(file)) { setHeroError("Please select an image file."); setHeroPhase("choice"); return; }
+                          setHeroSaving(true);
+                          setHeroError(null);
+                          try {
+                            const imageUrl = await uploadImage(file);
+                            await fetch(`${BASE}/api/organizations/hero-image`, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              credentials: "include",
+                              body: JSON.stringify({ imageUrl }),
+                            });
+                            setCurrentStep(2);
+                          } catch {
+                            setHeroError("Upload failed. Please try again.");
+                            setHeroPhase("choice");
+                          } finally {
+                            setHeroSaving(false);
+                          }
+                        }}
+                      />
+                      {heroSaving ? (
+                        <>
+                          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mx-auto" />
+                          <p className="text-sm text-muted-foreground">Saving your photo…</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-sm text-muted-foreground">Select a photo from your device.</p>
+                          <Button onClick={() => heroFileRef.current?.click()}>Choose File</Button>
+                          <button onClick={() => setHeroPhase("choice")} className="block w-full text-xs text-muted-foreground hover:text-white mt-2">← Back</button>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Phase: picking — AI loading */}
+                  {heroPhase === "picking" && (
+                    <div className="text-center py-8 space-y-3">
+                      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mx-auto" />
+                      <p className="text-sm text-muted-foreground">AI is finding the perfect image for your organization…</p>
+                    </div>
+                  )}
+
+                  {/* Phase: approving — photo grid */}
+                  {heroPhase === "approving" && (
+                    <div className="space-y-4">
+                      {heroQuery && (
+                        <p className="text-xs text-muted-foreground text-center">
+                          AI searched for: <span className="text-white font-medium">"{heroQuery}"</span>
+                        </p>
+                      )}
+                      <div className="grid grid-cols-3 gap-2">
+                        {heroPhotos.map((photo) => (
+                          <button
+                            key={photo.id}
+                            disabled={heroSaving}
+                            onClick={async () => {
+                              setHeroSaving(true);
+                              setHeroError(null);
+                              try {
+                                const res = await fetch(`${BASE}/api/organizations/hero-image/apply-unsplash`, {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  credentials: "include",
+                                  body: JSON.stringify({ previewUrl: photo.previewUrl, downloadLocation: photo.downloadLocation }),
+                                });
+                                if (!res.ok) {
+                                  const d = await res.json() as { error?: string };
+                                  throw new Error(d.error || "Failed to save");
+                                }
+                                setCurrentStep(2);
+                              } catch (err) {
+                                setHeroError((err as Error).message);
+                                setHeroSaving(false);
+                              }
+                            }}
+                            className="relative group aspect-video rounded-lg overflow-hidden border-2 border-transparent hover:border-primary transition-all disabled:opacity-50"
+                          >
+                            <img src={photo.thumbUrl} alt={`Photo by ${photo.photographer}`} className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center">
+                              <span className="text-white text-xs font-medium opacity-0 group-hover:opacity-100 transition-all">Use this</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                      {heroSaving && (
+                        <div className="text-center space-y-2">
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto" />
+                          <p className="text-xs text-muted-foreground">Saving your photo…</p>
+                        </div>
+                      )}
+                      {heroError && <p className="text-sm text-destructive text-center">{heroError}</p>}
+                      <p className="text-xs text-muted-foreground text-center">Photos from Unsplash. Click one to approve it as your banner.</p>
+                      <button onClick={() => setHeroPhase("choice")} className="block w-full text-xs text-muted-foreground hover:text-white text-center">
+                        ← Back to options
+                      </button>
+                    </div>
+                  )}
+
                 </CardContent>
               </Card>
             </motion.div>

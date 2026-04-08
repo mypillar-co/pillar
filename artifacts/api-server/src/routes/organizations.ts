@@ -35,6 +35,36 @@ import {
 } from "@workspace/db";
 import { eq, desc, asc, isNotNull, and, sql } from "drizzle-orm";
 import { syncOrgConfigPatchToPillar } from "../lib/pillarOrgSync.js";
+import { randomUUID } from "crypto";
+import OpenAI from "openai";
+import { objectStorageClient, ObjectStorageService } from "../lib/objectStorage.js";
+
+const objectStorageService = new ObjectStorageService();
+
+interface UnsplashPhoto {
+  id: string;
+  urls: { small: string; regular: string };
+  links: { download_location: string };
+  user: { name: string; links: { html: string } };
+}
+
+async function getCurrentOrgForUser(userId: string) {
+  const [org] = await db
+    .select()
+    .from(organizationsTable)
+    .where(eq(organizationsTable.userId, userId))
+    .orderBy(desc(isNotNull(organizationsTable.tier)), asc(organizationsTable.createdAt))
+    .limit(1);
+  return org ?? null;
+}
+
+async function saveHeroImageUrl(orgSlug: string, imageUrl: string): Promise<void> {
+  await db.execute(sql`
+    INSERT INTO cs_org_configs (org_id, hero_image_url)
+    VALUES (${orgSlug}, ${imageUrl})
+    ON CONFLICT (org_id) DO UPDATE SET hero_image_url = EXCLUDED.hero_image_url
+  `);
+}
 
 const router: IRouter = Router();
 
@@ -486,6 +516,124 @@ router.delete("/organizations", async (req: Request, res: Response) => {
   });
 
   res.json({ success: true });
+});
+
+// ── Hero image routes ─────────────────────────────────────────────────────────
+
+// GET /api/organizations/hero-image/suggest
+// Uses AI to pick an Unsplash search query then returns photo options
+router.get("/organizations/hero-image/suggest", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const unsplashKey = process.env.UNSPLASH_ACCESS_KEY;
+  if (!unsplashKey) {
+    res.status(503).json({ error: "Image suggestions not configured yet. Add your Unsplash API key in settings." });
+    return;
+  }
+
+  const org = await getCurrentOrgForUser(req.user.id);
+  if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
+
+  try {
+    const openai = new OpenAI();
+    const prompt = `Generate a concise Unsplash photo search query (3-5 words) for a homepage hero background image for a ${org.type || "civic"} organization named "${org.name}"${org.category ? ` with tagline "${org.category}"` : ""}. Think about the mood, setting, and community feel. Return ONLY the search query, nothing else.`;
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 20,
+    });
+    const query = completion.choices[0]?.message?.content?.trim() || `${org.type || "community"} gathering outdoor`;
+
+    const unsplashRes = await fetch(
+      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=9&orientation=landscape`,
+      { headers: { "Authorization": `Client-ID ${unsplashKey}` } }
+    );
+    if (!unsplashRes.ok) {
+      res.status(502).json({ error: "Failed to fetch suggestions from Unsplash" });
+      return;
+    }
+    const unsplashData = await unsplashRes.json() as { results: UnsplashPhoto[] };
+
+    res.json({
+      query,
+      photos: unsplashData.results.map((p) => ({
+        id: p.id,
+        thumbUrl: p.urls.small,
+        previewUrl: p.urls.regular,
+        downloadLocation: p.links.download_location,
+        photographer: p.user.name,
+        photographerUrl: p.user.links.html,
+      })),
+    });
+  } catch (err) {
+    console.error("Hero image suggest error:", err);
+    res.status(500).json({ error: "Failed to generate image suggestions" });
+  }
+});
+
+// POST /api/organizations/hero-image/apply-unsplash
+// Downloads chosen Unsplash photo into object storage and saves the URL to cs_org_configs
+router.post("/organizations/hero-image/apply-unsplash", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const { previewUrl, downloadLocation } = req.body as { previewUrl?: string; downloadLocation?: string };
+  if (!previewUrl) { res.status(400).json({ error: "previewUrl is required" }); return; }
+
+  const org = await getCurrentOrgForUser(req.user.id);
+  if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
+
+  const unsplashKey = process.env.UNSPLASH_ACCESS_KEY;
+  try {
+    // Track the download with Unsplash (required by their API terms)
+    if (unsplashKey && downloadLocation) {
+      fetch(downloadLocation, { headers: { "Authorization": `Client-ID ${unsplashKey}` } }).catch(() => {});
+    }
+
+    // Download the image
+    const imageRes = await fetch(previewUrl);
+    if (!imageRes.ok) throw new Error("Failed to download image from Unsplash");
+    const imageBuffer = Buffer.from(await imageRes.arrayBuffer());
+    const contentType = imageRes.headers.get("content-type") || "image/jpeg";
+    const ext = contentType.includes("png") ? "png" : "jpg";
+
+    // Upload to object storage
+    const privateDir = objectStorageService.getPrivateObjectDir().replace(/\/$/, "");
+    const objectId = randomUUID();
+    const objectPath = `${privateDir}/uploads/${objectId}.${ext}`;
+    const parts = objectPath.startsWith("/") ? objectPath.slice(1).split("/") : objectPath.split("/");
+    const bucketName = parts[0];
+    const objectName = parts.slice(1).join("/");
+    const bucket = objectStorageClient.bucket(bucketName);
+    await bucket.file(objectName).save(imageBuffer, { contentType, resumable: false });
+
+    const heroImageUrl = `/api/storage/objects/uploads/${objectId}.${ext}`;
+    await saveHeroImageUrl(org.slug, heroImageUrl);
+
+    res.json({ heroImageUrl });
+  } catch (err) {
+    console.error("Hero image apply error:", err);
+    res.status(500).json({ error: "Failed to save hero image" });
+  }
+});
+
+// POST /api/organizations/hero-image
+// Saves an already-uploaded image path as the hero image
+router.post("/organizations/hero-image", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const { imageUrl } = req.body as { imageUrl?: string };
+  if (!imageUrl) { res.status(400).json({ error: "imageUrl is required" }); return; }
+
+  const org = await getCurrentOrgForUser(req.user.id);
+  if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
+
+  try {
+    await saveHeroImageUrl(org.slug, imageUrl);
+    res.json({ heroImageUrl: imageUrl });
+  } catch (err) {
+    console.error("Hero image save error:", err);
+    res.status(500).json({ error: "Failed to save hero image" });
+  }
 });
 
 export default router;
