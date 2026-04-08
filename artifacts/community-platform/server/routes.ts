@@ -157,6 +157,58 @@ export function registerRoutes(app: Express) {
     }
   }
 
+  async function getPillarTicketTypes(eventSlug: string, orgSlug: string) {
+    try {
+      const result = await db.execute(neonSql`
+        SELECT tt.id, tt.name, tt.price::float AS price, tt.quantity, tt.sold, tt.is_active
+        FROM ticket_types tt
+        JOIN events e ON tt.event_id = e.id
+        JOIN organizations o ON e.org_id = o.id
+        WHERE e.slug = ${eventSlug}
+          AND o.slug = ${orgSlug}
+          AND tt.is_active = true
+        ORDER BY tt.price ASC
+      `);
+      return (result.rows as Record<string, unknown>[]).map(row => ({
+        id: row.id as string,
+        name: (row.name as string) || "General Admission",
+        price: Number(row.price) || 0,
+        quantity: row.quantity as number | null,
+        sold: (row.sold as number) || 0,
+        available: row.quantity === null || (row.quantity as number) - ((row.sold as number) || 0) > 0,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  async function ensurePillarTicketType(eventSlug: string, orgSlug: string, price: number): Promise<string | null> {
+    try {
+      const existing = await getPillarTicketTypes(eventSlug, orgSlug);
+      if (existing.length > 0) return existing[0].id;
+      const result = await db.execute(neonSql`
+        INSERT INTO ticket_types (id, event_id, org_id, name, price, sold, is_active, created_at)
+        SELECT
+          gen_random_uuid(),
+          e.id,
+          e.org_id,
+          'General Admission',
+          ${price},
+          0,
+          true,
+          NOW()
+        FROM events e
+        JOIN organizations o ON e.org_id = o.id
+        WHERE e.slug = ${eventSlug}
+          AND o.slug = ${orgSlug}
+        RETURNING id
+      `);
+      return (result.rows[0] as Record<string, unknown>)?.id as string ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   app.get("/api/events", async (req, res) => {
     res.set("Cache-Control", "no-cache, no-store, must-revalidate");
     const orgId = getOrgId(req);
@@ -183,29 +235,70 @@ export function registerRoutes(app: Express) {
 
   app.get("/api/events/:slug/ticket-availability", async (req, res) => {
     const orgId = getOrgId(req);
-    const event = await storage.getEventBySlug(orgId, req.params.slug);
+    const { slug } = req.params;
+    let event = await storage.getEventBySlug(orgId, slug);
+    if (!event) event = await getPillarEventBySlug(orgId, slug) as typeof event;
     if (!event || !event.isTicketed) return res.status(404).json({ error: "Not a ticketed event" });
+    const ticketTypes = await getPillarTicketTypes(slug, orgId);
     const sold = await storage.getTicketsSoldForEvent(orgId, event.id);
     const remaining = event.ticketCapacity ? event.ticketCapacity - sold : null;
-    res.json({ ticketPrice: event.ticketPrice || "0", capacity: event.ticketCapacity, sold, remaining, available: remaining === null || remaining > 0 });
+    res.json({
+      ticketPrice: event.ticketPrice || "0",
+      capacity: event.ticketCapacity,
+      sold,
+      remaining,
+      available: remaining === null || remaining > 0,
+      ticketTypes,
+    });
   });
 
   app.post("/api/events/:slug/ticket-checkout", async (req, res) => {
     try {
       const orgId = getOrgId(req);
-      const event = await storage.getEventBySlug(orgId, req.params.slug);
-      if (!event || !event.isTicketed) return res.status(404).json({ error: "Not a ticketed event" });
-      const { buyerName, buyerEmail, quantity } = req.body;
-      if (!buyerName || !buyerEmail || !quantity || quantity < 1 || quantity > 10) return res.status(400).json({ error: "Invalid purchase data" });
-      const price = parseFloat(event.ticketPrice || "0");
-      const amountCents = Math.round(price * quantity * 100);
-      if (event.ticketCapacity) {
-        const sold = await storage.getTicketsSoldForEvent(orgId, event.id);
-        if (sold + quantity > event.ticketCapacity) return res.status(400).json({ error: "Not enough tickets available" });
+      const { slug } = req.params;
+      const { buyerName, buyerEmail, quantity, ticketTypeId: requestedTypeId } = req.body as {
+        buyerName?: string; buyerEmail?: string; quantity?: number; ticketTypeId?: string;
+      };
+      if (!buyerName || !buyerEmail || !quantity || quantity < 1 || quantity > 10) {
+        return res.status(400).json({ error: "Invalid purchase data" });
       }
-      const confirmationNumber = `TIX-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-      const purchase = await storage.createTicketPurchase(orgId, { eventId: event.id, buyerName, buyerEmail, quantity, totalAmount: amountCents, confirmationNumber, status: "pending" });
-      res.json({ checkoutUrl: "/payment-success?confirmation=" + confirmationNumber, purchaseId: purchase.id });
+
+      // Find the event — cs_events first, then Pillar events
+      let event = await storage.getEventBySlug(orgId, slug);
+      if (!event) event = await getPillarEventBySlug(orgId, slug) as typeof event;
+      if (!event || !event.isTicketed) return res.status(404).json({ error: "Not a ticketed event" });
+
+      // Resolve ticket type — use provided ID or auto-create a General Admission type
+      let ticketTypeId = requestedTypeId;
+      if (!ticketTypeId) {
+        const price = parseFloat(event.ticketPrice || "0");
+        ticketTypeId = await ensurePillarTicketType(slug, orgId, price) ?? undefined;
+        if (!ticketTypeId) {
+          return res.status(500).json({ error: "Could not resolve ticket type for this event" });
+        }
+      }
+
+      // Forward to Pillar API's Stripe Connect checkout endpoint
+      const apiPort = process.env.API_PORT || "8080";
+      const apiRes = await fetch(`http://localhost:${apiPort}/api/public/events/${encodeURIComponent(slug)}/checkout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-forwarded-proto": String(req.headers["x-forwarded-proto"] ?? "https"),
+          "x-forwarded-host": String(req.headers["x-forwarded-host"] ?? req.headers.host ?? ""),
+        },
+        body: JSON.stringify({
+          ticketTypeId,
+          quantity,
+          attendeeName: buyerName,
+          attendeeEmail: buyerEmail,
+          _ts: Date.now() - 5000,
+        }),
+      });
+
+      const data = await apiRes.json() as Record<string, unknown>;
+      if (!apiRes.ok) return res.status(apiRes.status).json(data);
+      res.json({ checkoutUrl: data.checkoutUrl, saleId: data.saleId });
     } catch (err) {
       console.error("Ticket checkout error:", err);
       res.status(500).json({ error: "Internal server error" });
