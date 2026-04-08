@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useConfig } from "../config-context";
 import { apiFetch, apiUrl } from "../lib/api";
 
+
 export default function EventDetailPage() {
   const { slug } = useParams<{ slug: string }>();
   const config = useConfig();
@@ -92,6 +93,9 @@ function TicketSection({ slug, eventTitle }: { slug: string; eventTitle: string 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [honeypot, setHoneypot] = useState("");
+  const [formLoadedAt] = useState(() => Date.now());
 
   const { data: avail } = useQuery<any>({
     queryKey: ["/api/events", slug, "ticket-availability"],
@@ -122,15 +126,34 @@ function TicketSection({ slug, eventTitle }: { slug: string; eventTitle: string 
     e.preventDefault();
     if (!name.trim() || !email.trim()) return;
     setLoading(true);
+    setError(null);
     try {
       const res = await apiFetch(`/api/events/${slug}/ticket-checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ buyerName: name, buyerEmail: email, quantity: qty }),
+        body: JSON.stringify({
+          buyerName: name,
+          buyerEmail: email,
+          quantity: qty,
+          _hp: honeypot,
+          _ts: formLoadedAt,
+        }),
       });
       const data = await res.json();
+      if (res.status === 429) {
+        setError("Too many requests. Please wait a moment before trying again.");
+        return;
+      }
+      if (!res.ok) {
+        setError(data.error || "Something went wrong. Please try again.");
+        return;
+      }
       if (data.checkoutUrl) window.location.href = data.checkoutUrl;
-    } catch { } finally { setLoading(false); }
+    } catch {
+      setError("Unable to connect. Please check your connection and try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -139,6 +162,9 @@ function TicketSection({ slug, eventTitle }: { slug: string; eventTitle: string 
         <h2 className="text-2xl font-bold font-serif text-center mb-2">Get Your Tickets</h2>
         <p className="text-gray-500 text-center text-sm mb-8">{eventTitle}</p>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="absolute opacity-0 h-0 w-0 overflow-hidden" aria-hidden="true">
+            <input type="text" name="website" value={honeypot} onChange={e => setHoneypot(e.target.value)} tabIndex={-1} autoComplete="off" />
+          </div>
           <div>
             <label className="block text-sm font-medium mb-1">Full Name</label>
             <input type="text" value={name} onChange={e => setName(e.target.value)} required className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
@@ -160,6 +186,7 @@ function TicketSection({ slug, eventTitle }: { slug: string; eventTitle: string 
             <span className="text-xl font-bold">${(price * qty).toFixed(2)}</span>
           </div>
           {avail.remaining != null && <p className="text-xs text-gray-400 text-center">{avail.remaining} tickets remaining</p>}
+          {error && <p className="text-sm text-red-600 text-center px-2">{error}</p>}
           <button type="submit" disabled={loading} className="w-full py-3 text-white rounded-md font-medium disabled:opacity-50" style={{ backgroundColor: "var(--primary-hex)" }}>
             {loading ? "Processing..." : `Purchase — $${(price * qty).toFixed(2)}`}
           </button>

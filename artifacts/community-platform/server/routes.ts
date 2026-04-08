@@ -8,6 +8,30 @@ import { db } from "./db.js";
 import { computeRegistrationWindow } from "./registration-window-engine.js";
 import { createContentHook } from "./content-hooks.js";
 
+const checkoutAttempts = new Map<string, { count: number; windowStart: number }>();
+const CHECKOUT_WINDOW_MS = 60 * 60 * 1000;
+const CHECKOUT_MAX = 5;
+
+function getClientIp(req: Request): string {
+  return (
+    (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ||
+    req.socket?.remoteAddress ||
+    "unknown"
+  );
+}
+
+function checkoutRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const entry = checkoutAttempts.get(ip);
+  if (!entry || now - entry.windowStart > CHECKOUT_WINDOW_MS) {
+    checkoutAttempts.set(ip, { count: 1, windowStart: now });
+    return false;
+  }
+  if (entry.count >= CHECKOUT_MAX) return true;
+  entry.count++;
+  return false;
+}
+
 function generateSlug(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }
@@ -274,9 +298,19 @@ export function registerRoutes(app: Express) {
     try {
       const orgId = getOrgId(req);
       const { slug } = req.params;
-      const { buyerName, buyerEmail, quantity, ticketTypeId: requestedTypeId } = req.body as {
+      const { buyerName, buyerEmail, quantity, ticketTypeId: requestedTypeId, _hp, _ts } = req.body as {
         buyerName?: string; buyerEmail?: string; quantity?: number; ticketTypeId?: string;
+        _hp?: string; _ts?: number;
       };
+
+      if (_hp) return res.json({ success: true });
+      if (typeof _ts === "number" && Date.now() - _ts < 3000) return res.json({ success: true });
+
+      const ip = getClientIp(req);
+      if (checkoutRateLimited(ip)) {
+        return res.status(429).json({ error: "Too many requests. Please wait before trying again." });
+      }
+
       if (!buyerName || !buyerEmail || !quantity || quantity < 1 || quantity > 10) {
         return res.status(400).json({ error: "Invalid purchase data" });
       }
