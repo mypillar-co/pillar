@@ -82,10 +82,15 @@ router.get("/organizations", async (req: Request, res: Response) => {
       .where(eq(organizationsTable.id, devOrgId))
       .limit(1);
     if (overrideOrg) {
+      const overrideExtra = await db.execute(
+        sql`SELECT community_site_url FROM organizations WHERE id = ${overrideOrg.id} LIMIT 1`
+      );
+      const overrideCommunitySiteUrl = (overrideExtra.rows[0] as { community_site_url?: string | null } | undefined)?.community_site_url ?? null;
       res.json({
         organization: {
           ...overrideOrg,
           createdAt: overrideOrg.createdAt.toISOString(),
+          communitySiteUrl: overrideCommunitySiteUrl,
         },
       });
       return;
@@ -102,10 +107,22 @@ router.get("/organizations", async (req: Request, res: Response) => {
     )
     .limit(1);
 
+  if (!org) {
+    res.json({ organization: null });
+    return;
+  }
+
+  const extraResult = await db.execute(
+    sql`SELECT community_site_url FROM organizations WHERE id = ${org.id} LIMIT 1`
+  );
+  const communitySiteUrl = (extraResult.rows[0] as { community_site_url?: string | null } | undefined)?.community_site_url ?? null;
+
   res.json({
-    organization: org
-      ? { ...org, createdAt: org.createdAt.toISOString() }
-      : null,
+    organization: {
+      ...org,
+      createdAt: org.createdAt.toISOString(),
+      communitySiteUrl,
+    },
   });
 });
 

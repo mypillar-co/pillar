@@ -118,7 +118,7 @@ export default function Overview() {
   const hasPlan = !!currentTierId;
   const hasEvents = currentTierId ? TIER_INCLUDES_EVENTS.has(currentTierId) : false;
   const hasSocial = currentTierId ? TIER_INCLUDES_SOCIAL.has(currentTierId) : false;
-  const hasSite = !!(siteData?.site?.generatedHtml);
+  const hasSite = !!(siteData?.site?.generatedHtml) || !!(paymentData?.organization?.communitySiteUrl);
   const socialConnected = Array.isArray(socialAccounts) && socialAccounts.length > 0;
   const stripeConnected = !!(paymentData?.organization?.stripeConnectAccountId ?? (org as unknown as { stripeConnectAccountId?: string | null })?.stripeConnectAccountId);
 
