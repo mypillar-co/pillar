@@ -602,7 +602,14 @@ router.post("/admin/my-orgs", async (req: Request, res: Response) => {
 
   try {
     const baseSlug = name.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 40);
-    const slug = `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`;
+    let slug = baseSlug;
+    let slugSuffix = 2;
+    while (true) {
+      const [taken] = await db.select({ id: organizationsTable.id }).from(organizationsTable).where(eq(organizationsTable.slug, slug)).limit(1);
+      if (!taken) break;
+      slug = `${baseSlug}-${slugSuffix}`;
+      slugSuffix++;
+    }
 
     const [org] = await db
       .insert(organizationsTable)

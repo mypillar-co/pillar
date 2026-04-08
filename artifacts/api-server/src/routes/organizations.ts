@@ -109,6 +109,40 @@ router.get("/organizations", async (req: Request, res: Response) => {
   });
 });
 
+// GET /api/organizations/check-slug — check if a slug is available
+router.get("/organizations/check-slug", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const slug = (req.query.slug as string ?? "").toLowerCase().trim();
+  if (!slug) {
+    res.status(400).json({ error: "slug is required" });
+    return;
+  }
+
+  const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,49}$/;
+  if (!SLUG_RE.test(slug)) {
+    res.json({ available: false, reason: "invalid_format" });
+    return;
+  }
+
+  const RESERVED = new Set(["api", "www", "admin", "pillar", "app", "mail", "smtp", "ftp", "cdn", "static", "assets", "dashboard", "login", "register", "onboard", "sites"]);
+  if (RESERVED.has(slug)) {
+    res.json({ available: false, reason: "reserved" });
+    return;
+  }
+
+  const [taken] = await db
+    .select({ id: organizationsTable.id })
+    .from(organizationsTable)
+    .where(eq(organizationsTable.slug, slug))
+    .limit(1);
+
+  res.json({ available: !taken });
+});
+
 // POST /api/organizations
 router.post("/organizations", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
@@ -116,10 +150,11 @@ router.post("/organizations", async (req: Request, res: Response) => {
     return;
   }
 
-  const { name, type, category } = req.body as {
+  const { name, type, category, slug: requestedSlug } = req.body as {
     name?: string;
     type?: string;
     category?: string;
+    slug?: string;
   };
   if (!name || !type) {
     res.status(400).json({ error: "name and type are required" });
@@ -145,8 +180,40 @@ router.post("/organizations", async (req: Request, res: Response) => {
       .where(eq(organizationsTable.userId, userId))
       .returning();
   } else {
-    const baseSlug = generateSlug(name);
-    const slug = `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`;
+    let slug: string;
+
+    if (requestedSlug) {
+      const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,49}$/;
+      if (!SLUG_RE.test(requestedSlug)) {
+        res.status(400).json({ error: "Invalid slug format" });
+        return;
+      }
+      const [taken] = await db
+        .select({ id: organizationsTable.id })
+        .from(organizationsTable)
+        .where(eq(organizationsTable.slug, requestedSlug))
+        .limit(1);
+      if (taken) {
+        res.status(409).json({ error: "That URL is already taken. Please choose a different one." });
+        return;
+      }
+      slug = requestedSlug;
+    } else {
+      const baseSlug = generateSlug(name);
+      slug = baseSlug;
+      let suffix = 2;
+      while (true) {
+        const [taken] = await db
+          .select({ id: organizationsTable.id })
+          .from(organizationsTable)
+          .where(eq(organizationsTable.slug, slug))
+          .limit(1);
+        if (!taken) break;
+        slug = `${baseSlug}-${suffix}`;
+        suffix++;
+      }
+    }
+
     [org] = await db
       .insert(organizationsTable)
       .values({

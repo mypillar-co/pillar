@@ -118,6 +118,7 @@ export interface UpsertOrganizationRequest {
   /** @minLength 1 */
   type: string;
   category?: string;
+  slug?: string;
 }
 
 export type EventItemStatus =

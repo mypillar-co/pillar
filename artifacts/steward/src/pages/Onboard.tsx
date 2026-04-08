@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -33,6 +33,19 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 import { toast } from "sonner";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+function nameToSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40);
+}
 
 const orgSchema = z.object({
   name: z.string().min(2, "Organization name must be at least 2 characters"),
@@ -82,6 +95,29 @@ export default function Onboard() {
   const [selectedTierId, setSelectedTierId] = useState<string | null>(null);
   const [tosAccepted, setTosAccepted] = useState(false);
 
+  const [slug, setSlug] = useState("");
+  const [slugEdited, setSlugEdited] = useState(false);
+  const [slugStatus, setSlugStatus] = useState<"idle" | "checking" | "available" | "taken" | "invalid">("idle");
+  const slugTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const checkSlug = useCallback((value: string) => {
+    if (slugTimerRef.current) clearTimeout(slugTimerRef.current);
+    const trimmed = value.toLowerCase().trim();
+    if (!trimmed) { setSlugStatus("idle"); return; }
+    const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,49}$/;
+    if (!SLUG_RE.test(trimmed)) { setSlugStatus("invalid"); return; }
+    setSlugStatus("checking");
+    slugTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`${BASE}/api/organizations/check-slug?slug=${encodeURIComponent(trimmed)}`, { credentials: "include" });
+        const data = await res.json() as { available: boolean };
+        setSlugStatus(data.available ? "available" : "taken");
+      } catch {
+        setSlugStatus("idle");
+      }
+    }, 400);
+  }, []);
+
   // When returning from Stripe Checkout, the success_url includes ?step=3
   // Jump directly to the correct step based on the query param
   useEffect(() => {
@@ -111,12 +147,24 @@ export default function Onboard() {
     }
   }, [authLoading, isAuthenticated, setLocation]);
 
+  // Auto-derive slug from org name unless user has manually edited it
+  useEffect(() => {
+    const subscription = form.watch((values, { name: fieldName }) => {
+      if (fieldName === "name" && !slugEdited) {
+        const derived = nameToSlug(values.name ?? "");
+        setSlug(derived);
+        checkSlug(derived);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [form, slugEdited, checkSlug]);
+
   if (authLoading) return null;
   if (!isAuthenticated) return null;
 
   const handleOrgSubmit = (data: OrgFormData) => {
     createOrg(
-      { data },
+      { data: { ...data, slug: slug || undefined } },
       {
         onSuccess: () => {
           // Invalidate org query so DashboardLayout finds the new org when navigating there
@@ -124,8 +172,9 @@ export default function Onboard() {
           setCreatedOrgName(data.name);
           setCurrentStep(2);
         },
-        onError: () => {
-          toast.error("Failed to create organization. Please try again.");
+        onError: (err: unknown) => {
+          const msg = (err as { message?: string })?.message;
+          toast.error(msg && msg.includes("taken") ? msg : "Failed to create organization. Please try again.");
         },
       },
     );
@@ -282,6 +331,51 @@ export default function Onboard() {
 
                     <div className="space-y-1.5">
                       <label className="text-sm font-medium text-white">
+                        Your Community URL
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground text-sm pointer-events-none select-none">
+                          mypillar.co/
+                        </span>
+                        <input
+                          value={slug}
+                          onChange={(e) => {
+                            const val = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "");
+                            setSlug(val);
+                            setSlugEdited(true);
+                            checkSlug(val);
+                          }}
+                          className="w-full h-11 pl-28 pr-10 rounded-xl bg-background border border-white/10 text-white placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                          placeholder="your-org-name"
+                          maxLength={50}
+                          spellCheck={false}
+                        />
+                        {slugStatus === "checking" && (
+                          <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground animate-spin" />
+                        )}
+                        {slugStatus === "available" && (
+                          <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-400" />
+                        )}
+                        {(slugStatus === "taken" || slugStatus === "invalid") && (
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center text-destructive text-base leading-none">✕</span>
+                        )}
+                      </div>
+                      {slugStatus === "taken" && (
+                        <p className="text-xs text-destructive">That URL is already taken. Try a different name.</p>
+                      )}
+                      {slugStatus === "invalid" && (
+                        <p className="text-xs text-destructive">Only lowercase letters, numbers, and hyphens allowed.</p>
+                      )}
+                      {slugStatus === "available" && slug && (
+                        <p className="text-xs text-green-400">Available — your site will be at <strong>{slug}.mypillar.co</strong></p>
+                      )}
+                      {slugStatus === "idle" && slug && (
+                        <p className="text-xs text-muted-foreground">Your site will be at <strong>{slug}.mypillar.co</strong></p>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-white">
                         Tagline or Category{" "}
                         <span className="text-muted-foreground font-normal">
                           (optional)
@@ -313,7 +407,7 @@ export default function Onboard() {
                     <Button
                       type="submit"
                       className="w-full h-11 text-base mt-2"
-                      disabled={orgPending || !tosAccepted}
+                      disabled={orgPending || !tosAccepted || slugStatus === "taken" || slugStatus === "invalid" || slugStatus === "checking"}
                     >
                       {orgPending ? (
                         "Saving..."
