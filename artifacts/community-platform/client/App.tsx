@@ -13,6 +13,7 @@ import BlogPostPage from "./pages/BlogPostPage";
 import AdminLoginPage from "./pages/AdminLoginPage";
 import AdminPage from "./pages/AdminPage";
 import PaymentSuccessPage from "./pages/PaymentSuccessPage";
+import TicketSuccessPage from "./pages/TicketSuccessPage";
 
 function AppContent() {
   const config = useConfig();
@@ -55,6 +56,7 @@ function AppContent() {
           <Route path="/admin/login" component={AdminLoginPage} />
           <Route path="/admin" component={AdminPage} />
           <Route path="/payment-success" component={PaymentSuccessPage} />
+          <Route path="/events/:slug/tickets/success" component={TicketSuccessPage} />
           <Route>
             <div className="max-w-3xl mx-auto px-4 py-24 text-center">
               <h1 className="text-4xl font-bold font-serif mb-4">404</h1>

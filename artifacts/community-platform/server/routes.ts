@@ -252,6 +252,24 @@ export function registerRoutes(app: Express) {
     });
   });
 
+  // Proxy verify call to the API server (belt-and-suspenders: DB-first, then Stripe)
+  app.get("/api/events/:slug/tickets/verify", async (req, res) => {
+    try {
+      const { slug } = req.params;
+      const sessionId = req.query.session_id as string | undefined;
+      if (!sessionId) return res.status(400).json({ error: "session_id is required" });
+      const apiPort = process.env.API_PORT || "8080";
+      const apiRes = await fetch(
+        `http://localhost:${apiPort}/api/public/events/${encodeURIComponent(slug)}/tickets/verify?session_id=${encodeURIComponent(sessionId)}`,
+      );
+      const data = await apiRes.json();
+      res.status(apiRes.status).json(data);
+    } catch (err) {
+      console.error("Ticket verify proxy error:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.post("/api/events/:slug/ticket-checkout", async (req, res) => {
     try {
       const orgId = getOrgId(req);
