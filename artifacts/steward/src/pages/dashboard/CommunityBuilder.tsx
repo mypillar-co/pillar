@@ -9,6 +9,7 @@ import { useGetOrganization } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { csrfHeaders } from "@/lib/api";
+import { uploadImage, isImageFile } from "@/lib/uploadImage";
 
 function csrfFetch(input: string, init?: RequestInit): Promise<Response> {
   const method = (init?.method ?? "GET").toUpperCase();
@@ -411,9 +412,18 @@ function ProvisionProgress({ isNewSite }: { isNewSite: boolean }) {
 
 // ── Site status type ───────────────────────────────────────────────────────────
 
+interface UnsplashPhoto {
+  id: string;
+  thumb: string;
+  full: string;
+  description: string;
+  credit: string;
+}
+
 interface SiteStatusData {
   url: string | null;
   isProvisioned: boolean;
+  heroImageUrl?: string | null;
   configSummary: {
     orgName: string | null;
     location: string | null;
@@ -421,6 +431,196 @@ interface SiteStatusData {
     accentColor: string | null;
     tagline: string | null;
   } | null;
+}
+
+// ── Hero image panel ───────────────────────────────────────────────────────────
+
+type HeroPhase = "idle" | "picking" | "saving" | "approving";
+
+function HeroImagePanel({ initialUrl }: { initialUrl: string | null | undefined }) {
+  const [url, setUrl] = useState<string | null>(initialUrl ?? null);
+  const [phase, setPhase] = useState<HeroPhase>("idle");
+  const [photos, setPhotos] = useState<UnsplashPhoto[]>([]);
+  const [query, setQuery] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!isImageFile(file)) { setError("Please select an image file."); return; }
+    setPhase("saving");
+    setError(null);
+    try {
+      const imageUrl = await uploadImage(file);
+      const res = await csrfFetch("/api/organizations/hero-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ heroImageUrl: imageUrl }),
+      });
+      if (!res.ok) throw new Error("Save failed");
+      setUrl(imageUrl);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch {
+      setError("Upload failed. Please try again.");
+    } finally {
+      setPhase("idle");
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function handleAiPick() {
+    setPhase("picking");
+    setError(null);
+    try {
+      const res = await csrfFetch("/api/organizations/hero-image/suggest");
+      const d = await res.json() as { photos?: UnsplashPhoto[]; query?: string; error?: string };
+      if (!res.ok || !d.photos?.length) throw new Error(d.error ?? "No photos found");
+      setPhotos(d.photos);
+      setQuery(d.query ?? "");
+      setPhase("approving");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load photos");
+      setPhase("idle");
+    }
+  }
+
+  async function applyPhoto(photo: UnsplashPhoto) {
+    setPhase("saving");
+    setError(null);
+    try {
+      const res = await csrfFetch("/api/organizations/hero-image/apply-unsplash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photoId: photo.id, photoUrl: photo.full, credit: photo.credit }),
+      });
+      const d = await res.json() as { heroImageUrl?: string; error?: string };
+      if (!res.ok || !d.heroImageUrl) throw new Error(d.error ?? "Save failed");
+      setUrl(d.heroImageUrl);
+      setPhotos([]);
+      setPhase("idle");
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to apply photo");
+      setPhase("idle");
+    }
+  }
+
+  async function removeBanner() {
+    setPhase("saving");
+    setError(null);
+    try {
+      await csrfFetch("/api/organizations/hero-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ heroImageUrl: null }),
+      });
+      setUrl(null);
+    } finally {
+      setPhase("idle");
+    }
+  }
+
+  return (
+    <div className="rounded-xl bg-[#0f1a2e] border border-[#1e3a5f] p-4 space-y-3">
+      <p className="text-xs text-[#7a9cbf] font-medium uppercase tracking-wide">Homepage Banner</p>
+
+      {/* Current image preview */}
+      {url && (
+        <div className="relative w-full h-28 rounded-lg overflow-hidden">
+          <img src={url} alt="Hero banner" className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/30" />
+          <button
+            onClick={removeBanner}
+            disabled={phase === "saving"}
+            title="Remove banner"
+            className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/60 flex items-center justify-center hover:bg-black/80 transition-colors disabled:opacity-50"
+          >
+            <X className="w-3 h-3 text-white" />
+          </button>
+        </div>
+      )}
+
+      {/* Unsplash photo grid */}
+      {phase === "approving" && (
+        <div className="space-y-2">
+          {query && (
+            <p className="text-xs text-[#7a9cbf]">
+              AI searched for: <span className="text-white font-medium">"{query}"</span>
+            </p>
+          )}
+          <div className="grid grid-cols-3 gap-1.5">
+            {photos.map(photo => (
+              <button
+                key={photo.id}
+                onClick={() => void applyPhoto(photo)}
+                className="relative aspect-video rounded-md overflow-hidden group focus:outline-none focus:ring-2 focus:ring-[#d4a017]"
+              >
+                <img
+                  src={photo.thumb}
+                  alt={photo.description}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                />
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                  <span className="opacity-0 group-hover:opacity-100 text-white text-xs font-semibold">Select</span>
+                </div>
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setPhase("idle")}
+            className="text-xs text-[#7a9cbf] hover:text-white transition-colors"
+          >
+            ← Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Feedback */}
+      {error && (
+        <p className="text-xs text-red-400 flex items-center gap-1">
+          <AlertCircle className="w-3 h-3 flex-shrink-0" />{error}
+        </p>
+      )}
+      {saved && <p className="text-xs text-green-400">Banner updated!</p>}
+
+      {/* Action buttons */}
+      {phase !== "approving" && (
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => { setError(null); setTimeout(() => fileRef.current?.click(), 50); }}
+            disabled={phase !== "idle"}
+            className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#1e3a5f] bg-[#0f1a2e] hover:bg-[#1e3a5f] text-sm text-[#c8d8e8] font-medium transition-colors disabled:opacity-50"
+          >
+            <ImagePlus className="w-3.5 h-3.5 text-[#7a9cbf]" />
+            Upload photo
+          </button>
+          <button
+            onClick={() => void handleAiPick()}
+            disabled={phase !== "idle"}
+            className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#d4a017]/30 bg-[#d4a017]/8 hover:bg-[#d4a017]/15 text-sm text-[#d4a017] font-medium transition-colors disabled:opacity-50"
+          >
+            {phase === "picking"
+              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              : <Wand2 className="w-3.5 h-3.5" />
+            }
+            {phase === "picking" ? "Searching…" : "AI picks"}
+          </button>
+        </div>
+      )}
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={e => void handleFileChange(e)}
+      />
+    </div>
+  );
 }
 
 // ── Site management view (shown on return visits after site is built) ─────────
@@ -513,6 +713,9 @@ function SiteManagementView({
           )}
         </div>
       )}
+
+      {/* Homepage banner */}
+      <HeroImagePanel initialUrl={status.heroImageUrl} />
 
       {/* Update options */}
       <div className="space-y-2">

@@ -673,7 +673,12 @@ router.get("/target", async (req: Request, res: Response) => {
 
   try {
     const row = await db.execute(sql`
-      SELECT community_site_url, community_site_key, site_config FROM organizations WHERE id = ${org.id} LIMIT 1
+      SELECT o.community_site_url, o.community_site_key, o.site_config,
+             c.hero_image_url
+      FROM organizations o
+      LEFT JOIN cs_org_configs c ON c.organization_id = o.id
+      WHERE o.id = ${org.id}
+      LIMIT 1
     `);
     const r = row.rows[0] as Record<string, unknown> | undefined;
     const config = r?.site_config as Record<string, unknown> | null | undefined;
@@ -693,6 +698,7 @@ router.get("/target", async (req: Request, res: Response) => {
       tier:         (org as { tier?: string | null }).tier ?? null,
       isProvisioned: !!config,
       configSummary,
+      heroImageUrl: (r?.hero_image_url as string | null) ?? null,
     });
   } catch {
     res.json({ url: null, hasKey: false, tier: null, isProvisioned: false, configSummary: null });
