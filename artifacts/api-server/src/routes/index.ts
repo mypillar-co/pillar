@@ -31,6 +31,7 @@ import siteHooksRouter from "./siteHooks";
 import publicOrgRouter from "./public";
 import serviceApiRouter from "./serviceApi";
 import communitySiteRouter from "./communitySite";
+import photoAlbumsRouter from "./photoAlbums";
 
 const router: IRouter = Router();
 
@@ -44,6 +45,7 @@ router.use(organizationsRouter);
 router.use("/events", eventsRouter);
 router.use("/vendors", vendorsRouter);
 router.use("/sponsors", sponsorsRouter);
+router.use("/photo-albums", photoAlbumsRouter);
 router.use("/contacts", contactsRouter);
 router.use("/stats", statsRouter);
 router.use("/sites", sitesRouter);
