@@ -22,14 +22,11 @@ import { useGetSubscription } from "@workspace/api-client-react";
 import { api, type SocialAccount, type SocialPost, type AutomationRule, type ContentStrategy } from "@/lib/api";
 
 const PLATFORM_META: Record<string, { label: string; color: string; bgColor: string; icon: React.ElementType }> = {
-  facebook:          { label: "Facebook",           color: "text-blue-400",  bgColor: "bg-blue-500/15",  icon: Facebook },
-  instagram:         { label: "Instagram",          color: "text-pink-400",  bgColor: "bg-pink-500/15",  icon: Instagram },
-  twitter:           { label: "X (Twitter)",        color: "text-sky-400",   bgColor: "bg-sky-500/15",   icon: Twitter },
-  buffer_twitter:    { label: "X via Buffer",       color: "text-sky-400",   bgColor: "bg-sky-500/15",   icon: Twitter },
-  buffer_facebook:   { label: "Facebook via Buffer",color: "text-blue-400",  bgColor: "bg-blue-500/15",  icon: Facebook },
-  buffer_instagram:  { label: "Instagram via Buffer",color: "text-pink-400", bgColor: "bg-pink-500/15",  icon: Instagram },
-  buffer_linkedin:   { label: "LinkedIn via Buffer",color: "text-blue-300",  bgColor: "bg-blue-400/10",  icon: Share2 },
-  buffer_pinterest:  { label: "Pinterest via Buffer",color: "text-red-400",  bgColor: "bg-red-500/15",   icon: Share2 },
+  buffer_facebook:   { label: "Facebook",    color: "text-blue-400",  bgColor: "bg-blue-500/15",  icon: Facebook },
+  buffer_instagram:  { label: "Instagram",   color: "text-pink-400",  bgColor: "bg-pink-500/15",  icon: Instagram },
+  buffer_twitter:    { label: "X (Twitter)", color: "text-sky-400",   bgColor: "bg-sky-500/15",   icon: Twitter },
+  buffer_linkedin:   { label: "LinkedIn",    color: "text-blue-300",  bgColor: "bg-blue-400/10",  icon: Share2 },
+  buffer_pinterest:  { label: "Pinterest",   color: "text-red-400",   bgColor: "bg-red-500/15",   icon: Share2 },
 };
 
 const TIER_ALLOWS_SOCIAL = new Set(["tier1a", "tier2", "tier3"]);
@@ -273,7 +270,7 @@ function ComposePostDialog({
   const [generating, setGenerating] = useState(false);
   const [imageUploading, setImageUploading] = useState(false);
   const [topic, setTopic] = useState("");
-  const [activePlatformForGen, setActivePlatformForGen] = useState(connectedPlatforms[0] ?? "facebook");
+  const [activePlatformForGen, setActivePlatformForGen] = useState(connectedPlatforms[0] ?? "buffer_facebook");
   const [imagePromptSuggestion, setImagePromptSuggestion] = useState("");
   const imageFileRef = useRef<HTMLInputElement>(null);
 
@@ -281,7 +278,7 @@ function ComposePostDialog({
     if (open) {
       const connected = accounts.filter(a => a.isConnected).map(a => a.platform);
       setSelectedPlatforms(connected.length > 0 ? [connected[0]] : [Object.keys(PLATFORM_META)[0]]);
-      setActivePlatformForGen(connected[0] ?? "facebook");
+      setActivePlatformForGen(connected[0] ?? "buffer_facebook");
       setContent(""); setMediaUrl(""); setScheduledAt(""); setImagePromptSuggestion(""); setTopic("");
       setImageUploading(false);
     }
@@ -307,7 +304,7 @@ function ComposePostDialog({
     }
   };
 
-  const needsMedia = selectedPlatforms.includes("instagram");
+  const needsMedia = selectedPlatforms.includes("buffer_instagram");
 
   const togglePlatform = (p: string) => {
     setSelectedPlatforms(prev =>
@@ -357,7 +354,7 @@ function ComposePostDialog({
   };
 
   const charCount = content.length;
-  const twitterLimit = selectedPlatforms.includes("twitter") && charCount > 280;
+  const twitterLimit = selectedPlatforms.includes("buffer_twitter") && charCount > 280;
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -536,7 +533,7 @@ function EditPostDialog({
   const [imageUploading, setImageUploading] = useState(false);
   const editImageFileRef = useRef<HTMLInputElement>(null);
 
-  const needsMedia = post.platforms.includes("instagram");
+  const needsMedia = post.platforms.includes("buffer_instagram");
 
   useEffect(() => {
     setContent(post.content);
@@ -590,7 +587,7 @@ function EditPostDialog({
   };
 
   const charCount = content.length;
-  const twitterLimit = post.platforms.includes("twitter") && charCount > 280;
+  const twitterLimit = post.platforms.includes("buffer_twitter") && charCount > 280;
 
   return (
     <Dialog open={open} onOpenChange={onClose}>

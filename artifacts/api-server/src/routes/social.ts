@@ -510,7 +510,7 @@ router.get("/buffer/profiles", async (req, res) => {
         "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        query: `query { channels { id name service serviceUsername avatar } }`,
+        query: "query { channels { id name service username avatar } }",
       }),
     });
     if (!resp.ok) {
@@ -518,14 +518,14 @@ router.get("/buffer/profiles", async (req, res) => {
       res.status(502).json({ error: err.message ?? err.error ?? `Buffer API error ${resp.status}` });
       return;
     }
-    const data = await resp.json() as { data?: { channels?: Array<{ id: string; service: string; serviceUsername: string; name: string; avatar?: string }> }; errors?: Array<{ message?: string }> };
+    const data = await resp.json() as { data?: { channels?: Array<{ id: string; service: string; username: string; name: string; avatar?: string }> }; errors?: Array<{ message?: string }> };
     if (data.errors?.length) {
       res.status(502).json({ error: data.errors[0]?.message ?? "Buffer API error" });
       return;
     }
     const channels = data.data?.channels ?? [];
     const filtered = channels.filter(c => BUFFER_SERVICES.has(c.service));
-    res.json({ profiles: filtered.map(c => ({ id: c.id, service: c.service, service_username: c.serviceUsername, formatted_username: c.name, avatar_https: c.avatar })) });
+    res.json({ profiles: filtered.map(c => ({ id: c.id, service: c.service, service_username: c.username, formatted_username: c.name, avatar_https: c.avatar })) });
   } catch (err) {
     logger.error({ err }, "Buffer profiles fetch failed");
     res.status(502).json({ error: "Could not reach Buffer API" });
