@@ -148,6 +148,17 @@ const INTAKE_QUESTIONS: IntakeQuestion[] = [
     hint: "e.g. Every Wednesday at 12:00 PM, Norwin Hills Country Club",
     skipLabel: "No regular meetings",
   },
+  // Q27 — all tiers
+  {
+    id: "heroBackground",
+    text: "For your homepage hero section, would you like a background photo or your brand colors?",
+    type: "select",
+    options: [
+      "AI picks a community photo",
+      "I'll upload my own photo",
+      "Brand colors only (no photo)",
+    ],
+  },
 ];
 
 const SKIP_ACKS: Record<string, string> = {
@@ -418,7 +429,13 @@ interface UnsplashPhoto {
   full: string;
   description: string;
   credit: string;
+  // Legacy field names from old API responses (kept for backwards compat)
+  thumbUrl?: string;
+  previewUrl?: string;
 }
+
+function photoThumb(p: UnsplashPhoto) { return p.thumb ?? p.thumbUrl ?? ""; }
+function photoFull(p: UnsplashPhoto)  { return p.full  ?? p.previewUrl ?? ""; }
 
 interface SiteStatusData {
   url: string | null;
@@ -437,7 +454,7 @@ interface SiteStatusData {
 
 type HeroPhase = "idle" | "picking" | "saving" | "approving";
 
-function HeroImagePanel({ initialUrl }: { initialUrl: string | null | undefined }) {
+function HeroImagePanel({ initialUrl, autoTriggerAi }: { initialUrl: string | null | undefined; autoTriggerAi?: boolean }) {
   const [url, setUrl] = useState<string | null>(initialUrl ?? null);
   const [phase, setPhase] = useState<HeroPhase>("idle");
   const [photos, setPhotos] = useState<UnsplashPhoto[]>([]);
@@ -445,6 +462,16 @@ function HeroImagePanel({ initialUrl }: { initialUrl: string | null | undefined 
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const autoTriggered = useRef(false);
+
+  // Auto-trigger the AI pick if the org chose "AI picks" during the interview
+  useEffect(() => {
+    if (autoTriggerAi && !url && !autoTriggered.current) {
+      autoTriggered.current = true;
+      void handleAiPick();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoTriggerAi]);
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -494,7 +521,7 @@ function HeroImagePanel({ initialUrl }: { initialUrl: string | null | undefined 
       const res = await csrfFetch("/api/organizations/hero-image/apply-unsplash", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ photoId: photo.id, photoUrl: photo.full, credit: photo.credit }),
+        body: JSON.stringify({ photoId: photo.id, photoUrl: photoFull(photo), credit: photo.credit ?? photo.description }),
       });
       const d = await res.json() as { heroImageUrl?: string; error?: string };
       if (!res.ok || !d.heroImageUrl) throw new Error(d.error ?? "Save failed");
@@ -560,7 +587,7 @@ function HeroImagePanel({ initialUrl }: { initialUrl: string | null | undefined 
                 className="relative aspect-video rounded-md overflow-hidden group focus:outline-none focus:ring-2 focus:ring-[#d4a017]"
               >
                 <img
-                  src={photo.thumb}
+                  src={photoThumb(photo)}
                   alt={photo.description}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                 />
@@ -1331,9 +1358,21 @@ export default function CommunityBuilder() {
 
         {/* Payload ready message */}
         {started && readyPayload && !provisioning && (
-          <BotBubble>
-            I have everything I need! Review your configuration below, then click <strong>Launch Site</strong> to go live.
-          </BotBubble>
+          <>
+            <BotBubble>
+              I have everything I need! Review your configuration below, then click <strong>Launch Site</strong> to go live.
+            </BotBubble>
+
+            {/* Hero image picker — shown inline after interview if org chose a photo background */}
+            {answers.heroBackground !== "Brand colors only (no photo)" && (
+              <div className="w-full">
+                <HeroImagePanel
+                  initialUrl={siteStatus?.heroImageUrl}
+                  autoTriggerAi={answers.heroBackground === "AI picks a community photo"}
+                />
+              </div>
+            )}
+          </>
         )}
 
         {/* Provision in-progress steps */}

@@ -520,51 +520,70 @@ router.delete("/organizations", async (req: Request, res: Response) => {
 
 // ── Hero image routes ─────────────────────────────────────────────────────────
 
+// Curated civic/community Unsplash photo IDs — pre-approved, accessible without an API key
+const HERO_PHOTO_LIBRARY = [
+  { id: "1529156069898-aa78f52d3b87", description: "Community gathering in a sunny park" },
+  { id: "1521737604082-f4eb08bd4e18", description: "Professional civic meeting or conference" },
+  { id: "1573497491765-57b4f23b3624", description: "Volunteers working together on a community project" },
+  { id: "1531545514256-b1400bc00f31", description: "Energetic team collaborating at a table" },
+  { id: "1488521787991-ed7bbaae773c", description: "Outdoor charity event with a crowd" },
+  { id: "1521791055366-0d553872952f", description: "Professional handshake — partnership and trust" },
+  { id: "1573164574572-cb89e39749b4", description: "Vibrant downtown city street scene" },
+  { id: "1559425036-3b9ba2e45e93", description: "People collaborating outdoors in natural light" },
+];
+
 // GET /api/organizations/hero-image/suggest
-// Uses AI to pick an Unsplash search query then returns photo options
+// Uses AI to rank the curated photo library for this org, then returns options.
+// No Unsplash API key required.
 router.get("/organizations/hero-image/suggest", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-
-  const unsplashKey = process.env.UNSPLASH_ACCESS_KEY;
-  if (!unsplashKey) {
-    res.status(503).json({ error: "Image suggestions not configured yet. Add your Unsplash API key in settings." });
-    return;
-  }
 
   const org = await getCurrentOrgForUser(req.user.id);
   if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
 
   try {
-    const openai = new OpenAI();
-    const prompt = `Generate a concise Unsplash photo search query (3-5 words) for a homepage hero background image for a ${org.type || "civic"} organization named "${org.name}"${org.category ? ` with tagline "${org.category}"` : ""}. Think about the mood, setting, and community feel. Return ONLY the search query, nothing else.`;
+    if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY || !process.env.AI_INTEGRATIONS_OPENAI_BASE_URL) {
+      throw new Error("AI service not configured");
+    }
+    const openai = new OpenAI({
+      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+    });
+
+    const libraryJson = HERO_PHOTO_LIBRARY.map((p, i) => `${i}: ${p.description}`).join("\n");
+    const prompt = `You are picking hero background photos for a community website. The organization is "${org.name}" (type: ${org.type || "civic"})${org.category ? `, tagline: "${org.category}"` : ""}.\n\nAvailable photos (by index):\n${libraryJson}\n\nReturn exactly 6 indices (0–${HERO_PHOTO_LIBRARY.length - 1}), comma-separated, ordered best-to-worst fit. Return ONLY numbers, e.g.: 2,0,5,3,7,1`;
+
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
       max_tokens: 20,
     });
-    const query = completion.choices[0]?.message?.content?.trim() || `${org.type || "community"} gathering outdoor`;
+    const raw = completion.choices[0]?.message?.content?.trim() ?? "";
+    const indices: number[] = raw
+      .split(",")
+      .map(s => parseInt(s.trim(), 10))
+      .filter(n => !isNaN(n) && n >= 0 && n < HERO_PHOTO_LIBRARY.length);
 
-    const unsplashRes = await fetch(
-      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=9&orientation=landscape`,
-      { headers: { "Authorization": `Client-ID ${unsplashKey}` } }
-    );
-    if (!unsplashRes.ok) {
-      res.status(502).json({ error: "Failed to fetch suggestions from Unsplash" });
-      return;
+    // Deduplicate and pad to 6 if needed
+    const seen = new Set<number>();
+    const ordered: number[] = [];
+    for (const idx of indices) { if (!seen.has(idx)) { seen.add(idx); ordered.push(idx); } }
+    for (let i = 0; i < HERO_PHOTO_LIBRARY.length && ordered.length < 6; i++) {
+      if (!seen.has(i)) { seen.add(i); ordered.push(i); }
     }
-    const unsplashData = await unsplashRes.json() as { results: UnsplashPhoto[] };
 
-    res.json({
-      query,
-      photos: unsplashData.results.map((p) => ({
+    const photos = ordered.slice(0, 6).map(idx => {
+      const p = HERO_PHOTO_LIBRARY[idx];
+      return {
         id: p.id,
-        thumbUrl: p.urls.small,
-        previewUrl: p.urls.regular,
-        downloadLocation: p.links.download_location,
-        photographer: p.user.name,
-        photographerUrl: p.user.links.html,
-      })),
+        thumb: `https://images.unsplash.com/photo-${p.id}?auto=format&fit=crop&w=400&q=70`,
+        full:  `https://images.unsplash.com/photo-${p.id}?auto=format&fit=crop&w=1920&q=80`,
+        description: p.description,
+        credit: "Unsplash",
+      };
     });
+
+    res.json({ query: `${org.type || "community"} background`, photos });
   } catch (err) {
     console.error("Hero image suggest error:", err);
     res.status(500).json({ error: "Failed to generate image suggestions" });
@@ -572,25 +591,22 @@ router.get("/organizations/hero-image/suggest", async (req: Request, res: Respon
 });
 
 // POST /api/organizations/hero-image/apply-unsplash
-// Downloads chosen Unsplash photo into object storage and saves the URL to cs_org_configs
+// Downloads chosen photo into object storage and saves the URL to cs_org_configs.
+// Accepts: { photoUrl, credit } — photoUrl is the full-resolution image URL.
 router.post("/organizations/hero-image/apply-unsplash", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const { previewUrl, downloadLocation } = req.body as { previewUrl?: string; downloadLocation?: string };
-  if (!previewUrl) { res.status(400).json({ error: "previewUrl is required" }); return; }
+  // Accept both old (previewUrl) and new (photoUrl) key names for compatibility
+  const { photoUrl, previewUrl } = req.body as { photoUrl?: string; previewUrl?: string; credit?: string };
+  const imageSourceUrl = photoUrl ?? previewUrl;
+  if (!imageSourceUrl) { res.status(400).json({ error: "photoUrl is required" }); return; }
 
   const org = await getCurrentOrgForUser(req.user.id);
   if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
 
-  const unsplashKey = process.env.UNSPLASH_ACCESS_KEY;
   try {
-    // Track the download with Unsplash (required by their API terms)
-    if (unsplashKey && downloadLocation) {
-      fetch(downloadLocation, { headers: { "Authorization": `Client-ID ${unsplashKey}` } }).catch(() => {});
-    }
-
     // Download the image
-    const imageRes = await fetch(previewUrl);
+    const imageRes = await fetch(imageSourceUrl);
     if (!imageRes.ok) throw new Error("Failed to download image from Unsplash");
     const imageBuffer = Buffer.from(await imageRes.arrayBuffer());
     const contentType = imageRes.headers.get("content-type") || "image/jpeg";
@@ -617,19 +633,25 @@ router.post("/organizations/hero-image/apply-unsplash", async (req: Request, res
 });
 
 // POST /api/organizations/hero-image
-// Saves an already-uploaded image path as the hero image
+// Saves (or clears) the hero image URL. Accepts { heroImageUrl } — null to remove.
 router.post("/organizations/hero-image", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const { imageUrl } = req.body as { imageUrl?: string };
-  if (!imageUrl) { res.status(400).json({ error: "imageUrl is required" }); return; }
+  // Accept both heroImageUrl (frontend) and imageUrl (legacy) keys
+  const body = req.body as { heroImageUrl?: string | null; imageUrl?: string | null };
+  const heroImageUrl = "heroImageUrl" in body ? body.heroImageUrl : body.imageUrl;
 
   const org = await getCurrentOrgForUser(req.user.id);
   if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
 
   try {
-    await saveHeroImageUrl(org.slug, imageUrl);
-    res.json({ heroImageUrl: imageUrl });
+    // Save null as empty string to clear; the DB stores it and CP treats "" as no image
+    await db.execute(sql`
+      INSERT INTO cs_org_configs (org_id, hero_image_url)
+      VALUES (${org.slug}, ${heroImageUrl ?? null})
+      ON CONFLICT (org_id) DO UPDATE SET hero_image_url = EXCLUDED.hero_image_url
+    `);
+    res.json({ heroImageUrl: heroImageUrl ?? null });
   } catch (err) {
     console.error("Hero image save error:", err);
     res.status(500).json({ error: "Failed to save hero image" });
