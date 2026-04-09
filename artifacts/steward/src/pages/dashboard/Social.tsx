@@ -22,9 +22,14 @@ import { useGetSubscription } from "@workspace/api-client-react";
 import { api, type SocialAccount, type SocialPost, type AutomationRule, type ContentStrategy } from "@/lib/api";
 
 const PLATFORM_META: Record<string, { label: string; color: string; bgColor: string; icon: React.ElementType }> = {
-  facebook: { label: "Facebook", color: "text-blue-400", bgColor: "bg-blue-500/15", icon: Facebook },
-  instagram: { label: "Instagram", color: "text-pink-400", bgColor: "bg-pink-500/15", icon: Instagram },
-  twitter: { label: "X (Twitter)", color: "text-sky-400", bgColor: "bg-sky-500/15", icon: Twitter },
+  facebook:          { label: "Facebook",           color: "text-blue-400",  bgColor: "bg-blue-500/15",  icon: Facebook },
+  instagram:         { label: "Instagram",          color: "text-pink-400",  bgColor: "bg-pink-500/15",  icon: Instagram },
+  twitter:           { label: "X (Twitter)",        color: "text-sky-400",   bgColor: "bg-sky-500/15",   icon: Twitter },
+  buffer_twitter:    { label: "X via Buffer",       color: "text-sky-400",   bgColor: "bg-sky-500/15",   icon: Twitter },
+  buffer_facebook:   { label: "Facebook via Buffer",color: "text-blue-400",  bgColor: "bg-blue-500/15",  icon: Facebook },
+  buffer_instagram:  { label: "Instagram via Buffer",color: "text-pink-400", bgColor: "bg-pink-500/15",  icon: Instagram },
+  buffer_linkedin:   { label: "LinkedIn via Buffer",color: "text-blue-300",  bgColor: "bg-blue-400/10",  icon: Share2 },
+  buffer_pinterest:  { label: "Pinterest via Buffer",color: "text-red-400",  bgColor: "bg-red-500/15",   icon: Share2 },
 };
 
 const TIER_ALLOWS_SOCIAL = new Set(["tier1a", "tier2", "tier3"]);
@@ -62,26 +67,88 @@ const STATUS_META: Record<string, { label: string; color: string; icon: React.El
   cancelled: { label: "Cancelled", color: "text-slate-500", icon: X },
 };
 
-function ConnectAccountDialog({ open, onClose, onConnected }: { open: boolean; onClose: () => void; onConnected: () => void }) {
-  const [oauthLoading, setOauthLoading] = useState(false);
-  const [connectError, setConnectError] = useState<string | null>(null);
+interface BufferProfile {
+  id: string;
+  service: string;
+  service_username: string;
+  formatted_username: string;
+  avatar_https?: string;
+}
 
-  const handleClose = () => { setConnectError(null); onClose(); };
+const BUFFER_SERVICE_ICONS: Record<string, React.ElementType> = {
+  twitter: Twitter,
+  facebook: Facebook,
+  instagram: Instagram,
+  linkedin: Share2,
+  pinterest: Share2,
+};
 
-  const handleOAuthConnect = async () => {
-    setConnectError(null);
-    setOauthLoading(true);
+function ConnectAccountDialog({
+  open, onClose, onConnected, connectedAccounts,
+}: {
+  open: boolean; onClose: () => void; onConnected: () => void; connectedAccounts: SocialAccount[];
+}) {
+  const [loadingProfiles, setLoadingProfiles] = useState(false);
+  const [profiles, setProfiles] = useState<BufferProfile[] | null>(null);
+  const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const connectedProfileIds = new Set(
+    connectedAccounts.filter(a => a.isConnected && a.accountId).map(a => a.accountId!),
+  );
+
+  const handleClose = () => { setError(null); setProfiles(null); onClose(); };
+
+  const loadProfiles = async () => {
+    setLoadingProfiles(true);
+    setError(null);
     try {
-      const result = await api.social.oauth.start("twitter");
-      if (result.authUrl) {
-        window.location.href = result.authUrl;
-      } else {
-        setConnectError("Could not start Twitter login. Please try again.");
-      }
-    } catch {
-      setConnectError("Unable to connect right now. Please try again in a moment.");
+      const res = await fetch("/api/social/buffer/profiles", { credentials: "include" });
+      const data = await res.json() as { profiles?: BufferProfile[]; error?: string };
+      if (!res.ok || !data.profiles) throw new Error(data.error ?? "Could not load Buffer channels");
+      setProfiles(data.profiles);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load channels");
     } finally {
-      setOauthLoading(false);
+      setLoadingProfiles(false);
+    }
+  };
+
+  const handleConnect = async (profile: BufferProfile) => {
+    setConnectingId(profile.id);
+    setError(null);
+    try {
+      const res = await fetch("/api/social/buffer/connect", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profileId: profile.id, profileName: profile.formatted_username || profile.service_username, service: profile.service }),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "Connect failed");
+      onConnected();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Connect failed");
+    } finally {
+      setConnectingId(null);
+    }
+  };
+
+  const handleDisconnect = async (profile: BufferProfile) => {
+    setDisconnectingId(profile.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/social/buffer/connect/${encodeURIComponent(profile.id)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Disconnect failed");
+      onConnected();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Disconnect failed");
+    } finally {
+      setDisconnectingId(null);
     }
   };
 
@@ -89,68 +156,96 @@ function ConnectAccountDialog({ open, onClose, onConnected }: { open: boolean; o
     <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
       <DialogContent className="bg-card border-white/10 text-white max-w-md">
         <DialogHeader>
-          <DialogTitle>Connect Social Account</DialogTitle>
+          <DialogTitle>Connect Social Accounts</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-3">
-          <p className="text-xs text-slate-400">
-            Connect your social accounts to schedule and publish posts directly from Pillar.
-          </p>
-
-          {connectError && (
-            <div className="flex items-start gap-2 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2.5">
-              <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
-              <p className="text-xs text-red-400 leading-relaxed">{connectError}</p>
-            </div>
-          )}
-
-          {(["facebook", "instagram"] as const).map((key) => {
-            const meta = PLATFORM_META[key];
-            const Icon = meta.icon;
-            return (
-              <div key={key} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3 opacity-60">
-                <div className="flex items-center gap-2.5">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${meta.bgColor}`}>
-                    <Icon className={`w-4 h-4 ${meta.color}`} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-white">{meta.label}</p>
-                    <p className="text-xs text-slate-500">Coming soon</p>
-                  </div>
-                </div>
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-primary/80 border border-primary/30 bg-primary/5 px-2 py-1 rounded-full">
-                  Coming Soon
-                </span>
-              </div>
-            );
-          })}
-
-          <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-4 py-3">
-            <div className="flex items-center gap-2.5">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${PLATFORM_META.twitter.bgColor}`}>
-                <Twitter className={`w-4 h-4 ${PLATFORM_META.twitter.color}`} />
-              </div>
+        <div className="space-y-4">
+          {/* Buffer section */}
+          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
+            <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-white">X (Twitter)</p>
-                <p className="text-xs text-slate-400">One-click login</p>
+                <p className="text-sm font-semibold text-white">Connect via Buffer</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Posts to X, Facebook, Instagram, LinkedIn & more through your Buffer account.
+                </p>
               </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-white/15 text-slate-300 hover:text-white hover:border-white/30 h-8 text-xs shrink-0"
+                onClick={loadProfiles}
+                disabled={loadingProfiles}
+              >
+                {loadingProfiles ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Load channels"}
+              </Button>
             </div>
-            <Button
-              size="sm"
-              onClick={handleOAuthConnect}
-              disabled={oauthLoading}
-              className="bg-primary hover:bg-primary/90 h-8 text-xs"
-            >
-              {oauthLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
-              {oauthLoading ? "Connecting…" : "Connect"}
-            </Button>
-          </div>
 
-          <div className="flex items-start gap-2 rounded-lg bg-primary/5 border border-primary/20 px-3 py-2.5">
-            <Sparkles className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
-            <p className="text-xs text-primary/80 leading-relaxed">
-              Facebook and Instagram integration is coming soon — sign up for updates and be the first to connect when it launches.
-            </p>
+            {error && (
+              <div className="flex items-start gap-2 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2">
+                <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-red-400">{error}</p>
+              </div>
+            )}
+
+            {profiles !== null && profiles.length === 0 && (
+              <p className="text-xs text-slate-400 text-center py-2">
+                No channels found. Add social accounts to your Buffer account first.
+              </p>
+            )}
+
+            {profiles !== null && profiles.length > 0 && (
+              <div className="space-y-2">
+                {profiles.map(profile => {
+                  const isConnected = connectedProfileIds.has(profile.id);
+                  const isConnecting = connectingId === profile.id;
+                  const isDisconnecting = disconnectingId === profile.id;
+                  const Icon = BUFFER_SERVICE_ICONS[profile.service] ?? Share2;
+                  const meta = PLATFORM_META[`buffer_${profile.service}`];
+                  return (
+                    <div key={profile.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${meta?.bgColor ?? "bg-white/10"}`}>
+                          <Icon className={`w-3.5 h-3.5 ${meta?.color ?? "text-white"}`} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-white truncate">
+                            {profile.formatted_username || profile.service_username}
+                          </p>
+                          <p className="text-xs text-slate-500 capitalize">{profile.service}</p>
+                        </div>
+                      </div>
+                      {isConnected ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs text-slate-400 hover:text-red-400 hover:bg-red-500/10 shrink-0"
+                          onClick={() => handleDisconnect(profile)}
+                          disabled={isDisconnecting}
+                        >
+                          {isDisconnecting ? <Loader2 className="w-3 h-3 animate-spin" /> : "Disconnect"}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          className="h-7 text-xs bg-primary hover:bg-primary/90 shrink-0"
+                          onClick={() => handleConnect(profile)}
+                          disabled={isConnecting}
+                        >
+                          {isConnecting ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                          {isConnecting ? "Connecting…" : "Connect"}
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {profiles === null && !loadingProfiles && (
+              <p className="text-xs text-slate-500 text-center py-1">
+                Click "Load channels" to see your Buffer-connected social accounts.
+              </p>
+            )}
           </div>
         </div>
 
@@ -803,7 +898,7 @@ function AccountsSection({ accounts, onRefresh }: { accounts: SocialAccount[]; o
         })}
       </div>
 
-      <ConnectAccountDialog open={connectOpen} onClose={() => setConnectOpen(false)} onConnected={onRefresh} />
+      <ConnectAccountDialog open={connectOpen} onClose={() => setConnectOpen(false)} onConnected={onRefresh} connectedAccounts={accounts} />
     </div>
   );
 }

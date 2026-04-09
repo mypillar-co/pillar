@@ -73,7 +73,11 @@ function getOpenAIClient() {
   return new OpenAI({ apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY, baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL });
 }
 
-const VALID_PLATFORMS = new Set(["facebook", "instagram", "twitter"]);
+const BUFFER_SERVICES = new Set(["twitter", "facebook", "instagram", "linkedin", "pinterest"]);
+const VALID_PLATFORMS = new Set([
+  "facebook", "instagram", "twitter",
+  ...([...BUFFER_SERVICES].map(s => `buffer_${s}`)),
+]);
 
 function validatePlatforms(platforms: unknown): string | null {
   if (!Array.isArray(platforms) || platforms.length === 0) {
@@ -81,7 +85,7 @@ function validatePlatforms(platforms: unknown): string | null {
   }
   const invalid = (platforms as string[]).filter(p => !VALID_PLATFORMS.has(p));
   if (invalid.length > 0) {
-    return `Invalid platforms: ${invalid.join(", ")}. Allowed: facebook, instagram, twitter`;
+    return `Invalid platforms: ${invalid.join(", ")}. Allowed: facebook, instagram, twitter, or buffer_twitter / buffer_facebook / buffer_instagram / buffer_linkedin / buffer_pinterest`;
   }
   return null;
 }
@@ -90,7 +94,7 @@ function validateAutomationPlatforms(platforms: unknown): string | null {
   const base = validatePlatforms(platforms);
   if (base) return base;
   if ((platforms as string[]).includes("instagram")) {
-    return "Instagram cannot be used in automation rules or content strategy because automated posts require a hosted image URL. Post to Instagram manually from the Posts tab.";
+    return "Direct Instagram cannot be used in automation rules because posts require a hosted image URL. Use buffer_instagram via Buffer instead, which handles media automatically.";
   }
   return null;
 }
@@ -483,6 +487,71 @@ router.get("/oauth/twitter/callback", async (req, res) => {
     logger.error({ err }, "Twitter OAuth callback failed");
     res.redirect(`/dashboard/social?error=${encodeURIComponent("Failed to connect X account")}`);
   }
+});
+
+// ─── Buffer Integration ──────────────────────────────────────────
+// Uses a single platform-level BUFFER_API_KEY. Each org selects which
+// Buffer channels (profiles) belong to them; posts are published via Buffer
+// which distributes to the actual social platforms on their behalf.
+
+router.get("/buffer/profiles", async (req, res) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
+
+  const apiKey = process.env.BUFFER_API_KEY;
+  if (!apiKey) { res.status(503).json({ error: "Buffer integration not configured on this platform." }); return; }
+
+  try {
+    const resp = await fetch(`https://api.bufferapp.com/1/profiles.json?access_token=${encodeURIComponent(apiKey)}`);
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({})) as { message?: string; error?: string };
+      res.status(502).json({ error: err.message ?? err.error ?? `Buffer API error ${resp.status}` });
+      return;
+    }
+    const profiles = await resp.json() as Array<{
+      id: string;
+      service: string;
+      service_username: string;
+      formatted_username: string;
+      avatar_https?: string;
+      default?: boolean;
+    }>;
+    // Only return supported service types
+    const filtered = profiles.filter(p => BUFFER_SERVICES.has(p.service));
+    res.json({ profiles: filtered });
+  } catch (err) {
+    logger.error({ err }, "Buffer profiles fetch failed");
+    res.status(502).json({ error: "Could not reach Buffer API" });
+  }
+});
+
+router.post("/buffer/connect", async (req, res) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
+
+  const { profileId, profileName, service } = req.body as { profileId: string; profileName: string; service: string };
+  if (!profileId || !profileName || !service || !BUFFER_SERVICES.has(service)) {
+    res.status(400).json({ error: "profileId, profileName, and a valid service (twitter/facebook/instagram/linkedin/pinterest) are required" });
+    return;
+  }
+
+  const platformKey = `buffer_${service}`;
+  // Posting uses process.env.BUFFER_API_KEY directly; store a placeholder token.
+  await upsertSocialAccount(org.id, platformKey, profileName, encryptToken("buffer-managed"), profileId);
+  res.json({ ok: true });
+});
+
+router.delete("/buffer/connect/:profileId", async (req, res) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+  const { profileId } = req.params;
+  await db
+    .update(socialAccountsTable)
+    .set({ isConnected: false, updatedAt: new Date() })
+    .where(and(eq(socialAccountsTable.orgId, org.id), eq(socialAccountsTable.accountId, profileId)));
+  res.json({ ok: true });
 });
 
 // ─── Accounts ───────────────────────────────────────────────────

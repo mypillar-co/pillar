@@ -378,6 +378,34 @@ async function publishToTwitter(content: string, encryptedToken: string): Promis
   return data.data?.id ?? "";
 }
 
+async function publishViaBuffer(content: string, bufferProfileId: string, mediaUrl?: string | null): Promise<string> {
+  const apiKey = process.env.BUFFER_API_KEY;
+  if (!apiKey) throw new Error("BUFFER_API_KEY is not configured");
+
+  const body = new URLSearchParams();
+  body.append("profile_ids[]", bufferProfileId);
+  body.append("text", content);
+  body.append("now", "true");
+  if (mediaUrl) body.append("media[photo]", mediaUrl);
+
+  const resp = await fetch(
+    `https://api.bufferapp.com/1/updates/create.json?access_token=${encodeURIComponent(apiKey)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    },
+  );
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({})) as { message?: string; error?: string };
+    throw new Error(err.message ?? err.error ?? `Buffer API error ${resp.status}`);
+  }
+
+  const data = await resp.json() as { success?: boolean; updates?: Array<{ id: string }> };
+  return data.updates?.[0]?.id ?? "";
+}
+
 async function runDueSocialPosts(): Promise<void> {
   const now = new Date();
   logger.info("Checking for due social posts");
@@ -429,6 +457,9 @@ async function runDueSocialPosts(): Promise<void> {
             postId = await publishToInstagram(post.content, account.accessToken, account.accountId, post.mediaUrl);
           } else if (platform === "twitter") {
             postId = await publishToTwitter(post.content, account.accessToken);
+          } else if (platform.startsWith("buffer_")) {
+            if (!account.accountId) throw new Error("Buffer profile ID not stored for this account");
+            postId = await publishViaBuffer(post.content, account.accountId, post.mediaUrl);
           } else {
             errors.push(`${platform}: unsupported platform`);
             continue;
