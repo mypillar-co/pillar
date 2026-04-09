@@ -519,6 +519,7 @@ router.get("/buffer/profiles", async (req, res) => {
       return;
     }
     const data = await resp.json() as { data?: { channels?: Array<{ id: string; service: string; username: string; name: string; avatar?: string }> }; errors?: Array<{ message?: string }> };
+    console.log("[Buffer API response]", JSON.stringify(data));
     if (data.errors?.length) {
       res.status(502).json({ error: data.errors[0]?.message ?? "Buffer API error" });
       return;
