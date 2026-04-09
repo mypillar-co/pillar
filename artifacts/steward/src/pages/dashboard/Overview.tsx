@@ -15,6 +15,7 @@ import {
   Share2,
   DollarSign,
   Bell,
+  ImageIcon,
   ChevronRight,
   Clock,
   TrendingUp,
@@ -113,6 +114,10 @@ export default function Overview() {
     queryKey: ["org-detail"],
     queryFn: () => fetch("/api/organizations", { credentials: "include" }).then(r => r.ok ? r.json() : null),
   });
+  const { data: siteTarget } = useQuery({
+    queryKey: ["site-target"],
+    queryFn: () => fetch("/api/community-site/target", { credentials: "include" }).then(r => r.ok ? r.json() : null),
+  });
 
   const currentTierId = (subscription?.tierId || org?.tier) || null;
   const hasPlan = !!currentTierId;
@@ -173,6 +178,7 @@ export default function Overview() {
   if (hasPlan && hasEvents && !stripeConnected) setupItems.push({ id: "no-stripe", label: "Payments not connected", detail: "Connect Stripe to accept event payments.", href: "/dashboard/payments", icon: DollarSign });
   if (hasPlan && !hasSite) setupItems.push({ id: "no-site", label: "Website not built yet", detail: "Generate your site with AI in minutes.", href: "/dashboard/site", icon: Globe });
   if (hasPlan && hasSocial && !socialConnected) setupItems.push({ id: "no-social", label: "Social accounts not linked", detail: "Connect Facebook, Instagram, or X.", href: "/dashboard/social", icon: Share2 });
+  if (hasPlan && siteTarget !== undefined && !siteTarget?.heroImageUrl) setupItems.push({ id: "no-banner", label: "No homepage banner photo", detail: "Add a hero image to make your site welcoming.", href: "/dashboard/site", icon: ImageIcon });
 
   // Activity bullets (only show non-zero)
   const activityBullets: Array<{ label: string; value: number }> = [

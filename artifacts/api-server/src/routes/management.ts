@@ -307,7 +307,36 @@ router.post("/chat", async (req: Request, res: Response) => {
       },
     },
 
-    // ── 6. Business directory ───────────────────────────────────────────
+    // ── 6. Site sections ────────────────────────────────────────────────
+    {
+      type: "function",
+      function: {
+        name: "list_sections",
+        description: "List all available website sections and whether each is currently enabled or disabled.",
+        parameters: { type: "object", properties: {} },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "toggle_section",
+        description: "Enable or disable a section on the public website. Takes effect immediately.",
+        parameters: {
+          type: "object",
+          required: ["section", "enabled"],
+          properties: {
+            section: {
+              type: "string",
+              enum: ["blog", "newsletter", "businessDirectory", "sponsors", "vendors", "ticketedEvents"],
+              description: "Section to toggle. blog=News & Blog, newsletter=Newsletter signup, businessDirectory=Business directory, sponsors=Sponsors display, vendors=Vendor registration, ticketedEvents=Ticket sales capability",
+            },
+            enabled: { type: "boolean", description: "true to add/show the section, false to hide it" },
+          },
+        },
+      },
+    },
+
+    // ── 7. Business directory ───────────────────────────────────────────
     {
       type: "function",
       function: {

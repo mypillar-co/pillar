@@ -1234,43 +1234,53 @@ export default function CommunityBuilder() {
 
         {/* Not started — welcome screen (first-time or redo) */}
         {!started && !readyPayload && !siteStatus?.isProvisioned && !siteStatusLoading && (
-          <div className="flex flex-col items-center justify-center h-full text-center py-16">
-            <div className="w-16 h-16 rounded-2xl bg-[#d4a017]/10 flex items-center justify-center mb-4">
-              <Globe className="w-8 h-8 text-[#d4a017]" />
-            </div>
-            <h2 className="text-lg font-semibold text-white mb-2">
-              Let's set up your website!
-            </h2>
-            <p className="text-sm text-[#7a9cbf] max-w-sm mb-6">
-              I'll ask you a few questions about your organization.
-              Takes about 5 minutes.
-            </p>
-            {logoPreview ? (
-              <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg bg-[#0f1a2e] border border-[#1e3a5f]">
-                <img src={logoPreview} alt="Logo" className="w-8 h-8 rounded object-cover" />
-                <span className="text-xs text-[#7aad6a]">Logo uploaded</span>
-                <button
-                  onClick={() => { setLogoPath(null); setLogoPreview(null); }}
-                  className="text-[#4a6a8a] hover:text-red-400 ml-1"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
+          <div className="flex flex-col items-center text-center pt-10 pb-6 gap-6">
+
+            {/* Welcome copy + logo + start button */}
+            <div className="flex flex-col items-center">
+              <div className="w-16 h-16 rounded-2xl bg-[#d4a017]/10 flex items-center justify-center mb-4">
+                <Globe className="w-8 h-8 text-[#d4a017]" />
               </div>
-            ) : (
-              <button
-                onClick={() => logoInputRef.current?.click()}
-                className="flex items-center gap-2 text-xs text-[#7a9cbf] hover:text-[#d4a017] mb-4 transition-colors"
+              <h2 className="text-lg font-semibold text-white mb-2">
+                Let's set up your website!
+              </h2>
+              <p className="text-sm text-[#7a9cbf] max-w-sm mb-6">
+                I'll ask you a few questions about your organization.
+                Takes about 5 minutes.
+              </p>
+              {logoPreview ? (
+                <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg bg-[#0f1a2e] border border-[#1e3a5f]">
+                  <img src={logoPreview} alt="Logo" className="w-8 h-8 rounded object-cover" />
+                  <span className="text-xs text-[#7aad6a]">Logo uploaded</span>
+                  <button
+                    onClick={() => { setLogoPath(null); setLogoPreview(null); }}
+                    className="text-[#4a6a8a] hover:text-red-400 ml-1"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => logoInputRef.current?.click()}
+                  className="flex items-center gap-2 text-xs text-[#7a9cbf] hover:text-[#d4a017] mb-4 transition-colors"
+                >
+                  <ImagePlus className="w-3.5 h-3.5" />
+                  Upload your logo (optional)
+                </button>
+              )}
+              <Button
+                className="bg-[#d4a017] hover:bg-[#b88a14] text-black font-semibold px-8"
+                onClick={() => setStarted(true)}
               >
-                <ImagePlus className="w-3.5 h-3.5" />
-                Upload your logo (optional)
-              </button>
-            )}
-            <Button
-              className="bg-[#d4a017] hover:bg-[#b88a14] text-black font-semibold px-8"
-              onClick={() => setStarted(true)}
-            >
-              Let's get started
-            </Button>
+                Let's get started
+              </Button>
+            </div>
+
+            {/* Homepage banner picker — shown before interview so it's always reachable */}
+            <div className="w-full max-w-md text-left">
+              <HeroImagePanel initialUrl={siteStatus?.heroImageUrl} />
+            </div>
+
           </div>
         )}
 
