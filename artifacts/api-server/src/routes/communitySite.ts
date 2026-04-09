@@ -696,7 +696,7 @@ router.get("/target", async (req: Request, res: Response) => {
       url:          (r?.community_site_url as string | null) ?? null,
       hasKey:       !!(r?.community_site_key),
       tier:         (org as { tier?: string | null }).tier ?? null,
-      isProvisioned: !!config,
+      isProvisioned: !!config || !!(r?.community_site_url),
       configSummary,
       heroImageUrl: (r?.hero_image_url as string | null) ?? null,
     });
@@ -1034,6 +1034,11 @@ Write these four fields as a valid JSON object (no markdown, no extra keys):
   }
 
   const reply = `I have everything I need! Click Launch Site to go live.\n[PAYLOAD_READY]\n${JSON.stringify(base)}`;
+
+  // Persist site_config immediately so returning visitors see the management
+  // view even if they navigate away before clicking "Launch Site".
+  await storePayloadReadyIfPresent(reply, org.id);
+
   res.json({ reply });
 });
 
