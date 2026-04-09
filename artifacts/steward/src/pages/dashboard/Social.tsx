@@ -686,7 +686,7 @@ function AutomationRuleDialog({
   editingRule?: AutomationRule; accounts: SocialAccount[];
 }) {
   const [name, setName] = useState(editingRule?.name ?? "");
-  const [platforms, setPlatforms] = useState<string[]>(editingRule?.platforms ?? ["facebook"]);
+  const [platforms, setPlatforms] = useState<string[]>(editingRule?.platforms ?? ["buffer_facebook"]);
   const [frequency, setFrequency] = useState(editingRule?.frequency ?? "weekly");
   const [dayOfWeek, setDayOfWeek] = useState(editingRule?.dayOfWeek ?? "monday");
   const [timeOfDay, setTimeOfDay] = useState(editingRule?.timeOfDay ?? "09:00");
@@ -734,7 +734,7 @@ function AutomationRuleDialog({
           <div>
             <Label className="text-slate-300 text-sm mb-2 block">Platforms</Label>
             <div className="flex flex-wrap gap-2">
-              {Object.entries(PLATFORM_META).filter(([key]) => key !== "instagram").map(([key, meta]) => {
+              {Object.entries(PLATFORM_META).map(([key, meta]) => {
                 const Icon = meta.icon;
                 const isConnected = connectedPlatforms.includes(key);
                 const isSelected = platforms.includes(key);
@@ -1380,7 +1380,7 @@ function ContentStrategySection() {
       <div>
         <Label className="text-slate-300 text-sm mb-2 block">Target Platforms</Label>
         <div className="flex flex-wrap gap-2">
-          {Object.entries(PLATFORM_META).filter(([key]) => key !== "instagram").map(([key, meta]) => {
+          {Object.entries(PLATFORM_META).map(([key, meta]) => {
             const Icon = meta.icon;
             const isSelected = platforms.includes(key);
             return (
