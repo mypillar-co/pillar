@@ -513,13 +513,15 @@ router.get("/buffer/profiles", async (req, res) => {
         query: "query { channels { id name service username avatar } }",
       }),
     });
+    const rawText = await resp.text();
+    console.log("[Buffer API response]", resp.status, rawText.slice(0, 2000));
     if (!resp.ok) {
-      const err = await resp.json().catch(() => ({})) as { message?: string; error?: string };
-      res.status(502).json({ error: err.message ?? err.error ?? `Buffer API error ${resp.status}` });
+      let errMsg = `Buffer API error ${resp.status}`;
+      try { const e = JSON.parse(rawText) as { message?: string; error?: string }; errMsg = e.message ?? e.error ?? errMsg; } catch { /* ignore */ }
+      res.status(502).json({ error: errMsg });
       return;
     }
-    const data = await resp.json() as { data?: { channels?: Array<{ id: string; service: string; username: string; name: string; avatar?: string }> }; errors?: Array<{ message?: string }> };
-    console.log("[Buffer API response]", JSON.stringify(data));
+    const data = JSON.parse(rawText) as { data?: { channels?: Array<{ id: string; service: string; username: string; name: string; avatar?: string }> }; errors?: Array<{ message?: string }> };
     if (data.errors?.length) {
       res.status(502).json({ error: data.errors[0]?.message ?? "Buffer API error" });
       return;
