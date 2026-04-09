@@ -503,23 +503,29 @@ router.get("/buffer/profiles", async (req, res) => {
   if (!apiKey) { res.status(503).json({ error: "Buffer integration not configured on this platform." }); return; }
 
   try {
-    const resp = await fetch(`https://api.bufferapp.com/1/profiles.json?access_token=${encodeURIComponent(apiKey)}`);
+    const resp = await fetch("https://api.buffer.com/graphql", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        query: `query { channels { id name service serviceUsername avatar } }`,
+      }),
+    });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({})) as { message?: string; error?: string };
       res.status(502).json({ error: err.message ?? err.error ?? `Buffer API error ${resp.status}` });
       return;
     }
-    const profiles = await resp.json() as Array<{
-      id: string;
-      service: string;
-      service_username: string;
-      formatted_username: string;
-      avatar_https?: string;
-      default?: boolean;
-    }>;
-    // Only return supported service types
-    const filtered = profiles.filter(p => BUFFER_SERVICES.has(p.service));
-    res.json({ profiles: filtered });
+    const data = await resp.json() as { data?: { channels?: Array<{ id: string; service: string; serviceUsername: string; name: string; avatar?: string }> }; errors?: Array<{ message?: string }> };
+    if (data.errors?.length) {
+      res.status(502).json({ error: data.errors[0]?.message ?? "Buffer API error" });
+      return;
+    }
+    const channels = data.data?.channels ?? [];
+    const filtered = channels.filter(c => BUFFER_SERVICES.has(c.service));
+    res.json({ profiles: filtered.map(c => ({ id: c.id, service: c.service, service_username: c.serviceUsername, formatted_username: c.name, avatar_https: c.avatar })) });
   } catch (err) {
     logger.error({ err }, "Buffer profiles fetch failed");
     res.status(502).json({ error: "Could not reach Buffer API" });
