@@ -522,14 +522,18 @@ router.delete("/organizations", async (req: Request, res: Response) => {
 
 // Curated civic/community Unsplash photo IDs — pre-approved, accessible without an API key
 const HERO_PHOTO_LIBRARY = [
-  { id: "1529156069898-aa78f52d3b87", description: "Community gathering in a sunny park" },
-  { id: "1521737604082-f4eb08bd4e18", description: "Professional civic meeting or conference" },
-  { id: "1573497491765-57b4f23b3624", description: "Volunteers working together on a community project" },
-  { id: "1531545514256-b1400bc00f31", description: "Energetic team collaborating at a table" },
-  { id: "1488521787991-ed7bbaae773c", description: "Outdoor charity event with a crowd" },
-  { id: "1521791055366-0d553872952f", description: "Professional handshake — partnership and trust" },
-  { id: "1573164574572-cb89e39749b4", description: "Vibrant downtown city street scene" },
-  { id: "1559425036-3b9ba2e45e93", description: "People collaborating outdoors in natural light" },
+  { id: "1522202176988-66273c2fd55f", description: "People gathered around a community meeting table" },
+  { id: "1517048676732-d65bc937f952", description: "Diverse team collaborating and smiling" },
+  { id: "1454165804606-c3d57bc86b40", description: "Professional group discussion at a bright table" },
+  { id: "1529156069898-aa78f52d3b87", description: "Joyful community group outdoors" },
+  { id: "1491438590914-bc09fcaaf77a", description: "Energetic crowd at an outdoor community event" },
+  { id: "1497366216548-37526070297c", description: "Networking event with engaged professionals" },
+  { id: "1560250097-89098d832f9c", description: "Professional handshake — partnership and trust" },
+  { id: "1543269865-cbf427effbad", description: "People volunteering together in the community" },
+  { id: "1516321318-19e41e4c31f1", description: "Civic leaders addressing a community audience" },
+  { id: "1574116819577-cb9b0a0b1a7e", description: "Volunteers working at an outdoor service event" },
+  { id: "1531482937-d8b8e32c7a49", description: "Community members raising hands in celebration" },
+  { id: "1523240795612-9a054b0db644", description: "Vibrant town square with community life" },
 ];
 
 // GET /api/organizations/hero-image/suggest
@@ -572,16 +576,28 @@ router.get("/organizations/hero-image/suggest", async (req: Request, res: Respon
       if (!seen.has(i)) { seen.add(i); ordered.push(i); }
     }
 
-    const photos = ordered.slice(0, 6).map(idx => {
-      const p = HERO_PHOTO_LIBRARY[idx];
-      return {
-        id: p.id,
-        thumb: `https://images.unsplash.com/photo-${p.id}?auto=format&fit=crop&w=400&q=70`,
-        full:  `https://images.unsplash.com/photo-${p.id}?auto=format&fit=crop&w=1920&q=80`,
-        description: p.description,
-        credit: "Unsplash",
-      };
-    });
+    // Verify each candidate is actually reachable before returning it
+    const candidates = ordered.map(idx => HERO_PHOTO_LIBRARY[idx]);
+    const liveChecks = await Promise.all(
+      candidates.map(async (p) => {
+        const url = `https://images.unsplash.com/photo-${p.id}?auto=format&fit=crop&w=400&q=70`;
+        try {
+          const r = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(4000) });
+          return r.ok ? p : null;
+        } catch {
+          return null;
+        }
+      })
+    );
+    const live = liveChecks.filter((p): p is typeof HERO_PHOTO_LIBRARY[0] => p !== null);
+
+    const photos = live.slice(0, 6).map(p => ({
+      id: p.id,
+      thumb: `https://images.unsplash.com/photo-${p.id}?auto=format&fit=crop&w=400&q=70`,
+      full:  `https://images.unsplash.com/photo-${p.id}?auto=format&fit=crop&w=1920&q=80`,
+      description: p.description,
+      credit: "Unsplash",
+    }));
 
     res.json({ query: `${org.type || "community"} background`, photos });
   } catch (err) {
@@ -605,9 +621,20 @@ router.post("/organizations/hero-image/apply-unsplash", async (req: Request, res
   if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
 
   try {
-    // Download the image
-    const imageRes = await fetch(imageSourceUrl);
-    if (!imageRes.ok) throw new Error("Failed to download image from Unsplash");
+    // Download the image with a browser-like User-Agent (some CDNs require it)
+    const imageRes = await fetch(imageSourceUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; Pillar/1.0)" },
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!imageRes.ok) {
+      // If download fails, persist the external URL directly as a fallback
+      console.warn(`Hero image download returned ${imageRes.status} — saving URL directly`);
+      await saveHeroImageUrl(org.slug, imageSourceUrl);
+      res.json({ heroImageUrl: imageSourceUrl });
+      return;
+    }
+
     const imageBuffer = Buffer.from(await imageRes.arrayBuffer());
     const contentType = imageRes.headers.get("content-type") || "image/jpeg";
     const ext = contentType.includes("png") ? "png" : "jpg";
@@ -628,7 +655,13 @@ router.post("/organizations/hero-image/apply-unsplash", async (req: Request, res
     res.json({ heroImageUrl });
   } catch (err) {
     console.error("Hero image apply error:", err);
-    res.status(500).json({ error: "Failed to save hero image" });
+    // Last-resort fallback: save the URL directly so the user isn't blocked
+    try {
+      await saveHeroImageUrl(org.slug, imageSourceUrl);
+      res.json({ heroImageUrl: imageSourceUrl });
+    } catch {
+      res.status(500).json({ error: "Failed to save hero image" });
+    }
   }
 });
 
