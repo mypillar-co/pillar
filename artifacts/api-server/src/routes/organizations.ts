@@ -606,6 +606,46 @@ router.get("/organizations/hero-image/suggest", async (req: Request, res: Respon
   }
 });
 
+// POST /api/organizations/hero-image/upload
+// Accepts a raw image body (Content-Type: image/*) and saves it to object storage.
+router.post("/organizations/hero-image/upload", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const contentType = (req.headers["content-type"] ?? "").split(";")[0].trim();
+  if (!contentType.startsWith("image/")) {
+    res.status(400).json({ error: "Image content-type required" });
+    return;
+  }
+
+  const org = await getCurrentOrgForUser(req.user.id);
+  if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
+
+  try {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as ArrayBuffer));
+    const imageBuffer = Buffer.concat(chunks);
+    if (imageBuffer.length === 0) { res.status(400).json({ error: "Empty file" }); return; }
+
+    const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
+    const privateDir = objectStorageService.getPrivateObjectDir().replace(/\/$/, "");
+    const objectId = randomUUID();
+    const objectPath = `${privateDir}/uploads/${objectId}.${ext}`;
+    const parts = objectPath.startsWith("/") ? objectPath.slice(1).split("/") : objectPath.split("/");
+    const bucketName = parts[0];
+    const objectName = parts.slice(1).join("/");
+    const bucket = objectStorageClient.bucket(bucketName);
+    await bucket.file(objectName).save(imageBuffer, { contentType, resumable: false });
+
+    const heroImageUrl = `/api/storage/objects/uploads/${objectId}.${ext}`;
+    await saveHeroImageUrl(org.slug, heroImageUrl);
+
+    res.json({ heroImageUrl });
+  } catch (err) {
+    console.error("Hero image upload error:", err);
+    res.status(500).json({ error: "Failed to upload image" });
+  }
+});
+
 // POST /api/organizations/hero-image/apply-unsplash
 // Downloads chosen photo into object storage and saves the URL to cs_org_configs.
 // Accepts: { photoUrl, credit } — photoUrl is the full-resolution image URL.

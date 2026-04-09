@@ -9,7 +9,7 @@ import { useGetOrganization } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { csrfHeaders } from "@/lib/api";
-import { uploadImage, isImageFile } from "@/lib/uploadImage";
+import { isImageFile } from "@/lib/uploadImage";
 
 function csrfFetch(input: string, init?: RequestInit): Promise<Response> {
   const method = (init?.method ?? "GET").toUpperCase();
@@ -480,14 +480,15 @@ function HeroImagePanel({ initialUrl, autoTriggerAi }: { initialUrl: string | nu
     setPhase("saving");
     setError(null);
     try {
-      const imageUrl = await uploadImage(file);
-      const res = await csrfFetch("/api/organizations/hero-image", {
+      const res = await fetch("/api/organizations/hero-image/upload", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ heroImageUrl: imageUrl }),
+        headers: { "Content-Type": file.type, ...csrfHeaders("POST") },
+        credentials: "include",
+        body: file,
       });
-      if (!res.ok) throw new Error("Save failed");
-      setUrl(imageUrl);
+      const d = await res.json() as { heroImageUrl?: string; error?: string };
+      if (!res.ok || !d.heroImageUrl) throw new Error(d.error ?? "Save failed");
+      setUrl(d.heroImageUrl);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch {
@@ -1289,10 +1290,14 @@ export default function CommunityBuilder() {
               ) : (
                 <button
                   onClick={() => logoInputRef.current?.click()}
-                  className="flex items-center gap-2 text-xs text-[#7a9cbf] hover:text-[#d4a017] mb-4 transition-colors"
+                  disabled={logoUploading}
+                  className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#1e3a5f] bg-[#0f1a2e] hover:bg-[#1e3a5f] text-sm text-[#c8d8e8] font-medium transition-colors disabled:opacity-50 mb-4"
                 >
-                  <ImagePlus className="w-3.5 h-3.5" />
-                  Upload your logo (optional)
+                  {logoUploading
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin text-[#7a9cbf]" />
+                    : <ImagePlus className="w-3.5 h-3.5 text-[#7a9cbf]" />
+                  }
+                  {logoUploading ? "Uploading…" : "Upload your logo (optional)"}
                 </button>
               )}
               <Button
