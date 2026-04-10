@@ -378,9 +378,11 @@ async function publishToTwitter(content: string, encryptedToken: string): Promis
   return data.data?.id ?? "";
 }
 
-async function publishViaBuffer(content: string, bufferProfileId: string, mediaUrl?: string | null): Promise<string> {
-  const apiKey = process.env.BUFFER_API_KEY;
-  if (!apiKey) throw new Error("BUFFER_API_KEY is not configured");
+async function publishViaBuffer(content: string, bufferProfileId: string, orgId: string, mediaUrl?: string | null): Promise<string> {
+  const [bufRow] = await db.select().from(socialAccountsTable)
+    .where(and(eq(socialAccountsTable.orgId, orgId), eq(socialAccountsTable.platform, "buffer_account")));
+  const apiKey = bufRow ? decryptToken(bufRow.accessToken) : process.env.BUFFER_API_KEY;
+  if (!apiKey) throw new Error("Buffer not configured. Add your Buffer personal access token in Social settings.");
 
   const body = new URLSearchParams();
   body.append("profile_ids[]", bufferProfileId);
@@ -459,7 +461,7 @@ async function runDueSocialPosts(): Promise<void> {
             postId = await publishToTwitter(post.content, account.accessToken);
           } else if (platform.startsWith("buffer_")) {
             if (!account.accountId) throw new Error("Buffer profile ID not stored for this account");
-            postId = await publishViaBuffer(post.content, account.accountId, post.mediaUrl);
+            postId = await publishViaBuffer(post.content, account.accountId, post.orgId, post.mediaUrl);
           } else {
             errors.push(`${platform}: unsupported platform`);
             continue;

@@ -90,12 +90,66 @@ function ConnectAccountDialog({
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hasBufferToken, setHasBufferToken] = useState<boolean | null>(null);
+  const [bufferTokenInput, setBufferTokenInput] = useState("");
+  const [savingToken, setSavingToken] = useState(false);
+  const [removingToken, setRemovingToken] = useState(false);
 
   const connectedProfileIds = new Set(
     connectedAccounts.filter(a => a.isConnected && a.accountId).map(a => a.accountId!),
   );
 
-  const handleClose = () => { setError(null); setProfiles(null); onClose(); };
+  useEffect(() => {
+    if (!open) return;
+    setHasBufferToken(null);
+    fetch("/api/social/buffer/token-status", { credentials: "include" })
+      .then(r => r.json())
+      .then((d: { hasToken?: boolean }) => setHasBufferToken(!!d.hasToken))
+      .catch(() => setHasBufferToken(false));
+  }, [open]);
+
+  const handleClose = () => {
+    setError(null);
+    setProfiles(null);
+    setBufferTokenInput("");
+    onClose();
+  };
+
+  const saveBufferToken = async () => {
+    setSavingToken(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/social/buffer/token", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: bufferTokenInput.trim() }),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "Could not save token");
+      setHasBufferToken(true);
+      setBufferTokenInput("");
+      loadProfiles();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save token");
+    } finally {
+      setSavingToken(false);
+    }
+  };
+
+  const removeBufferToken = async () => {
+    setRemovingToken(true);
+    setError(null);
+    try {
+      await fetch("/api/social/buffer/token", { method: "DELETE", credentials: "include" });
+      setHasBufferToken(false);
+      setProfiles(null);
+    } catch {
+      setError("Failed to remove token");
+    } finally {
+      setRemovingToken(false);
+    }
+  };
 
   const loadProfiles = async () => {
     setLoadingProfiles(true);
@@ -159,89 +213,143 @@ function ConnectAccountDialog({
         <div className="space-y-4">
           {/* Buffer section */}
           <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-white">Connect via Buffer</p>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Posts to X, Facebook, Instagram, LinkedIn & more through your Buffer account.
-                </p>
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="border-white/15 text-slate-300 hover:text-white hover:border-white/30 h-8 text-xs shrink-0"
-                onClick={loadProfiles}
-                disabled={loadingProfiles}
-              >
-                {loadingProfiles ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Load channels"}
-              </Button>
+            <div>
+              <p className="text-sm font-semibold text-white">Connect via Buffer</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Posts to X, Facebook, Instagram, LinkedIn & more through your Buffer account.
+              </p>
             </div>
+
+            {/* Token entry / status */}
+            {hasBufferToken === null ? (
+              <p className="text-xs text-slate-500">Checking…</p>
+            ) : !hasBufferToken ? (
+              <div className="space-y-2">
+                <p className="text-xs text-slate-400">
+                  Enter your{" "}
+                  <a
+                    href="https://buffer.com/developers/apps"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline underline-offset-2"
+                  >
+                    Buffer personal access token
+                  </a>{" "}
+                  to import your connected social channels.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={bufferTokenInput}
+                    onChange={e => setBufferTokenInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter" && bufferTokenInput.trim()) saveBufferToken(); }}
+                    placeholder="Paste your Buffer token…"
+                    className="flex-1 rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-primary/50 transition-colors"
+                  />
+                  <Button
+                    size="sm"
+                    disabled={!bufferTokenInput.trim() || savingToken}
+                    onClick={saveBufferToken}
+                    className="bg-primary hover:bg-primary/90 text-white text-xs font-semibold shrink-0"
+                  >
+                    {savingToken ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Save"}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="text-xs text-emerald-400 font-medium">Buffer token connected</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-white/15 text-slate-300 hover:text-white hover:border-white/30 h-7 text-xs"
+                      onClick={loadProfiles}
+                      disabled={loadingProfiles}
+                    >
+                      {loadingProfiles ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Load channels"}
+                    </Button>
+                    <button
+                      onClick={removeBufferToken}
+                      disabled={removingToken}
+                      className="text-xs text-slate-500 hover:text-red-400 transition-colors disabled:opacity-50"
+                    >
+                      {removingToken ? "Removing…" : "Remove"}
+                    </button>
+                  </div>
+                </div>
+
+                {profiles !== null && profiles.length === 0 && (
+                  <p className="text-xs text-slate-500 text-center py-1">
+                    No channels found. Add social accounts to your Buffer account first.
+                  </p>
+                )}
+
+                {profiles !== null && profiles.length > 0 && (
+                  <div className="space-y-2">
+                    {profiles.map(profile => {
+                      const isConnected = connectedProfileIds.has(profile.id);
+                      const isConnecting = connectingId === profile.id;
+                      const isDisconnecting = disconnectingId === profile.id;
+                      const Icon = BUFFER_SERVICE_ICONS[profile.service] ?? Share2;
+                      const meta = PLATFORM_META[`buffer_${profile.service}`];
+                      return (
+                        <div key={profile.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${meta?.bgColor ?? "bg-white/10"}`}>
+                              <Icon className={`w-3.5 h-3.5 ${meta?.color ?? "text-white"}`} />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-white truncate">
+                                {profile.formatted_username || profile.service_username}
+                              </p>
+                              <p className="text-xs text-slate-500 capitalize">{profile.service}</p>
+                            </div>
+                          </div>
+                          {isConnected ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-xs text-slate-400 hover:text-red-400 hover:bg-red-500/10 shrink-0"
+                              onClick={() => handleDisconnect(profile)}
+                              disabled={isDisconnecting}
+                            >
+                              {isDisconnecting ? <Loader2 className="w-3 h-3 animate-spin" /> : "Disconnect"}
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              className="h-7 text-xs bg-primary hover:bg-primary/90 shrink-0"
+                              onClick={() => handleConnect(profile)}
+                              disabled={isConnecting}
+                            >
+                              {isConnecting ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                              {isConnecting ? "Connecting…" : "Connect"}
+                            </Button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {profiles === null && !loadingProfiles && (
+                  <p className="text-xs text-slate-500 text-center py-1">
+                    Click "Load channels" to see your Buffer-connected social accounts.
+                  </p>
+                )}
+              </div>
+            )}
 
             {error && (
               <div className="flex items-start gap-2 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2">
                 <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
                 <p className="text-xs text-red-400">{error}</p>
               </div>
-            )}
-
-            {profiles !== null && profiles.length === 0 && (
-              <p className="text-xs text-slate-400 text-center py-2">
-                No channels found. Add social accounts to your Buffer account first.
-              </p>
-            )}
-
-            {profiles !== null && profiles.length > 0 && (
-              <div className="space-y-2">
-                {profiles.map(profile => {
-                  const isConnected = connectedProfileIds.has(profile.id);
-                  const isConnecting = connectingId === profile.id;
-                  const isDisconnecting = disconnectingId === profile.id;
-                  const Icon = BUFFER_SERVICE_ICONS[profile.service] ?? Share2;
-                  const meta = PLATFORM_META[`buffer_${profile.service}`];
-                  return (
-                    <div key={profile.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2.5">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${meta?.bgColor ?? "bg-white/10"}`}>
-                          <Icon className={`w-3.5 h-3.5 ${meta?.color ?? "text-white"}`} />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-white truncate">
-                            {profile.formatted_username || profile.service_username}
-                          </p>
-                          <p className="text-xs text-slate-500 capitalize">{profile.service}</p>
-                        </div>
-                      </div>
-                      {isConnected ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-xs text-slate-400 hover:text-red-400 hover:bg-red-500/10 shrink-0"
-                          onClick={() => handleDisconnect(profile)}
-                          disabled={isDisconnecting}
-                        >
-                          {isDisconnecting ? <Loader2 className="w-3 h-3 animate-spin" /> : "Disconnect"}
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          className="h-7 text-xs bg-primary hover:bg-primary/90 shrink-0"
-                          onClick={() => handleConnect(profile)}
-                          disabled={isConnecting}
-                        >
-                          {isConnecting ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
-                          {isConnecting ? "Connecting…" : "Connect"}
-                        </Button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {profiles === null && !loadingProfiles && (
-              <p className="text-xs text-slate-500 text-center py-1">
-                Click "Load channels" to see your Buffer-connected social accounts.
-              </p>
             )}
           </div>
         </div>

@@ -3,7 +3,7 @@ import {
   db, socialAccountsTable, socialPostsTable, automationRulesTable,
   contentStrategyTable, organizationsTable, eventsTable, oauthStatesTable,
 } from "@workspace/db";
-import { eq, and, desc, gte, lt, isNotNull, asc } from "drizzle-orm";
+import { eq, and, not, desc, gte, lt, isNotNull, asc } from "drizzle-orm";
 import { resolveFullOrg } from "../lib/resolveOrg";
 import { randomBytes, createHash } from "crypto";
 import { logger } from "../lib/logger";
@@ -490,22 +490,69 @@ router.get("/oauth/twitter/callback", async (req, res) => {
 });
 
 // ─── Buffer Integration ──────────────────────────────────────────
-// Uses a single platform-level BUFFER_API_KEY. Each org selects which
-// Buffer channels (profiles) belong to them; posts are published via Buffer
-// which distributes to the actual social platforms on their behalf.
+// Each org stores their own Buffer personal access token (PAT), encrypted,
+// as a social_accounts row with platform = "buffer_account".
+
+async function getOrgBufferToken(orgId: string): Promise<string | null> {
+  const [row] = await db.select().from(socialAccountsTable)
+    .where(and(eq(socialAccountsTable.orgId, orgId), eq(socialAccountsTable.platform, "buffer_account")));
+  return row ? decryptToken(row.accessToken) : null;
+}
+
+// GET /buffer/token-status — does this org have a Buffer PAT saved?
+router.get("/buffer/token-status", async (req, res) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+  const token = await getOrgBufferToken(org.id);
+  res.json({ hasToken: !!token });
+});
+
+// POST /buffer/token — validate and save the org's Buffer PAT
+router.post("/buffer/token", async (req, res) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+  const { token } = req.body as { token?: string };
+  if (!token?.trim()) { res.status(400).json({ error: "Token is required" }); return; }
+  try {
+    const resp = await fetch("https://api.buffer.com/graphql", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token.trim()}` },
+      body: JSON.stringify({ query: "{ account { id } }" }),
+    });
+    if (!resp.ok) { res.status(400).json({ error: "Invalid Buffer token — authentication failed" }); return; }
+    const data = await resp.json() as { data?: { account?: { id: string } }; errors?: unknown[] };
+    if (data.errors?.length || !data.data?.account?.id) {
+      res.status(400).json({ error: "Invalid Buffer token — could not authenticate" }); return;
+    }
+    await upsertSocialAccount(org.id, "buffer_account", "Buffer API Key", encryptToken(token.trim()), data.data.account.id);
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "Buffer token save failed");
+    res.status(500).json({ error: "Could not validate Buffer token" });
+  }
+});
+
+// DELETE /buffer/token — remove the org's Buffer PAT
+router.delete("/buffer/token", async (req, res) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+  await db.delete(socialAccountsTable)
+    .where(and(eq(socialAccountsTable.orgId, org.id), eq(socialAccountsTable.platform, "buffer_account")));
+  res.json({ ok: true });
+});
 
 router.get("/buffer/profiles", async (req, res) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
 
-  const apiKey = process.env.BUFFER_API_KEY;
-  if (!apiKey) { res.status(503).json({ error: "Buffer integration not configured on this platform." }); return; }
+  const token = await getOrgBufferToken(org.id);
+  if (!token) { res.status(400).json({ error: "Add your Buffer personal access token first." }); return; }
 
   try {
     const resp = await fetch("https://api.buffer.com/graphql", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
       body: JSON.stringify({
         query: "{ account { organizations { id channels { id name service serviceId displayName avatar } } } }",
       }),
@@ -587,7 +634,7 @@ router.get("/accounts", async (req, res) => {
   const accounts = await db
     .select()
     .from(socialAccountsTable)
-    .where(eq(socialAccountsTable.orgId, org.id))
+    .where(and(eq(socialAccountsTable.orgId, org.id), not(eq(socialAccountsTable.platform, "buffer_account"))))
     .orderBy(socialAccountsTable.createdAt);
 
   res.json(accounts.map(a => ({ ...a, accessToken: undefined, refreshToken: undefined })));
