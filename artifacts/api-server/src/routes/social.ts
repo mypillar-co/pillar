@@ -505,30 +505,44 @@ router.get("/buffer/profiles", async (req, res) => {
   try {
     const resp = await fetch("https://api.buffer.com/graphql", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
       body: JSON.stringify({
-        query: "query { channels { id name service username avatar } }",
+        query: "{ account { organizations { id channels { id name service serviceId displayName avatar } } } }",
       }),
     });
-    const rawText = await resp.text();
-    console.log("[Buffer API response]", resp.status, rawText.slice(0, 2000));
     if (!resp.ok) {
-      let errMsg = `Buffer API error ${resp.status}`;
-      try { const e = JSON.parse(rawText) as { message?: string; error?: string }; errMsg = e.message ?? e.error ?? errMsg; } catch { /* ignore */ }
-      res.status(502).json({ error: errMsg });
+      const errText = await resp.text().catch(() => "");
+      logger.error({ status: resp.status, body: errText }, "Buffer API non-2xx");
+      res.status(502).json({ error: `Buffer API error ${resp.status}` });
       return;
     }
-    const data = JSON.parse(rawText) as { data?: { channels?: Array<{ id: string; service: string; username: string; name: string; avatar?: string }> }; errors?: Array<{ message?: string }> };
+    const data = await resp.json() as {
+      data?: {
+        account?: {
+          organizations?: Array<{
+            id: string;
+            channels?: Array<{ id: string; name: string; service: string; serviceId: string; displayName?: string | null; avatar?: string }>;
+          }>;
+        };
+      };
+      errors?: Array<{ message?: string }>;
+    };
     if (data.errors?.length) {
       res.status(502).json({ error: data.errors[0]?.message ?? "Buffer API error" });
       return;
     }
-    const channels = data.data?.channels ?? [];
-    const filtered = channels.filter(c => BUFFER_SERVICES.has(c.service));
-    res.json({ profiles: filtered.map(c => ({ id: c.id, service: c.service, service_username: c.username, formatted_username: c.name, avatar_https: c.avatar })) });
+    const orgs = data.data?.account?.organizations ?? [];
+    const allChannels = orgs.flatMap(o => o.channels ?? []);
+    const filtered = allChannels.filter(c => BUFFER_SERVICES.has(c.service));
+    res.json({
+      profiles: filtered.map(c => ({
+        id: c.id,
+        service: c.service,
+        service_username: c.displayName ?? c.serviceId,
+        formatted_username: c.name,
+        avatar_https: c.avatar,
+      })),
+    });
   } catch (err) {
     logger.error({ err }, "Buffer profiles fetch failed");
     res.status(502).json({ error: "Could not reach Buffer API" });
