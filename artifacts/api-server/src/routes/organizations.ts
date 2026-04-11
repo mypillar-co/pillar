@@ -525,14 +525,14 @@ const HERO_PHOTO_LIBRARY = [
   { id: "1522202176988-66273c2fd55f", description: "People gathered around a community meeting table" },
   { id: "1517048676732-d65bc937f952", description: "Diverse team collaborating and smiling" },
   { id: "1454165804606-c3d57bc86b40", description: "Professional group discussion at a bright table" },
-  { id: "1529156069898-aa78f52d3b87", description: "Joyful community group outdoors" },
+  { id: "1557804506-669a67965ba0", description: "Engaged professionals in a bright office meeting" },
   { id: "1491438590914-bc09fcaaf77a", description: "Energetic crowd at an outdoor community event" },
   { id: "1497366216548-37526070297c", description: "Networking event with engaged professionals" },
-  { id: "1560250097-89098d832f9c", description: "Professional handshake — partnership and trust" },
+  { id: "1509099836639-18ba1795216d", description: "Community gathering — people connecting outdoors" },
   { id: "1543269865-cbf427effbad", description: "People volunteering together in the community" },
-  { id: "1516321318-19e41e4c31f1", description: "Civic leaders addressing a community audience" },
-  { id: "1574116819577-cb9b0a0b1a7e", description: "Volunteers working at an outdoor service event" },
-  { id: "1531482937-d8b8e32c7a49", description: "Community members raising hands in celebration" },
+  { id: "1521791136064-7986c2920216", description: "Civic leaders addressing a community audience" },
+  { id: "1573496359142-b8d87734a5a2", description: "Collaborative team session with whiteboards" },
+  { id: "1552664730-d307ca884978", description: "Diverse group united around a common purpose" },
   { id: "1523240795612-9a054b0db644", description: "Vibrant town square with community life" },
 ];
 
@@ -554,8 +554,22 @@ router.get("/organizations/hero-image/suggest", async (req: Request, res: Respon
       baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
     });
 
-    const libraryJson = HERO_PHOTO_LIBRARY.map((p, i) => `${i}: ${p.description}`).join("\n");
-    const prompt = `You are picking hero background photos for a community website. The organization is "${org.name}" (type: ${org.type || "civic"})${org.category ? `, tagline: "${org.category}"` : ""}.\n\nAvailable photos (by index):\n${libraryJson}\n\nReturn exactly 6 indices (0–${HERO_PHOTO_LIBRARY.length - 1}), comma-separated, ordered best-to-worst fit. Return ONLY numbers, e.g.: 2,0,5,3,7,1`;
+    // Step 1: pre-filter the full library to only live photos (parallel HEAD checks)
+    const liveChecks = await Promise.all(
+      HERO_PHOTO_LIBRARY.map(async (p) => {
+        const url = `https://images.unsplash.com/photo-${p.id}?auto=format&fit=crop&w=400&q=70`;
+        try {
+          const r = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(4000) });
+          return r.ok ? p : null;
+        } catch { return null; }
+      })
+    );
+    const livePhotos = liveChecks.filter((p): p is typeof HERO_PHOTO_LIBRARY[0] => p !== null);
+    if (livePhotos.length === 0) throw new Error("No photos available right now");
+
+    // Step 2: AI ranks only the live photos — guarantees top-6 are all reachable
+    const libraryJson = livePhotos.map((p, i) => `${i}: ${p.description}`).join("\n");
+    const prompt = `You are picking hero background photos for a community website. The organization is "${org.name}" (type: ${org.type || "civic"})${org.category ? `, tagline: "${org.category}"` : ""}.\n\nAvailable photos (by index):\n${libraryJson}\n\nReturn exactly ${Math.min(6, livePhotos.length)} indices (0–${livePhotos.length - 1}), comma-separated, ordered best-to-worst fit. Return ONLY numbers, e.g.: 2,0,5,3,7,1`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -563,41 +577,29 @@ router.get("/organizations/hero-image/suggest", async (req: Request, res: Respon
       max_tokens: 20,
     });
     const raw = completion.choices[0]?.message?.content?.trim() ?? "";
-    const indices: number[] = raw
+    const aiIndices: number[] = raw
       .split(",")
       .map(s => parseInt(s.trim(), 10))
-      .filter(n => !isNaN(n) && n >= 0 && n < HERO_PHOTO_LIBRARY.length);
+      .filter(n => !isNaN(n) && n >= 0 && n < livePhotos.length);
 
-    // Deduplicate and pad to 6 if needed
+    // Deduplicate AI picks and pad with remaining live photos
     const seen = new Set<number>();
     const ordered: number[] = [];
-    for (const idx of indices) { if (!seen.has(idx)) { seen.add(idx); ordered.push(idx); } }
-    for (let i = 0; i < HERO_PHOTO_LIBRARY.length && ordered.length < 6; i++) {
+    for (const idx of aiIndices) { if (!seen.has(idx)) { seen.add(idx); ordered.push(idx); } }
+    for (let i = 0; i < livePhotos.length && ordered.length < 6; i++) {
       if (!seen.has(i)) { seen.add(i); ordered.push(i); }
     }
 
-    // Verify each candidate is actually reachable before returning it
-    const candidates = ordered.map(idx => HERO_PHOTO_LIBRARY[idx]);
-    const liveChecks = await Promise.all(
-      candidates.map(async (p) => {
-        const url = `https://images.unsplash.com/photo-${p.id}?auto=format&fit=crop&w=400&q=70`;
-        try {
-          const r = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(4000) });
-          return r.ok ? p : null;
-        } catch {
-          return null;
-        }
-      })
-    );
-    const live = liveChecks.filter((p): p is typeof HERO_PHOTO_LIBRARY[0] => p !== null);
-
-    const photos = live.slice(0, 6).map(p => ({
-      id: p.id,
-      thumb: `https://images.unsplash.com/photo-${p.id}?auto=format&fit=crop&w=400&q=70`,
-      full:  `https://images.unsplash.com/photo-${p.id}?auto=format&fit=crop&w=1920&q=80`,
-      description: p.description,
-      credit: "Unsplash",
-    }));
+    const photos = ordered.slice(0, 6).map(idx => {
+      const p = livePhotos[idx];
+      return {
+        id: p.id,
+        thumb: `https://images.unsplash.com/photo-${p.id}?auto=format&fit=crop&w=400&q=70`,
+        full:  `https://images.unsplash.com/photo-${p.id}?auto=format&fit=crop&w=1920&q=80`,
+        description: p.description,
+        credit: "Unsplash",
+      };
+    });
 
     res.json({ query: `${org.type || "community"} background`, photos });
   } catch (err) {
