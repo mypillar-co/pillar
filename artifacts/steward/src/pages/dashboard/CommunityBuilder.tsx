@@ -575,11 +575,21 @@ function HeroImagePanel({ initialUrl, autoTriggerAi }: { initialUrl: string | nu
       {/* Unsplash photo grid */}
       {phase === "approving" && (
         <div className="space-y-2">
-          {query && (
-            <p className="text-xs text-[#7a9cbf]">
-              AI searched for: <span className="text-white font-medium">"{query}"</span>
-            </p>
-          )}
+          <div className="flex items-center justify-between">
+            {query && (
+              <p className="text-xs text-[#7a9cbf]">
+                AI searched for: <span className="text-white font-medium">"{query}"</span>
+              </p>
+            )}
+            <button
+              onClick={() => void handleAiPick()}
+              className="flex items-center gap-1 text-xs text-[#7a9cbf] hover:text-[#d4a017] transition-colors ml-auto shrink-0"
+              title="Load a different set of photos"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Refresh
+            </button>
+          </div>
           <div className="grid grid-cols-3 gap-1.5">
             {photos.map(photo => (
               <button
