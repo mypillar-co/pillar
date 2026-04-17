@@ -85,7 +85,7 @@ function generateSlug(name: string): string {
  * 4-char random suffix if all of those are taken. This keeps URLs like
  * `ligonier-beach.mypillar.co` instead of `ligonier-beach-w47h.mypillar.co`.
  */
-async function generateCleanSlug(name: string): Promise<string> {
+async function generateCleanOrgSlug(name: string): Promise<string> {
   const base = generateSlug(name);
   const candidates = [
     base,
@@ -275,7 +275,7 @@ router.post("/organizations", async (req: Request, res: Response) => {
       }
       slug = requestedSlug;
     } else {
-      slug = await generateCleanSlug(name);
+      slug = await generateCleanOrgSlug(name);
     }
 
     [org] = await db
