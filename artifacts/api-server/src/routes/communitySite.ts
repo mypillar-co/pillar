@@ -674,9 +674,9 @@ router.get("/target", async (req: Request, res: Response) => {
   try {
     const row = await db.execute(sql`
       SELECT o.community_site_url, o.community_site_key, o.site_config,
-             c.hero_image_url
+             c.org_id AS cs_org_id, c.hero_image_url
       FROM organizations o
-      LEFT JOIN cs_org_configs c ON c.organization_id = o.id
+      LEFT JOIN cs_org_configs c ON c.org_id = o.id
       WHERE o.id = ${org.id}
       LIMIT 1
     `);
@@ -696,7 +696,7 @@ router.get("/target", async (req: Request, res: Response) => {
       url:          (r?.community_site_url as string | null) ?? null,
       hasKey:       !!(r?.community_site_key),
       tier:         (org as { tier?: string | null }).tier ?? null,
-      isProvisioned: !!config || !!(r?.community_site_url),
+      isProvisioned: !!config || !!(r?.community_site_url) || !!(r?.cs_org_id),
       configSummary,
       heroImageUrl: (r?.hero_image_url as string | null) ?? null,
     });
