@@ -183,13 +183,13 @@ export type Member = {
   renewalDate?: string | null;
   notes?: string | null;
   createdAt: string;
-  updatedAt?: string;
+  updatedAt: string;
 };
 
 export type MemberStats = {
   total: number;
   active: number;
-  inactive: number;
+  board: number;
   pending: number;
 };
 
@@ -311,19 +311,19 @@ export const api = {
     create: (data: Partial<Vendor>) => req<Vendor>("/api/vendors", { method: "POST", body: JSON.stringify(data) }),
   },
   members: {
-    list: (params?: { status?: string; search?: string }) => {
+    list: (params?: { status?: string; type?: string; search?: string }) => {
       const qs = new URLSearchParams();
       if (params?.status) qs.set("status", params.status);
+      if (params?.type) qs.set("type", params.type);
       if (params?.search) qs.set("search", params.search);
       const q = qs.toString();
       return req<Member[]>(`/api/members${q ? `?${q}` : ""}`);
     },
-    stats: () => req<MemberStats>("/api/members/stats"),
     create: (data: Partial<Member>) => req<Member>("/api/members", { method: "POST", body: JSON.stringify(data) }),
     update: (id: string, data: Partial<Member>) => req<Member>(`/api/members/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-    remove: (id: string) => req<void>(`/api/members/${id}`, { method: "DELETE" }),
-    import: (members: Partial<Member>[]) => req<{ inserted: number; skipped: number; errors: { row: number; error: string }[] }>(
-      "/api/members/import", { method: "POST", body: JSON.stringify({ members }) }),
+    delete: (id: string) => req<void>(`/api/members/${id}`, { method: "DELETE" }),
+    exportCsv: () => fetch("/api/members/export/csv", { credentials: "include" }),
+    stats: () => req<MemberStats>("/api/members/stats"),
   },
   sponsors: {
     list: () => req<Sponsor[]>("/api/sponsors"),

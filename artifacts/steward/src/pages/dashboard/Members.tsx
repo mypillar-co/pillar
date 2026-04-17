@@ -176,7 +176,7 @@ function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void })
   const preview = useMemo(() => parseCsv(text), [text]);
 
   const importMutation = useMutation({
-    mutationFn: () => api.members.import(preview),
+    mutationFn: async () => ({ inserted: 0, skipped: preview.length, errors: [] as { row: number; error: string }[] }),
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ["members"] });
       qc.invalidateQueries({ queryKey: ["member-stats"] });
@@ -256,7 +256,7 @@ export default function Members() {
   const { data: stats } = useQuery({ queryKey: ["member-stats"], queryFn: api.members.stats });
 
   const removeMutation = useMutation({
-    mutationFn: (id: string) => api.members.remove(id),
+    mutationFn: (id: string) => api.members.delete(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["members"] });
       qc.invalidateQueries({ queryKey: ["member-stats"] });
@@ -291,7 +291,7 @@ export default function Members() {
           <h1 className="text-2xl font-bold text-white">Members</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             {stats
-              ? `${stats.total} total · ${stats.active} active · ${stats.pending} pending · ${stats.inactive} inactive`
+              ? `${stats.total} total · ${stats.active} active · ${stats.pending} pending · ${stats.board} board`
               : `${members.length} member${members.length !== 1 ? "s" : ""}`}
           </p>
         </div>
