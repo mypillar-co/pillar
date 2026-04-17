@@ -8,6 +8,18 @@ if (import.meta.env.VITE_SENTRY_DSN) {
     dsn: import.meta.env.VITE_SENTRY_DSN as string,
     environment: import.meta.env.MODE,
     tracesSampleRate: 0.1,
+    beforeSend(event, hint) {
+      // Drop "TypeError: Load failed" unhandled rejections — these are
+      // navigation artifacts on iOS Safari (in-flight fetches aborted by
+      // window.location.href = ... during Stripe redirects), not real errors.
+      const err = hint?.originalException as { name?: string; message?: string } | undefined;
+      const mechanism = event.exception?.values?.[0]?.mechanism?.type;
+      const message = err?.message ?? event.exception?.values?.[0]?.value ?? "";
+      if (mechanism === "onunhandledrejection" && /Load failed/i.test(message)) {
+        return null;
+      }
+      return event;
+    },
   });
 }
 
