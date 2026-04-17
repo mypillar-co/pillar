@@ -676,7 +676,6 @@ function SiteManagementView({
   aiLoading: boolean;
   aiError: string | null;
 }) {
-  const [aiOpen, setAiOpen]   = useState(false);
   const [aiInput, setAiInput] = useState("");
   const [copied, setCopied]   = useState(false);
 
@@ -756,61 +755,53 @@ function SiteManagementView({
       <HeroImagePanel initialUrl={status.heroImageUrl} />
 
       {/* Update options */}
-      <div className="space-y-2">
+      <div className="space-y-3">
         <p className="text-xs text-[#7a9cbf] font-medium uppercase tracking-wide">Update your site</p>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={onRestart}
-            className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-[#1e3a5f] bg-[#0f1a2e] hover:bg-[#1e3a5f] text-sm text-[#c8d8e8] font-medium transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-[#7a9cbf]" />
-            Rebuild from scratch
-          </button>
-          <button
-            onClick={() => setAiOpen(!aiOpen)}
-            className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-[#d4a017]/30 bg-[#d4a017]/8 hover:bg-[#d4a017]/15 text-sm text-[#d4a017] font-medium transition-colors"
-          >
-            <Wand2 className="w-3.5 h-3.5" />
-            Ask AI to update
-          </button>
-        </div>
-
-        {/* AI edit form */}
-        {aiOpen && (
-          <div className="rounded-xl border border-[#d4a017]/30 bg-[#0f1a2e] p-4 space-y-3">
-            <p className="text-xs text-[#7a9cbf]">
-              Describe what you'd like to change and AI will update your site automatically.
-            </p>
-            <textarea
-              value={aiInput}
-              onChange={e => setAiInput(e.target.value)}
-              placeholder='e.g. "Change our meeting time to Wednesdays at 7pm" or "Add kayaking to our event categories"'
-              rows={3}
-              className="w-full bg-[#060f1e] border border-[#1e3a5f] rounded-lg px-3 py-2 text-sm text-white placeholder:text-[#4a6a8a] focus:outline-none focus:border-[#d4a017] resize-none transition-colors"
-            />
-            {aiError && (
-              <p className="text-xs text-red-400 flex items-center gap-1">
-                <AlertCircle className="w-3 h-3" />{aiError}
-              </p>
-            )}
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => { setAiOpen(false); setAiInput(""); }}
-                className="text-xs text-[#7a9cbf] hover:text-white px-3 py-1.5 transition-colors"
-              >
-                Cancel
+        <div className="rounded-xl border border-[#d4a017]/30 bg-[#0f1a2e] p-4 space-y-3">
+          <p className="text-xs text-[#7a9cbf]">Describe what you'd like to change — AI will update your site automatically.</p>
+          <div className="flex flex-wrap gap-2">
+            {[
+              "Change our contact email",
+              "Update our colors",
+              "Change meeting time",
+              "Add a photo to the homepage",
+              "Update our tagline",
+              "Add a new program",
+            ].map(s => (
+              <button key={s} onClick={() => setAiInput(s)}
+                className="text-xs px-2.5 py-1 rounded-lg border border-[#1e3a5f] text-[#7a9cbf] hover:border-[#d4a017]/40 hover:text-[#d4a017] transition-colors">
+                {s}
               </button>
-              <button
-                onClick={() => { if (aiInput.trim()) onAiEdit(aiInput.trim()); }}
-                disabled={aiLoading || !aiInput.trim()}
-                className="flex items-center gap-1.5 bg-[#d4a017] hover:bg-[#b88a14] disabled:opacity-50 text-black text-xs font-semibold px-4 py-1.5 rounded-lg transition-colors"
-              >
-                {aiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
-                {aiLoading ? "Updating…" : "Apply changes"}
-              </button>
-            </div>
+            ))}
           </div>
-        )}
+          <textarea
+            value={aiInput}
+            onChange={e => setAiInput(e.target.value)}
+            placeholder='e.g. "Change our primary color to navy blue and update the contact email to info@myorg.org"'
+            rows={3}
+            className="w-full bg-[#060f1e] border border-[#1e3a5f] rounded-lg px-3 py-2 text-sm text-white placeholder:text-[#4a6a8a] focus:outline-none focus:border-[#d4a017] resize-none transition-colors"
+          />
+          {aiError && (
+            <p className="text-xs text-red-400 flex items-center gap-1">
+              <AlertCircle className="w-3 h-3" />{aiError}
+            </p>
+          )}
+          <div className="flex justify-between items-center">
+            <button
+              onClick={onRestart}
+              className="text-xs text-[#4a6a8a] hover:text-[#7a9cbf] transition-colors flex items-center gap-1">
+              <RotateCcw className="w-3 h-3" /> Rebuild from scratch
+            </button>
+            <button
+              onClick={() => { if (aiInput.trim()) onAiEdit(aiInput.trim()); }}
+              disabled={aiLoading || !aiInput.trim()}
+              className="flex items-center gap-1.5 bg-[#d4a017] hover:bg-[#b88a14] disabled:opacity-50 text-black text-xs font-semibold px-4 py-1.5 rounded-lg transition-colors"
+            >
+              {aiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
+              {aiLoading ? "Updating…" : "Apply changes"}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
