@@ -1,239 +1,193 @@
-import React, { useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Plus, Users, Search, Mail, Phone, Loader2, Upload, Trash2, Pencil, Send,
-} from "lucide-react";
 import { toast } from "sonner";
+import { Pencil, Trash2, Download, Plus, Users } from "lucide-react";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
-} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+  SelectValue,
 } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
 import { api, type Member } from "@/lib/api";
 
-const MEMBER_TYPES = ["general", "board", "honorary", "staff"];
-const STATUSES = ["active", "inactive", "pending"];
+const TYPE_OPTIONS = ["general", "board", "honorary", "staff", "volunteer"] as const;
+const STATUS_OPTIONS = ["active", "inactive", "pending"] as const;
 
-const emptyForm = {
-  firstName: "", lastName: "", email: "", phone: "",
-  memberType: "general", status: "active",
-  joinDate: "", renewalDate: "", notes: "",
+type FormState = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  memberType: string;
+  status: string;
+  joinDate: string;
+  renewalDate: string;
+  notes: string;
 };
 
-function MemberFormDialog({
-  open, onClose, member,
-}: { open: boolean; onClose: () => void; member: Member | null }) {
-  const qc = useQueryClient();
-  const [form, setForm] = useState<typeof emptyForm>(emptyForm);
+const EMPTY_FORM: FormState = {
+  firstName: "",
+  lastName: "",
+  email: "",
+  phone: "",
+  memberType: "general",
+  status: "active",
+  joinDate: "",
+  renewalDate: "",
+  notes: "",
+};
 
-  React.useEffect(() => {
-    if (member) {
-      setForm({
-        firstName: member.firstName ?? "",
-        lastName: member.lastName ?? "",
-        email: member.email ?? "",
-        phone: member.phone ?? "",
-        memberType: member.memberType ?? "general",
-        status: member.status ?? "active",
-        joinDate: member.joinDate ?? "",
-        renewalDate: member.renewalDate ?? "",
-        notes: member.notes ?? "",
-      });
-    } else {
-      setForm(emptyForm);
-    }
-  }, [member, open]);
-
-  const mutation = useMutation({
-    mutationFn: () => member
-      ? api.members.update(member.id, form)
-      : api.members.create(form),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["members"] });
-      qc.invalidateQueries({ queryKey: ["member-stats"] });
-      toast.success(member ? "Member updated" : "Member added");
-      onClose();
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const set = (k: keyof typeof form) => (v: string) => setForm(p => ({ ...p, [k]: v }));
-
-  return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="bg-[hsl(224,30%,14%)] border-white/10 text-white max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{member ? "Edit Member" : "Add Member"}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 py-2 max-h-[70vh] overflow-y-auto">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-slate-300">First name *</Label>
-              <Input value={form.firstName} onChange={e => set("firstName")(e.target.value)} className="bg-white/5 border-white/10 text-white" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-slate-300">Last name</Label>
-              <Input value={form.lastName} onChange={e => set("lastName")(e.target.value)} className="bg-white/5 border-white/10 text-white" />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-slate-300">Email</Label>
-              <Input type="email" value={form.email} onChange={e => set("email")(e.target.value)} className="bg-white/5 border-white/10 text-white" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-slate-300">Phone</Label>
-              <Input value={form.phone} onChange={e => set("phone")(e.target.value)} className="bg-white/5 border-white/10 text-white" />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-slate-300">Type</Label>
-              <Select value={form.memberType} onValueChange={set("memberType")}>
-                <SelectTrigger className="bg-white/5 border-white/10 text-white"><SelectValue /></SelectTrigger>
-                <SelectContent className="bg-[hsl(224,30%,16%)] border-white/10">
-                  {MEMBER_TYPES.map(t => <SelectItem key={t} value={t} className="text-white capitalize">{t}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-slate-300">Status</Label>
-              <Select value={form.status} onValueChange={set("status")}>
-                <SelectTrigger className="bg-white/5 border-white/10 text-white"><SelectValue /></SelectTrigger>
-                <SelectContent className="bg-[hsl(224,30%,16%)] border-white/10">
-                  {STATUSES.map(s => <SelectItem key={s} value={s} className="text-white capitalize">{s}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-slate-300">Join date</Label>
-              <Input type="date" value={form.joinDate} onChange={e => set("joinDate")(e.target.value)} className="bg-white/5 border-white/10 text-white" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-slate-300">Renewal date</Label>
-              <Input type="date" value={form.renewalDate} onChange={e => set("renewalDate")(e.target.value)} className="bg-white/5 border-white/10 text-white" />
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-slate-300">Notes</Label>
-            <Textarea value={form.notes} onChange={e => set("notes")(e.target.value)} rows={3} className="bg-white/5 border-white/10 text-white resize-none" />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} className="border-white/10 text-slate-300">Cancel</Button>
-          <Button onClick={() => mutation.mutate()} disabled={!form.firstName || mutation.isPending}>
-            {mutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-            {member ? "Save" : "Add Member"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
+function memberToForm(m: Member): FormState {
+  return {
+    firstName: m.firstName ?? "",
+    lastName: m.lastName ?? "",
+    email: m.email ?? "",
+    phone: m.phone ?? "",
+    memberType: m.memberType ?? "general",
+    status: m.status ?? "active",
+    joinDate: m.joinDate ?? "",
+    renewalDate: m.renewalDate ?? "",
+    notes: m.notes ?? "",
+  };
 }
 
-function parseCsv(text: string): Partial<Member>[] {
-  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
-  if (lines.length === 0) return [];
-  const headers = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/[\s_-]/g, ""));
-  const map: Record<string, keyof Member> = {
-    firstname: "firstName", first: "firstName",
-    lastname: "lastName", last: "lastName",
-    email: "email", emailaddress: "email",
-    phone: "phone", phonenumber: "phone",
-    membertype: "memberType", type: "memberType",
-    status: "status",
-    joindate: "joinDate", joined: "joinDate",
-    renewaldate: "renewalDate", renewal: "renewalDate",
-    notes: "notes", note: "notes",
+function formToPayload(f: FormState): Partial<Member> {
+  return {
+    firstName: f.firstName.trim(),
+    lastName: f.lastName.trim() || null,
+    email: f.email.trim() || null,
+    phone: f.phone.trim() || null,
+    memberType: f.memberType,
+    status: f.status,
+    joinDate: f.joinDate || null,
+    renewalDate: f.renewalDate || null,
+    notes: f.notes.trim() || null,
   };
-  const rows: Partial<Member>[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const cells = lines[i].split(",").map(c => c.trim().replace(/^"|"$/g, ""));
-    const row: Partial<Member> = {};
-    headers.forEach((h, idx) => {
-      const key = map[h];
-      if (key && cells[idx]) (row as Record<string, string>)[key] = cells[idx];
-    });
-    if (row.firstName) rows.push(row);
-  }
-  return rows;
 }
 
-function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const qc = useQueryClient();
-  const [text, setText] = useState("");
-  const fileRef = useRef<HTMLInputElement>(null);
+function statusBadgeClass(status: string) {
+  if (status === "active") return "bg-emerald-500/15 text-emerald-300 border-emerald-500/30";
+  if (status === "pending") return "bg-amber-500/15 text-amber-300 border-amber-500/30";
+  return "bg-slate-500/15 text-slate-300 border-slate-500/30";
+}
 
-  const preview = useMemo(() => parseCsv(text), [text]);
-
-  const importMutation = useMutation({
-    mutationFn: async () => ({ inserted: 0, skipped: preview.length, errors: [] as { row: number; error: string }[] }),
-    onSuccess: (r) => {
-      qc.invalidateQueries({ queryKey: ["members"] });
-      qc.invalidateQueries({ queryKey: ["member-stats"] });
-      toast.success(`Imported ${r.inserted} member${r.inserted !== 1 ? "s" : ""}${r.skipped ? `, ${r.skipped} skipped` : ""}`);
-      onClose();
-      setText("");
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => setText(String(reader.result ?? ""));
-    reader.readAsText(f);
-  };
+function MemberFormFields({
+  form,
+  setForm,
+}: {
+  form: FormState;
+  setForm: (f: FormState) => void;
+}) {
+  const update = <K extends keyof FormState>(key: K, value: FormState[K]) =>
+    setForm({ ...form, [key]: value });
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="bg-[hsl(224,30%,14%)] border-white/10 text-white max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Import Members from CSV</DialogTitle>
-          <DialogDescription className="text-slate-400">
-            Headers we recognize: firstName, lastName, email, phone, memberType, status, joinDate, renewalDate, notes.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3 py-2">
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} className="border-white/10 text-slate-200">
-              <Upload className="w-4 h-4 mr-2" /> Choose CSV
-            </Button>
-            <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} />
-            <span className="text-xs text-muted-foreground self-center">or paste CSV text below</span>
-          </div>
-          <Textarea
-            value={text}
-            onChange={e => setText(e.target.value)}
-            rows={8}
-            placeholder="firstName,lastName,email,phone,memberType,status&#10;Jane,Doe,jane@example.com,555-1234,general,active"
-            className="bg-white/5 border-white/10 text-white font-mono text-xs resize-none"
-          />
-          {preview.length > 0 && (
-            <div className="text-sm text-slate-300">
-              Found <span className="font-semibold text-white">{preview.length}</span> member{preview.length !== 1 ? "s" : ""} ready to import.
-            </div>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} className="border-white/10 text-slate-300">Cancel</Button>
-          <Button onClick={() => importMutation.mutate()} disabled={preview.length === 0 || importMutation.isPending}>
-            {importMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-            Import {preview.length || ""}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-2">
+      <div className="space-y-1.5">
+        <Label className="text-slate-300">First Name *</Label>
+        <Input
+          value={form.firstName}
+          onChange={(e) => update("firstName", e.target.value)}
+          className="bg-white/5 border-white/10 text-white"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-slate-300">Last Name</Label>
+        <Input
+          value={form.lastName}
+          onChange={(e) => update("lastName", e.target.value)}
+          className="bg-white/5 border-white/10 text-white"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-slate-300">Email</Label>
+        <Input
+          type="email"
+          value={form.email}
+          onChange={(e) => update("email", e.target.value)}
+          className="bg-white/5 border-white/10 text-white"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-slate-300">Phone</Label>
+        <Input
+          value={form.phone}
+          onChange={(e) => update("phone", e.target.value)}
+          className="bg-white/5 border-white/10 text-white"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-slate-300">Member Type</Label>
+        <Select value={form.memberType} onValueChange={(v) => update("memberType", v)}>
+          <SelectTrigger className="bg-white/5 border-white/10 text-white">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-[hsl(224,30%,16%)] border-white/10 text-white">
+            {TYPE_OPTIONS.map((t) => (
+              <SelectItem key={t} value={t} className="capitalize">
+                {t}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-slate-300">Status</Label>
+        <Select value={form.status} onValueChange={(v) => update("status", v)}>
+          <SelectTrigger className="bg-white/5 border-white/10 text-white">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="bg-[hsl(224,30%,16%)] border-white/10 text-white">
+            {STATUS_OPTIONS.map((s) => (
+              <SelectItem key={s} value={s} className="capitalize">
+                {s}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-slate-300">Join Date</Label>
+        <Input
+          type="date"
+          value={form.joinDate}
+          onChange={(e) => update("joinDate", e.target.value)}
+          className="bg-white/5 border-white/10 text-white"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-slate-300">Renewal Date</Label>
+        <Input
+          type="date"
+          value={form.renewalDate}
+          onChange={(e) => update("renewalDate", e.target.value)}
+          className="bg-white/5 border-white/10 text-white"
+        />
+      </div>
+      <div className="sm:col-span-2 space-y-1.5">
+        <Label className="text-slate-300">Notes</Label>
+        <Textarea
+          rows={3}
+          value={form.notes}
+          onChange={(e) => update("notes", e.target.value)}
+          className="bg-white/5 border-white/10 text-white resize-none"
+        />
+      </div>
+    </div>
   );
 }
 
@@ -241,158 +195,320 @@ export default function Members() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
   const [adding, setAdding] = useState(false);
-  const [importing, setImporting] = useState(false);
   const [editing, setEditing] = useState<Member | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [addForm, setAddForm] = useState<FormState>(EMPTY_FORM);
+  const [editForm, setEditForm] = useState<FormState>(EMPTY_FORM);
 
   const { data: members = [], isLoading } = useQuery({
-    queryKey: ["members", statusFilter, search],
-    queryFn: () => api.members.list({
-      status: statusFilter === "all" ? undefined : statusFilter,
-      search: search || undefined,
-    }),
+    queryKey: ["members", statusFilter, typeFilter, search],
+    queryFn: () =>
+      api.members.list({
+        status: statusFilter === "all" ? undefined : statusFilter,
+        type: typeFilter === "all" ? undefined : typeFilter,
+        search: search.trim() || undefined,
+      }),
   });
-  const { data: stats } = useQuery({ queryKey: ["member-stats"], queryFn: api.members.stats });
 
-  const removeMutation = useMutation({
+  const { data: stats } = useQuery({
+    queryKey: ["members-stats"],
+    queryFn: api.members.stats,
+  });
+
+  const invalidateAll = () => {
+    qc.invalidateQueries({ queryKey: ["members"] });
+    qc.invalidateQueries({ queryKey: ["members-stats"] });
+  };
+
+  const createMutation = useMutation({
+    mutationFn: () => api.members.create(formToPayload(addForm)),
+    onSuccess: () => {
+      invalidateAll();
+      toast.success("Member added");
+      setAdding(false);
+      setAddForm(EMPTY_FORM);
+    },
+    onError: (e: Error) => toast.error(e.message || "Failed to add member"),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: () => {
+      if (!editing) throw new Error("No member selected");
+      return api.members.update(editing.id, formToPayload(editForm));
+    },
+    onSuccess: () => {
+      invalidateAll();
+      toast.success("Member updated");
+      setEditing(null);
+    },
+    onError: (e: Error) => toast.error(e.message || "Failed to update member"),
+  });
+
+  const deleteMutation = useMutation({
     mutationFn: (id: string) => api.members.delete(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["members"] });
-      qc.invalidateQueries({ queryKey: ["member-stats"] });
-      toast.success("Member removed");
+      invalidateAll();
+      toast.success("Member deleted");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(e.message || "Failed to delete member"),
   });
 
-  const toggleSelect = (id: string) => setSelected(s => {
-    const n = new Set(s);
-    if (n.has(id)) n.delete(id); else n.add(id);
-    return n;
-  });
+  useEffect(() => {
+    if (editing) setEditForm(memberToForm(editing));
+  }, [editing]);
 
-  const selectedEmails = members
-    .filter(m => selected.has(m.id) && m.email)
-    .map(m => m.email!)
-    .filter((e, i, a) => a.indexOf(e) === i);
-
-  const onBulkEmail = () => {
-    if (selectedEmails.length === 0) {
-      toast.error("No selected members have an email address");
+  const handleAddSubmit = () => {
+    if (!addForm.firstName.trim()) {
+      toast.error("First name is required");
       return;
     }
-    window.location.href = `mailto:?bcc=${encodeURIComponent(selectedEmails.join(","))}`;
+    createMutation.mutate();
+  };
+
+  const handleEditSubmit = () => {
+    if (!editForm.firstName.trim()) {
+      toast.error("First name is required");
+      return;
+    }
+    updateMutation.mutate();
+  };
+
+  const handleDelete = (m: Member) => {
+    if (!confirm(`Delete ${m.firstName}${m.lastName ? " " + m.lastName : ""}?`)) return;
+    deleteMutation.mutate(m.id);
+  };
+
+  const handleExportCsv = async () => {
+    try {
+      const res = await api.members.exportCsv();
+      if (!res.ok) throw new Error(`Export failed (${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `members-${Date.now()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success("Export started");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Export failed");
+    }
+  };
+
+  const fmtDate = (d?: string | null) => {
+    if (!d) return "—";
+    return d.length >= 10 ? d.slice(0, 10) : d;
   };
 
   return (
-    <div className="p-6 space-y-5 max-w-6xl mx-auto">
+    <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Members</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {stats
-              ? `${stats.total} total · ${stats.active} active · ${stats.pending} pending · ${stats.board} board`
-              : `${members.length} member${members.length !== 1 ? "s" : ""}`}
-          </p>
-        </div>
+        <h1 className="text-2xl font-bold text-white">Members</h1>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setImporting(true)} className="border-white/10 text-slate-200">
-            <Upload className="w-4 h-4 mr-2" /> Import CSV
+          <Button
+            variant="outline"
+            onClick={handleExportCsv}
+            className="border-white/10 text-slate-200"
+          >
+            <Download className="w-4 h-4 mr-2" /> Export CSV
           </Button>
-          <Button onClick={() => setAdding(true)}><Plus className="w-4 h-4 mr-2" /> Add Member</Button>
+          <Button onClick={() => setAdding(true)}>
+            <Plus className="w-4 h-4 mr-2" /> Add Member
+          </Button>
         </div>
       </div>
 
-      <div className="flex gap-2 flex-wrap">
-        <div className="relative flex-1 min-w-[240px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or email..." className="pl-9 bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Card className="bg-[hsl(224,30%,14%)] border-white/10 p-4">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Total Members</div>
+          <div className="text-2xl font-bold text-white mt-1">{stats?.total ?? 0}</div>
+        </Card>
+        <Card className="bg-[hsl(224,30%,14%)] border-white/10 p-4">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Active</div>
+          <div className="text-2xl font-bold text-emerald-300 mt-1">{stats?.active ?? 0}</div>
+        </Card>
+        <Card className="bg-[hsl(224,30%,14%)] border-white/10 p-4">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Board Members</div>
+          <div className="text-2xl font-bold text-sky-300 mt-1">{stats?.board ?? 0}</div>
+        </Card>
+        <Card className="bg-[hsl(224,30%,14%)] border-white/10 p-4">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Pending</div>
+          <div className="text-2xl font-bold text-amber-300 mt-1">{stats?.pending ?? 0}</div>
+        </Card>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-2">
+        <Input
+          placeholder="Search by name or email…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="bg-white/5 border-white/10 text-white sm:max-w-sm"
+        />
+        <div className="flex gap-2 sm:ml-auto">
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="bg-white/5 border-white/10 text-white w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-[hsl(224,30%,16%)] border-white/10 text-white">
+              <SelectItem value="all">All Status</SelectItem>
+              {STATUS_OPTIONS.map((s) => (
+                <SelectItem key={s} value={s} className="capitalize">
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <SelectTrigger className="bg-white/5 border-white/10 text-white w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-[hsl(224,30%,16%)] border-white/10 text-white">
+              <SelectItem value="all">All Types</SelectItem>
+              {TYPE_OPTIONS.map((t) => (
+                <SelectItem key={t} value={t} className="capitalize">
+                  {t}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-40 bg-white/5 border-white/10 text-white"><SelectValue /></SelectTrigger>
-          <SelectContent className="bg-[hsl(224,30%,16%)] border-white/10">
-            <SelectItem value="all" className="text-white">All statuses</SelectItem>
-            {STATUSES.map(s => <SelectItem key={s} value={s} className="text-white capitalize">{s}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        {selected.size > 0 && (
-          <Button variant="outline" onClick={onBulkEmail} className="border-primary/40 text-primary">
-            <Send className="w-4 h-4 mr-2" /> Email {selected.size}
-          </Button>
+      </div>
+
+      <Card className="bg-[hsl(224,30%,14%)] border-white/10 overflow-hidden">
+        {isLoading ? (
+          <div className="p-8 text-center text-slate-400">Loading…</div>
+        ) : members.length === 0 ? (
+          <div className="p-12 flex flex-col items-center justify-center text-center">
+            <Users className="w-10 h-10 text-slate-500 mb-3" />
+            <p className="text-slate-400">
+              No members yet. Add your first member to get started.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-white/5 text-slate-400">
+                <tr>
+                  <th className="text-left px-4 py-2 font-medium">Name</th>
+                  <th className="text-left px-4 py-2 font-medium">Email</th>
+                  <th className="text-left px-4 py-2 font-medium">Phone</th>
+                  <th className="text-left px-4 py-2 font-medium">Type</th>
+                  <th className="text-left px-4 py-2 font-medium">Status</th>
+                  <th className="text-left px-4 py-2 font-medium">Join Date</th>
+                  <th className="text-left px-4 py-2 font-medium">Renewal Date</th>
+                  <th className="text-right px-4 py-2 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {members.map((m) => (
+                  <tr key={m.id} className="border-t border-white/5 hover:bg-white/5">
+                    <td className="px-4 py-2 text-white">
+                      {m.firstName}
+                      {m.lastName ? " " + m.lastName : ""}
+                    </td>
+                    <td className="px-4 py-2 text-slate-300">{m.email ?? "—"}</td>
+                    <td className="px-4 py-2 text-slate-300">{m.phone ?? "—"}</td>
+                    <td className="px-4 py-2">
+                      <Badge
+                        variant="outline"
+                        className="capitalize border-white/15 text-slate-200"
+                      >
+                        {m.memberType}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-2">
+                      <Badge
+                        variant="outline"
+                        className={`capitalize ${statusBadgeClass(m.status)}`}
+                      >
+                        {m.status}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-2 text-slate-300">{fmtDate(m.joinDate)}</td>
+                    <td className="px-4 py-2 text-slate-300">{fmtDate(m.renewalDate)}</td>
+                    <td className="px-4 py-2 text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => setEditing(m)}
+                          className="h-8 w-8 text-slate-300 hover:text-white"
+                          aria-label="Edit member"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => handleDelete(m)}
+                          className="h-8 w-8 text-slate-300 hover:text-rose-300"
+                          aria-label="Delete member"
+                          disabled={deleteMutation.isPending}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
-      </div>
+      </Card>
 
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
-      ) : members.length === 0 ? (
-        <div className="text-center py-16 border border-dashed border-white/10 rounded-xl">
-          <Users className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-          <p className="text-muted-foreground">{search || statusFilter !== "all" ? "No members match your filters" : "No members yet"}</p>
-          {!search && statusFilter === "all" && (
-            <div className="flex justify-center gap-2 mt-4">
-              <Button size="sm" onClick={() => setAdding(true)}><Plus className="w-4 h-4 mr-2" /> Add member</Button>
-              <Button size="sm" variant="outline" onClick={() => setImporting(true)} className="border-white/10 text-slate-200"><Upload className="w-4 h-4 mr-2" /> Import CSV</Button>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {members.map((m) => (
-            <div key={m.id} className="flex items-center gap-3 p-4 border border-white/8 bg-card/50 rounded-xl">
-              <Checkbox
-                checked={selected.has(m.id)}
-                onCheckedChange={() => toggleSelect(m.id)}
-                aria-label={`Select ${m.firstName} ${m.lastName ?? ""}`.trim()}
-              />
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-                <Users className="w-5 h-5 text-primary" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="font-medium text-white truncate">
-                  {m.firstName} {m.lastName ?? ""}
-                </p>
-                <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                  {m.email && <span className="flex items-center gap-1 text-xs text-muted-foreground"><Mail className="w-3 h-3" />{m.email}</span>}
-                  {m.phone && <span className="flex items-center gap-1 text-xs text-muted-foreground"><Phone className="w-3 h-3" />{m.phone}</span>}
-                  {m.renewalDate && <span className="text-xs text-muted-foreground">Renews {m.renewalDate}</span>}
-                </div>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <span className="text-xs text-muted-foreground capitalize hidden sm:block">{m.memberType}</span>
-                <Badge variant="outline" className={`text-xs capitalize ${
-                  m.status === "active" ? "border-emerald-500/30 text-emerald-400" :
-                  m.status === "pending" ? "border-amber-500/30 text-amber-400" :
-                  "border-white/20 text-slate-400"
-                }`}>{m.status}</Badge>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  aria-label={`Edit ${m.firstName} ${m.lastName ?? ""}`.trim()}
-                  className="h-8 w-8 text-slate-400 hover:text-white"
-                  onClick={() => setEditing(m)}
-                >
-                  <Pencil className="w-4 h-4" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  aria-label={`Remove ${m.firstName} ${m.lastName ?? ""}`.trim()}
-                  className="h-8 w-8 text-slate-400 hover:text-red-400"
-                  onClick={() => {
-                    if (window.confirm(`Remove ${m.firstName} ${m.lastName ?? ""}?`)) removeMutation.mutate(m.id);
-                  }}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Add Member Dialog */}
+      <Dialog
+        open={adding}
+        onOpenChange={(o) => {
+          setAdding(o);
+          if (!o) setAddForm(EMPTY_FORM);
+        }}
+      >
+        <DialogContent className="bg-[hsl(224,30%,14%)] border-white/10 text-white max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Add Member</DialogTitle>
+          </DialogHeader>
+          <MemberFormFields form={addForm} setForm={setAddForm} />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setAdding(false)}
+              className="border-white/10 text-slate-300"
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleAddSubmit} disabled={createMutation.isPending}>
+              {createMutation.isPending ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      <MemberFormDialog open={adding} onClose={() => setAdding(false)} member={null} />
-      <MemberFormDialog open={!!editing} onClose={() => setEditing(null)} member={editing} />
-      <ImportDialog open={importing} onClose={() => setImporting(false)} />
+      {/* Edit Member Dialog */}
+      <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
+        <DialogContent className="bg-[hsl(224,30%,14%)] border-white/10 text-white max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Member</DialogTitle>
+          </DialogHeader>
+          <MemberFormFields form={editForm} setForm={setEditForm} />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEditing(null)}
+              className="border-white/10 text-slate-300"
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleEditSubmit} disabled={updateMutation.isPending}>
+              {updateMutation.isPending ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
