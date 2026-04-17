@@ -246,8 +246,13 @@ app.post("/api/auth/reset-password", authLimiter);
 app.get("/api/auth/google", authLimiter);
 app.get("/api/auth/google/callback", authLimiter);
 
-app.get("/api/healthz", (_req, res) => {
-  res.json({ status: "ok" });
+app.get("/api/healthz", async (_req, res) => {
+  try {
+    await db.execute(drizzleSql`SELECT 1`);
+    res.json({ status: "ok", db: "ok", ts: new Date().toISOString() });
+  } catch (err) {
+    res.status(503).json({ status: "error", db: "unreachable", ts: new Date().toISOString() });
+  }
 });
 
 app.use("/api", router);

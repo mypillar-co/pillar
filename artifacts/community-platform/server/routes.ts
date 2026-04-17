@@ -779,7 +779,9 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  app.get("/api/healthz", (_req, res) => res.json({ ok: true }));
+  app.get("/api/healthz", (_req, res) => {
+    res.json({ status: "ok", service: "community-platform", ts: new Date().toISOString() });
+  });
 
   // ─── Internal service-to-service sync routes (Pillar dashboard → live tenant) ─
 
