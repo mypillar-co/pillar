@@ -1,12 +1,14 @@
 // Sentry is loaded dynamically only when SENTRY_DSN is configured. Eager import
 // drags in the full @opentelemetry/* tracing stack which fails to resolve at
 // runtime in environments without the DSN set.
+let sentry: typeof import("@sentry/node") | null = null;
 if (process.env.SENTRY_DSN) {
-  const Sentry = await import("@sentry/node");
-  Sentry.init({
+  sentry = await import("@sentry/node");
+  sentry.init({
     dsn: process.env.SENTRY_DSN,
     environment: process.env.NODE_ENV ?? "development",
     tracesSampleRate: 0.1,
+    sendDefaultPii: true,
   });
 }
 
@@ -1049,6 +1051,13 @@ app.use(async (req, res, next) => {
 
   next();
 });
+
+// Sentry's Express error handler must run BEFORE the global error handler so
+// it can capture the error before our handler responds. No-op if Sentry isn't
+// configured.
+if (sentry) {
+  sentry.setupExpressErrorHandler(app);
+}
 
 // Global error handler
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
