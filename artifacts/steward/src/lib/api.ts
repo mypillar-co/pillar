@@ -209,6 +209,7 @@ export type Stats = {
   totalSponsors: number;
   totalContacts: number;
   totalRevenue: number;
+  activeMembersCount: number;
 };
 
 export type SocialAccount = {

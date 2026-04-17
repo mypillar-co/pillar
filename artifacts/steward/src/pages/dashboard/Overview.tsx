@@ -396,6 +396,7 @@ export default function Overview() {
           {/* Stats column */}
           <div className="lg:col-span-2 space-y-3">
             {[
+              { label: "Active Members", value: stats?.activeMembersCount ?? 0, icon: Users, href: "/dashboard/members" },
               { label: "Members & Contacts", value: stats?.totalContacts ?? 0, icon: Users, href: "/dashboard/contacts" },
               { label: "Active Events", value: stats?.activeEvents ?? 0, icon: Calendar, href: "/dashboard/events" },
               { label: "Active Sponsors", value: stats?.totalSponsors ?? 0, icon: Star, href: "/dashboard/sponsors" },

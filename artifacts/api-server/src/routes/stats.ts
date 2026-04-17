@@ -10,6 +10,7 @@ import {
   studioOutputsTable,
   registrationsTable,
   notificationsTable,
+  membersTable,
 } from "@workspace/db";
 import { eq, and, count, sum, gte, lte, sql } from "drizzle-orm";
 import { resolveOrgId } from "../lib/resolveOrg";
@@ -26,6 +27,7 @@ router.get("/", async (req: Request, res: Response) => {
     sponsorsRes,
     contactsRes,
     paymentsRes,
+    memberCountResult,
   ] = await Promise.all([
     db.select({ count: count() }).from(eventsTable).where(
       and(
@@ -44,7 +46,12 @@ router.get("/", async (req: Request, res: Response) => {
     db.select({ total: sum(paymentsTable.amount) }).from(paymentsTable).where(
       and(eq(paymentsTable.orgId, orgId), eq(paymentsTable.status, "completed"))
     ),
+    db.select({ count: sql<number>`count(*)::int` }).from(membersTable).where(
+      and(eq(membersTable.orgId, orgId), eq(membersTable.status, "active"))
+    ),
   ]);
+
+  const activeMembersCount = memberCountResult[0]?.count ?? 0;
 
   res.json({
     activeEvents: eventsRes[0]?.count ?? 0,
@@ -52,6 +59,7 @@ router.get("/", async (req: Request, res: Response) => {
     totalSponsors: sponsorsRes[0]?.count ?? 0,
     totalContacts: contactsRes[0]?.count ?? 0,
     totalRevenue: Number(paymentsRes[0]?.total ?? 0),
+    activeMembersCount,
   });
 });
 
