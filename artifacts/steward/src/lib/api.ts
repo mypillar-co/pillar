@@ -182,6 +182,12 @@ export type Member = {
   joinDate?: string | null;
   renewalDate?: string | null;
   notes?: string | null;
+  registeredAt?: string | null;
+  hasPendingInvite?: boolean;
+  has_pending_invite?: boolean;
+  registered_at?: string | null;
+  showInDirectory?: boolean;
+  title?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -191,6 +197,7 @@ export type MemberStats = {
   active: number;
   board: number;
   pending: number;
+  registered?: number;
 };
 
 export type ContactItem = {
@@ -325,6 +332,11 @@ export const api = {
     delete: (id: string) => req<void>(`/api/members/${id}`, { method: "DELETE" }),
     exportCsv: () => fetch("/api/members/export/csv", { credentials: "include" }),
     stats: () => req<MemberStats>("/api/members/stats"),
+    resendInvite: (id: string) =>
+      req<{ ok: boolean; sent: boolean; simulated?: boolean; url?: string }>(
+        `/api/members/${id}/resend-invite`,
+        { method: "POST" },
+      ),
   },
   sponsors: {
     list: () => req<Sponsor[]>("/api/sponsors"),

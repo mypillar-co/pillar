@@ -38,6 +38,7 @@ export interface OrgConfig {
     sponsors?: boolean;
     businessDirectory?: boolean;
     ticketedEvents?: boolean;
+    members?: boolean;
   };
   _empty?: boolean;
 }

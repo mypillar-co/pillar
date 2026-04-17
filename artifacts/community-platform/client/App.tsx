@@ -1,5 +1,6 @@
 import { Switch, Route } from "wouter";
 import { ConfigProvider, useConfig } from "./config-context";
+import { MemberAuthProvider } from "./lib/memberAuth";
 import Navigation from "./components/Navigation";
 import Footer from "./components/Footer";
 import HomePage from "./pages/HomePage";
@@ -14,6 +15,9 @@ import AdminLoginPage from "./pages/AdminLoginPage";
 import AdminPage from "./pages/AdminPage";
 import PaymentSuccessPage from "./pages/PaymentSuccessPage";
 import TicketSuccessPage from "./pages/TicketSuccessPage";
+import MemberLoginPage from "./pages/MemberLoginPage";
+import MemberRegisterPage from "./pages/MemberRegisterPage";
+import MemberPortalPage from "./pages/MemberPortalPage";
 
 function AppContent() {
   const config = useConfig();
@@ -55,6 +59,9 @@ function AppContent() {
           <Route path="/blog/:slug" component={BlogPostPage} />
           <Route path="/admin/login" component={AdminLoginPage} />
           <Route path="/admin" component={AdminPage} />
+          <Route path="/members/register" component={MemberRegisterPage} />
+          <Route path="/members/login" component={MemberLoginPage} />
+          <Route path="/members" component={MemberPortalPage} />
           <Route path="/payment-success" component={PaymentSuccessPage} />
           <Route path="/events/:slug/tickets/success" component={TicketSuccessPage} />
           <Route>
@@ -74,7 +81,9 @@ function AppContent() {
 export default function App() {
   return (
     <ConfigProvider>
-      <AppContent />
+      <MemberAuthProvider>
+        <AppContent />
+      </MemberAuthProvider>
     </ConfigProvider>
   );
 }

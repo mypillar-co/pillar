@@ -15,6 +15,7 @@ export type OrgConfigPatch = {
   meetingDay?: string;
   meetingTime?: string;
   meetingLocation?: string;
+  features?: Record<string, unknown>;
 };
 
 export async function syncOrgConfigPatchToPillar(payload: OrgConfigPatch) {

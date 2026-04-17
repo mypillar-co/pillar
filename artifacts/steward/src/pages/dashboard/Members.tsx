@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Pencil, Trash2, Download, Plus, Users } from "lucide-react";
+import { Pencil, Trash2, Download, Plus, Users, Mail, CheckCircle2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -254,6 +254,17 @@ export default function Members() {
     onError: (e: Error) => toast.error(e.message || "Failed to delete member"),
   });
 
+  const resendInviteMutation = useMutation({
+    mutationFn: (id: string) => api.members.resendInvite(id),
+    onSuccess: (res) => {
+      invalidateAll();
+      if (res.sent) toast.success("Invitation email sent");
+      else if (res.simulated) toast.success(`Invite link generated (email not configured): ${res.url}`);
+      else toast.warning("Invite link generated, but email could not be sent. Check server logs.");
+    },
+    onError: (e: Error) => toast.error(e.message || "Failed to resend invite"),
+  });
+
   useEffect(() => {
     if (editing) setEditForm(memberToForm(editing));
   }, [editing]);
@@ -321,7 +332,7 @@ export default function Members() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <Card className="bg-[hsl(224,30%,14%)] border-white/10 p-4">
           <div className="text-xs uppercase tracking-wide text-slate-400">Total Members</div>
           <div className="text-2xl font-bold text-white mt-1">{stats?.total ?? 0}</div>
@@ -333,6 +344,10 @@ export default function Members() {
         <Card className="bg-[hsl(224,30%,14%)] border-white/10 p-4">
           <div className="text-xs uppercase tracking-wide text-slate-400">Board Members</div>
           <div className="text-2xl font-bold text-sky-300 mt-1">{stats?.board ?? 0}</div>
+        </Card>
+        <Card className="bg-[hsl(224,30%,14%)] border-white/10 p-4">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Registered</div>
+          <div className="text-2xl font-bold text-violet-300 mt-1">{stats?.registered ?? 0}</div>
         </Card>
         <Card className="bg-[hsl(224,30%,14%)] border-white/10 p-4">
           <div className="text-xs uppercase tracking-wide text-slate-400">Pending</div>
@@ -430,7 +445,23 @@ export default function Members() {
                     <td className="px-4 py-2 text-slate-300">{fmtDate(m.joinDate)}</td>
                     <td className="px-4 py-2 text-slate-300">{fmtDate(m.renewalDate)}</td>
                     <td className="px-4 py-2 text-right">
-                      <div className="flex justify-end gap-1">
+                      <div className="flex justify-end items-center gap-2">
+                        {m.registered_at || m.registeredAt ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-emerald-300" title="Member has registered">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Registered
+                          </span>
+                        ) : (m.has_pending_invite || m.hasPendingInvite) && m.email ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => resendInviteMutation.mutate(m.id)}
+                            disabled={resendInviteMutation.isPending}
+                            className="h-7 text-xs text-amber-300 hover:text-amber-200"
+                            title="Resend portal invitation"
+                          >
+                            <Mail className="w-3.5 h-3.5 mr-1" /> Resend invite
+                          </Button>
+                        ) : null}
                         <Button
                           size="icon"
                           variant="ghost"

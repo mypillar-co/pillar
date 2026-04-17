@@ -245,6 +245,48 @@ async function runMigrations() {
       logger.warn({ err }, "members.org_id FK already present or add skipped");
     }
 
+    // Member portal auth + directory (additive only; preserves all existing data)
+    await db.execute(sql`ALTER TABLE members ADD COLUMN IF NOT EXISTS password_hash text`);
+    await db.execute(sql`ALTER TABLE members ADD COLUMN IF NOT EXISTS registration_token text`);
+    await db.execute(sql`ALTER TABLE members ADD COLUMN IF NOT EXISTS token_expires_at timestamptz`);
+    await db.execute(sql`ALTER TABLE members ADD COLUMN IF NOT EXISTS registered_at timestamptz`);
+    await db.execute(sql`ALTER TABLE members ADD COLUMN IF NOT EXISTS show_in_directory boolean NOT NULL DEFAULT true`);
+    await db.execute(sql`ALTER TABLE members ADD COLUMN IF NOT EXISTS title text`);
+    await db.execute(sql`ALTER TABLE members ADD COLUMN IF NOT EXISTS bio text`);
+    await db.execute(sql`ALTER TABLE members ADD COLUMN IF NOT EXISTS photo_url text`);
+    await db.execute(sql`ALTER TABLE members ADD COLUMN IF NOT EXISTS address text`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS members_reg_token_idx ON members (registration_token) WHERE registration_token IS NOT NULL`);
+
+    // Member portal sessions — separate from steward admin sessions
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS member_sessions (
+        token text PRIMARY KEY,
+        member_id varchar NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+        org_id varchar NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        expires_at timestamptz NOT NULL
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS member_sessions_member_idx ON member_sessions (member_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS member_sessions_expires_idx ON member_sessions (expires_at)`);
+
+    // Members-only flags on community-site events and blog posts (additive)
+    await db.execute(sql`ALTER TABLE cs_events ADD COLUMN IF NOT EXISTS members_only boolean NOT NULL DEFAULT false`);
+    await db.execute(sql`ALTER TABLE cs_blog_posts ADD COLUMN IF NOT EXISTS members_only boolean NOT NULL DEFAULT false`);
+
+    // Members-only announcements (community-site)
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS cs_announcements (
+        id serial PRIMARY KEY,
+        org_id text NOT NULL,
+        title text NOT NULL,
+        body text NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS cs_announcements_org_idx ON cs_announcements (org_id, created_at DESC)`);
+
     logger.info("Startup migrations complete");
   } catch (err) {
     logger.warn({ err }, "Startup migration warning — continuing");

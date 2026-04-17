@@ -242,7 +242,15 @@ export function registerRoutes(app: Express) {
     if (events.length === 0) {
       events = await getPillarEvents(orgId) as typeof events;
     }
-    res.json(includeAll ? events : events.filter(e => e.isActive !== false));
+    // Members-only gating: replace gated events with stub for non-logged-in members
+    const isMember = !!(req.session as any).memberId && (req.session as any).memberOrgId === orgId;
+    const visible = events.map((e: any) => {
+      if (e.membersOnly && !isMember) {
+        return { ...e, description: "", location: "", time: "", isMembersOnly: true, gated: true };
+      }
+      return { ...e, isMembersOnly: !!e.membersOnly };
+    });
+    res.json(includeAll ? visible : visible.filter((e: any) => e.isActive !== false));
   });
 
   app.get("/api/events/slug/:slug", async (req, res) => {
@@ -254,7 +262,18 @@ export function registerRoutes(app: Express) {
       event = await getPillarEventBySlug(orgId, req.params.slug) as typeof event;
     }
     if (!event) return res.status(404).json({ error: "Event not found" });
-    res.json(event);
+    const isMember = !!(req.session as any).memberId && (req.session as any).memberOrgId === orgId;
+    if ((event as any).membersOnly && !isMember) {
+      return res.json({
+        ...event,
+        description: "",
+        location: "",
+        time: "",
+        isMembersOnly: true,
+        gated: true,
+      });
+    }
+    res.json({ ...event, isMembersOnly: !!(event as any).membersOnly });
   });
 
   app.get("/api/events/:slug/ticket-availability", async (req, res) => {
@@ -446,14 +465,27 @@ export function registerRoutes(app: Express) {
 
   app.get("/api/blog", async (req, res) => {
     const orgId = getOrgId(req);
-    res.json(await storage.getBlogPosts(orgId, true));
+    const isMember = !!(req.session as any).memberId && (req.session as any).memberOrgId === orgId;
+    const posts = await storage.getBlogPosts(orgId, true);
+    res.json(
+      posts.map((p: any) => {
+        if (p.membersOnly && !isMember) {
+          return { ...p, content: "", excerpt: "Members-only post — log in to read.", isMembersOnly: true, gated: true };
+        }
+        return { ...p, isMembersOnly: !!p.membersOnly };
+      }),
+    );
   });
 
   app.get("/api/blog/:slug", async (req, res) => {
     const orgId = getOrgId(req);
     const post = await storage.getBlogPostBySlug(orgId, req.params.slug);
     if (!post || !post.published) return res.status(404).json({ error: "Post not found" });
-    res.json(post);
+    const isMember = !!(req.session as any).memberId && (req.session as any).memberOrgId === orgId;
+    if ((post as any).membersOnly && !isMember) {
+      return res.json({ ...post, content: "", excerpt: "Members-only post — log in to read.", isMembersOnly: true, gated: true });
+    }
+    res.json({ ...post, isMembersOnly: !!(post as any).membersOnly });
   });
 
   app.post("/api/newsletter/subscribe", async (req, res) => {
@@ -880,5 +912,232 @@ export function registerRoutes(app: Express) {
       console.error("[internal-org-config] patch failed", error);
       return res.status(500).json({ ok: false, error: error?.message ?? "Unknown error" });
     }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // MEMBER PORTAL — auth, profile, directory, announcements, members-only admin.
+  // Operates on the shared `members` and `cs_announcements` tables. The Pillar
+  // API server (steward side) handles invite generation + email; CP handles the
+  // entire logged-in member experience.
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  function getMember(req: Request) {
+    const memberId = (req.session as any).memberId as string | undefined;
+    const orgId = (req.session as any).memberOrgId as string | undefined;
+    if (!memberId || !orgId) return null;
+    return { memberId, orgId };
+  }
+
+  function requireMember(req: Request, res: Response, next: NextFunction) {
+    const m = getMember(req);
+    const currentOrg = getOrgId(req);
+    if (!m || m.orgId !== currentOrg) {
+      return res.status(401).json({ error: "Not signed in" });
+    }
+    next();
+  }
+
+  // POST /api/members/register — exchange invite token for password, log member in.
+  app.post("/api/members/register", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const { token, password } = req.body as { token?: string; password?: string };
+      if (!token || !password) {
+        return res.status(400).json({ error: "Token and password required." });
+      }
+      if (password.length < 8) {
+        return res.status(400).json({ error: "Password must be at least 8 characters." });
+      }
+      const rows = await db.execute(neonSql`
+        SELECT id, org_id, first_name, email, token_expires_at, registered_at
+        FROM members WHERE registration_token = ${token} LIMIT 1
+      `);
+      const row = (rows.rows[0] as Record<string, unknown> | undefined) || null;
+      if (!row || row.org_id !== orgId) {
+        return res.status(404).json({ error: "Invitation not found or does not belong to this organization." });
+      }
+      if (row.registered_at) {
+        return res.status(400).json({ error: "This account is already registered. Try signing in instead." });
+      }
+      const expiresAt = row.token_expires_at ? new Date(String(row.token_expires_at)) : null;
+      if (expiresAt && expiresAt.getTime() < Date.now()) {
+        return res.status(400).json({ error: "This invitation link has expired. Ask your administrator to resend it." });
+      }
+      const passwordHash = await bcrypt.hash(password, 10);
+      await db.execute(neonSql`
+        UPDATE members SET
+          password_hash = ${passwordHash},
+          registered_at = now(),
+          registration_token = NULL,
+          token_expires_at = NULL,
+          updated_at = now()
+        WHERE id = ${row.id as string}
+      `);
+      (req.session as any).memberId = row.id as string;
+      (req.session as any).memberOrgId = orgId;
+      // Extend session lifetime for member portal (default is 30min).
+      // Skip if an admin is also signed in here — keep the shorter admin session window.
+      if (req.session.cookie && !(req.session as any).adminId) {
+        req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000;
+      }
+      res.json({ ok: true, firstName: row.first_name, email: row.email });
+    } catch (err: any) {
+      console.error("[members/register] failed", err);
+      res.status(500).json({ error: err?.message ?? "Registration failed" });
+    }
+  });
+
+  // POST /api/members/login
+  app.post("/api/members/login", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const { email, password } = req.body as { email?: string; password?: string };
+      if (!email || !password) return res.status(400).json({ error: "Email and password required." });
+      const rows = await db.execute(neonSql`
+        SELECT id, password_hash, registered_at FROM members
+        WHERE org_id = ${orgId} AND email = ${email.trim().toLowerCase()} LIMIT 1
+      `);
+      const row = (rows.rows[0] as Record<string, unknown> | undefined) || null;
+      if (!row || !row.password_hash || !row.registered_at) {
+        return res.status(401).json({ error: "Invalid email or password." });
+      }
+      const valid = await bcrypt.compare(password, row.password_hash as string);
+      if (!valid) return res.status(401).json({ error: "Invalid email or password." });
+      (req.session as any).memberId = row.id as string;
+      (req.session as any).memberOrgId = orgId;
+      if (req.session.cookie && !(req.session as any).adminId) {
+        req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000;
+      }
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[members/login] failed", err);
+      res.status(500).json({ error: "Login failed" });
+    }
+  });
+
+  // POST /api/members/logout
+  app.post("/api/members/logout", (req, res) => {
+    delete (req.session as any).memberId;
+    delete (req.session as any).memberOrgId;
+    res.json({ ok: true });
+  });
+
+  // GET /api/members/me
+  app.get("/api/members/me", requireMember, async (req, res) => {
+    const m = getMember(req)!;
+    const rows = await db.execute(neonSql`
+      SELECT id, first_name, last_name, email, phone, member_type, status,
+             title, bio, photo_url, address, show_in_directory, join_date
+      FROM members WHERE id = ${m.memberId} LIMIT 1
+    `);
+    const row = rows.rows[0];
+    if (!row) return res.status(404).json({ error: "Member not found" });
+    res.json(row);
+  });
+
+  // PATCH /api/members/me — update own profile
+  app.patch("/api/members/me", requireMember, async (req, res) => {
+    const m = getMember(req)!;
+    const { firstName, lastName, phone, title, bio, photoUrl, address, showInDirectory } = req.body as Record<string, unknown>;
+    await db.execute(neonSql`
+      UPDATE members SET
+        first_name = COALESCE(${firstName ?? null}, first_name),
+        last_name = ${lastName ?? null},
+        phone = ${phone ?? null},
+        title = ${title ?? null},
+        bio = ${bio ?? null},
+        photo_url = ${photoUrl ?? null},
+        address = ${address ?? null},
+        show_in_directory = COALESCE(${typeof showInDirectory === "boolean" ? showInDirectory : null}, show_in_directory),
+        updated_at = now()
+      WHERE id = ${m.memberId}
+    `);
+    res.json({ ok: true });
+  });
+
+  // POST /api/members/change-password
+  app.post("/api/members/change-password", requireMember, async (req, res) => {
+    const m = getMember(req)!;
+    const { currentPassword, newPassword } = req.body as { currentPassword?: string; newPassword?: string };
+    if (!currentPassword || !newPassword) return res.status(400).json({ error: "Both passwords required." });
+    if (newPassword.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters." });
+    const rows = await db.execute(neonSql`SELECT password_hash FROM members WHERE id = ${m.memberId} LIMIT 1`);
+    const row = rows.rows[0] as Record<string, unknown> | undefined;
+    if (!row?.password_hash) return res.status(400).json({ error: "No password set." });
+    const ok = await bcrypt.compare(currentPassword, row.password_hash as string);
+    if (!ok) return res.status(401).json({ error: "Current password is incorrect." });
+    const hash = await bcrypt.hash(newPassword, 10);
+    await db.execute(neonSql`UPDATE members SET password_hash = ${hash}, updated_at = now() WHERE id = ${m.memberId}`);
+    res.json({ ok: true });
+  });
+
+  // GET /api/members/directory — registered members who opted in
+  app.get("/api/members/directory", requireMember, async (req, res) => {
+    const orgId = getOrgId(req);
+    const rows = await db.execute(neonSql`
+      SELECT id, first_name, last_name, email, phone, member_type, title, bio, photo_url
+      FROM members
+      WHERE org_id = ${orgId}
+        AND show_in_directory = true
+        AND registered_at IS NOT NULL
+        AND status = 'active'
+      ORDER BY last_name ASC NULLS LAST, first_name ASC
+    `);
+    res.json(rows.rows);
+  });
+
+  // GET /api/members/announcements — members-only feed
+  app.get("/api/members/announcements", requireMember, async (req, res) => {
+    const orgId = getOrgId(req);
+    const rows = await db.execute(neonSql`
+      SELECT id, title, body, created_at
+      FROM cs_announcements WHERE org_id = ${orgId}
+      ORDER BY created_at DESC LIMIT 50
+    `);
+    res.json(rows.rows);
+  });
+
+  // ── In-site admin (org admins managing member-portal content) ──
+  // POST /api/admin/announcements
+  app.post("/api/admin/announcements", requireAuth, async (req, res) => {
+    const orgId = (req.session as any).orgId || getOrgId(req);
+    const { title, body } = req.body as { title?: string; body?: string };
+    if (!title || !body) return res.status(400).json({ error: "Title and body required" });
+    const rows = await db.execute(neonSql`
+      INSERT INTO cs_announcements (org_id, title, body) VALUES (${orgId}, ${title}, ${body})
+      RETURNING id, title, body, created_at
+    `);
+    res.status(201).json(rows.rows[0]);
+  });
+
+  // DELETE /api/admin/announcements/:id
+  app.delete("/api/admin/announcements/:id", requireAuth, async (req, res) => {
+    const orgId = (req.session as any).orgId || getOrgId(req);
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+    await db.execute(neonSql`DELETE FROM cs_announcements WHERE id = ${id} AND org_id = ${orgId}`);
+    res.json({ ok: true });
+  });
+
+  // GET /api/admin/announcements
+  app.get("/api/admin/announcements", requireAuth, async (req, res) => {
+    const orgId = (req.session as any).orgId || getOrgId(req);
+    const rows = await db.execute(neonSql`
+      SELECT id, title, body, created_at FROM cs_announcements
+      WHERE org_id = ${orgId} ORDER BY created_at DESC
+    `);
+    res.json(rows.rows);
+  });
+
+  // GET /api/admin/members — list all members (for in-site admin)
+  app.get("/api/admin/members", requireAuth, async (req, res) => {
+    const orgId = (req.session as any).orgId || getOrgId(req);
+    const rows = await db.execute(neonSql`
+      SELECT id, first_name, last_name, email, phone, member_type, status,
+             registered_at, show_in_directory, title
+      FROM members WHERE org_id = ${orgId}
+      ORDER BY last_name ASC NULLS LAST, first_name ASC
+    `);
+    res.json(rows.rows);
   });
 }
