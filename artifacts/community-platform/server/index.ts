@@ -20,7 +20,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const PORT = parseInt(process.env.PORT || "5001");
+const PORT = parseInt(process.env.CP_PORT ?? process.env.PORT ?? "5001", 10);
 
 const app = express();
 app.set("trust proxy", 1);
@@ -333,7 +333,15 @@ async function startServer() {
 
   const server = createServer(app);
   server.listen(PORT, "0.0.0.0", () => {
-    console.log(`Community platform running on port ${PORT}`);
+    console.log(`Community platform listening on port ${PORT}`);
+  });
+
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`Port ${PORT} is already in use. Kill the existing process and restart.`);
+      process.exit(1);
+    }
+    throw err;
   });
 }
 
