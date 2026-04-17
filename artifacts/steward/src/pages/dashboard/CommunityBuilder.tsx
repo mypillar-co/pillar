@@ -689,6 +689,37 @@ function SiteManagementView({
   return (
     <div className="flex flex-col gap-5 py-6">
 
+      {/* Site preview iframe */}
+      {status.url && (
+        <div className="rounded-xl overflow-hidden border border-white/10 bg-[#0f1a2e]">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
+            <span className="text-xs text-slate-400 font-medium">Site Preview</span>
+            <a
+              href={status.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-[#d4a017] hover:text-[#b88a14] flex items-center gap-1"
+            >
+              Open full site <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+          <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
+            <iframe
+              src={status.url}
+              className="absolute inset-0 w-full h-full border-0"
+              style={{
+                transform: "scale(0.75)",
+                transformOrigin: "top left",
+                width: "133.33%",
+                height: "133.33%",
+              }}
+              title="Site preview"
+              sandbox="allow-scripts allow-same-origin"
+            />
+          </div>
+        </div>
+      )}
+
       {/* Live site card */}
       <div className="rounded-xl bg-green-500/10 border border-green-500/30 p-4 space-y-3">
         <div className="flex items-center gap-2">
