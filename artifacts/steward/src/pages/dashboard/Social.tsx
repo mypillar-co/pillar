@@ -389,6 +389,26 @@ function ComposePostDialog({
       setActivePlatformForGen(connected[0] ?? "buffer_facebook");
       setContent(""); setMediaUrl(""); setScheduledAt(""); setImagePromptSuggestion(""); setTopic("");
       setImageUploading(false);
+
+      // Default the AI topic to the next upcoming published event so the most
+      // common use case (promoting an event) is one click away.
+      (async () => {
+        try {
+          const events = await api.events.list();
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          const next = events
+            .filter(e => e.status === "published" && e.startDate && new Date(e.startDate) >= today)
+            .sort((a, b) => (a.startDate ?? "").localeCompare(b.startDate ?? ""))[0];
+          if (next?.name) {
+            const when = next.startDate
+              ? new Date(next.startDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+              : "";
+            setTopic(when ? `${next.name} on ${when}` : next.name);
+          }
+        } catch {
+          /* no upcoming event — leave blank */
+        }
+      })();
     }
   }, [open, accounts]);
 

@@ -759,16 +759,43 @@ router.post("/ai-edit", async (req: Request, res: Response) => {
       return;
     }
 
+    // Parse the change request to figure out which fields are actually relevant.
+    // This avoids sending the entire (often huge) site_config to the AI.
+    const parseEditIntent = (changeReq: string): string[] => {
+      const req = changeReq.toLowerCase();
+      if (req.includes("color") || req.includes("colour") || req.includes("brand")) return ["primaryColor", "accentColor"];
+      if (req.includes("email") || req.includes("contact"))                          return ["contactEmail", "contactPhone", "contactAddress"];
+      if (req.includes("meeting"))                                                   return ["meetingDay", "meetingTime", "meetingLocation"];
+      if (req.includes("tagline") || req.includes("mission"))                        return ["tagline", "mission"];
+      if (req.includes("social") || req.includes("facebook") || req.includes("instagram")) return ["socialFacebook", "socialInstagram"];
+      if (req.includes("name"))                                                      return ["orgName", "shortName"];
+      if (req.includes("photo") || req.includes("image") || req.includes("banner"))  return ["heroImageUrl"];
+      if (req.includes("program") || req.includes("service") || req.includes("about")) return ["siteContent"];
+      // Fallback: top-level scalar fields only. Object values (like siteContent)
+      // can be huge and are excluded to keep the prompt small.
+      const scalarKeys = Object.keys(currentConfig).filter(k => {
+        const v = (currentConfig as Record<string, unknown>)[k];
+        return v === null || typeof v !== "object";
+      });
+      return scalarKeys.slice(0, 15);
+    };
+
+    const relevantFields = parseEditIntent(changeRequest);
+    const subset: Record<string, unknown> = {};
+    for (const k of relevantFields) {
+      if (k in currentConfig) subset[k] = (currentConfig as Record<string, unknown>)[k];
+    }
+
     const prompt = `You are updating a community organization's website configuration.
 
-Current configuration (JSON):
-${JSON.stringify(currentConfig, null, 2)}
+Current values for the fields you may change (JSON):
+${JSON.stringify(subset, null, 2)}
 
 The user wants to make this change:
 "${changeRequest.trim()}"
 
-Apply the change and return the COMPLETE updated configuration as a single valid JSON object.
-Keep all existing fields. Only modify what the user asked to change.
+Apply the change and return ONLY these fields as a single valid JSON object: ${relevantFields.join(", ")}.
+Keep field names exactly as shown. Only modify values relevant to the user's request; leave unrelated fields unchanged from the current values above.
 Return only the JSON object, no markdown, no explanation.`;
 
     // Allow Express to keep this connection open up to 90s for slow AI edits
@@ -776,8 +803,8 @@ Return only the JSON object, no markdown, no explanation.`;
     res.setTimeout(90_000);
 
     const aiRaw = await Promise.race<string>([
-      callAI([{ role: "user", content: prompt }], 1200),
-      new Promise<string>((_, reject) => setTimeout(() => reject(new Error("timeout")), 60_000)),
+      callAI([{ role: "user", content: prompt }], 1800),
+      new Promise<string>((_, reject) => setTimeout(() => reject(new Error("timeout")), 45_000)),
     ]);
 
     const jsonStart = aiRaw.indexOf("{");
@@ -787,7 +814,25 @@ Return only the JSON object, no markdown, no explanation.`;
       return;
     }
 
-    const updatedPayload = JSON.parse(aiRaw.slice(jsonStart, jsonEnd + 1)) as Record<string, unknown>;
+    const aiFields = JSON.parse(aiRaw.slice(jsonStart, jsonEnd + 1)) as Record<string, unknown>;
+
+    // Merge the AI's edited fields back into the full config.
+    // For object values (e.g. siteContent), deep-merge so the AI returning a
+    // partial object only patches the keys it touched and doesn't drop the rest.
+    const updatedPayload: Record<string, unknown> = { ...(currentConfig as Record<string, unknown>) };
+    for (const k of relevantFields) {
+      if (!(k in aiFields)) continue;
+      const incoming = aiFields[k];
+      const existing = updatedPayload[k];
+      if (
+        incoming !== null && typeof incoming === "object" && !Array.isArray(incoming) &&
+        existing !== null && typeof existing === "object" && !Array.isArray(existing)
+      ) {
+        updatedPayload[k] = { ...(existing as Record<string, unknown>), ...(incoming as Record<string, unknown>) };
+      } else {
+        updatedPayload[k] = incoming;
+      }
+    }
 
     await db.update(organizationsTable)
       .set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` })
@@ -941,26 +986,7 @@ router.post("/ack", async (req: Request, res: Response) => {
     return;
   }
 
-  const staticAck = ANSWER_ACKS[fieldId]?.(value ?? "") ?? "Got it.";
-
-  try {
-    const aiAck = await Promise.race<string>([
-      callAI([{
-        role: "user",
-        content: `Write a brief, warm 1-sentence acknowledgment (8 words max) for this intake form answer.
-Field: ${fieldId}
-Value: ${value ?? ""}
-Output only the acknowledgment sentence, nothing else.`,
-      }], 40),
-      new Promise<string>((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
-    ]);
-    const trimmed = aiAck?.trim();
-    if (trimmed && trimmed.length > 2 && trimmed.length < 120) {
-      res.json({ ack: trimmed });
-      return;
-    }
-  } catch { /* fall through */ }
-
+  const staticAck = ANSWER_ACKS[fieldId]?.(value ?? "") ?? "Got it!";
   res.json({ ack: staticAck });
 });
 
@@ -989,28 +1015,27 @@ router.post("/finalize", async (req: Request, res: Response) => {
   // Step 1: build the complete base payload synchronously (always works).
   const base = buildFallbackPayload(answers, tier);
 
-  // Step 2: ask AI to fill in ONLY the narrative text fields.
-  // Keep the prompt small (< 600 tokens) and cap output at 400 tokens.
-  const orgName  = (answers.orgName  as string | null) ?? "";
-  const orgType  = (answers.orgType  as string | null) ?? "Civic Organization";
-  const tagline  = (answers.tagline  as string | null) ?? "";
-  const shortName = (base.shortName as string) ?? "";
+  // Step 2: ask AI for ONLY two narrative fields (home_intro + about_mission).
+  // Everything else comes deterministically from buildFallbackPayload.
+  const orgName          = (answers.orgName          as string | null) ?? "";
+  const orgType          = (answers.orgType          as string | null) ?? "Civic Organization";
+  const tagline          = (answers.tagline          as string | null) ?? "";
+  const city             = (answers.city             as string | null) ?? "";
+  const state            = (answers.state            as string | null) ?? "";
+  const annualEvents     = (answers.annualEvents     as string | null) ?? "";
+  const membersOrBusinesses = (answers.membersOrBusinesses as string | null) ?? "";
+  const meetingSchedule  = (answers.meetingSchedule  as string | null) ?? "";
+  const location         = [city, state].filter(Boolean).join(", ");
 
-  const narrativePrompt = `Org: ${orgName} (${orgType})
-Tagline: ${tagline}
-Short name: ${shortName}
-
-Write these four fields as a valid JSON object (no markdown, no extra keys):
-{
-  "mission": "<1-2 sentences expanding the tagline into a mission statement>",
-  "footerText": "<10-word footer description of the org>",
-  "metaDescription": "<25-word SEO description>",
-  "about_mission": "<2 short paragraphs describing the org mission and history>"
-}`;
+  const sysPrompt = `You write homepage copy for civic organization websites. Be warm, specific, and community-focused. Output only valid JSON with two fields: home_intro (2-3 sentences of homepage introduction copy) and about_mission (3-4 sentences of About page copy). No markdown, no explanation.`;
+  const userPrompt = `Org name: ${orgName}. Type: ${orgType}. Location: ${location}. Tagline: ${tagline}. Annual events: ${annualEvents}. Members: ${membersOrBusinesses}. Meeting schedule: ${meetingSchedule}.`;
 
   try {
     const aiRaw = await Promise.race<string>([
-      callAI([{ role: "user", content: narrativePrompt }], 400),
+      callAI([
+        { role: "system", content: sysPrompt },
+        { role: "user", content: userPrompt },
+      ], 400),
       new Promise<string>((_, reject) => setTimeout(() => reject(new Error("timeout")), 15_000)),
     ]);
 
@@ -1018,24 +1043,35 @@ Write these four fields as a valid JSON object (no markdown, no extra keys):
     const jsonEnd   = aiRaw.lastIndexOf("}");
     if (jsonStart !== -1 && jsonEnd > jsonStart) {
       const narrative = JSON.parse(aiRaw.slice(jsonStart, jsonEnd + 1)) as {
-        mission?: string;
-        footerText?: string;
-        metaDescription?: string;
+        home_intro?: string;
         about_mission?: string;
       };
-      if (narrative.mission)        base.mission       = narrative.mission;
-      if (narrative.footerText)     base.footerText    = narrative.footerText;
-      if (narrative.metaDescription) base.metaDescription = narrative.metaDescription;
-      if (narrative.about_mission && base.siteContent) {
-        (base.siteContent as Record<string, string>).about_mission = narrative.about_mission;
+      if (!base.siteContent || typeof base.siteContent !== "object") {
+        base.siteContent = {} as Record<string, string>;
       }
+      const sc = base.siteContent as Record<string, string>;
+      sc.home_intro    = narrative.home_intro    || tagline;
+      sc.about_mission = narrative.about_mission || tagline;
 
       await db.update(organizationsTable)
         .set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` })
         .where(eq(organizationsTable.id, org.id));
+    } else {
+      if (!base.siteContent || typeof base.siteContent !== "object") {
+        base.siteContent = {} as Record<string, string>;
+      }
+      const sc = base.siteContent as Record<string, string>;
+      sc.home_intro    = tagline;
+      sc.about_mission = tagline;
     }
   } catch {
-    // AI enrichment failed or timed out — proceed with the base payload.
+    // AI enrichment failed or timed out — fall back to tagline for both fields.
+    if (!base.siteContent || typeof base.siteContent !== "object") {
+      base.siteContent = {} as Record<string, string>;
+    }
+    const sc = base.siteContent as Record<string, string>;
+    sc.home_intro    = tagline;
+    sc.about_mission = tagline;
   }
 
   const reply = `I have everything I need! Click Launch Site to go live.\n[PAYLOAD_READY]\n${JSON.stringify(base)}`;
