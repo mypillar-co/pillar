@@ -74,7 +74,36 @@ function generateSlug(name: string): string {
     .replace(/[^a-z0-9\s-]/g, "")
     .trim()
     .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
     .slice(0, 40);
+}
+
+/**
+ * Generate a clean, unique org slug.
+ *
+ * Tries the bare name first, then `-2` through `-5`, and only falls back to a
+ * 4-char random suffix if all of those are taken. This keeps URLs like
+ * `ligonier-beach.mypillar.co` instead of `ligonier-beach-w47h.mypillar.co`.
+ */
+async function generateCleanSlug(name: string): Promise<string> {
+  const base = generateSlug(name);
+  const candidates = [
+    base,
+    `${base}-2`,
+    `${base}-3`,
+    `${base}-4`,
+    `${base}-5`,
+    `${base}-${Math.random().toString(36).slice(2, 6)}`,
+  ];
+  for (const slug of candidates) {
+    const existing = await db
+      .select({ id: organizationsTable.id })
+      .from(organizationsTable)
+      .where(eq(organizationsTable.slug, slug))
+      .limit(1);
+    if (existing.length === 0) return slug;
+  }
+  return candidates[candidates.length - 1];
 }
 
 function isAdminUser(req: Request): boolean {
@@ -246,19 +275,7 @@ router.post("/organizations", async (req: Request, res: Response) => {
       }
       slug = requestedSlug;
     } else {
-      const baseSlug = generateSlug(name);
-      slug = baseSlug;
-      let suffix = 2;
-      while (true) {
-        const [taken] = await db
-          .select({ id: organizationsTable.id })
-          .from(organizationsTable)
-          .where(eq(organizationsTable.slug, slug))
-          .limit(1);
-        if (!taken) break;
-        slug = `${baseSlug}-${suffix}`;
-        suffix++;
-      }
+      slug = await generateCleanSlug(name);
     }
 
     [org] = await db

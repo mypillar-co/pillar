@@ -1,3 +1,13 @@
+// Sentry is loaded dynamically only when SENTRY_DSN is configured.
+if (process.env.SENTRY_DSN) {
+  const Sentry = await import("@sentry/node");
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV ?? "development",
+    tracesSampleRate: 0.1,
+  });
+}
+
 import express from "express";
 import session from "express-session";
 import { createServer } from "http";

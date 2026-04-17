@@ -1,0 +1,13 @@
+Use this function wherever a new org slug is created. Existing orgs keep their current slugs — do not backfill.
+Week 1, Task 4: Sentry
+Install Sentry in all three processes: pnpm add @sentry/node in the API server and CP, pnpm add @sentry/react in Steward. Add SENTRY_DSN to Replit secrets. Initialize Sentry at the top of artifacts/api-server/src/app.ts, artifacts/community-platform/server/index.ts, and artifacts/steward/src/main.tsx. Add the Sentry error handler middleware at the bottom of app.ts before the global error handler. That’s it — free tier, 30 minutes of work.
+Weeks 2-3: Members feature
+Add a members table to the Drizzle schema in lib/db/src/schema/ with these columns: id, orgId, firstName, lastName, email, phone, memberType (general/board/honorary/staff), status (active/inactive/pending), joinDate, renewalDate, notes, createdAt, updatedAt. Run the migration. Add CRUD routes under /api/members in a new artifacts/api-server/src/routes/members.ts file. Add a Members page in Steward at artifacts/steward/src/pages/dashboard/Members.tsx with: searchable table, add/edit/delete member, filter by status and type, CSV export, and member count on the Overview stats card. Add Members to the sidebar nav in DashboardLayout.tsx under the People section. Wire member count into GET /api/stats.
+Week 4: Critical path tests
+Add Vitest to the API server package. Write tests for exactly these functions and nothing else:
+	•	generateCleanSlug() — verify clean slug, -2 fallback, uniqueness check
+	•	The base URL swap in server/index.ts — verify /sites/placeholder/ is replaced with the real slug
+	•	encryptToken / decryptToken in tokenCrypto.ts — round-trip test
+	•	categorizePaymentServer() if it exists — verify vendor/sponsor/ticket categorization
+Add one Playwright test in a new e2e/ directory: org signup → complete interview → verify site live at {slug}.mypillar.co. Run all tests in a pre-commit hook using husky. Do not add tests for anything else yet.
+That is the complete plan. Do not work 
