@@ -1,0 +1,30 @@
+Tell Replit:
+Read this entire message before touching any file. These are targeted improvements to the AI usage in the platform. Work through them in order and confirm each one before moving to the next.
+TASK 1: Kill the AI acknowledgment calls in the interview.
+In artifacts/api-server/src/routes/communitySite.ts, find the POST /api/community-site/ack route. It currently calls the AI to generate a conversational acknowledgment for every interview answer. Replace the entire AI call with a static response. The route should just return a simple acknowledgment based on the fieldId without calling any AI service. Use this logic:
+Keep the existing SKIP_ACKS and ANSWER_ACKS maps that are already in the file. If isSkip is true, return the SKIP_ACKS value for that fieldId, falling back to “Got it — skipped.” If isSkip is false, check if ANSWER_ACKS has an entry for the fieldId and call it with the value. If neither map has an entry, return “Got it!” as the default. Never call the AI service in this route. This makes the interview faster and removes a failure point on every single question.
+TASK 2: Remove the AI finalize call and always use buildFallbackPayload.
+In artifacts/api-server/src/routes/communitySite.ts, find the POST /api/community-site/finalize route. It currently calls the AI to generate the site config payload from interview answers. The buildFallbackPayload function already does this deterministically and correctly. Replace the AI call with a direct call to buildFallbackPayload. The route should: get the answers and tier from the request body, call buildFallbackPayload(answers, tier), then add two AI-generated fields on top — homepage intro and about mission. Use a single AI call with this prompt to generate just those two fields:
+System: You write homepage copy for civic organization websites. Be warm, specific, and community-focused. Output only valid JSON with two fields: home_intro (2-3 sentences of homepage introduction copy) and about_mission (3-4 sentences of About page copy). No markdown, no explanation.
+User: Org name: {orgName}. Type: {orgType}. Location: {location}. Tagline: {tagline}. Annual events: {annualEvents}. Members: {membersOrBusinesses}. Meeting schedule: {meetingSchedule}.
+Merge the AI-generated home_intro and about_mission into the siteContent object of the buildFallbackPayload result before returning. Wrap the AI call in try/catch — if it fails or times out, use the tagline as the fallback for both fields. This way the interview never fails due to AI timeout but still gets real copy when AI is available.
+TASK 3: Fix the AI edit to send only relevant fields.
+In artifacts/api-server/src/routes/communitySite.ts, find the POST /api/community-site/ai-edit route. It currently sends the entire site config JSON to the AI and asks for the entire config back. This causes timeouts on large configs. Replace the logic with targeted field extraction.
+Add this intent parser before the AI call:
+function parseEditIntent(changeRequest: string): string[] {
+const req = changeRequest.toLowerCase();
+if (req.includes(“color”) || req.includes(“colour”) || req.includes(“brand”)) return [“primaryColor”, “accentColor”];
+if (req.includes(“email”) || req.includes(“contact”)) return [“contactEmail”, “contactPhone”, “contactAddress”];
+if (req.includes(“meeting”)) return [“meetingDay”, “meetingTime”, “meetingLocation”];
+if (req.includes(“tagline”) || req.includes(“mission”)) return [“tagline”, “mission”];
+if (req.includes(“social”) || req.includes(“facebook”) || req.includes(“instagram”)) return [“socialFacebook”, “socialInstagram”];
+if (req.includes(“name”)) return [“orgName”, “shortName”];
+if (req.includes(“photo”) || req.includes(“image”) || req.includes(“banner”)) return [“heroImageUrl”];
+if (req.includes(“program”) || req.includes(“service”) || req.includes(“about”)) return [“siteContent”];
+return Object.keys(currentConfig).slice(0, 15);
+}
+Use the parsed field list to extract only the relevant subset of currentConfig. Send only those fields to the AI with the change request. Ask the AI to return only those fields as JSON. Then merge the returned fields back into the full currentConfig before saving. Also increase the timeout from 20 seconds to 45 seconds and increase max tokens from 1200 to 1800. This eliminates the timeout errors for targeted changes like color updates.
+TASK 4: Wire the Content Studio history tab to the database.
+In the Steward dashboard, find the Content Studio page. The studio_outputs table already saves every generated piece of content but there is no UI showing past outputs. Add a History tab to the Content Studio page that shows previous outputs. Each row should show: task label, date generated, a truncated preview of the output (first 100 characters), and a Copy button that copies the full output to clipboard. Query GET /api/content/history (add this endpoint if it does not exist) which returns the last 50 outputs for the org ordered by created_at descending. Use TanStack Query with queryKey [“content-history”]. This makes generated content reusable instead of disappearing after the page closes.
+TASK 5: Make social post generation default to the next upcoming event.
+In artifacts/steward/src/pages/dashboard/Social.tsx, find the ComposePostDialog component. The AI Generate section has a topic input that is currently blank by default. Change it so that on mount it queries GET /api/events?status=published&limit=1&upcoming=true to get the next upcoming event. If an event is found, pre-populate the topic input with the event name and date. Also set the activePlatformForGen to whatever platform is connected. This way the most natural use case — posting about an upcoming event — is the default instead of a blank textarea. Wrap the query in try/catch so if no upcoming event exists the input stays blank as before.​​​​​​​​​​​​​​​​
