@@ -32,6 +32,7 @@ import publicOrgRouter from "./public";
 import serviceApiRouter from "./serviceApi";
 import communitySiteRouter from "./communitySite";
 import photoAlbumsRouter from "./photoAlbums";
+import membersRouter from "./members";
 
 const router: IRouter = Router();
 
@@ -69,5 +70,6 @@ router.use("/hooks", siteHooksRouter);
 router.use("/org", publicOrgRouter);
 router.use("/service", serviceApiRouter);
 router.use("/community-site", communitySiteRouter);
+router.use("/members", membersRouter);
 
 export default router;

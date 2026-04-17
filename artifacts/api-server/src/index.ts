@@ -185,6 +185,28 @@ async function runMigrations() {
     await db.execute(sql`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS community_site_url text`);
     await db.execute(sql`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS community_site_key text`);
 
+    // Civic member roster (distinct from org_members admin invites)
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS members (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        org_id varchar NOT NULL,
+        first_name varchar NOT NULL,
+        last_name varchar,
+        email varchar,
+        phone varchar,
+        member_type varchar NOT NULL DEFAULT 'general',
+        status varchar NOT NULL DEFAULT 'active',
+        join_date varchar,
+        renewal_date varchar,
+        notes text,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS members_org_idx ON members (org_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS members_org_status_idx ON members (org_id, status)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS members_org_email_idx ON members (org_id, email)`);
+
     logger.info("Startup migrations complete");
   } catch (err) {
     logger.warn({ err }, "Startup migration warning — continuing");
