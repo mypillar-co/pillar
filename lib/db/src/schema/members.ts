@@ -1,22 +1,17 @@
-import { pgTable, varchar, text, timestamp, index } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
+import { pgTable, text, date, timestamp } from "drizzle-orm/pg-core";
 
 export const membersTable = pgTable("members", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  orgId: varchar("org_id").notNull(),
-  firstName: varchar("first_name").notNull(),
-  lastName: varchar("last_name"),
-  email: varchar("email"),
-  phone: varchar("phone"),
-  memberType: varchar("member_type").notNull().default("general"),
-  status: varchar("status").notNull().default("active"),
-  joinDate: varchar("join_date"),
-  renewalDate: varchar("renewal_date"),
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name"),
+  email: text("email"),
+  phone: text("phone"),
+  memberType: text("member_type").notNull().default("general"),
+  status: text("status").notNull().default("active"),
+  joinDate: date("join_date"),
+  renewalDate: date("renewal_date"),
   notes: text("notes"),
-  createdAt: timestamp("created_at").notNull().default(sql`now()`),
-  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
-}, (t) => [
-  index("members_org_idx").on(t.orgId),
-  index("members_org_status_idx").on(t.orgId, t.status),
-  index("members_org_email_idx").on(t.orgId, t.email),
-]);
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
