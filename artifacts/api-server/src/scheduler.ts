@@ -12,6 +12,7 @@ import {
   ticketSalesTable,
   ticketTypesTable,
   registrationsTable,
+  membersTable,
 } from "@workspace/db";
 import {
   runCustomerSuccessAgent,
@@ -993,6 +994,65 @@ async function sendDocumentReminders(): Promise<void> {
   }
 }
 
+async function sendMemberRenewalReminders(): Promise<void> {
+  try {
+    const orgs = await db
+      .select({
+        id: organizationsTable.id,
+        name: organizationsTable.name,
+        senderEmail: organizationsTable.senderEmail,
+      })
+      .from(organizationsTable);
+    if (!process.env.RESEND_API_KEY) {
+      logger.warn("[member-renewals] RESEND_API_KEY not set — skipping send");
+      return;
+    }
+    const { Resend } = await import("resend");
+    const resend = new Resend(process.env.RESEND_API_KEY);
+    for (const org of orgs) {
+      const today = new Date();
+      for (const days of [30, 14, 7]) {
+        const targetDate = new Date(today);
+        targetDate.setDate(targetDate.getDate() + days);
+        const dateStr = targetDate.toISOString().split("T")[0];
+        const dueMembers = await db
+          .select()
+          .from(membersTable)
+          .where(
+            and(
+              eq(membersTable.orgId, org.id),
+              eq(membersTable.renewalDate, dateStr),
+              eq(membersTable.status, "active"),
+            ),
+          );
+        for (const member of dueMembers) {
+          if (!member.email) continue;
+          await resend.emails
+            .send({
+              from: org.senderEmail ?? "noreply@mypillar.co",
+              to: member.email,
+              subject: `Your membership with ${org.name} renews in ${days} days`,
+              text: `Hi ${member.firstName},\n\nThis is a reminder that your membership with ${org.name} is due for renewal in ${days} days (${dateStr}).\n\nPlease contact your organization administrator to renew.\n\nThank you for your membership.`,
+            })
+            .catch(() => {});
+        }
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "Member renewal reminder job failed");
+  }
+}
+
+const MEMBER_RENEWAL_INTERVAL_MS = 24 * 60 * 60 * 1000; // every 24h, aligned to 9am local
+
+function msUntilNext9am(): number {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(9, 0, 0, 0);
+  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
+  return next.getTime() - now.getTime();
+}
+
 function locked(jobName: string, ttlMs: number, fn: () => Promise<void>): () => void {
   return () => {
     withSchedulerLock(jobName, ttlMs, fn).catch((err: unknown) => {
@@ -1048,4 +1108,15 @@ export function startScheduler(): void {
   // Document reminders — run daily for vendors missing SerSafe/insurance docs
   locked("doc-reminders", REMINDER_INTERVAL_MS, sendDocumentReminders)();
   setInterval(locked("doc-reminders", REMINDER_INTERVAL_MS, sendDocumentReminders), REMINDER_INTERVAL_MS);
+
+  // Member renewal reminders — once daily, aligned to 9am local time
+  const memberRenewalTick = locked(
+    "member-renewals",
+    MEMBER_RENEWAL_INTERVAL_MS,
+    sendMemberRenewalReminders,
+  );
+  setTimeout(() => {
+    memberRenewalTick();
+    setInterval(memberRenewalTick, MEMBER_RENEWAL_INTERVAL_MS);
+  }, msUntilNext9am());
 }
