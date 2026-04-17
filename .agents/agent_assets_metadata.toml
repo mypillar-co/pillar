@@ -59,3 +59,9 @@ id = "GHgO2QRNZ5NR0625lyPe7"
 uri = "file://exports/DEPLOYMENT_CHECKLIST.md"
 type = "text"
 title = "DEPLOYMENT_CHECKLIST.md"
+
+[[outputs]]
+id = "mgC2HrsuoF0ZVJF09dFWb"
+uri = "file://attached_assets/exports/CommunityBuilder.tsx.txt"
+type = "text"
+title = "CommunityBuilder.tsx (1553 lines)"
