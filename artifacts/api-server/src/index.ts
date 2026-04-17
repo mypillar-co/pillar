@@ -226,6 +226,25 @@ async function runMigrations() {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS members_org_status_idx ON members (org_id, status)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS members_org_email_idx ON members (org_id, email)`);
 
+    // Reconcile members table to spec: convert date columns from varchar to DATE
+    // and add the org_id FK constraint. Each is idempotent — wrapped in its own
+    // try/catch so re-runs (or partial prior application) don't block startup.
+    try {
+      await db.execute(sql`ALTER TABLE members ALTER COLUMN join_date TYPE DATE USING join_date::date`);
+    } catch (err) {
+      logger.warn({ err }, "members.join_date already DATE or alter skipped");
+    }
+    try {
+      await db.execute(sql`ALTER TABLE members ALTER COLUMN renewal_date TYPE DATE USING renewal_date::date`);
+    } catch (err) {
+      logger.warn({ err }, "members.renewal_date already DATE or alter skipped");
+    }
+    try {
+      await db.execute(sql`ALTER TABLE members ADD CONSTRAINT members_org_id_fk FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE`);
+    } catch (err) {
+      logger.warn({ err }, "members.org_id FK already present or add skipped");
+    }
+
     logger.info("Startup migrations complete");
   } catch (err) {
     logger.warn({ err }, "Startup migration warning — continuing");
