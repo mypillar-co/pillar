@@ -14,6 +14,7 @@ export type SyncableEvent = {
   ticketPrice?: number | null;
   ticketCapacity?: number | null;
   isActive?: boolean;
+  membersOnly?: boolean;
 };
 
 function toCsPayload(event: SyncableEvent, orgSlug: string) {
@@ -31,6 +32,7 @@ function toCsPayload(event: SyncableEvent, orgSlug: string) {
     ticketPrice: event.ticketPrice != null ? String(event.ticketPrice) : null,
     ticketCapacity: event.ticketCapacity ?? null,
     isActive: event.isActive !== false,
+    membersOnly: event.membersOnly === true,
   };
 }
 

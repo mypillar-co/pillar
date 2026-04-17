@@ -24,6 +24,7 @@ import {
   HelpCircle,
   ClipboardList,
   ShoppingBag,
+  Megaphone,
   LogOut,
 } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
@@ -65,6 +66,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Events", href: "/dashboard/events", icon: Calendar, tourId: "events" },
       { label: "Communications", href: "/dashboard/social", icon: Share2, tourId: "social" },
+      { label: "Announcements", href: "/dashboard/announcements", icon: Megaphone },
       { label: "Content Studio", href: "/dashboard/studio", icon: Sparkles },
     ],
   },

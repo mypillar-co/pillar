@@ -795,7 +795,7 @@ router.post("/", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
   const body = req.body as Record<string, unknown>;
-  const { name, description, eventType, startDate, endDate, startTime, endTime, location, maxCapacity, isTicketed, ticketPrice, ticketCapacity, requiresApproval, hasRegistration, hasSponsorSection } = body;
+  const { name, description, eventType, startDate, endDate, startTime, endTime, location, maxCapacity, isTicketed, ticketPrice, ticketCapacity, requiresApproval, hasRegistration, hasSponsorSection, membersOnly } = body;
   if (!name || typeof name !== "string") {
     res.status(400).json({ error: "name is required" });
     return;
@@ -836,6 +836,7 @@ router.post("/", async (req: Request, res: Response) => {
       requiresApproval: requiresApproval === true,
       hasRegistration: hasRegistration === true,
       hasSponsorSection: hasSponsorSection === true,
+      membersOnly: membersOnly === true,
       status: "draft",
       isActive: true,
     })
@@ -870,7 +871,7 @@ router.put("/:id", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
   const body = req.body as Record<string, unknown>;
-  const allowed = ["name", "description", "eventType", "status", "startDate", "endDate", "startTime", "endTime", "location", "maxCapacity", "isTicketed", "ticketPrice", "ticketCapacity", "requiresApproval", "hasRegistration", "hasSponsorSection", "registrationClosed", "featured", "imageUrl", "isActive", "showOnPublicSite", "featuredOnSite"];
+  const allowed = ["name", "description", "eventType", "status", "startDate", "endDate", "startTime", "endTime", "location", "maxCapacity", "isTicketed", "ticketPrice", "ticketCapacity", "requiresApproval", "hasRegistration", "hasSponsorSection", "registrationClosed", "featured", "imageUrl", "isActive", "showOnPublicSite", "featuredOnSite", "membersOnly"];
   const updates: Record<string, unknown> = {};
   for (const k of allowed) {
     if (k in body) updates[k] = body[k];

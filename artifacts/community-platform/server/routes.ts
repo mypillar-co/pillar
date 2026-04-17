@@ -665,6 +665,7 @@ export function registerRoutes(app: Express) {
       const body = { ...req.body };
       if (!body.slug && body.title) body.slug = generateSlug(body.title);
       if (body.published && !body.publishedAt) body.publishedAt = new Date();
+      if (body.membersOnly !== undefined) body.membersOnly = body.membersOnly === true;
       const post = await storage.createBlogPost(orgId, body);
       res.status(201).json(post);
     } catch { res.status(500).json({ error: "Internal server error" }); }
@@ -677,6 +678,7 @@ export function registerRoutes(app: Express) {
       const body = { ...req.body };
       if (body.title && !body.slug) body.slug = generateSlug(body.title);
       if (body.published === true) body.publishedAt = new Date();
+      if (body.membersOnly !== undefined) body.membersOnly = body.membersOnly === true;
       const updated = await storage.updateBlogPost(orgId, id, body);
       if (!updated) return res.status(404).json({ error: "Post not found" });
       res.json(updated);
@@ -820,7 +822,7 @@ export function registerRoutes(app: Express) {
   app.post("/api/internal/events", requirePillarServiceKey, async (req: Request, res: Response) => {
     try {
       const { orgId, title, description, date, time, location, category, slug, imageUrl,
-              isTicketed, ticketPrice, ticketCapacity, isActive } = req.body ?? {};
+              isTicketed, ticketPrice, ticketCapacity, isActive, membersOnly } = req.body ?? {};
       if (!orgId || !title) {
         return res.status(400).json({ ok: false, error: "orgId and title are required" });
       }
@@ -838,6 +840,7 @@ export function registerRoutes(app: Express) {
         ticketPrice: ticketPrice ?? null,
         ticketCapacity: ticketCapacity ?? null,
         isActive: isActive !== false,
+        membersOnly: membersOnly === true,
       });
       console.log(`[internal-events] created for org=${orgId} slug=${eventSlug}`);
       return res.status(201).json({ ok: true, event: created });
@@ -850,7 +853,7 @@ export function registerRoutes(app: Express) {
   app.patch("/api/internal/events/slug/:slug", requirePillarServiceKey, async (req: Request, res: Response) => {
     try {
       const { orgId, title, description, date, time, location, category, imageUrl,
-              isTicketed, ticketPrice, ticketCapacity, isActive } = req.body ?? {};
+              isTicketed, ticketPrice, ticketCapacity, isActive, membersOnly } = req.body ?? {};
       if (!orgId) {
         return res.status(400).json({ ok: false, error: "orgId is required" });
       }
@@ -866,6 +869,7 @@ export function registerRoutes(app: Express) {
         ...(ticketPrice !== undefined && { ticketPrice }),
         ...(ticketCapacity !== undefined && { ticketCapacity }),
         ...(isActive !== undefined && { isActive }),
+        ...(membersOnly !== undefined && { membersOnly: membersOnly === true }),
       });
       if (!updated) {
         return res.status(404).json({ ok: false, error: "Event not found" });
@@ -1069,6 +1073,90 @@ export function registerRoutes(app: Express) {
     const hash = await bcrypt.hash(newPassword, 10);
     await db.execute(neonSql`UPDATE members SET password_hash = ${hash}, updated_at = now() WHERE id = ${m.memberId}`);
     res.json({ ok: true });
+  });
+
+  // POST /api/members/forgot-password — generate reset token & email link
+  app.post("/api/members/forgot-password", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const rawEmail = (req.body?.email ?? "") as string;
+      const email = rawEmail.trim().toLowerCase();
+      if (!email) return res.status(400).json({ error: "Email is required." });
+      // Always respond success to avoid revealing which emails are registered.
+      const rows = await db.execute(neonSql`
+        SELECT m.id, m.first_name, m.email, o.slug AS org_slug, o.name AS org_name
+        FROM members m
+        JOIN organizations o ON o.id = m.org_id OR o.slug = m.org_id
+        WHERE m.org_id = ${orgId} AND lower(m.email) = ${email}
+          AND m.registered_at IS NOT NULL
+        LIMIT 1
+      `);
+      const row = rows.rows[0] as Record<string, unknown> | undefined;
+      if (row) {
+        const token = crypto.randomBytes(32).toString("hex");
+        const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+        await db.execute(neonSql`
+          UPDATE members SET reset_token = ${token}, reset_token_expires_at = ${expires}, updated_at = now()
+          WHERE id = ${row.id as string}
+        `);
+        const orgSlug = (row.org_slug as string) || orgId;
+        const orgName = (row.org_name as string) || orgSlug;
+        const url = `https://${orgSlug}.mypillar.co/members/reset-password?token=${token}`;
+        // Fire-and-forget: ask api-server to send the email
+        const apiBase = (process.env.PILLAR_API_URL || "http://localhost:8080").replace(/\/$/, "");
+        const serviceKey = process.env.PILLAR_SERVICE_KEY;
+        if (serviceKey) {
+          fetch(`${apiBase}/api/internal/member-reset-email`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-pillar-service-key": serviceKey },
+            body: JSON.stringify({ to: row.email, firstName: row.first_name, orgName, url }),
+          }).catch(err => console.error("[members/forgot-password] email send failed", err));
+        } else {
+          console.warn("[members/forgot-password] PILLAR_SERVICE_KEY not set — reset URL:", url);
+        }
+      }
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[members/forgot-password] failed", err);
+      res.json({ ok: true }); // never reveal anything
+    }
+  });
+
+  // POST /api/members/reset-password — exchange token for a new password & log in
+  app.post("/api/members/reset-password", async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const { token, password } = (req.body ?? {}) as { token?: string; password?: string };
+      if (!token || !password) return res.status(400).json({ error: "Token and password required." });
+      if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters." });
+      const rows = await db.execute(neonSql`
+        SELECT id, org_id, reset_token_expires_at FROM members
+        WHERE reset_token = ${token} LIMIT 1
+      `);
+      const row = rows.rows[0] as Record<string, unknown> | undefined;
+      if (!row || row.org_id !== orgId) {
+        return res.status(404).json({ error: "Invalid or expired link." });
+      }
+      const exp = row.reset_token_expires_at ? new Date(String(row.reset_token_expires_at)) : null;
+      if (!exp || exp.getTime() < Date.now()) {
+        return res.status(400).json({ error: "This reset link has expired. Please request a new one." });
+      }
+      const hash = await bcrypt.hash(password, 10);
+      await db.execute(neonSql`
+        UPDATE members SET password_hash = ${hash}, reset_token = NULL,
+          reset_token_expires_at = NULL, updated_at = now()
+        WHERE id = ${row.id as string}
+      `);
+      (req.session as any).memberId = row.id as string;
+      (req.session as any).memberOrgId = orgId;
+      if (req.session.cookie && !(req.session as any).adminId) {
+        req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000;
+      }
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[members/reset-password] failed", err);
+      res.status(500).json({ error: "Reset failed" });
+    }
   });
 
   // GET /api/members/directory — registered members who opted in

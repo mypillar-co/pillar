@@ -274,6 +274,14 @@ async function runMigrations() {
     await db.execute(sql`ALTER TABLE cs_events ADD COLUMN IF NOT EXISTS members_only boolean NOT NULL DEFAULT false`);
     await db.execute(sql`ALTER TABLE cs_blog_posts ADD COLUMN IF NOT EXISTS members_only boolean NOT NULL DEFAULT false`);
 
+    // Members-only flag on the Pillar events table (steward-side editor toggle)
+    await db.execute(sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS members_only boolean NOT NULL DEFAULT false`);
+
+    // Member portal password reset
+    await db.execute(sql`ALTER TABLE members ADD COLUMN IF NOT EXISTS reset_token text`);
+    await db.execute(sql`ALTER TABLE members ADD COLUMN IF NOT EXISTS reset_token_expires_at timestamptz`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS members_reset_token_idx ON members (reset_token) WHERE reset_token IS NOT NULL`);
+
     // Members-only announcements (community-site)
     await db.execute(sql`
       CREATE TABLE IF NOT EXISTS cs_announcements (

@@ -63,6 +63,7 @@ export const csEvents = pgTable("cs_events", {
   isTicketed: boolean("is_ticketed").default(false),
   ticketPrice: text("ticket_price"),
   ticketCapacity: integer("ticket_capacity"),
+  membersOnly: boolean("members_only").default(false),
 });
 
 export const csSponsors = pgTable("cs_sponsors", {
@@ -186,6 +187,7 @@ export const csBlogPosts = pgTable("cs_blog_posts", {
   author: text("author"),
   published: boolean("published").default(false),
   publishedAt: timestamp("published_at"),
+  membersOnly: boolean("members_only").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

@@ -292,6 +292,10 @@ async function runMigrations() {
       )
     `);
 
+    // Members-only flag for events and blog posts (added later)
+    await db.execute(neonSql`ALTER TABLE cs_events ADD COLUMN IF NOT EXISTS members_only BOOLEAN DEFAULT false`);
+    await db.execute(neonSql`ALTER TABLE cs_blog_posts ADD COLUMN IF NOT EXISTS members_only BOOLEAN DEFAULT false`);
+
     console.log("✓ Community platform migrations complete");
   } catch (err) {
     console.error("Migration error:", err);

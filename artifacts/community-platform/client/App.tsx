@@ -18,6 +18,8 @@ import TicketSuccessPage from "./pages/TicketSuccessPage";
 import MemberLoginPage from "./pages/MemberLoginPage";
 import MemberRegisterPage from "./pages/MemberRegisterPage";
 import MemberPortalPage from "./pages/MemberPortalPage";
+import MemberForgotPasswordPage from "./pages/MemberForgotPasswordPage";
+import MemberResetPasswordPage from "./pages/MemberResetPasswordPage";
 
 function AppContent() {
   const config = useConfig();
@@ -61,6 +63,8 @@ function AppContent() {
           <Route path="/admin" component={AdminPage} />
           <Route path="/members/register" component={MemberRegisterPage} />
           <Route path="/members/login" component={MemberLoginPage} />
+          <Route path="/members/forgot-password" component={MemberForgotPasswordPage} />
+          <Route path="/members/reset-password" component={MemberResetPasswordPage} />
           <Route path="/members" component={MemberPortalPage} />
           <Route path="/payment-success" component={PaymentSuccessPage} />
           <Route path="/events/:slug/tickets/success" component={TicketSuccessPage} />

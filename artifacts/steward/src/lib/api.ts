@@ -44,6 +44,7 @@ export type EventItem = {
   ticketPrice?: number | null;
   ticketCapacity?: number | null;
   requiresApproval?: boolean;
+  membersOnly?: boolean;
   isRecurring?: boolean;
   recurringTemplateId?: string | null;
   featured?: boolean;
@@ -283,7 +284,7 @@ export const api = {
   events: {
     list: () => req<EventItem[]>("/api/events"),
     get: (id: string) => req<EventDetail>(`/api/events/${id}`),
-    create: (data: Partial<EventItem> & { requiresApproval?: boolean }) => req<EventItem>("/api/events", { method: "POST", body: JSON.stringify(data) }),
+    create: (data: Partial<EventItem> & { requiresApproval?: boolean; membersOnly?: boolean }) => req<EventItem>("/api/events", { method: "POST", body: JSON.stringify(data) }),
     update: (id: string, data: Partial<EventItem>) => req<EventItem>(`/api/events/${id}`, { method: "PUT", body: JSON.stringify(data) }),
     delete: (id: string) => req<void>(`/api/events/${id}`, { method: "DELETE" }),
     submit: (id: string) => req<EventItem>(`/api/events/${id}/submit`, { method: "POST" }),
@@ -317,6 +318,15 @@ export const api = {
   vendors: {
     list: () => req<Vendor[]>("/api/vendors"),
     create: (data: Partial<Vendor>) => req<Vendor>("/api/vendors", { method: "POST", body: JSON.stringify(data) }),
+  },
+  announcements: {
+    list: () => req<Array<{ id: number; title: string; body: string; created_at: string }>>("/api/announcements"),
+    create: (data: { title: string; body: string }) =>
+      req<{ id: number; title: string; body: string; created_at: string }>("/api/announcements", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    delete: (id: number) => req<void>(`/api/announcements/${id}`, { method: "DELETE" }),
   },
   members: {
     list: (params?: { status?: string; type?: string; search?: string }) => {

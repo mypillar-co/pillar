@@ -33,6 +33,8 @@ import serviceApiRouter from "./serviceApi";
 import communitySiteRouter from "./communitySite";
 import photoAlbumsRouter from "./photoAlbums";
 import membersRouter from "./members";
+import announcementsRouter from "./announcements";
+import internalMembersRouter from "./internalMembers";
 
 const router: IRouter = Router();
 
@@ -71,5 +73,7 @@ router.use("/org", publicOrgRouter);
 router.use("/service", serviceApiRouter);
 router.use("/community-site", communitySiteRouter);
 router.use("/members", membersRouter);
+router.use("/announcements", announcementsRouter);
+router.use("/internal", internalMembersRouter);
 
 export default router;

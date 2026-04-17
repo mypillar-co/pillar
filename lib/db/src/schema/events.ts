@@ -30,6 +30,7 @@ export const eventsTable = pgTable("events", {
   imageUrl: text("image_url"),
   showOnPublicSite: boolean("show_on_public_site").default(true),
   featuredOnSite: boolean("featured_on_site").default(false),
+  membersOnly: boolean("members_only").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => ({

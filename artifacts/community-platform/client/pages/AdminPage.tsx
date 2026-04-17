@@ -288,7 +288,7 @@ function BlogAdmin() {
   const { data: posts } = useQuery<any[]>({ queryKey: ["/api/admin/blog"], queryFn: async () => { const r = await apiFetch("/api/admin/blog"); return r.json(); } });
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<number|null>(null);
-  const [form, setForm] = useState({ title: "", excerpt: "", content: "", category: "News", author: "", published: false });
+  const [form, setForm] = useState({ title: "", excerpt: "", content: "", category: "News", author: "", published: false, membersOnly: false });
 
   const save = async () => {
     const method = editId ? "PATCH" : "POST";
@@ -297,7 +297,7 @@ function BlogAdmin() {
     qc.invalidateQueries({ queryKey: ["/api/admin/blog"] });
     qc.invalidateQueries({ queryKey: ["/api/blog"] });
     setShowForm(false); setEditId(null);
-    setForm({ title: "", excerpt: "", content: "", category: "News", author: "", published: false });
+    setForm({ title: "", excerpt: "", content: "", category: "News", author: "", published: false, membersOnly: false });
   };
 
   const del = async (id: number) => {
@@ -310,7 +310,7 @@ function BlogAdmin() {
     <div>
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-lg font-semibold">Blog / News ({posts?.length || 0})</h2>
-        <button onClick={() => { setShowForm(true); setEditId(null); setForm({ title: "", excerpt: "", content: "", category: "News", author: "", published: false }); }} className="px-4 py-2 text-white text-sm rounded-md" style={{ backgroundColor: "var(--primary-hex)" }}>+ New Post</button>
+        <button onClick={() => { setShowForm(true); setEditId(null); setForm({ title: "", excerpt: "", content: "", category: "News", author: "", published: false, membersOnly: false }); }} className="px-4 py-2 text-white text-sm rounded-md" style={{ backgroundColor: "var(--primary-hex)" }}>+ New Post</button>
       </div>
       {showForm && (
         <div className="border border-gray-200 rounded-lg p-5 mb-6 bg-gray-50">
@@ -319,7 +319,10 @@ function BlogAdmin() {
               <div><label className="block text-xs font-medium mb-1">Title</label><input className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm" value={form.title} onChange={e => setForm(f => ({...f,title:e.target.value}))} /></div>
               <div><label className="block text-xs font-medium mb-1">Author</label><input className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm" value={form.author} onChange={e => setForm(f => ({...f,author:e.target.value}))} /></div>
               <div><label className="block text-xs font-medium mb-1">Category</label><input className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm" value={form.category} onChange={e => setForm(f => ({...f,category:e.target.value}))} /></div>
-              <div className="flex items-end"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.published} onChange={e => setForm(f => ({...f,published:e.target.checked}))} /> Published</label></div>
+              <div className="flex items-end gap-4">
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.published} onChange={e => setForm(f => ({...f,published:e.target.checked}))} /> Published</label>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.membersOnly} onChange={e => setForm(f => ({...f,membersOnly:e.target.checked}))} /> Members only</label>
+              </div>
             </div>
             <div><label className="block text-xs font-medium mb-1">Excerpt</label><textarea rows={2} className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm resize-none" value={form.excerpt} onChange={e => setForm(f => ({...f,excerpt:e.target.value}))} /></div>
             <div><label className="block text-xs font-medium mb-1">Content</label><textarea rows={8} className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm resize-none" value={form.content} onChange={e => setForm(f => ({...f,content:e.target.value}))} /></div>

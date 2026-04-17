@@ -34,6 +34,7 @@ import CommunityBuilder from "./pages/dashboard/CommunityBuilder";
 import Domains from "./pages/dashboard/Domains";
 import DashboardSettings from "./pages/dashboard/DashboardSettings";
 import Social from "./pages/dashboard/Social";
+import Announcements from "./pages/dashboard/Announcements";
 import ContentStudio from "./pages/dashboard/ContentStudio";
 import BoardLinksPage from "./pages/dashboard/BoardLinks";
 import Help from "./pages/dashboard/Help";
@@ -125,6 +126,7 @@ function AppRouter() {
       <Route path="/dashboard/domains"><DB><Domains /></DB></Route>
       <Route path="/dashboard/settings"><DB><DashboardSettings /></DB></Route>
       <Route path="/dashboard/social"><DB><Social /></DB></Route>
+      <Route path="/dashboard/announcements"><DB><Announcements /></DB></Route>
       <Route path="/dashboard/studio"><DB><ContentStudio /></DB></Route>
       <Route path="/dashboard/board-links"><DB><BoardLinksPage /></DB></Route>
       <Route path="/dashboard/help"><DB><Help /></DB></Route>

@@ -61,7 +61,7 @@ function CreateEventDialog({ open, onClose }: { open: boolean; onClose: () => vo
   const [form, setForm] = useState({
     name: "", description: "", eventType: "", startDate: "", endDate: "",
     startTime: "", endTime: "", location: "", maxCapacity: "", isTicketed: false, ticketPrice: "",
-    requiresApproval: false,
+    requiresApproval: false, membersOnly: false,
   });
   const mutation = useMutation({
     mutationFn: () => api.events.create({
@@ -77,6 +77,7 @@ function CreateEventDialog({ open, onClose }: { open: boolean; onClose: () => vo
       isTicketed: form.isTicketed,
       ticketPrice: form.ticketPrice ? Number(form.ticketPrice) : undefined,
       requiresApproval: form.requiresApproval,
+      membersOnly: form.membersOnly,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["events"] });
@@ -84,7 +85,7 @@ function CreateEventDialog({ open, onClose }: { open: boolean; onClose: () => vo
       qc.invalidateQueries({ queryKey: ["stats"] });
       toast.success("Event created");
       onClose();
-      setForm({ name: "", description: "", eventType: "", startDate: "", endDate: "", startTime: "", endTime: "", location: "", maxCapacity: "", isTicketed: false, ticketPrice: "", requiresApproval: false });
+      setForm({ name: "", description: "", eventType: "", startDate: "", endDate: "", startTime: "", endTime: "", location: "", maxCapacity: "", isTicketed: false, ticketPrice: "", requiresApproval: false, membersOnly: false });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -161,6 +162,13 @@ function CreateEventDialog({ open, onClose }: { open: boolean; onClose: () => vo
               <p className="text-xs text-muted-foreground">Events must be approved before publishing</p>
             </div>
             <Switch checked={form.requiresApproval} onCheckedChange={setBool("requiresApproval")} />
+          </div>
+          <div className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/8">
+            <div>
+              <p className="text-sm text-white">Members Only</p>
+              <p className="text-xs text-muted-foreground">Hide this event from public site visitors</p>
+            </div>
+            <Switch checked={form.membersOnly} onCheckedChange={setBool("membersOnly")} />
           </div>
         </div>
         <DialogFooter>

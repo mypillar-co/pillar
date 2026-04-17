@@ -58,7 +58,10 @@ export default function MemberLoginPage() {
             {busy ? "Signing in…" : "Sign in"}
           </button>
         </form>
-        <p className="text-xs text-gray-400 mt-6 text-center">
+        <p className="text-xs text-gray-500 mt-4 text-center">
+          <a href="/members/forgot-password" className="underline hover:text-gray-700">Forgot password?</a>
+        </p>
+        <p className="text-xs text-gray-400 mt-3 text-center">
           Don't have an account? Ask your administrator to send you an invite.
         </p>
       </div>
