@@ -764,7 +764,7 @@ function SiteManagementView({
             className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-[#1e3a5f] bg-[#0f1a2e] hover:bg-[#1e3a5f] text-sm text-[#c8d8e8] font-medium transition-colors"
           >
             <RotateCcw className="w-3.5 h-3.5 text-[#7a9cbf]" />
-            Redo the interview
+            Rebuild from scratch
           </button>
           <button
             onClick={() => setAiOpen(!aiOpen)}
@@ -1256,7 +1256,11 @@ export default function CommunityBuilder() {
         {!started && !readyPayload && siteStatus?.isProvisioned && !editMode && (
           <SiteManagementView
             status={siteStatus}
-            onRestart={() => { setEditMode(true); setStarted(true); }}
+            onRestart={() => {
+              if (!window.confirm("This will restart the full interview from scratch. Your current site stays live until you relaunch. Continue?")) return;
+              setEditMode(true);
+              setStarted(true);
+            }}
             onAiEdit={req => void submitAiEdit(req)}
             aiLoading={aiEditLoading}
             aiError={aiEditError}
