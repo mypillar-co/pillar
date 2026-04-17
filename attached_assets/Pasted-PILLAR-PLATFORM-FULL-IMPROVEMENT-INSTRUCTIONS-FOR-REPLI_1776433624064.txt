@@ -1,0 +1,625 @@
+PILLAR PLATFORM — FULL IMPROVEMENT INSTRUCTIONS FOR REPLIT
+
+Read this entire document before touching any file.
+
+THE RULES:
+- Do not delete any existing working route
+- Do not change any database schema column that already has data
+- Do not modify vite.config.ts
+- Do not modify the base-swap logic in artifacts/community-platform/server/index.ts
+- Do not change the Cloudflare Worker
+- Do not change the middleware order in app.ts
+- Every change below is additive or a targeted replacement of a specific broken thing
+- Work through these in order and confirm each one before moving to the next
+
+====================================================================================
+TASK 1: Create deploy-cp.sh
+====================================================================================
+
+Create a new file at the repository root called deploy-cp.sh with this exact content:
+
+#!/bin/bash
+set -e
+
+echo "=========================================="
+echo "Pillar Community Platform Deploy Script"
+echo "=========================================="
+
+echo ""
+echo "Step 1: Building community platform..."
+cd artifacts/community-platform
+pnpm exec vite build
+
+echo ""
+echo "Step 2: Verifying build output..."
+if ! grep -q "/sites/placeholder/assets/" dist/public/index.html; then
+  echo ""
+  echo "BUILD VERIFICATION FAILED"
+  echo "Expected /sites/placeholder/assets/ in dist/public/index.html"
+  echo "This means the base URL is wrong and every tenant site would break."
+  echo "The previous build is still running. No restart performed."
+  echo ""
+  exit 1
+fi
+
+echo "Build verified — /sites/placeholder/assets/ found in index.html"
+
+echo ""
+echo "Step 3: Checking built CSS..."
+if ! find dist/public/assets -name "*.css" | head -1 | xargs grep -l "." > /dev/null 2>&1; then
+  echo "Warning: No CSS files found in build output"
+else
+  echo "CSS assets present"
+fi
+
+echo ""
+echo "All checks passed. Community platform build is safe to deploy."
+echo "Restart the community platform process now."
+echo ""
+
+Make it executable: chmod +x deploy-cp.sh
+
+Add this comment to the top of artifacts/community-platform/vite.config.ts:
+// PROTECTED FILE — after any change here, run deploy-cp.sh from the repo root
+// and verify it exits with code 0 before restarting the CP process.
+// Never restart the CP manually without running this script first.
+
+Add this comment to the top of artifacts/community-platform/server/index.ts:
+// PROTECTED FILE — changes to the catch-all HTML serving or base-swap logic
+// require running deploy-cp.sh after any CP rebuild. The base-swap replaces
+// /sites/placeholder/ with the real org slug at request time. Do not remove it.
+
+====================================================================================
+TASK 2: Fix the healthcheck
+====================================================================================
+
+Expand GET /api/healthz in artifacts/api-server/src/app.ts to check database connectivity. Replace the existing handler with:
+
+app.get("/api/healthz", async (_req, res) => {
+  try {
+    await db.execute(drizzleSql`SELECT 1`);
+    res.json({ status: "ok", db: "ok", ts: new Date().toISOString() });
+  } catch (err) {
+    res.status(503).json({ status: "error", db: "unreachable", ts: new Date().toISOString() });
+  }
+});
+
+Add a healthcheck endpoint to the community platform in artifacts/community-platform/server/routes.ts:
+
+app.get("/api/healthz", (_req, res) => {
+  res.json({ status: "ok", service: "community-platform", ts: new Date().toISOString() });
+});
+
+Fix the healthcheck workflow so it hits the correct URL and expects a 200 response. Confirm the healthcheck goes green before proceeding.
+
+====================================================================================
+TASK 3: Clean slug generation
+====================================================================================
+
+Find every place in the codebase where a new org slug is generated on signup or org creation. This is likely in artifacts/api-server/src/routes/auth.ts and possibly artifacts/api-server/src/routes/organizations.ts. Do not change existing org slugs — this only affects new orgs going forward.
+
+Add this function:
+
+async function generateCleanOrgSlug(name: string): Promise<string> {
+  const base = name
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40) || "org";
+
+  const candidates = [
+    base,
+    `${base}-2`,
+    `${base}-3`,
+    `${base}-4`,
+    `${base}-5`,
+    `${base}-${Math.random().toString(36).slice(2, 6)}`,
+  ];
+
+  for (const slug of candidates) {
+    const existing = await db
+      .select({ id: organizationsTable.id })
+      .from(organizationsTable)
+      .where(eq(organizationsTable.slug, slug))
+      .limit(1);
+    if (existing.length === 0) return slug;
+  }
+  return candidates[candidates.length - 1];
+}
+
+Replace every call to the old slug generation logic with await generateCleanOrgSlug(orgName). Do not touch the PUT /api/organizations slug editing endpoint — that already works correctly.
+
+Also move generateCleanOrgSlug into a standalone file artifacts/api-server/src/lib/slugUtils.ts and export it so it can be imported by tests later.
+
+====================================================================================
+TASK 4: Add Sentry
+====================================================================================
+
+Add Sentry to all three processes. Do not change any existing error handling logic — Sentry is additive only.
+
+Install in each package:
+cd artifacts/api-server && pnpm add @sentry/node
+cd artifacts/community-platform && pnpm add @sentry/node
+cd artifacts/steward && pnpm add @sentry/react @sentry/vite-plugin
+
+Add SENTRY_DSN to Replit secrets. Get the DSN from sentry.io (free account, create a Node.js project and a React project). Also add VITE_SENTRY_DSN with the same value (Vite requires the VITE_ prefix to expose it to the frontend).
+
+At the very top of artifacts/api-server/src/app.ts, before any other imports, add:
+
+import * as Sentry from "@sentry/node";
+if (process.env.SENTRY_DSN) {
+  Sentry.init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0.1 });
+}
+
+Add the Sentry error handler in app.ts immediately before the existing global error handler at the bottom:
+
+if (process.env.SENTRY_DSN) {
+  app.use(Sentry.Handlers.errorHandler());
+}
+
+At the top of artifacts/community-platform/server/index.ts, after existing imports:
+
+import * as Sentry from "@sentry/node";
+if (process.env.SENTRY_DSN) {
+  Sentry.init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0.1 });
+}
+
+In artifacts/steward/src/main.tsx, after existing imports:
+
+import * as Sentry from "@sentry/react";
+if (import.meta.env.VITE_SENTRY_DSN) {
+  Sentry.init({ dsn: import.meta.env.VITE_SENTRY_DSN, tracesSampleRate: 0.1 });
+}
+
+====================================================================================
+TASK 5: Fix the Social accounts grid
+====================================================================================
+
+In artifacts/steward/src/pages/dashboard/Social.tsx, the AccountsSection component shows a grid of cards for Facebook, Instagram, and X with direct OAuth connect buttons. Facebook and Instagram direct OAuth requires Meta app review which is blocked. Do not remove the code — just change what the UI shows.
+
+Find this text in the card:
+: <p className="text-xs text-slate-500">Click Connect to add</p>
+
+Replace with:
+: <p className="text-xs text-slate-500">
+    {["facebook", "instagram", "twitter"].includes(platform)
+      ? "Connect via Buffer above"
+      : "Click Connect to add"}
+  </p>
+
+Also in the ConnectAccountDialog, wrap the entire direct-platform connect section (if it exists outside the Buffer section) in {false && (...)} to hide it without deleting it.
+
+====================================================================================
+TASK 6: Verify email sending actually works
+====================================================================================
+
+In artifacts/api-server/src/routes/events.ts, find the POST /api/events/:id/communications route handler. Check whether it is actually calling Resend or just inserting a record into the database. If it is only inserting without sending, add the actual send after the database insert:
+
+if (attendeeEmails.length > 0) {
+  try {
+    const { Resend } = await import("resend");
+    const resend = new Resend(process.env.RESEND_API_KEY);
+    await resend.emails.send({
+      from: org.senderEmail ?? "noreply@mypillar.co",
+      to: attendeeEmails,
+      subject: subject,
+      text: body,
+    });
+  } catch (emailErr) {
+    logger.error({ emailErr }, "Failed to send communication email");
+    // Do not fail the request — the record is already saved
+  }
+}
+
+The attendeeEmails array should be built by querying ticket_sales for the event and collecting all attendeeEmail values where email is not null. Do not change the database insert — only add the send after it. If Resend is already being called correctly, leave it alone and just confirm with a test send.
+
+====================================================================================
+TASK 7: Fix the Registrations tab backend filter
+====================================================================================
+
+In artifacts/api-server/src/routes/registrations.ts, find GET /api/registrations. Confirm it accepts an eventId query parameter and filters by it. If the filter is missing or broken, replace the handler with:
+
+router.get("/", async (req, res) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+
+  const { eventId } = req.query as { eventId?: string };
+
+  const conditions = [eq(registrationsTable.orgId, org.id)];
+  if (eventId) {
+    conditions.push(eq(registrationsTable.eventId, eventId));
+  }
+
+  const regs = await db
+    .select()
+    .from(registrationsTable)
+    .where(and(...conditions))
+    .orderBy(desc(registrationsTable.createdAt));
+
+  res.json(regs);
+});
+
+Also confirm the registrations table has an eventId column. If it does not, add this migration in the API server startup runMigrations() function:
+
+await db.execute(sql`
+  ALTER TABLE registrations
+  ADD COLUMN IF NOT EXISTS event_id TEXT REFERENCES events(id) ON DELETE SET NULL
+`);
+
+Do not use drizzle-kit push.
+
+====================================================================================
+TASK 8: Add the Members feature
+====================================================================================
+
+This is the largest task. Do it in six parts and confirm each part before moving to the next.
+
+--- PART A: Database migration ---
+
+In the API server's runMigrations() function, add:
+
+await db.execute(sql`
+  CREATE TABLE IF NOT EXISTS members (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    first_name TEXT NOT NULL,
+    last_name TEXT,
+    email TEXT,
+    phone TEXT,
+    member_type TEXT NOT NULL DEFAULT 'general',
+    status TEXT NOT NULL DEFAULT 'active',
+    join_date DATE,
+    renewal_date DATE,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )
+`);
+await db.execute(sql`CREATE INDEX IF NOT EXISTS members_org_id_idx ON members(org_id)`);
+await db.execute(sql`CREATE INDEX IF NOT EXISTS members_status_idx ON members(org_id, status)`);
+
+--- PART B: Drizzle schema ---
+
+Add a new file lib/db/src/schema/members.ts:
+
+import { pgTable, text, date, timestamp } from "drizzle-orm/pg-core";
+
+export const membersTable = pgTable("members", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name"),
+  email: text("email"),
+  phone: text("phone"),
+  memberType: text("member_type").notNull().default("general"),
+  status: text("status").notNull().default("active"),
+  joinDate: date("join_date"),
+  renewalDate: date("renewal_date"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+Export membersTable from lib/db/src/index.ts.
+
+--- PART C: API routes ---
+
+Create artifacts/api-server/src/routes/members.ts with the following content:
+
+import { Router } from "express";
+import { db, membersTable } from "@workspace/db";
+import { eq, and, or, ilike, desc } from "drizzle-orm";
+import { resolveFullOrg } from "../lib/resolveOrg";
+
+const router = Router();
+const VALID_TYPES = new Set(["general", "board", "honorary", "staff", "volunteer"]);
+const VALID_STATUSES = new Set(["active", "inactive", "pending"]);
+
+router.get("/", async (req, res) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+  const { status, type, search } = req.query as { status?: string; type?: string; search?: string };
+  const conditions = [eq(membersTable.orgId, org.id)];
+  if (status && VALID_STATUSES.has(status)) conditions.push(eq(membersTable.status, status));
+  if (type && VALID_TYPES.has(type)) conditions.push(eq(membersTable.memberType, type));
+  if (search) {
+    conditions.push(or(
+      ilike(membersTable.firstName, `%${search}%`),
+      ilike(membersTable.lastName, `%${search}%`),
+      ilike(membersTable.email, `%${search}%`),
+    )!);
+  }
+  const members = await db.select().from(membersTable).where(and(...conditions)).orderBy(desc(membersTable.createdAt));
+  res.json(members);
+});
+
+router.post("/", async (req, res) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+  const { firstName, lastName, email, phone, memberType, status, joinDate, renewalDate, notes } = req.body;
+  if (!firstName) { res.status(400).json({ error: "firstName is required" }); return; }
+  if (memberType && !VALID_TYPES.has(memberType)) { res.status(400).json({ error: `memberType must be one of: ${[...VALID_TYPES].join(", ")}` }); return; }
+  if (status && !VALID_STATUSES.has(status)) { res.status(400).json({ error: `status must be one of: ${[...VALID_STATUSES].join(", ")}` }); return; }
+  const [member] = await db.insert(membersTable).values({
+    id: crypto.randomUUID(), orgId: org.id, firstName,
+    lastName: lastName ?? null, email: email ?? null, phone: phone ?? null,
+    memberType: memberType ?? "general", status: status ?? "active",
+    joinDate: joinDate ?? null, renewalDate: renewalDate ?? null, notes: notes ?? null,
+  }).returning();
+  res.status(201).json(member);
+});
+
+router.put("/:id", async (req, res) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+  const [existing] = await db.select().from(membersTable).where(and(eq(membersTable.id, req.params.id), eq(membersTable.orgId, org.id)));
+  if (!existing) { res.status(404).json({ error: "Member not found" }); return; }
+  const { firstName, lastName, email, phone, memberType, status, joinDate, renewalDate, notes } = req.body;
+  if (memberType && !VALID_TYPES.has(memberType)) { res.status(400).json({ error: `memberType must be one of: ${[...VALID_TYPES].join(", ")}` }); return; }
+  if (status && !VALID_STATUSES.has(status)) { res.status(400).json({ error: `status must be one of: ${[...VALID_STATUSES].join(", ")}` }); return; }
+  const [updated] = await db.update(membersTable).set({
+    firstName: firstName ?? existing.firstName,
+    lastName: lastName !== undefined ? lastName : existing.lastName,
+    email: email !== undefined ? email : existing.email,
+    phone: phone !== undefined ? phone : existing.phone,
+    memberType: memberType ?? existing.memberType,
+    status: status ?? existing.status,
+    joinDate: joinDate !== undefined ? joinDate : existing.joinDate,
+    renewalDate: renewalDate !== undefined ? renewalDate : existing.renewalDate,
+    notes: notes !== undefined ? notes : existing.notes,
+    updatedAt: new Date(),
+  }).where(eq(membersTable.id, req.params.id)).returning();
+  res.json(updated);
+});
+
+router.delete("/:id", async (req, res) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+  const [existing] = await db.select().from(membersTable).where(and(eq(membersTable.id, req.params.id), eq(membersTable.orgId, org.id)));
+  if (!existing) { res.status(404).json({ error: "Member not found" }); return; }
+  await db.delete(membersTable).where(eq(membersTable.id, req.params.id));
+  res.status(204).send();
+});
+
+router.get("/export/csv", async (req, res) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+  const members = await db.select().from(membersTable).where(eq(membersTable.orgId, org.id)).orderBy(membersTable.lastName, membersTable.firstName);
+  const rows = [
+    ["First Name", "Last Name", "Email", "Phone", "Type", "Status", "Join Date", "Renewal Date", "Notes"],
+    ...members.map(m => [m.firstName, m.lastName ?? "", m.email ?? "", m.phone ?? "", m.memberType, m.status, m.joinDate ?? "", m.renewalDate ?? "", m.notes ?? ""]),
+  ];
+  const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", `attachment; filename="members-${Date.now()}.csv"`);
+  res.send(csv);
+});
+
+router.get("/stats", async (req, res) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+  const members = await db.select({ status: membersTable.status, memberType: membersTable.memberType }).from(membersTable).where(eq(membersTable.orgId, org.id));
+  res.json({
+    total: members.length,
+    active: members.filter(m => m.status === "active").length,
+    board: members.filter(m => m.memberType === "board").length,
+    pending: members.filter(m => m.status === "pending").length,
+  });
+});
+
+export default router;
+
+Register the route in artifacts/api-server/src/routes/index.ts:
+import membersRouter from "./members";
+router.use("/members", membersRouter);
+
+--- PART D: Add types and API calls to api.ts ---
+
+In artifacts/steward/src/lib/api.ts, add these types:
+
+export type Member = {
+  id: string; orgId: string; firstName: string; lastName?: string | null;
+  email?: string | null; phone?: string | null; memberType: string; status: string;
+  joinDate?: string | null; renewalDate?: string | null; notes?: string | null;
+  createdAt: string; updatedAt: string;
+};
+
+export type MemberStats = { total: number; active: number; board: number; pending: number; };
+
+Add to the api object:
+
+members: {
+  list: (params?: { status?: string; type?: string; search?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set("status", params.status);
+    if (params?.type) qs.set("type", params.type);
+    if (params?.search) qs.set("search", params.search);
+    const q = qs.toString();
+    return req<Member[]>(`/api/members${q ? `?${q}` : ""}`);
+  },
+  create: (data: Partial<Member>) => req<Member>("/api/members", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<Member>) => req<Member>(`/api/members/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  delete: (id: string) => req<void>(`/api/members/${id}`, { method: "DELETE" }),
+  exportCsv: () => fetch("/api/members/export/csv", { credentials: "include" }),
+  stats: () => req<MemberStats>("/api/members/stats"),
+},
+
+--- PART E: Members page in Steward ---
+
+Create artifacts/steward/src/pages/dashboard/Members.tsx. This is a full member management page with:
+
+- Header with title "Members" and "+ Add Member" button
+- Four stat cards at the top: Total Members, Active, Board Members, Pending
+- Search input and filter dropdowns for Status (all/active/inactive/pending) and Type (all/general/board/honorary/staff/volunteer)
+- Member table with columns: Name, Email, Phone, Type (badge), Status (badge), Join Date, Renewal Date, actions (edit/delete)
+- "Add Member" dialog with fields: First Name (required), Last Name, Email, Phone, Member Type (select), Status (select), Join Date, Renewal Date, Notes
+- "Edit Member" dialog (same fields, pre-populated)
+- CSV Export button that triggers api.members.exportCsv()
+- Empty state with icon when no members exist
+- All styling must match the existing dark dashboard theme using the same Card, Button, Input, Badge, Dialog, Select components used throughout the dashboard
+- Use TanStack Query with queryKey: ["members"] for data fetching and useQueryClient for invalidation after mutations
+- Toast notifications on create/update/delete success and error
+
+Add Members to the sidebar navigation in artifacts/steward/src/components/layout/DashboardLayout.tsx under the People section, between Contacts and Sponsors. Use the Users icon from lucide-react. Route: /dashboard/members.
+
+Add the route in artifacts/steward/src/App.tsx:
+<Route path="/dashboard/members"><DB><Members /></DB></Route>
+
+Import the Members component at the top of App.tsx.
+
+--- PART F: Wire member count into stats ---
+
+In artifacts/api-server/src/routes/stats.ts, find GET /api/stats and add member count to the response. Query the members table for active member count and include it as activeMembersCount in the stats response. Update the Stats type in api.ts to include activeMembersCount: number. Add an "Active Members" stat card to the Overview page in Steward.
+
+====================================================================================
+TASK 9: Add renewal reminders
+====================================================================================
+
+In the API server scheduler (artifacts/api-server/src/scheduler.ts), add a daily job that runs at 9am and checks for members whose renewal_date is 30, 14, or 7 days away. Add this function and schedule it daily:
+
+async function sendMemberRenewalReminders() {
+  try {
+    const orgs = await db.select({ id: organizationsTable.id, name: organizationsTable.name, senderEmail: organizationsTable.senderEmail }).from(organizationsTable);
+    const { Resend } = await import("resend");
+    const resend = new Resend(process.env.RESEND_API_KEY);
+
+    for (const org of orgs) {
+      const today = new Date();
+      for (const days of [30, 14, 7]) {
+        const targetDate = new Date(today);
+        targetDate.setDate(targetDate.getDate() + days);
+        const dateStr = targetDate.toISOString().split("T")[0];
+
+        const dueMembers = await db.select().from(membersTable).where(and(
+          eq(membersTable.orgId, org.id),
+          eq(membersTable.renewalDate, dateStr),
+          eq(membersTable.status, "active"),
+        ));
+
+        for (const member of dueMembers) {
+          if (!member.email) continue;
+          await resend.emails.send({
+            from: org.senderEmail ?? "noreply@mypillar.co",
+            to: member.email,
+            subject: `Your membership with ${org.name} renews in ${days} days`,
+            text: `Hi ${member.firstName},\n\nThis is a reminder that your membership with ${org.name} is due for renewal in ${days} days (${dateStr}).\n\nPlease contact your organization administrator to renew.\n\nThank you for your membership.`,
+          }).catch(() => {});
+        }
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "Member renewal reminder job failed");
+  }
+}
+
+Schedule it to run daily at 9am. Do not change any existing scheduler jobs.
+
+====================================================================================
+TASK 10: Critical path tests
+====================================================================================
+
+Install Vitest in the API server package:
+cd artifacts/api-server && pnpm add -D vitest
+
+Add to artifacts/api-server/package.json scripts:
+"test": "vitest run",
+"test:watch": "vitest"
+
+Create artifacts/api-server/src/__tests__/slugGeneration.test.ts:
+
+import { describe, it, expect, vi } from "vitest";
+
+vi.mock("@workspace/db", () => ({
+  db: { select: vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue([]) }) }) }) },
+  organizationsTable: { id: "id", slug: "slug" },
+}));
+
+import { generateCleanOrgSlug } from "../lib/slugUtils";
+
+describe("generateCleanOrgSlug", () => {
+  it("generates clean slug from org name", async () => {
+    const slug = await generateCleanOrgSlug("Norwin Rotary Club");
+    expect(slug).toBe("norwin-rotary-club");
+  });
+  it("removes special characters", async () => {
+    const slug = await generateCleanOrgSlug("Lions Club #1234!");
+    expect(slug).toBe("lions-club-1234");
+  });
+  it("handles empty string", async () => {
+    const slug = await generateCleanOrgSlug("");
+    expect(slug).toBe("org");
+  });
+  it("truncates long names", async () => {
+    const slug = await generateCleanOrgSlug("A".repeat(100));
+    expect(slug.length).toBeLessThanOrEqual(40);
+  });
+});
+
+Create artifacts/api-server/src/__tests__/tokenCrypto.test.ts:
+
+import { describe, it, expect } from "vitest";
+import { encryptToken, decryptToken } from "../lib/tokenCrypto";
+
+describe("tokenCrypto", () => {
+  it("encrypts and decrypts a token round-trip", () => {
+    const original = "test-access-token-abc123";
+    const encrypted = encryptToken(original);
+    expect(encrypted).not.toBe(original);
+    const decrypted = decryptToken(encrypted);
+    expect(decrypted).toBe(original);
+  });
+  it("produces different ciphertext for same input", () => {
+    const token = "same-token";
+    const enc1 = encryptToken(token);
+    const enc2 = encryptToken(token);
+    expect(enc1).not.toBe(enc2);
+  });
+});
+
+Create artifacts/api-server/src/__tests__/baseSwap.test.ts:
+
+import { describe, it, expect } from "vitest";
+
+function swapBasePath(html: string, realSlug: string): string {
+  return html.replace(/\/sites\/placeholder\//g, `/sites/${realSlug}/`);
+}
+
+describe("base URL swap", () => {
+  it("replaces placeholder with real slug", () => {
+    const html = '<script src="/sites/placeholder/assets/index.js"></script>';
+    const result = swapBasePath(html, "norwin-rotary");
+    expect(result).toBe('<script src="/sites/norwin-rotary/assets/index.js"></script>');
+  });
+  it("replaces all occurrences", () => {
+    const html = "/sites/placeholder/assets/a.js /sites/placeholder/assets/b.css";
+    const result = swapBasePath(html, "my-org");
+    expect(result).not.toContain("/sites/placeholder/");
+    expect(result).toContain("/sites/my-org/assets/a.js");
+    expect(result).toContain("/sites/my-org/assets/b.css");
+  });
+  it("does not modify html without placeholder", () => {
+    const html = '<script src="/assets/index.js"></script>';
+    const result = swapBasePath(html, "my-org");
+    expect(result).toBe(html);
+  });
+});
+
+====================================================================================
+SUMMARY
+====================================================================================
+
+Task 1  deploy-cp.sh created         Prevents bad CP builds from killing all tenant sites
+Task 2  Healthcheck expanded          DB connectivity check, fix false failures
+Task 3  Clean slug generation         New orgs get professional URLs not name-w47h
+Task 4  Sentry added                  Automatic error alerting across all three processes
+Task 5  Social accounts grid          Hide broken direct OAuth, point to Buffer
+Task 6  Email sending verified        Communications tab actually delivers emails
+Task 7  Registrations filter          EventDetail registrations tab filters by event correctly
+Task 8  Members feature               Full member roster, the biggest product gap
+Task 9  Renewal reminders             Automated email reminders at 30/14/7 days
+Task 10 Critical path tests           Catches regressions before they hit production
+
+NOTHING WAS REMOVED. All existing routes, all existing UI, all existing data continues to work exactly as before.
