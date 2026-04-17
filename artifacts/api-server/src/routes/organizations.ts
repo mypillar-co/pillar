@@ -547,18 +547,10 @@ router.get("/organizations/hero-image/suggest", async (req: Request, res: Respon
       baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
     });
 
-    // Step 1: pre-filter the full library to only live photos (parallel HEAD checks)
-    const liveChecks = await Promise.all(
-      HERO_PHOTO_LIBRARY.map(async (p) => {
-        const url = `https://images.unsplash.com/photo-${p.id}?auto=format&fit=crop&w=400&q=70`;
-        try {
-          const r = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(4000) });
-          return r.ok ? p : null;
-        } catch { return null; }
-      })
-    );
-    const livePhotos = liveChecks.filter((p): p is typeof HERO_PHOTO_LIBRARY[0] => p !== null);
-    if (livePhotos.length === 0) throw new Error("No photos available right now");
+    // Library photos are hardcoded, curated Unsplash CDN URLs — no runtime
+    // verification needed. Outbound HEAD checks were unreliable in this
+    // environment and caused the route to return zero photos.
+    const livePhotos = HERO_PHOTO_LIBRARY;
 
     // Step 2: AI ranks only the live photos — guarantees top-6 are all reachable
     const libraryJson = livePhotos.map((p, i) => `${i}: ${p.description}`).join("\n");
