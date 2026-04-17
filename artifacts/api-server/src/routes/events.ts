@@ -8,6 +8,7 @@ import {
   ticketSalesTable,
   eventApprovalsTable,
   eventCommunicationsTable,
+  eventWaitlistTable,
   recurringEventTemplatesTable,
 } from "@workspace/db";
 import { eq, and, asc, desc, gte, sum, sql } from "drizzle-orm";
@@ -1145,8 +1146,144 @@ router.post("/:id/sales", async (req: Request, res: Response) => {
 router.delete("/:eventId/sales/:saleId", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
-  await db.delete(ticketSalesTable).where(and(eq(ticketSalesTable.id, String(req.params.saleId)), eq(ticketSalesTable.orgId, org.id)));
+  const eventId = String(req.params.eventId);
+  // Constrain delete to the route's event so a malformed request can't
+  // delete a sale belonging to one event while triggering notify on another.
+  const deleted = await db
+    .delete(ticketSalesTable)
+    .where(and(
+      eq(ticketSalesTable.id, String(req.params.saleId)),
+      eq(ticketSalesTable.orgId, org.id),
+      eq(ticketSalesTable.eventId, eventId),
+    ))
+    .returning({ id: ticketSalesTable.id });
+  if (deleted.length === 0) {
+    res.status(404).json({ error: "Sale not found" });
+    return;
+  }
+
+  // After deleting a sale, check if anyone is waiting and notify the first person
+  try {
+    const [nextWaiting] = await db
+      .select()
+      .from(eventWaitlistTable)
+      .where(and(
+        eq(eventWaitlistTable.eventId, eventId),
+        eq(eventWaitlistTable.status, "waiting"),
+      ))
+      .orderBy(eventWaitlistTable.createdAt)
+      .limit(1);
+
+    if (nextWaiting && process.env.RESEND_API_KEY) {
+      const [event] = await db.select({ name: eventsTable.name, slug: eventsTable.slug })
+        .from(eventsTable).where(eq(eventsTable.id, eventId));
+      const [orgRow] = await db.select({ slug: organizationsTable.slug, senderEmail: organizationsTable.senderEmail })
+        .from(organizationsTable).where(eq(organizationsTable.id, org.id));
+
+      if (event && orgRow) {
+        const eventUrl = `https://${orgRow.slug}.mypillar.co/events/${event.slug}`;
+        let sent = false;
+        try {
+          const { Resend } = await import("resend");
+          const resend = new Resend(process.env.RESEND_API_KEY);
+          await resend.emails.send({
+            from: orgRow.senderEmail ?? "noreply@mypillar.co",
+            to: nextWaiting.email,
+            subject: `A spot opened up — ${event.name}`,
+            text: `Hi ${nextWaiting.name},\n\nA spot has opened up for ${event.name}. Visit ${eventUrl} to grab your ticket.`,
+          });
+          sent = true;
+        } catch (sendErr) {
+          console.error("[waitlist auto-notify] send failed:", sendErr);
+        }
+
+        // Only mark as notified if the email actually went out — otherwise
+        // leave them as 'waiting' so a future cancellation can retry.
+        if (sent) {
+          await db.update(eventWaitlistTable)
+            .set({ status: "notified", notifiedAt: new Date() })
+            .where(eq(eventWaitlistTable.id, nextWaiting.id));
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[waitlist auto-notify] non-fatal error:", err);
+  }
+
   res.status(204).send();
+});
+
+// ─────────────────────────────────────────────────────────────────
+// Waitlist (admin)
+// ─────────────────────────────────────────────────────────────────
+
+router.get("/:id/waitlist", async (req: Request, res: Response) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+
+  const waitlist = await db
+    .select()
+    .from(eventWaitlistTable)
+    .where(and(
+      eq(eventWaitlistTable.eventId, String(req.params.id)),
+      eq(eventWaitlistTable.orgId, org.id),
+    ))
+    .orderBy(eventWaitlistTable.createdAt);
+
+  res.json(waitlist);
+});
+
+router.post("/:id/waitlist/:waitlistId/notify", async (req: Request, res: Response) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+
+  const [entry] = await db
+    .select()
+    .from(eventWaitlistTable)
+    .where(and(
+      eq(eventWaitlistTable.id, String(req.params.waitlistId)),
+      eq(eventWaitlistTable.orgId, org.id),
+    ));
+  if (!entry) { res.status(404).json({ error: "Waitlist entry not found" }); return; }
+
+  const [event] = await db
+    .select({ name: eventsTable.name, slug: eventsTable.slug })
+    .from(eventsTable)
+    .where(eq(eventsTable.id, String(req.params.id)));
+  if (!event) { res.status(404).json({ error: "Event not found" }); return; }
+
+  const [orgRow] = await db
+    .select({ slug: organizationsTable.slug, senderEmail: organizationsTable.senderEmail })
+    .from(organizationsTable)
+    .where(eq(organizationsTable.id, org.id));
+
+  if (!process.env.RESEND_API_KEY) {
+    res.status(503).json({ error: "Email is not configured. Set RESEND_API_KEY to send notifications." });
+    return;
+  }
+
+  try {
+    const { Resend } = await import("resend");
+    const resend = new Resend(process.env.RESEND_API_KEY);
+    const eventUrl = `https://${orgRow.slug}.mypillar.co/events/${event.slug}`;
+
+    await resend.emails.send({
+      from: orgRow.senderEmail ?? "noreply@mypillar.co",
+      to: entry.email,
+      subject: `A spot opened up — ${event.name}`,
+      text: `Hi ${entry.name},\n\nGood news! A spot has opened up for ${event.name}.\n\nVisit ${eventUrl} to grab your ticket.`,
+    });
+
+    await db
+      .update(eventWaitlistTable)
+      .set({ status: "notified", notifiedAt: new Date() })
+      .where(eq(eventWaitlistTable.id, entry.id));
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[waitlist notify] send failed:", err);
+    res.status(500).json({ error: "Failed to send notification" });
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────

@@ -5,7 +5,7 @@ import {
   ArrowLeft, Calendar, MapPin, Edit2, Save, X, Loader2, Trash2,
   Ticket, DollarSign, Users, Send, CheckCircle, XCircle, Plus,
   MessageSquare, RefreshCw, Sparkles, ClipboardList, Mail,
-  ExternalLink, Copy, ChevronDown, ChevronUp,
+  ExternalLink, Copy, ChevronDown, ChevronUp, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -39,7 +39,18 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
-type Tab = "overview" | "registrations" | "attendees" | "communication";
+type Tab = "overview" | "registrations" | "attendees" | "communication" | "waitlist";
+
+type WaitlistEntry = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  quantity: number;
+  status: string;
+  notifiedAt: string | null;
+  createdAt: string;
+};
 
 type Registration = {
   id: string;
@@ -255,6 +266,35 @@ export default function EventDetailPage() {
     queryFn: () => fetch("/api/organizations", { credentials: "include" }).then(r => r.json()),
   });
 
+  const { data: waitlist = [] } = useQuery<WaitlistEntry[]>({
+    queryKey: ["event-waitlist", id],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/events/${id}/waitlist`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json() as Promise<WaitlistEntry[]>;
+    },
+    enabled: !!id,
+  });
+
+  const notifyWaitlistMutation = useMutation({
+    mutationFn: (waitlistId: string) =>
+      fetch(`${BASE}/api/events/${id}/waitlist/${waitlistId}/notify`, {
+        method: "POST",
+        credentials: "include",
+      }).then(async (r) => {
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}));
+          throw new Error((data as { error?: string }).error ?? "Failed to notify");
+        }
+        return r.json();
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["event-waitlist", id] });
+      toast.success("Notification sent");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const detail = data as EventDetail | undefined;
   const event = detail?.event;
 
@@ -419,6 +459,7 @@ export default function EventDetailPage() {
     { key: "registrations", label: "Registrations", icon: ClipboardList, count: pendingRegs.length || undefined },
     { key: "attendees", label: "Attendees", icon: Users, count: detail?.totalSold || undefined },
     { key: "communication", label: "Communication", icon: Mail },
+    { key: "waitlist", label: "Waitlist", icon: Clock, count: (waitlist as WaitlistEntry[]).filter(w => w.status === "waiting").length || undefined },
   ];
 
   return (
@@ -935,6 +976,56 @@ export default function EventDetailPage() {
               <MessageSquare className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
               <p className="text-muted-foreground">No messages sent yet</p>
               <p className="text-xs text-muted-foreground/60 mt-1">Messages you send to attendees will appear here</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── WAITLIST TAB ── */}
+      {tab === "waitlist" && (
+        <div className="space-y-4">
+          {(waitlist as WaitlistEntry[]).length === 0 ? (
+            <div className="text-center py-16 border border-dashed border-white/10 rounded-xl">
+              <Clock className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-muted-foreground">No one on the waitlist</p>
+              <p className="text-xs text-muted-foreground/60 mt-1">When the event sells out, sign-ups will appear here</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {(waitlist as WaitlistEntry[]).map((entry) => (
+                <Card key={entry.id} className="border-white/10 bg-card/60">
+                  <CardContent className="p-3 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-white truncate">{entry.name}</p>
+                        {entry.status === "notified" ? (
+                          <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/20 text-[10px]">Notified</Badge>
+                        ) : (
+                          <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/20 text-[10px]">Waiting</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">{entry.email}{entry.phone ? ` · ${entry.phone}` : ""}</p>
+                      <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                        Qty {entry.quantity} · joined {new Date(entry.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        {entry.notifiedAt ? ` · notified ${new Date(entry.notifiedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={entry.status === "notified" || (notifyWaitlistMutation.isPending && notifyWaitlistMutation.variables === entry.id)}
+                      onClick={() => notifyWaitlistMutation.mutate(entry.id)}
+                      className="shrink-0"
+                    >
+                      {notifyWaitlistMutation.isPending && notifyWaitlistMutation.variables === entry.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <><Send className="w-3.5 h-3.5 mr-1.5" />Notify</>
+                      )}
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           )}
         </div>

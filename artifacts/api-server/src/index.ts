@@ -33,6 +33,25 @@ attachProcessErrorHandlers();
 
 async function runMigrations() {
   try {
+    // Event waitlist (Task 1) — capture interested attendees for sold-out events
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS event_waitlist (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        org_id varchar NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+        event_id varchar NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+        ticket_type_id varchar REFERENCES ticket_types(id) ON DELETE SET NULL,
+        name text NOT NULL,
+        email text NOT NULL,
+        phone text,
+        quantity integer NOT NULL DEFAULT 1,
+        status text NOT NULL DEFAULT 'waiting',
+        notified_at timestamptz,
+        created_at timestamptz NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS event_waitlist_event_idx ON event_waitlist(event_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS event_waitlist_status_idx ON event_waitlist(event_id, status)`);
+
     await db.execute(sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS show_on_public_site boolean DEFAULT true`);
     await db.execute(sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS featured_on_site boolean DEFAULT false`);
     await db.execute(sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS has_sponsor_section boolean DEFAULT false`);

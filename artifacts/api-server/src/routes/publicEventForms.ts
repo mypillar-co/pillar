@@ -10,7 +10,7 @@
  */
 
 import { Router, type Request, type Response } from "express";
-import { db, organizationsTable, eventsTable, registrationsTable, eventSponsorsTable, sponsorsTable, ticketSalesTable, ticketTypesTable } from "@workspace/db";
+import { db, organizationsTable, eventsTable, registrationsTable, eventSponsorsTable, sponsorsTable, ticketSalesTable, ticketTypesTable, eventWaitlistTable } from "@workspace/db";
 import { eq, and, or, sql, inArray } from "drizzle-orm";
 
 const router = Router();
@@ -156,6 +156,89 @@ router.post("/events/:slug/register", async (req: Request, res: Response) => {
 });
 
 // ─── Public query router (mounted at /api root) ───────────────────────────────
+// POST /api/public/events/:eventId/waitlist — join waitlist for a sold-out event
+router.post("/events/:eventId/waitlist", async (req: Request, res: Response) => {
+  try {
+    const { name, email, phone, quantity, ticketTypeId } = req.body as {
+      name?: string; email?: string; phone?: string;
+      quantity?: number; ticketTypeId?: string;
+    };
+
+    if (!name || !email) {
+      res.status(400).json({ error: "name and email are required" });
+      return;
+    }
+
+    // Tenant-safe lookup: event slugs are only unique per org, so we MUST
+    // scope by org. The CP proxy injects x-org-id with the org slug
+    // (see artifacts/api-server/src/app.ts) for any request originating from
+    // a community site. Without that context we cannot safely resolve a slug.
+    const orgSlugHeader = req.header("x-org-id");
+    if (!orgSlugHeader) {
+      res.status(400).json({ error: "Missing tenant context" });
+      return;
+    }
+
+    const [tenantOrg] = await db
+      .select({ id: organizationsTable.id })
+      .from(organizationsTable)
+      .where(eq(organizationsTable.slug, orgSlugHeader));
+    if (!tenantOrg) {
+      res.status(404).json({ error: "Organization not found" });
+      return;
+    }
+
+    // Accept either an event id or slug, but always scoped to this org
+    const eventIdOrSlug = String(req.params.eventId);
+    const [event] = await db
+      .select({ id: eventsTable.id, orgId: eventsTable.orgId, name: eventsTable.name })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.orgId, tenantOrg.id),
+        or(eq(eventsTable.id, eventIdOrSlug), eq(eventsTable.slug, eventIdOrSlug)),
+        eq(eventsTable.status, "published"),
+        eq(eventsTable.isActive, true),
+      ));
+
+    if (!event) {
+      res.status(404).json({ error: "Event not found" });
+      return;
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const existing = await db
+      .select({ id: eventWaitlistTable.id })
+      .from(eventWaitlistTable)
+      .where(and(
+        eq(eventWaitlistTable.eventId, event.id),
+        eq(eventWaitlistTable.email, normalizedEmail),
+        eq(eventWaitlistTable.status, "waiting"),
+      ));
+
+    if (existing.length > 0) {
+      res.json({ ok: true, message: "You are already on the waitlist." });
+      return;
+    }
+
+    await db.insert(eventWaitlistTable).values({
+      orgId: event.orgId,
+      eventId: event.id,
+      ticketTypeId: ticketTypeId ?? null,
+      name: name.trim(),
+      email: normalizedEmail,
+      phone: phone ?? null,
+      quantity: quantity ?? 1,
+      status: "waiting",
+    });
+
+    res.json({ ok: true, message: "You have been added to the waitlist." });
+  } catch (err) {
+    console.error("[waitlist] join error:", err);
+    res.status(500).json({ error: "Failed to join waitlist" });
+  }
+});
+
 export const publicQueryRouter = Router();
 
 // ─── GET /api/event-sponsors.json?event=<slug> ────────────────────────────────

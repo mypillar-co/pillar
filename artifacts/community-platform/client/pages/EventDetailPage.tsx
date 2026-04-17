@@ -114,9 +114,12 @@ function TicketSection({ slug, eventTitle }: { slug: string; eventTitle: string 
   if (!avail.available) {
     return (
       <section id="ticket-purchase" className="border-y border-gray-200 bg-white">
-        <div className="max-w-lg mx-auto px-4 py-12 text-center">
-          <h2 className="text-2xl font-bold font-serif mb-2">Sold Out</h2>
-          <p className="text-gray-500">All tickets for {eventTitle} have been sold.</p>
+        <div className="max-w-lg mx-auto px-4 py-12">
+          <h2 className="text-2xl font-bold font-serif text-center mb-2">Sold Out</h2>
+          <p className="text-gray-500 text-center text-sm mb-8">
+            All tickets for {eventTitle} have been sold. Join the waitlist and we'll notify you if a spot opens up.
+          </p>
+          <WaitlistForm eventId={slug} eventTitle={eventTitle} />
         </div>
       </section>
     );
@@ -193,5 +196,64 @@ function TicketSection({ slug, eventTitle }: { slug: string; eventTitle: string 
         </form>
       </div>
     </section>
+  );
+}
+
+function WaitlistForm({ eventId, eventTitle: _eventTitle }: { eventId: string; eventTitle: string }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !email.trim()) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await apiFetch(`/api/public/events/${eventId}/waitlist`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      setDone(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (done) {
+    return (
+      <div className="text-center py-6">
+        <p className="text-green-600 font-medium">You're on the waitlist!</p>
+        <p className="text-gray-500 text-sm mt-1">We'll email you if a spot opens up.</p>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium mb-1">Full Name</label>
+        <input type="text" value={name} onChange={e => setName(e.target.value)} required
+          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+      </div>
+      <div>
+        <label className="block text-sm font-medium mb-1">Email</label>
+        <input type="email" value={email} onChange={e => setEmail(e.target.value)} required
+          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+      </div>
+      {error && <p className="text-red-500 text-sm">{error}</p>}
+      <button type="submit" disabled={loading}
+        className="w-full py-3 text-white rounded-md font-medium disabled:opacity-50"
+        style={{ backgroundColor: "var(--primary-hex)" }}>
+        {loading ? "Joining…" : "Join Waitlist"}
+      </button>
+    </form>
   );
 }

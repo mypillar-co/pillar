@@ -48,3 +48,4 @@ export * from "./orgSiteContent";
 export * from "./photoAlbums";
 export * from "./hookEventLog";
 export * from "./members";
+export * from "./waitlist";
