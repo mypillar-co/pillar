@@ -1170,14 +1170,33 @@ router.post("/:id/communications", async (req: Request, res: Response) => {
   const { subject, body } = req.body as { subject?: string; body?: string };
   if (!subject || !body) { res.status(400).json({ error: "subject and body are required" }); return; }
   const sales = await db.select({ email: ticketSalesTable.attendeeEmail }).from(ticketSalesTable).where(eq(ticketSalesTable.eventId, eventId));
-  const uniqueEmails = new Set(sales.map(s => s.email).filter(Boolean));
+  const uniqueEmails = Array.from(new Set(sales.map(s => s.email).filter((e): e is string => !!e)));
   const [comm] = await db.insert(eventCommunicationsTable).values({
     eventId,
     orgId: org.id,
     subject: String(subject),
     body: String(body),
-    recipientCount: uniqueEmails.size,
+    recipientCount: uniqueEmails.length,
   }).returning();
+
+  // After inserting the communication record, send the actual email.
+  // If RESEND_API_KEY isn't set, we skip silently — the record is still saved.
+  if (uniqueEmails.length > 0 && process.env.RESEND_API_KEY) {
+    try {
+      const { Resend } = await import("resend");
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      await resend.emails.send({
+        from: org.senderEmail ?? "noreply@mypillar.co",
+        to: uniqueEmails,
+        subject: String(subject),
+        text: String(body),
+      });
+    } catch (emailErr) {
+      console.error("[event communications] Failed to send email:", emailErr);
+      // Do not fail the request — the record is already saved.
+    }
+  }
+
   res.status(201).json(comm);
 });
 

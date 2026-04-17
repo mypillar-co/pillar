@@ -983,7 +983,11 @@ function AccountsSection({ accounts, onRefresh }: { accounts: SocialAccount[]; o
                 <p className="text-sm font-medium text-white mb-0.5">{meta.label}</p>
                 {account
                   ? <p className="text-xs text-slate-400 truncate">{account.accountName}</p>
-                  : <p className="text-xs text-slate-500">Click Connect to add</p>
+                  : <p className="text-xs text-slate-500">
+                      {["buffer_facebook", "buffer_instagram", "buffer_twitter"].includes(platform)
+                        ? "Connect via Buffer above"
+                        : "Click Connect to add"}
+                    </p>
                 }
                 {account && (
                   <Button

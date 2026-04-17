@@ -262,9 +262,10 @@ router.get("/registrations", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
 
-  const { status } = req.query as { status?: string };
+  const { status, eventId } = req.query as { status?: string; eventId?: string };
   const conditions = [eq(registrationsTable.orgId, org.id)];
   if (status) conditions.push(eq(registrationsTable.status, status));
+  if (eventId) conditions.push(eq(registrationsTable.eventId, eventId));
 
   const rows = await db
     .select()
