@@ -703,15 +703,15 @@ function SiteManagementView({
               Open full site <ExternalLink className="w-3 h-3" />
             </a>
           </div>
-          <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
+          <div className="relative w-full" style={{ paddingBottom: "75%" }}>
             <iframe
               src={status.url}
               className="absolute inset-0 w-full h-full border-0"
               style={{
-                transform: "scale(0.75)",
+                transform: "scale(0.8)",
                 transformOrigin: "top left",
-                width: "133.33%",
-                height: "133.33%",
+                width: "125%",
+                height: "125%",
               }}
               title="Site preview"
               sandbox="allow-scripts allow-same-origin"

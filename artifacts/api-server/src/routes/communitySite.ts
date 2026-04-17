@@ -41,6 +41,7 @@ function getOpenAIClient() {
   return new OpenAI({
     apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
     baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+    timeout: 60_000,
   });
 }
 
@@ -770,9 +771,13 @@ Apply the change and return the COMPLETE updated configuration as a single valid
 Keep all existing fields. Only modify what the user asked to change.
 Return only the JSON object, no markdown, no explanation.`;
 
+    // Allow Express to keep this connection open up to 90s for slow AI edits
+    req.setTimeout(90_000);
+    res.setTimeout(90_000);
+
     const aiRaw = await Promise.race<string>([
       callAI([{ role: "user", content: prompt }], 1200),
-      new Promise<string>((_, reject) => setTimeout(() => reject(new Error("timeout")), 20_000)),
+      new Promise<string>((_, reject) => setTimeout(() => reject(new Error("timeout")), 60_000)),
     ]);
 
     const jsonStart = aiRaw.indexOf("{");
