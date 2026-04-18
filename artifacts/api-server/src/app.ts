@@ -151,6 +151,26 @@ function pipeToCommunityPlatform(
     headers: headers as httpModule.OutgoingHttpHeaders,
   };
   const proxyReq = httpModule.request(options, (proxyRes) => {
+    const contentType = (proxyRes.headers["content-type"] ?? "") as string;
+    if (contentType.includes("text/html")) {
+      const chunks: Buffer[] = [];
+      proxyRes.on("data", (chunk: Buffer) => chunks.push(chunk));
+      proxyRes.on("end", () => {
+        const html = Buffer.concat(chunks).toString("utf8");
+        const swapped = html.replace(/\/sites\/placeholder\//g, "/");
+        const outHeaders: Record<string, string | string[]> = {};
+        for (const [k, v] of Object.entries(proxyRes.headers)) {
+          if (v === undefined) continue;
+          const lk = k.toLowerCase();
+          if (lk === "content-length" || lk === "transfer-encoding") continue;
+          outHeaders[k] = v as string | string[];
+        }
+        outHeaders["content-length"] = String(Buffer.byteLength(swapped));
+        res.writeHead(proxyRes.statusCode ?? 200, outHeaders);
+        res.end(swapped);
+      });
+      return;
+    }
     res.writeHead(
       proxyRes.statusCode ?? 200,
       proxyRes.headers as httpModule.OutgoingHttpHeaders,
