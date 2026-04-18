@@ -9,29 +9,47 @@ const router = Router();
 /**
  * Mirror a dashboard photo album into the community-platform tables
  * (cs_photo_albums) so it shows up on the public {slug}.mypillar.co/gallery page.
- * The two table sets share the same Postgres database but use different ID types
- * (api-server: UUID, CP: serial), so we match by (org_id, title) instead of by id.
+ * The two table sets share the same Postgres database but use different ID schemes:
+ *   - api-server tables (photo_albums, album_photos): org_id = organizations.id (UUID)
+ *   - public-site tables (cs_*): org_id = organizations.slug (string slug)
+ * So we look up the slug and use it as org_id for the CP rows. The CP album id
+ * is a separate serial, so we match by (slug + title) to be idempotent.
  * Best-effort — failure must not block the dashboard write.
  */
+async function getOrgSlug(orgIdUuid: string): Promise<string | null> {
+  const r = await db.execute(sql`SELECT slug FROM organizations WHERE id = ${orgIdUuid} LIMIT 1`);
+  return r.rows[0] ? String((r.rows[0] as { slug: string }).slug) : null;
+}
+
 async function ensurePillarAlbum(
-  orgId: string,
+  orgIdUuid: string,
   title: string,
   description: string | null,
-): Promise<number | null> {
+): Promise<{ csAlbumId: number; orgSlug: string } | null> {
   try {
+    const orgSlug = await getOrgSlug(orgIdUuid);
+    if (!orgSlug) {
+      console.warn("[photoAlbums] mirror skipped — no slug for org", orgIdUuid);
+      return null;
+    }
+
     const existing = await db.execute(sql`
       SELECT id FROM cs_photo_albums
-      WHERE org_id = ${orgId} AND title = ${title}
+      WHERE org_id = ${orgSlug} AND title = ${title}
       ORDER BY id LIMIT 1
     `);
-    if (existing.rows[0]) return Number((existing.rows[0] as { id: number }).id);
+    if (existing.rows[0]) {
+      return { csAlbumId: Number((existing.rows[0] as { id: number }).id), orgSlug };
+    }
 
     const inserted = await db.execute(sql`
       INSERT INTO cs_photo_albums (org_id, title, description)
-      VALUES (${orgId}, ${title}, ${description})
+      VALUES (${orgSlug}, ${title}, ${description})
       RETURNING id
     `);
-    return inserted.rows[0] ? Number((inserted.rows[0] as { id: number }).id) : null;
+    return inserted.rows[0]
+      ? { csAlbumId: Number((inserted.rows[0] as { id: number }).id), orgSlug }
+      : null;
   } catch (err) {
     console.warn("[photoAlbums] mirror album to community site failed:", err);
     return null;
@@ -39,7 +57,7 @@ async function ensurePillarAlbum(
 }
 
 async function mirrorPhotosToPillar(
-  orgId: string,
+  orgSlug: string,
   csAlbumId: number,
   photos: { url: string; caption?: string }[],
 ): Promise<void> {
@@ -47,7 +65,7 @@ async function mirrorPhotosToPillar(
     for (const p of photos) {
       await db.execute(sql`
         INSERT INTO cs_album_photos (org_id, album_id, url, caption)
-        VALUES (${orgId}, ${csAlbumId}, ${p.url}, ${p.caption?.trim() ?? null})
+        VALUES (${orgSlug}, ${csAlbumId}, ${p.url}, ${p.caption?.trim() ?? null})
       `);
     }
     await db.execute(sql`
