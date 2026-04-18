@@ -1059,7 +1059,9 @@ export function registerRoutes(app: Express) {
       if (!email || !password) return res.status(400).json({ error: "Email and password required." });
       const rows = await db.execute(neonSql`
         SELECT id, password_hash, registered_at FROM members
-        WHERE org_id = ANY(${orgIds}::text[]) AND email = ${email.trim().toLowerCase()} LIMIT 1
+        WHERE org_id IN (${neonSql.join(orgIds.map((id) => neonSql`${id}`), neonSql`, `)})
+          AND email = ${email.trim().toLowerCase()}
+        LIMIT 1
       `);
       const row = (rows.rows[0] as Record<string, unknown> | undefined) || null;
       if (!row || !row.password_hash || !row.registered_at) {
@@ -1148,7 +1150,8 @@ export function registerRoutes(app: Express) {
         SELECT m.id, m.first_name, m.email, o.slug AS org_slug, o.name AS org_name
         FROM members m
         JOIN organizations o ON o.id = m.org_id OR o.slug = m.org_id
-        WHERE m.org_id = ANY(${orgIds}::text[]) AND lower(m.email) = ${email}
+        WHERE m.org_id IN (${neonSql.join(orgIds.map((id) => neonSql`${id}`), neonSql`, `)})
+          AND lower(m.email) = ${email}
           AND m.registered_at IS NOT NULL
         LIMIT 1
       `);
@@ -1227,7 +1230,7 @@ export function registerRoutes(app: Express) {
     const rows = await db.execute(neonSql`
       SELECT id, first_name, last_name, email, phone, member_type, title, bio, photo_url
       FROM members
-      WHERE org_id = ANY(${orgIds}::text[])
+      WHERE org_id IN (${neonSql.join(orgIds.map((id) => neonSql`${id}`), neonSql`, `)})
         AND show_in_directory = true
         AND registered_at IS NOT NULL
         AND status = 'active'
@@ -1285,7 +1288,7 @@ export function registerRoutes(app: Express) {
     const rows = await db.execute(neonSql`
       SELECT id, first_name, last_name, email, phone, member_type, status,
              registered_at, show_in_directory, title
-      FROM members WHERE org_id = ANY(${orgIds}::text[])
+      FROM members WHERE org_id IN (${neonSql.join(orgIds.map((id) => neonSql`${id}`), neonSql`, `)})
       ORDER BY last_name ASC NULLS LAST, first_name ASC
     `);
     res.json(rows.rows);
