@@ -14,6 +14,10 @@ const EXEMPT_PREFIXES = [
   "/api/stripe/webhook",
   "/api/hooks/",
   "/api/service/",
+  // /sites/{slug}/* requests are proxied to the community-platform server,
+  // which manages its own session/auth. Running CSRF here blocks all member
+  // POST flows (register, login, contact, etc.) on the public site.
+  "/sites/",
 ];
 
 function isExempt(path: string): boolean {
