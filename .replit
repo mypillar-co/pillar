@@ -102,4 +102,4 @@ VITE_SENTRY_DSN = "https://d0167ff10604af75e2198ecb4b12cf05@o4511232703463424.in
 ADMIN_USER_IDS = "53650667,56678663"
 ADMIN_EMAILS = "steward.ai.app@gmail.com,ampaluch@hotmail.com,irwincarcruise@gmail.com,andrewplaich01@gmail.com, matt@fighttheblightinc.com"
 SERVICE_API_KEY = "f8d531dbc2b53a8a15ab08bca95d4dd09bc19e3266155b69c96f99ca68138096"
-PILLAR_SERVICE_KEY = "f8d531dbc2b53a8a15ab08bca95d4dd09bc19e3266155b69c96f99ca68138096"
+PILLAR_SERVICE_KEY = "wZ83d9Tlgf8cygYIM69SmB7R2wsqwq1s3znPXSbMh-BR5TAyuNgtOFqbLF1OQTf2"
