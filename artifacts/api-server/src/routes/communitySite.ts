@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { db, organizationsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { resolveFullOrg } from "../lib/resolveOrg";
+import { getSectionRegistryPrompt, validateSection } from "../lib/sectionRegistry";
 import OpenAI from "openai";
 import { load as cheerioLoad } from "cheerio";
 
@@ -298,6 +299,7 @@ function buildFallbackPayload(
     meetingLocation: meeting.meetingLocation,
     logoUrl:         null,
     heroImageUrl:    null,
+    sections:        [],
     footerText:      `${orgName} is a volunteer organization serving the ${location} community.`,
     metaDescription: `${orgName} — ${tagline}. Community events, programs, and more in ${location}.`,
     stats: [
@@ -791,6 +793,8 @@ router.post("/ai-edit", async (req: Request, res: Response) => {
 Current values for the fields you may change (JSON):
 ${JSON.stringify(subset, null, 2)}
 
+${getSectionRegistryPrompt()}
+
 The user wants to make this change:
 "${changeRequest.trim()}"
 
@@ -815,6 +819,13 @@ Return only the JSON object, no markdown, no explanation.`;
     }
 
     const aiFields = JSON.parse(aiRaw.slice(jsonStart, jsonEnd + 1)) as Record<string, unknown>;
+
+    if (aiFields.sections && Array.isArray(aiFields.sections)) {
+      aiFields.sections = (aiFields.sections as unknown[]).filter(
+        (s): s is Record<string, unknown> =>
+          typeof s === "object" && s !== null && validateSection(s as Record<string, unknown>),
+      );
+    }
 
     // Merge the AI's edited fields back into the full config.
     // For object values (e.g. siteContent), deep-merge so the AI returning a
