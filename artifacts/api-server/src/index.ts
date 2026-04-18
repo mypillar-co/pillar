@@ -322,6 +322,12 @@ async function main() {
     logger.warn({ err }, "Stripe sync init failed — billing features may be limited");
   }
 
+  try {
+    const { execSync } = await import("child_process");
+    execSync(`fuser -k ${port}/tcp`, { stdio: "ignore" });
+  } catch {
+  }
+
   const server = app.listen(port, (err) => {
     if (err) {
       logger.error({ err }, "Error listening on port");

@@ -335,6 +335,12 @@ async function startServer() {
     app.use(vite.middlewares);
   }
 
+  try {
+    const { execSync } = await import("child_process");
+    execSync(`fuser -k ${PORT}/tcp`, { stdio: "ignore" });
+  } catch {
+  }
+
   const server = createServer(app);
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`Community platform listening on port ${PORT}`);
