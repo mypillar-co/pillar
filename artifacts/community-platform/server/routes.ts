@@ -71,6 +71,37 @@ function getOrgId(req: Request): string {
   return "default";
 }
 
+// The shared `members` (and a few other) tables store org_id as the
+// `organizations.id` UUID, while CP-owned tables (cs_org_configs,
+// cs_announcements, …) store the slug. `getOrgId` returns whatever the host
+// gave us (slug in production), so for the shared tables we have to accept
+// either form. Resolve once per slug and cache for 5 minutes.
+const orgUuidCache = new Map<string, { uuid: string | null; expiresAt: number }>();
+async function resolveOrgUuid(slug: string): Promise<string | null> {
+  const now = Date.now();
+  const cached = orgUuidCache.get(slug);
+  if (cached && cached.expiresAt > now) return cached.uuid;
+  try {
+    const r = await db.execute(neonSql`
+      SELECT id FROM organizations WHERE slug = ${slug} OR id = ${slug} LIMIT 1
+    `);
+    const uuid = (r.rows[0] as Record<string, unknown> | undefined)?.id as string | undefined;
+    orgUuidCache.set(slug, { uuid: uuid ?? null, expiresAt: now + 5 * 60_000 });
+    return uuid ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Returns the list of org_id values to accept for the current request: the
+// host-derived slug plus the resolved UUID (if any). Use with `= ANY(...)`
+// in shared-table queries.
+async function getOrgIdCandidates(req: Request): Promise<string[]> {
+  const slug = getOrgId(req);
+  const uuid = await resolveOrgUuid(slug);
+  return uuid && uuid !== slug ? [slug, uuid] : [slug];
+}
+
 function hexToHsl(hex: string): string {
   const r = parseInt(hex.slice(1, 3), 16) / 255;
   const g = parseInt(hex.slice(3, 5), 16) / 255;
@@ -972,6 +1003,7 @@ export function registerRoutes(app: Express) {
   app.post("/api/members/register", async (req, res) => {
     try {
       const orgId = getOrgId(req);
+      const orgIds = await getOrgIdCandidates(req);
       const { token, password } = req.body as { token?: string; password?: string };
       if (!token || !password) {
         return res.status(400).json({ error: "Token and password required." });
@@ -984,7 +1016,7 @@ export function registerRoutes(app: Express) {
         FROM members WHERE registration_token = ${token} LIMIT 1
       `);
       const row = (rows.rows[0] as Record<string, unknown> | undefined) || null;
-      if (!row || row.org_id !== orgId) {
+      if (!row || !orgIds.includes(String(row.org_id))) {
         return res.status(404).json({ error: "Invitation not found or does not belong to this organization." });
       }
       if (row.registered_at) {
@@ -1022,11 +1054,12 @@ export function registerRoutes(app: Express) {
   app.post("/api/members/login", async (req, res) => {
     try {
       const orgId = getOrgId(req);
+      const orgIds = await getOrgIdCandidates(req);
       const { email, password } = req.body as { email?: string; password?: string };
       if (!email || !password) return res.status(400).json({ error: "Email and password required." });
       const rows = await db.execute(neonSql`
         SELECT id, password_hash, registered_at FROM members
-        WHERE org_id = ${orgId} AND email = ${email.trim().toLowerCase()} LIMIT 1
+        WHERE org_id = ANY(${orgIds}::text[]) AND email = ${email.trim().toLowerCase()} LIMIT 1
       `);
       const row = (rows.rows[0] as Record<string, unknown> | undefined) || null;
       if (!row || !row.password_hash || !row.registered_at) {
@@ -1106,6 +1139,7 @@ export function registerRoutes(app: Express) {
   app.post("/api/members/forgot-password", async (req, res) => {
     try {
       const orgId = getOrgId(req);
+      const orgIds = await getOrgIdCandidates(req);
       const rawEmail = (req.body?.email ?? "") as string;
       const email = rawEmail.trim().toLowerCase();
       if (!email) return res.status(400).json({ error: "Email is required." });
@@ -1114,7 +1148,7 @@ export function registerRoutes(app: Express) {
         SELECT m.id, m.first_name, m.email, o.slug AS org_slug, o.name AS org_name
         FROM members m
         JOIN organizations o ON o.id = m.org_id OR o.slug = m.org_id
-        WHERE m.org_id = ${orgId} AND lower(m.email) = ${email}
+        WHERE m.org_id = ANY(${orgIds}::text[]) AND lower(m.email) = ${email}
           AND m.registered_at IS NOT NULL
         LIMIT 1
       `);
@@ -1153,6 +1187,7 @@ export function registerRoutes(app: Express) {
   app.post("/api/members/reset-password", async (req, res) => {
     try {
       const orgId = getOrgId(req);
+      const orgIds = await getOrgIdCandidates(req);
       const { token, password } = (req.body ?? {}) as { token?: string; password?: string };
       if (!token || !password) return res.status(400).json({ error: "Token and password required." });
       if (password.length < 8) return res.status(400).json({ error: "Password must be at least 8 characters." });
@@ -1161,7 +1196,7 @@ export function registerRoutes(app: Express) {
         WHERE reset_token = ${token} LIMIT 1
       `);
       const row = rows.rows[0] as Record<string, unknown> | undefined;
-      if (!row || row.org_id !== orgId) {
+      if (!row || !orgIds.includes(String(row.org_id))) {
         return res.status(404).json({ error: "Invalid or expired link." });
       }
       const exp = row.reset_token_expires_at ? new Date(String(row.reset_token_expires_at)) : null;
@@ -1188,11 +1223,11 @@ export function registerRoutes(app: Express) {
 
   // GET /api/members/directory — registered members who opted in
   app.get("/api/members/directory", requireMember, async (req, res) => {
-    const orgId = getOrgId(req);
+    const orgIds = await getOrgIdCandidates(req);
     const rows = await db.execute(neonSql`
       SELECT id, first_name, last_name, email, phone, member_type, title, bio, photo_url
       FROM members
-      WHERE org_id = ${orgId}
+      WHERE org_id = ANY(${orgIds}::text[])
         AND show_in_directory = true
         AND registered_at IS NOT NULL
         AND status = 'active'
@@ -1246,11 +1281,11 @@ export function registerRoutes(app: Express) {
 
   // GET /api/admin/members — list all members (for in-site admin)
   app.get("/api/admin/members", requireAuth, async (req, res) => {
-    const orgId = (req.session as any).orgId || getOrgId(req);
+    const orgIds = await getOrgIdCandidates(req);
     const rows = await db.execute(neonSql`
       SELECT id, first_name, last_name, email, phone, member_type, status,
              registered_at, show_in_directory, title
-      FROM members WHERE org_id = ${orgId}
+      FROM members WHERE org_id = ANY(${orgIds}::text[])
       ORDER BY last_name ASC NULLS LAST, first_name ASC
     `);
     res.json(rows.rows);
