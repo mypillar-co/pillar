@@ -9,8 +9,6 @@ import { load as cheerioLoad } from "cheerio";
 import { promises as dnsPromises } from "dns";
 import { isIP } from "net";
 import * as ipaddr from "ipaddr.js";
-import { ObjectStorageService } from "../lib/objectStorage";
-import type { ObjectAclPolicy } from "../lib/objectAcl";
 
 const router = Router();
 
@@ -355,17 +353,11 @@ function extractPageContent(html: string, baseUrl?: URL): ExtractedPage {
   const ogTitle = $('meta[property="og:title"]').attr("content")?.trim() ?? "";
   const ogDescription = $('meta[property="og:description"]').attr("content")?.trim() ?? "";
 
-  // ── Extract images and branding BEFORE stripping ──────────────────────────
-  const base = baseUrl ?? new URL("https://example.com");
-
-  // og:image is usually the most representative image
-  const ogImage = $('meta[property="og:image"]').attr("content")?.trim() ?? "";
-  const ogImageAbs = ogImage ? toAbsoluteUrl(ogImage, base) : null;
-
-  // Favicon/touch-icon hrefs extracted before head is stripped (used later for logo fallback)
-  const _appleTouchIconHref = $('link[rel="apple-touch-icon"]').attr("href") ?? "";
-  const _plainFaviconHref =
-    $('link[rel="icon"]').attr("href") ?? $('link[rel="shortcut icon"]').attr("href") ?? "";
+  // ── Extract branding text BEFORE stripping ────────────────────────────────
+  // NOTE: Image scraping (logo/hero/gallery) is intentionally NOT performed.
+  // Per scope: text content only — org name, contact info, social, description.
+  const _base = baseUrl ?? new URL("https://example.com");
+  void _base;
 
   // ── Extract JSON-LD structured data BEFORE stripping scripts ─────────────
   let jsonLdText = "";
@@ -396,69 +388,10 @@ function extractPageContent(html: string, baseUrl?: URL): ExtractedPage {
   const brandColors: string[] = [];
   if (themeColor && /^#[0-9a-f]{3,8}$/i.test(themeColor)) brandColors.push(themeColor);
 
-  // ── Logo detection BEFORE stripping — check all lazy-load src attrs ───────
-  // Priority chain:
-  // 1. Img with "logo" in src/alt/class (explicit branding markup)
-  // 2. First img in header/nav (almost always the org logo)
-  // 3. First img inside a home-link anchor
-  // 4. og:image
-  // 5. Apple-touch-icon (high-res icon designed for display)
-  // 6. Standard favicon (last resort)
-  const appleTouchIconAbs = _appleTouchIconHref ? toAbsoluteUrl(_appleTouchIconHref, base) : null;
-  const plainFaviconAbs = _plainFaviconHref ? toAbsoluteUrl(_plainFaviconHref, base) : null;
-
-  let explicitLogoAbs: string | null = null;
-  $('img[src*="logo" i], img[alt*="logo" i], img[class*="logo" i], img[id*="logo" i], img[data-src*="logo" i]').each((_i, el) => {
-    if (explicitLogoAbs) return;
-    const src = getRealSrc($(el), $);
-    if (src) explicitLogoAbs = toAbsoluteUrl(src, base);
-  });
-
-  let headerNavLogoAbs: string | null = null;
-  $("header img, nav img, #header img, #nav img, .header img, .navbar img, .nav img, .site-header img, .top-bar img, .site-branding img, .brand img, .logo img").each((_i, el) => {
-    if (headerNavLogoAbs) return;
-    const src = getRealSrc($(el), $);
-    if (src) headerNavLogoAbs = toAbsoluteUrl(src, base);
-  });
-
-  let homeLinkLogoAbs: string | null = null;
-  $('a[href="/"] img, a[href="./"] img, a[href="index.html"] img, a[href="../"] img, .navbar-brand img, .site-logo img').each((_i, el) => {
-    if (homeLinkLogoAbs) return;
-    const src = getRealSrc($(el), $);
-    if (src) homeLinkLogoAbs = toAbsoluteUrl(src, base);
-  });
-
-  // ── Strip all non-visible elements ────────────────────────────────────────
+  // ── Strip all non-visible elements (images included — scope: text only) ───
   $(
-    "script, style, noscript, head, meta, link, iframe, svg, canvas, template, [aria-hidden='true']"
+    "script, style, noscript, head, meta, link, iframe, svg, canvas, template, img, picture, video, audio, source, [aria-hidden='true']"
   ).remove();
-
-  // ── Extract body images AFTER removing head/script ────────────────────────
-  const bodyImageUrls: string[] = [];
-  $("img").each((_i, el) => {
-    const src = getRealSrc($(el), $);
-    if (!src) return;
-    const abs = toAbsoluteUrl(src, base);
-    if (!abs) return;
-    const lower = abs.toLowerCase();
-    if (/icon|logo|avatar|sprite|pixel|badge|seal|emblem|1x1|blank/i.test(lower)) return;
-    if (bodyImageUrls.length < 8) bodyImageUrls.push(abs);
-  });
-
-  const logoUrl =
-    explicitLogoAbs ??
-    headerNavLogoAbs ??
-    homeLinkLogoAbs ??
-    appleTouchIconAbs ??
-    ogImageAbs ??
-    plainFaviconAbs ??
-    "";
-
-  // Hero: og:image first, then first non-logo body image
-  const heroUrl = ogImageAbs ?? (bodyImageUrls.length > 0 ? bodyImageUrls[0] : "") ?? "";
-
-  // Additional images: body images, skip the one used as hero
-  const imageUrls = bodyImageUrls.filter(u => u !== heroUrl).slice(0, 4);
 
   // ── Extract body text ─────────────────────────────────────────────────────
   let bodyText = ($("body").text() || $.text())
@@ -493,9 +426,6 @@ function extractPageContent(html: string, baseUrl?: URL): ExtractedPage {
     metaDescription,
     ogTitle,
     ogDescription,
-    logoUrl,
-    heroUrl,
-    imageUrls,
     jsonLdText,
     brandColors,
     bodyText,
@@ -593,85 +523,17 @@ type ImportedSiteData = {
   audience: string;
   style: string;
   extra: string;
-  /** Re-hosted path for the org logo (e.g. /api/storage/object/uploads/uuid) — never an external hotlink */
-  logoUrl?: string;
-  /** Re-hosted path for the hero image */
-  heroUrl?: string;
-  /** Re-hosted paths for additional gallery images */
-  imageUrls?: string[];
   /** Summary counts for the crawl presentation to the user */
   crawlMeta?: {
     eventsFound: number;
     programsFound: number;
     boardMembersFound: number;
-    hasLogo: boolean;
-    hasHero: boolean;
-    imagesDownloaded: number;
-    imagesFailed: number;
-    warnings: string[];
   };
 };
 
-// ─── Download & re-host a single image from an external URL ──────────────────
-// Returns the /api/storage/object/... path on success, or null on failure.
-// Verifies the response is actually an image (Content-Type check + min size).
-// NEVER returns the external URL — re-hosting is mandatory per spec.
-const _crawlObjectStorage = new ObjectStorageService();
-const IMAGE_DOWNLOAD_TIMEOUT_MS = 8_000;
-const IMAGE_MIN_BYTES = 2_000; // < 2 KB is likely a tracking pixel or icon
-
-async function downloadAndRehostImage(
-  externalUrl: string,
-  label: string,
-): Promise<{ path: string; warning?: string } | null> {
-  let parsedImg: URL;
-  try { parsedImg = new URL(externalUrl); } catch { return null; }
-  if (!["http:", "https:"].includes(parsedImg.protocol)) return null;
-
-  try {
-    const resp = await fetch(externalUrl, {
-      signal: AbortSignal.timeout(IMAGE_DOWNLOAD_TIMEOUT_MS),
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; Pillar-Importer/1.0; +https://mypillar.co)" },
-    });
-    if (!resp.ok) return null;
-
-    const contentType = (resp.headers.get("content-type") ?? "").toLowerCase().split(";")[0].trim();
-    // Spec rule: MUST be image/* — if we get text/html the URL returned an error page
-    if (!contentType.startsWith("image/")) {
-      return { path: "", warning: `${label}: URL returned ${contentType} (not an image) — skipped` };
-    }
-
-    const buffer = Buffer.from(await resp.arrayBuffer());
-    if (buffer.byteLength < IMAGE_MIN_BYTES) {
-      return { path: "", warning: `${label}: file too small (${buffer.byteLength} bytes) — likely an icon or tracking pixel, skipped` };
-    }
-
-    // Upload to object storage via signed PUT URL
-    const signedUploadUrl = await _crawlObjectStorage.getObjectEntityUploadURL();
-    const putResp = await fetch(signedUploadUrl, {
-      method: "PUT",
-      body: buffer,
-      headers: { "Content-Type": contentType },
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!putResp.ok) {
-      return { path: "", warning: `${label}: upload failed (${putResp.status})` };
-    }
-
-    // Set ACL to public so the public site can load it without auth
-    const aclPolicy: ObjectAclPolicy = { owner: "system", visibility: "public" };
-    await _crawlObjectStorage.trySetObjectEntityAclPolicy(signedUploadUrl, aclPolicy);
-
-    // Return the normalized internal path (/objects/uploads/{uuid})
-    const normalizedPath = _crawlObjectStorage.normalizeObjectEntityPath(signedUploadUrl);
-    // Convert to the public-facing /api/storage/object/... path
-    const publicPath = normalizedPath.replace(/^\/objects\//, "/api/storage/object/");
-    return { path: publicPath };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { path: "", warning: `${label}: download error — ${msg.slice(0, 80)}` };
-  }
-}
+// NOTE: Image download/re-hosting is intentionally NOT implemented.
+// Per scope: the URL importer extracts text only and never touches images
+// or media files from the scraped site (security/copyright concerns).
 
 router.post("/import-url", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -742,62 +604,9 @@ router.post("/import-url", async (req: Request, res: Response) => {
     return;
   }
 
-  // ── Sub-page crawling — fetch all relevant internal pages ────────────────
-  // Priority: keyword-matching pages first (about, events, programs, contact);
-  // then any remaining internal links up to the total cap.
-  const subPageKeywords = /about|contact|programs?|services?|events?|history|mission|who-we-are|what-we-do|join|member|volunteer|donat|fund/i;
-  const seenUrls = new Set([parsedUrl.href]);
-  const subPageTexts: string[] = [];
-
-  try {
-    const homeDom = cheerioLoad(rawHtml);
-    const priorityLinks: string[] = [];
-    const otherLinks: string[] = [];
-
-    homeDom("a[href]").each((_i, el) => {
-      const href = homeDom(el).attr("href")?.trim() ?? "";
-      if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) return;
-      try {
-        const abs = new URL(href, parsedUrl).href;
-        if (new URL(abs).hostname !== parsedUrl.hostname) return;
-        if (seenUrls.has(abs)) return;
-        seenUrls.add(abs);
-        const isKeyword = subPageKeywords.test(abs) || subPageKeywords.test(homeDom(el).text());
-        if (isKeyword) priorityLinks.push(abs);
-        else otherLinks.push(abs);
-      } catch { /* ignore invalid URLs */ }
-    });
-
-    // Keyword pages first, then fill with other internal pages up to 10 total
-    const subPageLinks = [...priorityLinks, ...otherLinks].slice(0, 10);
-
-    // Fetch up to 10 sub-pages in parallel with short timeout
-    const SUB_TIMEOUT = 8_000;
-    const subFetches = subPageLinks.map(async (link) => {
-      try {
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), SUB_TIMEOUT);
-        const resp = await safeFetch(new URL(link), {
-          signal: ctrl.signal,
-          headers: { "User-Agent": "Mozilla/5.0 (compatible; Pillar-Importer/1.0; +https://mypillar.co)", Accept: "text/html" },
-        });
-        clearTimeout(t);
-        if (!resp.ok) return;
-        const ct = resp.headers.get("content-type") ?? "";
-        if (!ct.includes("text/html")) return;
-        const subHtml = await resp.text();
-        const subContent = extractPageContent(subHtml, new URL(link));
-        if (subContent.bodyText.length > 100) {
-          subPageTexts.push(`=== SUB-PAGE: ${link} ===\n${subContent.bodyText.slice(0, 4000)}`);
-        }
-      } catch { /* ignore sub-page errors */ }
-    });
-    await Promise.all(subFetches);
-  } catch { /* sub-page crawling is best-effort */ }
-
-  // ── Combine all scraped content ───────────────────────────────────────────
-  const allContent = [pageContent.combined, ...subPageTexts].join("\n\n");
-  const plainText = allContent.slice(0, MAX_TEXT_CHARS);
+  // ── Homepage only — no sub-page crawling ─────────────────────────────────
+  // Per scope: one HTTP request, one page. Internal-link following was removed.
+  const plainText = pageContent.combined.slice(0, MAX_TEXT_CHARS);
 
   // Build a structured context block that puts the most reliable signals first
   const metaBlock = [
@@ -873,50 +682,15 @@ ${plainText}`;
     return;
   }
 
-  // ── Download & re-host images (spec: NEVER hotlink) ───────────────────────
-  const warnings: string[] = [];
-  let rehostedLogoPath: string | undefined;
-  let rehostedHeroPath: string | undefined;
-  const rehostedGalleryPaths: string[] = [];
-  let imagesDownloaded = 0;
-  let imagesFailed = 0;
-
-  const imageDownloads: Array<{ url: string; label: string; role: "logo" | "hero" | "gallery" }> = [];
-  if (pageContent.logoUrl) imageDownloads.push({ url: pageContent.logoUrl, label: "Logo", role: "logo" });
-  if (pageContent.heroUrl && pageContent.heroUrl !== pageContent.logoUrl) imageDownloads.push({ url: pageContent.heroUrl, label: "Hero image", role: "hero" });
-  pageContent.imageUrls.slice(0, 3).forEach((u, i) => {
-    if (u !== pageContent.logoUrl && u !== pageContent.heroUrl) {
-      imageDownloads.push({ url: u, label: `Gallery image ${i + 1}`, role: "gallery" });
-    }
-  });
-
-  await Promise.all(imageDownloads.map(async ({ url, label, role }) => {
-    const result = await downloadAndRehostImage(url, label);
-    if (result?.warning) warnings.push(result.warning);
-    if (!result || !result.path) { imagesFailed++; return; }
-    imagesDownloaded++;
-    if (role === "logo" && !rehostedLogoPath) rehostedLogoPath = result.path;
-    else if (role === "hero" && !rehostedHeroPath) rehostedHeroPath = result.path;
-    else if (role === "gallery") rehostedGalleryPaths.push(result.path);
-  }));
-
-  // Compute crawl summary counts for the post-crawl presentation
+  // ── Compute crawl summary counts (text-only — no image processing) ───────
   const eventsFound = extracted.events ? extracted.events.split("\n").filter(l => l.trim()).length : 0;
   const programsFound = extracted.services ? extracted.services.split(/[,\n]/).filter(s => s.trim()).length : 0;
   const boardMembersFound = extracted.leadership ? extracted.leadership.split("\n").filter(l => l.trim()).length : 0;
 
-  extracted.logoUrl = rehostedLogoPath;
-  extracted.heroUrl = rehostedHeroPath;
-  extracted.imageUrls = rehostedGalleryPaths.length > 0 ? rehostedGalleryPaths : undefined;
   extracted.crawlMeta = {
     eventsFound,
     programsFound,
     boardMembersFound,
-    hasLogo: !!rehostedLogoPath,
-    hasHero: !!rehostedHeroPath,
-    imagesDownloaded,
-    imagesFailed,
-    warnings,
   };
 
   res.json({ data: extracted, url: parsedUrl.toString() });
