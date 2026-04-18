@@ -27,6 +27,7 @@ import ApprovalQueue from "./pages/dashboard/ApprovalQueue";
 import RecurringTemplates from "./pages/dashboard/RecurringTemplates";
 import Vendors from "./pages/dashboard/Vendors";
 import Members from "./pages/dashboard/Members";
+import MembersPortal from "./pages/dashboard/MembersPortal";
 import Sponsors from "./pages/dashboard/Sponsors";
 import Contacts from "./pages/dashboard/Contacts";
 import Payments from "./pages/dashboard/Payments";
@@ -119,6 +120,7 @@ function AppRouter() {
       <Route path="/dashboard/events"><DB><Events /></DB></Route>
       <Route path="/dashboard/vendors"><DB><Vendors /></DB></Route>
       <Route path="/dashboard/members"><DB><Members /></DB></Route>
+      <Route path="/dashboard/members-portal"><DB><MembersPortal /></DB></Route>
       <Route path="/dashboard/sponsors"><DB><Sponsors /></DB></Route>
       <Route path="/dashboard/contacts"><DB><Contacts /></DB></Route>
       <Route path="/dashboard/payments"><DB><Payments /></DB></Route>

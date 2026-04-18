@@ -53,6 +53,7 @@ Organizations with `site_config` are served via a universal React template. This
 - **Custom Domain Management**: Support for domain purchasing, external domains, DNS/SSL checks, and auto-renewal.
 - **Dashboard Getting Started Checklist**: Onboarding checklist for new users.
 - **Tier Gating**: Features are restricted based on subscription tiers, with prompts for upgrades.
+- **Members Portal (v1)**: Each org gets a private, login-gated members area at `/members` (on its `*.mypillar.co` site). When the first member is added, the api-server auto-provisions a starter portal config tailored to the org's vertical (fraternal lodges get notices + dues prominently; PTA/PTOs get committee sign-ups; Rotary/Kiwanis get committees + meeting schedule; etc.). Section types live in a registry (`artifacts/api-server/src/lib/sectionRegistry.ts`) tagged by surface (`public` vs `portal`). Storage: `organizations.site_config.membersPortal` mirrored to `cs_org_configs.features.membersPortal` via the existing pillar-sync PATCH path — no schema migration needed. Admins edit/reorder/AI-suggest sections from the **Members Portal** dashboard tab.
 
 ### AI Model Strategy
 - **Chat & Spec Extraction**: `gpt-5-mini` for reasoning and structured JSON output.

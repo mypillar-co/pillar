@@ -918,6 +918,33 @@ export function registerRoutes(app: Express) {
     }
   });
 
+  // GET /api/members-portal/config — returns the portal sections + welcome
+  // blurb stored on cs_org_configs.features.membersPortal. Login-gated because
+  // notices/dues/etc are members-only by definition.
+  app.get("/api/members-portal/config", async (req, res) => {
+    try {
+      const m = getMember(req);
+      const orgId = getOrgId(req);
+      if (!m || m.orgId !== orgId) {
+        return res.status(401).json({ error: "Not signed in" });
+      }
+      const cfg = await storage.getOrgConfig(orgId);
+      const features = ((cfg?.features ?? {}) as Record<string, unknown>);
+      const portal = (features.membersPortal as
+        | { sections?: unknown[]; provisionedAt?: string }
+        | undefined) ?? { sections: [] };
+      const sections = Array.isArray(portal.sections) ? portal.sections : [];
+      res.json({
+        sections,
+        provisionedAt: portal.provisionedAt ?? null,
+        orgName: cfg?.orgName ?? null,
+      });
+    } catch (err: any) {
+      console.error("[members-portal/config] failed", err);
+      res.status(500).json({ error: "Failed to load portal config" });
+    }
+  });
+
   // ─────────────────────────────────────────────────────────────────────────────
   // MEMBER PORTAL — auth, profile, directory, announcements, members-only admin.
   // Operates on the shared `members` and `cs_announcements` tables. The Pillar

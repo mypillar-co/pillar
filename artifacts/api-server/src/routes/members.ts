@@ -6,6 +6,7 @@ import { resolveFullOrg } from "../lib/resolveOrg";
 import { sendEmail } from "../mailer";
 import { logger } from "../lib/logger";
 import { syncOrgConfigPatchToPillar } from "../lib/pillarOrgSync";
+import { ensureMembersPortalProvisioned } from "../lib/membersPortalProvision";
 
 const router = Router();
 
@@ -165,6 +166,9 @@ router.post("/", async (req: Request, res: Response) => {
 
   // Best-effort: turn on the members feature on the community site nav.
   void ensureMembersFeatureEnabled(org.id);
+  // Best-effort: auto-provision the members portal sections on first member
+  // add. Idempotent — no-op if a portal config already exists.
+  void ensureMembersPortalProvisioned(org.id);
 
   const [member] = await db
     .select()

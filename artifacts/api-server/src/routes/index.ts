@@ -33,6 +33,7 @@ import serviceApiRouter from "./serviceApi";
 import communitySiteRouter from "./communitySite";
 import photoAlbumsRouter from "./photoAlbums";
 import membersRouter from "./members";
+import membersPortalRouter from "./membersPortal";
 import announcementsRouter from "./announcements";
 import internalMembersRouter from "./internalMembers";
 
@@ -73,6 +74,7 @@ router.use("/org", publicOrgRouter);
 router.use("/service", serviceApiRouter);
 router.use("/community-site", communitySiteRouter);
 router.use("/members", membersRouter);
+router.use("/members-portal", membersPortalRouter);
 router.use("/announcements", announcementsRouter);
 router.use("/internal", internalMembersRouter);
 
