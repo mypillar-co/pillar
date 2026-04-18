@@ -499,7 +499,7 @@ export default function Members() {
           if (!o) setAddForm(EMPTY_FORM);
         }}
       >
-        <DialogContent className="bg-[hsl(224,30%,14%)] border-white/10 text-white max-w-2xl">
+        <DialogContent className="bg-[hsl(224,30%,14%)] border-white/10 text-white max-w-2xl max-h-[90vh] overflow-y-auto w-[calc(100%-1rem)] sm:w-full">
           <DialogHeader>
             <DialogTitle>Add Member</DialogTitle>
           </DialogHeader>
@@ -521,7 +521,7 @@ export default function Members() {
 
       {/* Edit Member Dialog */}
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
-        <DialogContent className="bg-[hsl(224,30%,14%)] border-white/10 text-white max-w-2xl">
+        <DialogContent className="bg-[hsl(224,30%,14%)] border-white/10 text-white max-w-2xl max-h-[90vh] overflow-y-auto w-[calc(100%-1rem)] sm:w-full">
           <DialogHeader>
             <DialogTitle>Edit Member</DialogTitle>
           </DialogHeader>
