@@ -96,12 +96,59 @@ function pipeToCommunityPlatform(
   res: Response,
   orgSlug: string,
 ): void {
+  // express.json() / express.urlencoded() run before this middleware and
+  // consume the request body stream. If req.body was parsed, we must
+  // re-serialize it and write it to the proxy request explicitly — otherwise
+  // req.pipe(proxyReq) on a drained stream sends no body and CP hangs
+  // waiting for the request body to arrive.
+  const headers: Record<string, string | string[] | undefined> = {
+    ...req.headers,
+    "x-org-id": orgSlug,
+    host: "localhost:5001",
+  };
+
+  let bodyBuf: Buffer | null = null;
+  const method = (req.method || "GET").toUpperCase();
+  const ct = (req.headers["content-type"] as string | undefined) ?? "";
+  // Detect "body was already parsed by express.json/urlencoded" via content-type
+  // rather than key-count, so empty `{}` / `[]` payloads are still re-serialized
+  // (otherwise content-length stays > 0 but the drained stream sends 0 bytes
+  // and the upstream hangs waiting for the body).
+  const bodyWasParsed =
+    method !== "GET" &&
+    method !== "HEAD" &&
+    req.body !== undefined &&
+    req.body !== null &&
+    !Buffer.isBuffer(req.body) &&
+    typeof req.body === "object" &&
+    (ct.includes("application/json") ||
+      ct.includes("application/x-www-form-urlencoded"));
+
+  if (bodyWasParsed) {
+    if (ct.includes("application/x-www-form-urlencoded")) {
+      const params = new URLSearchParams();
+      for (const [k, v] of Object.entries(
+        req.body as Record<string, unknown>,
+      )) {
+        if (v == null) continue;
+        params.append(k, typeof v === "string" ? v : JSON.stringify(v));
+      }
+      bodyBuf = Buffer.from(params.toString());
+      headers["content-type"] = "application/x-www-form-urlencoded";
+    } else {
+      bodyBuf = Buffer.from(JSON.stringify(req.body));
+      headers["content-type"] = "application/json";
+    }
+    headers["content-length"] = String(bodyBuf.length);
+    delete headers["transfer-encoding"];
+  }
+
   const options: httpModule.RequestOptions = {
     hostname: "localhost",
     port: 5001,
     path: req.url,
     method: req.method,
-    headers: { ...req.headers, "x-org-id": orgSlug, host: "localhost:5001" },
+    headers: headers as httpModule.OutgoingHttpHeaders,
   };
   const proxyReq = httpModule.request(options, (proxyRes) => {
     res.writeHead(
@@ -117,7 +164,12 @@ function pipeToCommunityPlatform(
       res.end("Community platform unavailable");
     }
   });
-  req.pipe(proxyReq, { end: true });
+
+  if (bodyBuf) {
+    proxyReq.end(bodyBuf);
+  } else {
+    req.pipe(proxyReq, { end: true });
+  }
 }
 
 app.use(
