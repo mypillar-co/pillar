@@ -138,7 +138,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "list_events",
-        description: "List all active events for this org, with ticket sales stats.",
+        description: "Show all events on the site including past, upcoming, active, and inactive. Use when the user says 'list our events', 'show me our events', 'what events do we have', 'what's on the calendar'.",
         parameters: {
           type: "object",
           properties: {
@@ -151,7 +151,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "create_event",
-        description: "Create a new event and publish it to the public site immediately.",
+        description: "Add a new event to the site with name, date, time, location, and description. Use when the user says 'add an event', 'create an event', 'schedule a new event', 'put a fundraiser on the calendar', 'we have a meeting next Thursday'.",
         parameters: {
           type: "object",
           required: ["title"],
@@ -178,7 +178,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "update_event",
-        description: "Update fields on an existing event. Look up the event slug from list_events if needed.",
+        description: "Change details on an existing event — name, date, time, location, description, or ticket info. Use when the user says 'change the event time', 'move our meeting', 'update the gala location', 'the date changed'. Does not delete the event. Look up the event slug from list_events if needed.",
         parameters: {
           type: "object",
           required: ["slug"],
@@ -210,7 +210,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "delete_event",
-        description: "Soft-delete an event (marks it inactive, removes from public site). Only use after the user has explicitly confirmed.",
+        description: "Cancel and hide an event from the public site. This is a soft delete — the record remains but is marked inactive and cancelled. Use when the user says 'cancel the event', 'delete that meeting', 'we're not doing the fundraiser anymore', 'remove it from the calendar'. Always confirm before deleting.",
         parameters: {
           type: "object",
           required: ["slug"],
@@ -226,7 +226,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "get_ticket_sales",
-        description: "Get detailed ticket sales for a specific event.",
+        description: "Show ticket sales numbers, revenue, and attendee count for a specific event. Use when the user says 'how many tickets did we sell', 'how's the gala selling', 'what's our revenue on the fundraiser', 'how many people are coming'.",
         parameters: {
           type: "object",
           required: ["slug"],
@@ -244,7 +244,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "list_pending_sponsors",
-        description: "List sponsor applications that are pending approval.",
+        description: "Show sponsor applications that have not yet been approved or rejected. Use when the user says 'who applied to sponsor', 'show pending sponsors', 'any new sponsor applications', 'anything to review'.",
         parameters: { type: "object", properties: {} },
       },
     },
@@ -252,7 +252,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "decide_sponsor",
-        description: "Approve or reject a pending sponsor application.",
+        description: "Approve or reject a pending sponsor application. Use when the user says 'approve that sponsor', 'accept Acme Corp as a sponsor', 'reject the pending one', 'yes to the sponsor application'.",
         parameters: {
           type: "object",
           required: ["registrationId", "decision"],
@@ -267,7 +267,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "add_sponsor",
-        description: "Manually add a sponsor directly (bypassing application flow).",
+        description: "Manually add a sponsor that did not come through an application form — typically for recurring or invited sponsors. Use when the user says 'add Acme Corp as a sponsor', 'put our gold sponsor on the site', 'John agreed to sponsor us'.",
         parameters: {
           type: "object",
           required: ["name"],
@@ -287,7 +287,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "list_content",
-        description: "List all editable site content key-value pairs.",
+        description: "Show all editable text blocks on the public site (headlines, paragraphs, calls to action). Use when the user says 'what text can I edit', 'show site content', 'list the editable sections'.",
         parameters: { type: "object", properties: {} },
       },
     },
@@ -295,7 +295,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "set_content",
-        description: "Set a site content value by key.",
+        description: "Update the text of a specific content block on the public site. Use when the user says 'change the homepage headline', 'update the about paragraph', 'fix the typo in the welcome text'. This is for site copy only — colors, contact info, meeting schedule, and social links are managed through the dashboard, not chat.",
         parameters: {
           type: "object",
           required: ["key", "value"],
@@ -312,7 +312,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "list_sections",
-        description: "List all available website sections and whether each is currently enabled or disabled.",
+        description: "Show all toggleable sections of the public site and whether each is visible. Use when the user says 'what sections are on the site', 'list my page sections', 'show what's visible'.",
         parameters: { type: "object", properties: {} },
       },
     },
@@ -320,7 +320,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "toggle_section",
-        description: "Enable or disable a section on the public website. Takes effect immediately.",
+        description: "Show or hide a specific section of the public site. Use when the user says 'hide the sponsors section', 'show the newsletter signup', 'turn on the business directory', 'turn off vendors'. Available sections: blog, newsletter, businessDirectory, sponsors, vendors, ticketedEvents.",
         parameters: {
           type: "object",
           required: ["section", "enabled"],
@@ -341,7 +341,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "list_businesses",
-        description: "List all businesses in the directory.",
+        description: "Show all businesses in the directory. Use when the user says 'show our directory', 'list our member businesses', 'who's in the directory', 'what businesses do we have listed'. This is only for Chambers and Main Street associations that use the business directory feature.",
         parameters: { type: "object", properties: {} },
       },
     },
@@ -349,7 +349,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "add_business",
-        description: "Add a business to the directory.",
+        description: "Add a new business to the directory with name, description, category, phone, website, and address. Use when the user says 'add Smith Bakery to the directory', 'new member business', 'list this business'.",
         parameters: {
           type: "object",
           required: ["name"],
@@ -370,7 +370,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "list_albums",
-        description: "List all photo albums.",
+        description: "Show all photo albums with their names and photo counts. Use when the user says 'what albums do we have', 'list our photo galleries', 'show our albums'.",
         parameters: { type: "object", properties: {} },
       },
     },
@@ -378,7 +378,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "create_album",
-        description: "Create a new photo album.",
+        description: "Create a new empty photo album with a name and optional description. Use when the user says 'make an album for the gala', 'create a new gallery', 'add an album called Community Day'. Does not add photos — photos must be uploaded through the dashboard separately.",
         parameters: {
           type: "object",
           required: ["title"],
@@ -394,7 +394,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "delete_album",
-        description: "Permanently delete a photo album and all its photos. Removes it from the public site. Only use after the user has explicitly confirmed.",
+        description: "Permanently delete a photo album and all photos inside it. Use when the user says 'delete the old album', 'remove that gallery', 'we don't need the 2022 album anymore'. Always confirm before deleting — this cannot be undone.",
         parameters: {
           type: "object",
           required: ["albumId"],
@@ -410,7 +410,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "get_subscriber_count",
-        description: "Get the number of active newsletter subscribers.",
+        description: "Show how many active newsletter subscribers the organization has. Use when the user says 'how many subscribers', 'newsletter list size', 'how many people get our emails'.",
         parameters: { type: "object", properties: {} },
       },
     },
@@ -418,7 +418,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "send_newsletter",
-        description: "Compose and send a newsletter to all subscribers.",
+        description: "Send a newsletter email immediately to all active subscribers with a subject and body. Use when the user says 'send a newsletter now', 'email our subscribers', 'blast this out today'. Always confirm content and recipient count before sending.",
         parameters: {
           type: "object",
           required: ["subject", "bodyHtml"],
@@ -435,7 +435,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "list_messages",
-        description: "List recent contact form messages submitted through the public site.",
+        description: "Show contact form messages sent through the public website. Use when the user says 'any new messages', 'check the inbox', 'who contacted us', 'what did people send in'.",
         parameters: {
           type: "object",
           properties: {
@@ -448,7 +448,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "mark_messages_read",
-        description: "Mark contact messages as read.",
+        description: "Mark contact form messages as read to clear them from the unread count. Use when the user says 'mark these as read', 'clear the inbox', 'I've seen these'.",
         parameters: {
           type: "object",
           required: ["ids"],
@@ -464,7 +464,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "get_analytics_overview",
-        description: "Get a full analytics overview: events, ticket sales, sponsors, subscribers, messages.",
+        description: "Show a summary of site traffic, engagement, and event performance. Use when the user says 'how's the site doing', 'show analytics', 'traffic report', 'how many visitors'.",
         parameters: { type: "object", properties: {} },
       },
     },
@@ -474,7 +474,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "run_self_test",
-        description: "Run the Pillar build engine self-test. Seeds demo events (Norwin Rotary scenario), recompiles the site, then validates the compiled HTML and database state against the spec checklist. Returns a detailed pass/fail report.",
+        description: "Run an internal health check on the Autopilot agent itself to verify all tools and connections work. Use when the user says 'is everything working', 'check yourself', 'run a diagnostic', 'test your connections', 'run the self-test', 'test the build engine'. This is admin-only and for troubleshooting — not for regular use.",
         parameters: { type: "object", properties: {} },
       },
     },
