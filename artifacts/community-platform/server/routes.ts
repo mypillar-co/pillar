@@ -124,8 +124,18 @@ export function registerRoutes(app: Express) {
   app.get("/api/org-config", async (req, res) => {
     const orgId = getOrgId(req);
     const config = await storage.getOrgConfig(orgId);
-    if (!config) return res.json({ _empty: true, orgId });
-    res.json(config);
+    let memberCount = 0;
+    try {
+      const orgIds = await getOrgIdCandidates(req);
+      const r = await db.execute(neonSql`
+        SELECT COUNT(*)::int AS c FROM members WHERE org_id = ANY(${orgIds})
+      `);
+      memberCount = Number((r.rows[0] as Record<string, unknown> | undefined)?.c ?? 0);
+    } catch {
+      memberCount = 0;
+    }
+    if (!config) return res.json({ _empty: true, orgId, memberCount });
+    res.json({ ...config, memberCount });
   });
 
   // Fetch events from the Pillar events table (shared DB) as a fallback
