@@ -679,7 +679,7 @@ export default function Management() {
 
             {/* Remaining suggestion grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {SUGGESTION_GROUPS.filter(g => g.title !== "Gallery" && g.title !== "Sponsors").map((group) => (
+              {SUGGESTION_GROUPS.map((group) => (
                 <div
                   key={group.title}
                   className="rounded-xl border border-white/8 bg-white/3 overflow-hidden"
