@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@workspace/replit-auth-web";
 import {
@@ -81,6 +81,22 @@ export default function Admin() {
   const [, navigate] = useLocation();
 
   const [tab, setTab] = useState<"overview" | "financials" | "subscribers" | "churn" | "health" | "support" | "agents" | "trials" | "devlab">("overview");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenuOpen(false); };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
   const [overview, setOverview] = useState<any>(null);
   const [financials, setFinancials] = useState<any>(null);
   const [subscribers, setSubscribers] = useState<any[]>([]);
@@ -210,21 +226,50 @@ export default function Admin() {
       textTransform: "uppercase" as const,
       letterSpacing: "0.06em",
     },
-    nav: {
-      display: "flex",
-      gap: 4,
+    navWrap: {
+      position: "relative" as const,
       marginLeft: "auto",
+    },
+    hamburger: {
+      background: "rgba(255,255,255,0.04)",
+      border: "1px solid rgba(255,255,255,0.12)",
+      borderRadius: 8,
+      color: "#e2e8f0",
+      padding: "6px 12px",
+      fontSize: 13,
+      fontWeight: 500,
+      cursor: "pointer",
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+    },
+    menuPanel: {
+      position: "absolute" as const,
+      top: "calc(100% + 8px)",
+      right: 0,
+      minWidth: 220,
+      background: "#0f1e35",
+      border: "1px solid rgba(255,255,255,0.12)",
+      borderRadius: 10,
+      padding: 6,
+      boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
+      zIndex: 50,
+      display: "flex",
+      flexDirection: "column" as const,
+      gap: 2,
     },
     navBtn: (active: boolean) => ({
       background: active ? "rgba(232,184,75,0.12)" : "transparent",
-      color: active ? "#e8b84b" : "#8b9ab5",
+      color: active ? "#e8b84b" : "#cbd5e1",
       border: active ? "1px solid rgba(232,184,75,0.3)" : "1px solid transparent",
       borderRadius: 8,
-      padding: "6px 16px",
+      padding: "8px 14px",
       fontSize: 13,
       fontWeight: 500,
       cursor: "pointer",
       transition: "all 0.15s",
+      textAlign: "left" as const,
+      width: "100%",
     }),
     content: {
       padding: 32,
@@ -363,17 +408,35 @@ export default function Admin() {
             </div>
           );
         })()}
-        <nav style={styles.nav}>
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              style={styles.navBtn(tab === t.key)}
-              onClick={() => setTab(t.key)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
+        <div style={styles.navWrap} ref={menuRef}>
+          <button
+            style={styles.hamburger}
+            onClick={() => setMenuOpen(o => !o)}
+            aria-label="Open admin menu"
+            aria-expanded={menuOpen}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+              <line x1="4" y1="7" x2="20" y2="7" />
+              <line x1="4" y1="12" x2="20" y2="12" />
+              <line x1="4" y1="17" x2="20" y2="17" />
+            </svg>
+            <span>{tabs.find(t => t.key === tab)?.label ?? "Menu"}</span>
+          </button>
+          {menuOpen && (
+            <div style={styles.menuPanel} role="menu">
+              {tabs.map((t) => (
+                <button
+                  key={t.key}
+                  role="menuitem"
+                  style={styles.navBtn(tab === t.key)}
+                  onClick={() => { setTab(t.key); setMenuOpen(false); }}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <button onClick={() => navigate("/dashboard")} style={{
           background: "transparent",
           border: "1px solid rgba(255,255,255,0.12)",
