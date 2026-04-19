@@ -390,6 +390,20 @@ router.post("/chat", async (req: Request, res: Response) => {
         },
       },
     },
+    {
+      type: "function",
+      function: {
+        name: "delete_album",
+        description: "Permanently delete a photo album and all its photos. Removes it from the public site. Only use after the user has explicitly confirmed.",
+        parameters: {
+          type: "object",
+          required: ["albumId"],
+          properties: {
+            albumId: { type: "string", description: "The ID of the album to delete (from list_albums)." },
+          },
+        },
+      },
+    },
 
     // ── 8. Newsletter ───────────────────────────────────────────────────
     {
@@ -899,6 +913,24 @@ router.post("/chat", async (req: Request, res: Response) => {
       .returning();
 
     return JSON.stringify({ ok: true, albumId: album.id, title: album.title });
+  }
+
+  async function execDeleteAlbum(args: Record<string, unknown>): Promise<string> {
+    const albumId = String(args.albumId ?? "");
+    if (!albumId) return JSON.stringify({ error: "albumId is required" });
+
+    const [existing] = await db
+      .select({ id: photoAlbumsTable.id, title: photoAlbumsTable.title })
+      .from(photoAlbumsTable)
+      .where(and(eq(photoAlbumsTable.id, albumId), eq(photoAlbumsTable.orgId, org.id)));
+
+    if (!existing) return JSON.stringify({ error: `Album not found: ${albumId}` });
+
+    await db.delete(albumPhotosTable).where(eq(albumPhotosTable.albumId, existing.id));
+    await db.delete(photoAlbumsTable).where(eq(photoAlbumsTable.id, existing.id));
+
+    forceSiteRecompile(org.id).catch(() => {});
+    return JSON.stringify({ ok: true, message: `Album "${existing.title}" and all its photos have been deleted.` });
   }
 
   async function execGetSubscriberCount(): Promise<string> {
@@ -1802,6 +1834,7 @@ Always end with the site URL and events URL.`;
           case "add_business":          result = await execAddBusiness(args); break;
           case "list_albums":           result = await execListAlbums(); break;
           case "create_album":          result = await execCreateAlbum(args); break;
+          case "delete_album":          result = await execDeleteAlbum(args); break;
           case "get_subscriber_count":  result = await execGetSubscriberCount(); break;
           case "send_newsletter":       result = await execSendNewsletter(args); break;
           case "list_messages":         result = await execListMessages(args); break;
