@@ -334,17 +334,21 @@ export default function SiteBuilder() {
     e.target.value = "";
   };
 
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+  const processPhotoFiles = async (files: File[]) => {
     if (!files.length) return;
-    if (uploadedPhotos.length + files.length > 6) {
+    const images = files.filter(f => f.type.startsWith("image/"));
+    if (!images.length) {
+      alert("Please drop image files only.");
+      return;
+    }
+    if (uploadedPhotos.length + images.length > 6) {
       alert("You can upload up to 6 photos.");
       return;
     }
     setPhotoUploading(true);
     try {
       const results = await Promise.all(
-        files.map(async file => {
+        images.map(async file => {
           if (file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) throw new Error(`${file.name} exceeds ${MAX_IMAGE_SIZE_MB}MB`);
           const url = await uploadImage(file);
           return { url, name: file.name };
@@ -355,8 +359,42 @@ export default function SiteBuilder() {
       alert(err instanceof Error ? err.message : "Failed to upload photo. Please try again.");
     } finally {
       setPhotoUploading(false);
-      if (photoInputRef.current) photoInputRef.current.value = "";
     }
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    await processPhotoFiles(files);
+    if (photoInputRef.current) photoInputRef.current.value = "";
+  };
+
+  const dragDepthRef = useRef(0);
+  const [photoDragOver, setPhotoDragOver] = useState(false);
+
+  const handlePhotoDragEnter = (e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    e.preventDefault();
+    dragDepthRef.current += 1;
+    setPhotoDragOver(true);
+  };
+  const handlePhotoDragOver = (e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+  const handlePhotoDragLeave = (e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    e.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setPhotoDragOver(false);
+  };
+  const handlePhotoDrop = async (e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    e.preventDefault();
+    dragDepthRef.current = 0;
+    setPhotoDragOver(false);
+    const files = Array.from(e.dataTransfer.files);
+    await processPhotoFiles(files);
   };
 
   const toggleSection = (id: string) => {
@@ -1749,7 +1787,22 @@ export default function SiteBuilder() {
 
       {/* ── Interview mode ── */}
       {mode === "interview" && (
-        <>
+        <div
+          className="flex flex-col flex-1 min-h-0 relative"
+          onDragEnter={handlePhotoDragEnter}
+          onDragOver={handlePhotoDragOver}
+          onDragLeave={handlePhotoDragLeave}
+          onDrop={handlePhotoDrop}
+        >
+          {photoDragOver && (
+            <div className="hidden sm:flex absolute inset-0 z-40 items-center justify-center bg-emerald-500/10 backdrop-blur-sm border-2 border-dashed border-emerald-400 rounded-lg pointer-events-none">
+              <div className="flex flex-col items-center gap-3 px-6 py-5 rounded-xl bg-[hsl(224,40%,10%)]/90 border border-emerald-400/40">
+                <Images className="w-8 h-8 text-emerald-300" />
+                <p className="text-sm font-medium text-emerald-200">Drop photos to add to your site</p>
+                <p className="text-xs text-emerald-300/70">Up to 6 images · {Math.max(0, 6 - uploadedPhotos.length)} remaining</p>
+              </div>
+            </div>
+          )}
           {/* Progress bar */}
           <div className="px-6 py-2 border-b border-white/8 bg-[hsl(224,40%,9%)] flex items-center gap-3 flex-shrink-0">
             <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
@@ -2109,7 +2162,7 @@ export default function SiteBuilder() {
               </div>
             ) : null}
           </div>
-        </>
+        </div>
       )}
 
       {showPublishDisclaimer && (
