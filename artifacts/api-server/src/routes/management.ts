@@ -19,6 +19,7 @@
  */
 
 import { Router, type Request, type Response } from "express";
+import crypto from "crypto";
 import {
   db,
   organizationsTable,
@@ -35,13 +36,24 @@ import {
   albumPhotosTable,
   sitesTable,
   siteBlocksTable,
+  membersTable,
 } from "@workspace/db";
-import { eq, and, gte, sum, count, isNull, desc, or, sql, like } from "drizzle-orm";
+import { eq, and, gte, lte, sum, count, isNull, desc, or, sql, like, ilike } from "drizzle-orm";
 import OpenAI from "openai";
 import { resolveFullOrg } from "../lib/resolveOrg";
 import { compileSite } from "@workspace/site/services";
 import { logger } from "../lib/logger";
 import { buildSiteFromTemplate, type SiteContent } from "../siteTemplate";
+import {
+  sendInviteEmail,
+  generateToken,
+  inviteUrl,
+  TOKEN_TTL_DAYS,
+  VALID_TYPES as MEMBER_VALID_TYPES,
+  VALID_STATUSES as MEMBER_VALID_STATUSES,
+  ensureMembersFeatureEnabled,
+} from "./members";
+import { ensureMembersPortalProvisioned } from "../lib/membersPortalProvision";
 
 const router = Router();
 
@@ -475,6 +487,202 @@ router.post("/chat", async (req: Request, res: Response) => {
       function: {
         name: "run_self_test",
         description: "Run an internal health check on the Autopilot agent itself to verify all tools and connections work. Use when the user says 'is everything working', 'check yourself', 'run a diagnostic', 'test your connections', 'run the self-test', 'test the build engine'. This is admin-only and for troubleshooting — not for regular use.",
+        parameters: { type: "object", properties: {} },
+      },
+    },
+
+    // ── 12. Sponsor edits ─────────────────────────────────────────────────────
+    {
+      type: "function",
+      function: {
+        name: "update_sponsor",
+        description: "Edit details on an existing sponsor (name, contact info, website, logo, tier, visibility, notes). Use when the user says 'change the sponsor logo', 'update Acme's website', 'fix the sponsor email', 'bump that sponsor up a tier', 'hide that sponsor from the site'. If you don't know the sponsorId, call list_pending_sponsors or query existing sponsors first.",
+        parameters: {
+          type: "object",
+          properties: {
+            sponsorId: { type: "string" },
+            name: { type: "string" },
+            email: { type: "string" },
+            phone: { type: "string" },
+            website: { type: "string" },
+            logoUrl: { type: "string" },
+            notes: { type: "string" },
+            tierRank: { type: "number", description: "Higher = more prominent placement on site." },
+            siteVisible: { type: "boolean" },
+            status: { type: "string", enum: ["active", "inactive"] },
+          },
+          required: ["sponsorId"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "remove_sponsor",
+        description: "Permanently delete a sponsor. Use when the user says 'remove that sponsor', 'delete Acme as a sponsor', 'take them off the sponsor list'. Always confirm with the user before calling this — it cannot be undone.",
+        parameters: {
+          type: "object",
+          properties: { sponsorId: { type: "string" } },
+          required: ["sponsorId"],
+        },
+      },
+    },
+
+    // ── 13. Business directory edits ──────────────────────────────────────────
+    {
+      type: "function",
+      function: {
+        name: "update_business",
+        description: "Edit details on a business in the local-business directory (name, category, description, address, phone, website, active flag). Use when the user says 'update Joe's Pizza's hours', 'change the address for the bakery', 'fix the phone number on that business listing'.",
+        parameters: {
+          type: "object",
+          properties: {
+            businessId: { type: "string" },
+            name: { type: "string" },
+            category: { type: "string" },
+            description: { type: "string" },
+            address: { type: "string" },
+            phone: { type: "string" },
+            website: { type: "string" },
+            active: { type: "boolean" },
+          },
+          required: ["businessId"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "delete_business",
+        description: "Permanently delete a business from the directory. Use when the user says 'remove that business', 'delete Joe's Pizza from the directory'. Always confirm with the user before calling this.",
+        parameters: {
+          type: "object",
+          properties: { businessId: { type: "string" } },
+          required: ["businessId"],
+        },
+      },
+    },
+
+    // ── 14. Photo album & photo edits ─────────────────────────────────────────
+    {
+      type: "function",
+      function: {
+        name: "update_album",
+        description: "Edit a photo album's title, description, or linked event. Use when the user says 'rename the album', 'fix the album description', 'link that album to the gala event'.",
+        parameters: {
+          type: "object",
+          properties: {
+            albumId: { type: "string" },
+            title: { type: "string" },
+            description: { type: "string" },
+            eventSlug: { type: "string" },
+          },
+          required: ["albumId"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "list_photos",
+        description: "List the photos inside one album, including caption and URL. Use when the user says 'what's in that album', 'show me the photos in the gala album', 'how many photos are in the picnic album'.",
+        parameters: {
+          type: "object",
+          properties: { albumId: { type: "string" } },
+          required: ["albumId"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "delete_photo",
+        description: "Delete a single photo from an album. Use when the user says 'remove that photo', 'delete the third picture in the gala album'. If you don't know the photoId, call list_photos first. Always confirm before deleting.",
+        parameters: {
+          type: "object",
+          properties: { photoId: { type: "string" } },
+          required: ["photoId"],
+        },
+      },
+    },
+
+    // ── 15. Members ───────────────────────────────────────────────────────────
+    {
+      type: "function",
+      function: {
+        name: "list_members",
+        description: "List members of the organization. Use when the user says 'who are our members', 'show me board members', 'list pending members', 'find the member named Sarah'. Filter by status, member type, or a name/email search string.",
+        parameters: {
+          type: "object",
+          properties: {
+            status: { type: "string", enum: ["active", "inactive", "pending"] },
+            memberType: { type: "string", enum: ["general", "board", "honorary", "staff", "volunteer"] },
+            search: { type: "string", description: "Substring match on first name, last name, or email." },
+            limit: { type: "number", description: "Default 50, max 200." },
+          },
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "invite_member",
+        description: "Add a new member and (if an email is provided) send them a portal invite. Use when the user says 'add Sarah Lee as a board member', 'invite jane@example.com as a volunteer', 'create a new member named Bob'. Required: firstName. Optional: lastName, email, phone, memberType (general/board/honorary/staff/volunteer), title, notes.",
+        parameters: {
+          type: "object",
+          properties: {
+            firstName: { type: "string" },
+            lastName: { type: "string" },
+            email: { type: "string" },
+            phone: { type: "string" },
+            memberType: { type: "string", enum: ["general", "board", "honorary", "staff", "volunteer"] },
+            title: { type: "string" },
+            notes: { type: "string" },
+          },
+          required: ["firstName"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "update_member",
+        description: "Edit an existing member's details (name, email, phone, type, title, status, bio, etc.). Use when the user says 'promote Sarah to board member', 'mark Bob as inactive', 'fix Sarah's email', 'update Jane's title to Treasurer'.",
+        parameters: {
+          type: "object",
+          properties: {
+            memberId: { type: "string" },
+            firstName: { type: "string" },
+            lastName: { type: "string" },
+            email: { type: "string" },
+            phone: { type: "string" },
+            memberType: { type: "string", enum: ["general", "board", "honorary", "staff", "volunteer"] },
+            status: { type: "string", enum: ["active", "inactive", "pending"] },
+            title: { type: "string" },
+            notes: { type: "string" },
+            showInDirectory: { type: "boolean" },
+          },
+          required: ["memberId"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "remove_member",
+        description: "Permanently delete a member from the roster. Use when the user says 'remove Bob from the members list', 'delete that member'. Always confirm with the user first — to keep them on the books but disable access, use update_member with status='inactive' instead.",
+        parameters: {
+          type: "object",
+          properties: { memberId: { type: "string" } },
+          required: ["memberId"],
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "get_member_stats",
+        description: "Get a count summary of the membership: total, active, inactive, pending, board count, registered (have a portal login), and renewals due in the next 30 days. Use when the user says 'how many members do we have', 'membership stats', 'how many members are due to renew'.",
         parameters: { type: "object", properties: {} },
       },
     },
@@ -1040,6 +1248,384 @@ router.post("/chat", async (req: Request, res: Response) => {
     }
 
     return JSON.stringify({ ok: true, markedRead: ids.length });
+  }
+
+  // ── Sponsor edits ────────────────────────────────────────────────────────
+
+  async function execUpdateSponsor(args: Record<string, unknown>): Promise<string> {
+    const sponsorId = String(args.sponsorId ?? "");
+    if (!sponsorId) return JSON.stringify({ error: "sponsorId is required" });
+
+    const [existing] = await db
+      .select()
+      .from(sponsorsTable)
+      .where(and(eq(sponsorsTable.id, sponsorId), eq(sponsorsTable.orgId, org.id)));
+    if (!existing) return JSON.stringify({ error: `Sponsor not found: ${sponsorId}` });
+
+    const patch: Record<string, unknown> = {};
+    if (typeof args.name === "string") patch.name = args.name;
+    if (typeof args.email === "string") patch.email = args.email;
+    if (typeof args.phone === "string") patch.phone = args.phone;
+    if (typeof args.website === "string") patch.website = args.website;
+    if (typeof args.logoUrl === "string") patch.logoUrl = args.logoUrl;
+    if (typeof args.notes === "string") patch.notes = args.notes;
+    if (typeof args.tierRank === "number") patch.tierRank = args.tierRank;
+    if (typeof args.siteVisible === "boolean") patch.siteVisible = args.siteVisible;
+    if (typeof args.status === "string") patch.status = args.status;
+
+    if (!Object.keys(patch).length) {
+      return JSON.stringify({ error: "No fields to update" });
+    }
+
+    const [updated] = await db
+      .update(sponsorsTable)
+      .set(patch)
+      .where(and(eq(sponsorsTable.id, sponsorId), eq(sponsorsTable.orgId, org.id)))
+      .returning();
+
+    forceSiteRecompile(org.id).catch(() => {});
+    return JSON.stringify({ ok: true, sponsor: updated });
+  }
+
+  async function execRemoveSponsor(args: Record<string, unknown>): Promise<string> {
+    const sponsorId = String(args.sponsorId ?? "");
+    if (!sponsorId) return JSON.stringify({ error: "sponsorId is required" });
+
+    const [existing] = await db
+      .select({ id: sponsorsTable.id, name: sponsorsTable.name })
+      .from(sponsorsTable)
+      .where(and(eq(sponsorsTable.id, sponsorId), eq(sponsorsTable.orgId, org.id)));
+    if (!existing) return JSON.stringify({ error: `Sponsor not found: ${sponsorId}` });
+
+    await db.delete(sponsorsTable).where(and(eq(sponsorsTable.id, sponsorId), eq(sponsorsTable.orgId, org.id)));
+    forceSiteRecompile(org.id).catch(() => {});
+    return JSON.stringify({ ok: true, message: `Sponsor "${existing.name}" deleted.` });
+  }
+
+  // ── Business directory edits ─────────────────────────────────────────────
+
+  async function execUpdateBusiness(args: Record<string, unknown>): Promise<string> {
+    const businessId = String(args.businessId ?? "");
+    if (!businessId) return JSON.stringify({ error: "businessId is required" });
+
+    const [existing] = await db
+      .select()
+      .from(orgBusinessesTable)
+      .where(and(eq(orgBusinessesTable.id, businessId), eq(orgBusinessesTable.orgId, org.id)));
+    if (!existing) return JSON.stringify({ error: `Business not found: ${businessId}` });
+
+    const patch: Record<string, unknown> = {};
+    if (typeof args.name === "string") patch.name = args.name;
+    if (typeof args.category === "string") patch.category = args.category;
+    if (typeof args.description === "string") patch.description = args.description;
+    if (typeof args.address === "string") patch.address = args.address;
+    if (typeof args.phone === "string") patch.phone = args.phone;
+    if (typeof args.website === "string") patch.website = args.website;
+    if (typeof args.active === "boolean") patch.active = args.active;
+
+    if (!Object.keys(patch).length) {
+      return JSON.stringify({ error: "No fields to update" });
+    }
+
+    const [updated] = await db
+      .update(orgBusinessesTable)
+      .set(patch)
+      .where(and(eq(orgBusinessesTable.id, businessId), eq(orgBusinessesTable.orgId, org.id)))
+      .returning();
+
+    forceSiteRecompile(org.id).catch(() => {});
+    return JSON.stringify({ ok: true, business: updated });
+  }
+
+  async function execDeleteBusiness(args: Record<string, unknown>): Promise<string> {
+    const businessId = String(args.businessId ?? "");
+    if (!businessId) return JSON.stringify({ error: "businessId is required" });
+
+    const [existing] = await db
+      .select({ id: orgBusinessesTable.id, name: orgBusinessesTable.name })
+      .from(orgBusinessesTable)
+      .where(and(eq(orgBusinessesTable.id, businessId), eq(orgBusinessesTable.orgId, org.id)));
+    if (!existing) return JSON.stringify({ error: `Business not found: ${businessId}` });
+
+    await db.delete(orgBusinessesTable).where(and(eq(orgBusinessesTable.id, businessId), eq(orgBusinessesTable.orgId, org.id)));
+    forceSiteRecompile(org.id).catch(() => {});
+    return JSON.stringify({ ok: true, message: `Business "${existing.name}" deleted.` });
+  }
+
+  // ── Photo album & photo edits ────────────────────────────────────────────
+
+  async function execUpdateAlbum(args: Record<string, unknown>): Promise<string> {
+    const albumId = String(args.albumId ?? "");
+    if (!albumId) return JSON.stringify({ error: "albumId is required" });
+
+    const [existing] = await db
+      .select()
+      .from(photoAlbumsTable)
+      .where(and(eq(photoAlbumsTable.id, albumId), eq(photoAlbumsTable.orgId, org.id)));
+    if (!existing) return JSON.stringify({ error: `Album not found: ${albumId}` });
+
+    const patch: Record<string, unknown> = {};
+    if (typeof args.title === "string") patch.title = args.title;
+    if (typeof args.description === "string") patch.description = args.description;
+    if (typeof args.eventSlug === "string") patch.eventSlug = args.eventSlug;
+
+    if (!Object.keys(patch).length) {
+      return JSON.stringify({ error: "No fields to update" });
+    }
+
+    const [updated] = await db
+      .update(photoAlbumsTable)
+      .set(patch)
+      .where(and(eq(photoAlbumsTable.id, albumId), eq(photoAlbumsTable.orgId, org.id)))
+      .returning();
+
+    forceSiteRecompile(org.id).catch(() => {});
+    return JSON.stringify({ ok: true, album: updated });
+  }
+
+  async function execListPhotos(args: Record<string, unknown>): Promise<string> {
+    const albumId = String(args.albumId ?? "");
+    if (!albumId) return JSON.stringify({ error: "albumId is required" });
+
+    const [album] = await db
+      .select({ id: photoAlbumsTable.id, title: photoAlbumsTable.title })
+      .from(photoAlbumsTable)
+      .where(and(eq(photoAlbumsTable.id, albumId), eq(photoAlbumsTable.orgId, org.id)));
+    if (!album) return JSON.stringify({ error: `Album not found: ${albumId}` });
+
+    // Defense-in-depth: scope the photo query through an org-checked album subquery
+    // even though we just verified album ownership above.
+    const photoRows = await db.execute(sql`
+      SELECT p.*
+      FROM album_photos p
+      WHERE p.album_id = ${albumId}
+        AND p.album_id IN (SELECT id FROM photo_albums WHERE org_id = ${org.id})
+      ORDER BY p.created_at DESC
+    `);
+
+    return JSON.stringify({ album: album.title, count: photoRows.rows.length, photos: photoRows.rows });
+  }
+
+  async function execDeletePhoto(args: Record<string, unknown>): Promise<string> {
+    const photoId = String(args.photoId ?? "");
+    if (!photoId) return JSON.stringify({ error: "photoId is required" });
+
+    // Ensure the photo belongs to an album owned by this org.
+    const rows = await db.execute(sql`
+      SELECT p.id
+      FROM album_photos p
+      JOIN photo_albums a ON a.id = p.album_id
+      WHERE p.id = ${photoId} AND a.org_id = ${org.id}
+      LIMIT 1
+    `);
+    if (!rows.rows.length) return JSON.stringify({ error: `Photo not found: ${photoId}` });
+
+    // Defense-in-depth: re-verify org ownership at delete time via a subquery,
+    // not just by photoId (album_photos has no direct org_id column).
+    await db.execute(sql`
+      DELETE FROM album_photos
+      WHERE id = ${photoId}
+        AND album_id IN (SELECT id FROM photo_albums WHERE org_id = ${org.id})
+    `);
+    forceSiteRecompile(org.id).catch(() => {});
+    return JSON.stringify({ ok: true, message: "Photo deleted." });
+  }
+
+  // ── Members ──────────────────────────────────────────────────────────────
+
+  async function execListMembers(args: Record<string, unknown>): Promise<string> {
+    const status = typeof args.status === "string" ? args.status : undefined;
+    const memberType = typeof args.memberType === "string" ? args.memberType : undefined;
+    const search = typeof args.search === "string" ? args.search.trim() : "";
+    const limitRaw = typeof args.limit === "number" ? args.limit : 50;
+    const limit = Math.min(Math.max(1, Math.floor(limitRaw)), 200);
+
+    const conditions = [eq(membersTable.orgId, org.id)];
+    if (status && MEMBER_VALID_STATUSES.has(status)) conditions.push(eq(membersTable.status, status));
+    if (memberType && MEMBER_VALID_TYPES.has(memberType)) conditions.push(eq(membersTable.memberType, memberType));
+    if (search) {
+      const pat = `%${search}%`;
+      const orExpr = or(
+        ilike(membersTable.firstName, pat),
+        ilike(membersTable.lastName, pat),
+        ilike(membersTable.email, pat),
+      );
+      if (orExpr) conditions.push(orExpr);
+    }
+
+    const rows = await db
+      .select({
+        id: membersTable.id,
+        firstName: membersTable.firstName,
+        lastName: membersTable.lastName,
+        email: membersTable.email,
+        phone: membersTable.phone,
+        memberType: membersTable.memberType,
+        status: membersTable.status,
+        title: membersTable.title,
+        joinDate: membersTable.joinDate,
+        renewalDate: membersTable.renewalDate,
+      })
+      .from(membersTable)
+      .where(and(...conditions))
+      .orderBy(desc(membersTable.createdAt))
+      .limit(limit);
+
+    return JSON.stringify({ count: rows.length, members: rows });
+  }
+
+  async function execInviteMember(args: Record<string, unknown>): Promise<string> {
+    const firstName = typeof args.firstName === "string" ? args.firstName.trim() : "";
+    if (!firstName) return JSON.stringify({ error: "firstName is required" });
+
+    const memberType = typeof args.memberType === "string" ? args.memberType : "general";
+    if (!MEMBER_VALID_TYPES.has(memberType)) {
+      return JSON.stringify({ error: `memberType must be one of: ${[...MEMBER_VALID_TYPES].join(", ")}` });
+    }
+
+    const lastName = typeof args.lastName === "string" ? args.lastName : null;
+    const email = typeof args.email === "string" ? args.email.trim() || null : null;
+    const phone = typeof args.phone === "string" ? args.phone : null;
+    const title = typeof args.title === "string" ? args.title : null;
+    const notes = typeof args.notes === "string" ? args.notes : null;
+
+    const token = email ? generateToken() : null;
+    const tokenExpires = token ? new Date(Date.now() + TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000) : null;
+    const memberId = crypto.randomUUID();
+
+    await db.execute(sql`
+      INSERT INTO members (
+        id, org_id, first_name, last_name, email, phone, member_type, status,
+        notes, title, registration_token, token_expires_at
+      ) VALUES (
+        ${memberId}, ${org.id}, ${firstName}, ${lastName}, ${email},
+        ${phone}, ${memberType}, ${"active"},
+        ${notes}, ${title}, ${token}, ${tokenExpires}
+      )
+    `);
+
+    let invite: { sent: boolean; simulated?: boolean; url?: string } = { sent: false };
+    if (email && token) {
+      const orgSlug = (org as { slug?: string }).slug ?? org.id;
+      const url = inviteUrl(orgSlug, token);
+      const result = await sendInviteEmail({
+        to: email,
+        firstName,
+        orgName: org.name ?? orgSlug,
+        url,
+      });
+      invite = { sent: result.sent, simulated: result.simulated, url };
+    }
+
+    void ensureMembersFeatureEnabled(org.id);
+    void ensureMembersPortalProvisioned(org.id);
+
+    return JSON.stringify({
+      ok: true,
+      memberId,
+      name: `${firstName}${lastName ? ` ${lastName}` : ""}`,
+      memberType,
+      invite,
+      message: email
+        ? (invite.sent
+          ? `Member added and invite email sent to ${email}.`
+          : invite.simulated
+            ? `Member added. Email delivery is in test mode — no email was sent.`
+            : `Member added but invite email failed to send.`)
+        : `Member added. No email on file, so no portal invite was sent.`,
+    });
+  }
+
+  async function execUpdateMember(args: Record<string, unknown>): Promise<string> {
+    const memberId = String(args.memberId ?? "");
+    if (!memberId) return JSON.stringify({ error: "memberId is required" });
+
+    const [existing] = await db
+      .select()
+      .from(membersTable)
+      .where(and(eq(membersTable.id, memberId), eq(membersTable.orgId, org.id)));
+    if (!existing) return JSON.stringify({ error: `Member not found: ${memberId}` });
+
+    if (typeof args.memberType === "string" && !MEMBER_VALID_TYPES.has(args.memberType)) {
+      return JSON.stringify({ error: `memberType must be one of: ${[...MEMBER_VALID_TYPES].join(", ")}` });
+    }
+    if (typeof args.status === "string" && !MEMBER_VALID_STATUSES.has(args.status)) {
+      return JSON.stringify({ error: `status must be one of: ${[...MEMBER_VALID_STATUSES].join(", ")}` });
+    }
+
+    const patch: Record<string, unknown> = {};
+    if (typeof args.firstName === "string") patch.firstName = args.firstName;
+    if (typeof args.lastName === "string") patch.lastName = args.lastName;
+    if (typeof args.email === "string") patch.email = args.email;
+    if (typeof args.phone === "string") patch.phone = args.phone;
+    if (typeof args.memberType === "string") patch.memberType = args.memberType;
+    if (typeof args.status === "string") patch.status = args.status;
+    if (typeof args.title === "string") patch.title = args.title;
+    if (typeof args.notes === "string") patch.notes = args.notes;
+    if (typeof args.showInDirectory === "boolean") patch.showInDirectory = args.showInDirectory;
+
+    if (!Object.keys(patch).length) {
+      return JSON.stringify({ error: "No fields to update" });
+    }
+
+    const [updated] = await db
+      .update(membersTable)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(and(eq(membersTable.id, memberId), eq(membersTable.orgId, org.id)))
+      .returning();
+
+    return JSON.stringify({ ok: true, member: updated });
+  }
+
+  async function execRemoveMember(args: Record<string, unknown>): Promise<string> {
+    const memberId = String(args.memberId ?? "");
+    if (!memberId) return JSON.stringify({ error: "memberId is required" });
+
+    const [existing] = await db
+      .select({
+        id: membersTable.id,
+        firstName: membersTable.firstName,
+        lastName: membersTable.lastName,
+      })
+      .from(membersTable)
+      .where(and(eq(membersTable.id, memberId), eq(membersTable.orgId, org.id)));
+    if (!existing) return JSON.stringify({ error: `Member not found: ${memberId}` });
+
+    await db.delete(membersTable).where(and(eq(membersTable.id, memberId), eq(membersTable.orgId, org.id)));
+    return JSON.stringify({
+      ok: true,
+      message: `Member "${existing.firstName}${existing.lastName ? ` ${existing.lastName}` : ""}" deleted.`,
+    });
+  }
+
+  async function execGetMemberStats(): Promise<string> {
+    const today = new Date();
+    const in30Days = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const todayStr = today.toISOString().split("T")[0];
+    const in30Str = in30Days.toISOString().split("T")[0];
+
+    const rows = await db.execute(sql`
+      SELECT status, member_type, registered_at IS NOT NULL AS is_registered, renewal_date
+      FROM members WHERE org_id = ${org.id}
+    `);
+    const list = rows.rows as Array<{
+      status: string;
+      member_type: string;
+      is_registered: boolean;
+      renewal_date: string | null;
+    }>;
+
+    return JSON.stringify({
+      total: list.length,
+      active: list.filter((m) => m.status === "active").length,
+      inactive: list.filter((m) => m.status === "inactive").length,
+      pending: list.filter((m) => m.status === "pending").length,
+      board: list.filter((m) => m.member_type === "board").length,
+      registered: list.filter((m) => m.is_registered).length,
+      renewalsDueIn30Days: list.filter((m) =>
+        m.renewal_date && m.renewal_date >= todayStr && m.renewal_date <= in30Str
+      ).length,
+    });
   }
 
   async function execGetAnalyticsOverview(): Promise<string> {
@@ -1850,6 +2436,18 @@ Always end with the site URL and events URL.`;
           case "mark_messages_read":    result = await execMarkMessagesRead(args); break;
           case "get_analytics_overview": result = await execGetAnalyticsOverview(); break;
           case "run_self_test":          result = await execRunSelfTest(); break;
+          case "update_sponsor":        result = await execUpdateSponsor(args); break;
+          case "remove_sponsor":        result = await execRemoveSponsor(args); break;
+          case "update_business":       result = await execUpdateBusiness(args); break;
+          case "delete_business":       result = await execDeleteBusiness(args); break;
+          case "update_album":          result = await execUpdateAlbum(args); break;
+          case "list_photos":           result = await execListPhotos(args); break;
+          case "delete_photo":          result = await execDeletePhoto(args); break;
+          case "list_members":          result = await execListMembers(args); break;
+          case "invite_member":         result = await execInviteMember(args); break;
+          case "update_member":         result = await execUpdateMember(args); break;
+          case "remove_member":         result = await execRemoveMember(args); break;
+          case "get_member_stats":      result = await execGetMemberStats(); break;
           default:                      result = JSON.stringify({ error: `Unknown tool: ${call.function.name}` });
         }
       } catch (err) {

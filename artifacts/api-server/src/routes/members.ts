@@ -10,20 +10,20 @@ import { ensureMembersPortalProvisioned } from "../lib/membersPortalProvision";
 
 const router = Router();
 
-const VALID_TYPES = new Set(["general", "board", "honorary", "staff", "volunteer"]);
-const VALID_STATUSES = new Set(["active", "inactive", "pending"]);
-const TOKEN_TTL_DAYS = 14;
+export const VALID_TYPES = new Set(["general", "board", "honorary", "staff", "volunteer"]);
+export const VALID_STATUSES = new Set(["active", "inactive", "pending"]);
+export const TOKEN_TTL_DAYS = 14;
 
-function generateToken(): string {
+export function generateToken(): string {
   return crypto.randomBytes(32).toString("hex");
 }
 
-function inviteUrl(orgSlug: string, token: string): string {
+export function inviteUrl(orgSlug: string, token: string): string {
   // Production subdomain. The Cloudflare worker rewrites {slug}.mypillar.co/* to the CP origin.
   return `https://${orgSlug}.mypillar.co/members/register?token=${token}`;
 }
 
-async function sendInviteEmail(opts: {
+export async function sendInviteEmail(opts: {
   to: string;
   firstName: string;
   orgName: string;
@@ -66,7 +66,7 @@ This link expires in ${TOKEN_TTL_DAYS} days. If it expires, ask your administrat
   return result;
 }
 
-async function ensureMembersFeatureEnabled(orgId: string): Promise<void> {
+export async function ensureMembersFeatureEnabled(orgId: string): Promise<void> {
   // Flip features.members = true on cs_org_configs so the Members nav link appears.
   // Best-effort: failure must not block member creation.
   try {
