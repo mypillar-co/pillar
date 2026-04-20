@@ -54,6 +54,36 @@ import {
   ensureMembersFeatureEnabled,
 } from "./members";
 import { ensureMembersPortalProvisioned } from "../lib/membersPortalProvision";
+import { SECTION_REGISTRY, validateSection } from "../lib/sectionRegistry";
+
+// Canonical site_config keys that update_site_config / get_site_config
+// are allowed to read and write. These match the top-level fields produced
+// by buildFallbackPayload in communitySite.ts and consumed by the React
+// site template.
+const CANONICAL_SITE_CONFIG_KEYS = [
+  "primaryColor",
+  "accentColor",
+  "tagline",
+  "mission",
+  "contactEmail",
+  "contactPhone",
+  "contactAddress",
+  "meetingDay",
+  "meetingTime",
+  "meetingLocation",
+  "socialFacebook",
+  "socialInstagram",
+  "footerText",
+] as const;
+type CanonicalSiteConfigKey = (typeof CANONICAL_SITE_CONFIG_KEYS)[number];
+const CANONICAL_SITE_CONFIG_KEY_SET: ReadonlySet<string> = new Set(CANONICAL_SITE_CONFIG_KEYS);
+
+// Section types from the registry that are allowed on the public site.
+function getPublicSectionTypes(): string[] {
+  return Object.values(SECTION_REGISTRY)
+    .filter((d) => d.surfaces.public)
+    .map((d) => d.type);
+}
 
 const router = Router();
 
@@ -684,6 +714,72 @@ router.post("/chat", async (req: Request, res: Response) => {
         name: "get_member_stats",
         description: "Get a count summary of the membership: total, active, inactive, pending, board count, registered (have a portal login), and renewals due in the next 30 days. Use when the user says 'how many members do we have', 'membership stats', 'how many members are due to renew'.",
         parameters: { type: "object", properties: {} },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "get_site_config",
+        description: "Read the org's current public-site configuration: brand colors, tagline, mission, contact info, meeting schedule, social links, and footer. Also returns a summary of any section blocks (leadership, gallery, history, etc.) currently on the public site. Use when the user says 'what color is our site', 'what's our contact info', 'show me our site settings', 'what does our site say'.",
+        parameters: { type: "object", properties: {} },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "update_site_config",
+        description: "Update one or more of the org's public-site fields: primaryColor, accentColor, tagline, mission, contactEmail, contactPhone, contactAddress, meetingDay, meetingTime, meetingLocation, socialFacebook, socialInstagram, footerText. Pass only the fields you want to change. Colors must be hex like #2b7ab5 or #f60. Use when the user says 'change our color to navy', 'update our phone number', 'we moved to 123 Main', 'change our tagline', 'fix our Facebook link'.",
+        parameters: {
+          type: "object",
+          properties: {
+            primaryColor:    { type: "string", description: "Hex color, e.g. #2b7ab5" },
+            accentColor:     { type: "string", description: "Hex color, e.g. #338899" },
+            tagline:         { type: "string" },
+            mission:         { type: "string" },
+            contactEmail:    { type: "string" },
+            contactPhone:    { type: "string" },
+            contactAddress:  { type: "string" },
+            meetingDay:      { type: "string", description: "e.g. 'Every Tuesday' or 'Second Thursday'" },
+            meetingTime:     { type: "string", description: "e.g. '7:00 PM' or '12:00 PM - 1:00 PM'" },
+            meetingLocation: { type: "string", description: "Venue name or address" },
+            socialFacebook:  { type: "string", description: "Full Facebook URL" },
+            socialInstagram: { type: "string", description: "Full Instagram URL" },
+            footerText:      { type: "string", description: "Short blurb shown in the site footer" },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "add_site_section",
+        description: "Add a new content section to the public site. Available section types: leadership (board roster), gallery (photo grid), sponsors_showcase, history (timeline), volunteer_opportunities, documents (downloadable resources), meeting_schedule (cadence + upcoming dates). Use when the user says 'add a board page', 'show our sponsors on the homepage', 'add an our history section', 'add a documents section', 'add a leadership section'. Confirm the section's contents with the user before adding.",
+        parameters: {
+          type: "object",
+          properties: {
+            type: {
+              type: "string",
+              description: "Section type. One of: leadership, gallery, sponsors_showcase, history, volunteer_opportunities, documents, meeting_schedule.",
+            },
+            title: { type: "string", description: "Heading shown on the section." },
+            // Loosely typed body — different section types take different fields.
+            // The agent is expected to fill these in from the section type's example.
+            members:       { type: "array", description: "For leadership: [{name, title, email?, photoUrl?}]" },
+            photos:        { type: "array", description: "For gallery: [{url, caption?}]" },
+            sponsors:      { type: "array", description: "For sponsors_showcase: [{name, logoUrl?, website?, tier?}]" },
+            foundedYear:   { type: "string", description: "For history" },
+            narrative:     { type: "string", description: "For history" },
+            milestones:    { type: "array", description: "For history: [{year, event}]" },
+            intro:         { type: "string", description: "For volunteer_opportunities" },
+            opportunities: { type: "array", description: "For volunteer_opportunities: [{title, description, commitment?, contact?}]" },
+            documents:     { type: "array", description: "For documents: [{name, url, description?, category?}]" },
+            cadence:       { type: "string", description: "For meeting_schedule" },
+            location:      { type: "string", description: "For meeting_schedule" },
+            upcoming:      { type: "array", description: "For meeting_schedule: [{date, note?}]" },
+          },
+          required: ["type"],
+        },
       },
     },
   ];
@@ -1628,6 +1724,150 @@ router.post("/chat", async (req: Request, res: Response) => {
     });
   }
 
+  // ── Site config (organizations.site_config JSONB) ─────────────────────────
+
+  async function readSiteConfig(): Promise<Record<string, unknown>> {
+    const r = await db.execute(sql`
+      SELECT site_config FROM organizations WHERE id = ${org.id} LIMIT 1
+    `);
+    const raw = (r.rows[0] as { site_config?: unknown } | undefined)?.site_config;
+    return raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  }
+
+  async function execGetSiteConfig(): Promise<string> {
+    const config = await readSiteConfig();
+    const view: Record<string, unknown> = {};
+    for (const k of CANONICAL_SITE_CONFIG_KEYS) {
+      view[k] = config[k] ?? null;
+    }
+    const sections = Array.isArray(config.sections) ? (config.sections as unknown[]) : [];
+    const sectionSummary = sections.map((s) => {
+      const obj = (s && typeof s === "object" ? (s as Record<string, unknown>) : {}) as Record<string, unknown>;
+      return { type: typeof obj.type === "string" ? obj.type : null, title: typeof obj.title === "string" ? obj.title : null };
+    });
+    return JSON.stringify({
+      config: view,
+      sections: sectionSummary,
+      sectionCount: sections.length,
+    });
+  }
+
+  async function execUpdateSiteConfig(args: Record<string, unknown>): Promise<string> {
+    // Accept either { config: {...} } or fields at the top level.
+    const rawPatch = (args.config && typeof args.config === "object" && !Array.isArray(args.config))
+      ? (args.config as Record<string, unknown>)
+      : args;
+
+    const updates: Record<string, unknown> = {};
+    const rejectedKeys: string[] = [];
+
+    for (const [k, v] of Object.entries(rawPatch)) {
+      if (k === "config") continue;
+      if (!CANONICAL_SITE_CONFIG_KEY_SET.has(k)) {
+        rejectedKeys.push(k);
+        continue;
+      }
+
+      // Allow explicit clearing with null or empty string.
+      if (v === null || v === "") {
+        updates[k] = null;
+        continue;
+      }
+
+      const str = String(v).trim();
+
+      if (k === "primaryColor" || k === "accentColor") {
+        if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(str)) {
+          return JSON.stringify({
+            error: `${k} must be a hex color like #2b7ab5 or #f60`,
+            got: str,
+          });
+        }
+        updates[k] = str;
+      } else {
+        updates[k] = str;
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return JSON.stringify({
+        error: "No valid fields to update",
+        allowedKeys: [...CANONICAL_SITE_CONFIG_KEYS],
+        ...(rejectedKeys.length ? { rejectedKeys } : {}),
+      });
+    }
+
+    // Merge with the existing JSONB so we never clobber other top-level fields
+    // (orgName, sections[], stats[], siteContent{}, membersPortal{}, etc.).
+    await db.execute(sql`
+      UPDATE organizations
+         SET site_config = COALESCE(site_config, '{}'::jsonb) || ${JSON.stringify(updates)}::jsonb
+       WHERE id = ${org.id}
+    `);
+
+    forceSiteRecompile(org.id).catch(() => {});
+
+    return JSON.stringify({
+      ok: true,
+      updated: updates,
+      ...(rejectedKeys.length ? { rejectedKeys, allowedKeys: [...CANONICAL_SITE_CONFIG_KEYS] } : {}),
+    });
+  }
+
+  async function execAddSiteSection(args: Record<string, unknown>): Promise<string> {
+    const type = String(args.type ?? "");
+    const allowedTypes = getPublicSectionTypes();
+    if (!type) {
+      return JSON.stringify({ error: "type is required", allowedTypes });
+    }
+    const def = SECTION_REGISTRY[type];
+    if (!def || !def.surfaces.public) {
+      return JSON.stringify({
+        error: `Unknown or non-public section type: ${type}`,
+        allowedTypes,
+      });
+    }
+
+    // Build the section payload from all args except `type`.
+    const section: Record<string, unknown> = { type };
+    for (const [k, v] of Object.entries(args)) {
+      if (k === "type") continue;
+      if (v === undefined) continue;
+      section[k] = v;
+    }
+
+    if (!validateSection(section, "public")) {
+      return JSON.stringify({
+        error: "Section failed validation",
+        section,
+        example: def.example,
+      });
+    }
+
+    const config = await readSiteConfig();
+    const existing = Array.isArray(config.sections) ? (config.sections as unknown[]) : [];
+    const updated = [...existing, section];
+
+    await db.execute(sql`
+      UPDATE organizations
+         SET site_config = jsonb_set(
+           COALESCE(site_config, '{}'::jsonb),
+           '{sections}',
+           ${JSON.stringify(updated)}::jsonb,
+           true
+         )
+       WHERE id = ${org.id}
+    `);
+
+    forceSiteRecompile(org.id).catch(() => {});
+
+    return JSON.stringify({
+      ok: true,
+      added: section,
+      totalSections: updated.length,
+    });
+  }
+
   async function execGetAnalyticsOverview(): Promise<string> {
     const today = new Date().toISOString().split("T")[0];
 
@@ -2448,6 +2688,9 @@ Always end with the site URL and events URL.`;
           case "update_member":         result = await execUpdateMember(args); break;
           case "remove_member":         result = await execRemoveMember(args); break;
           case "get_member_stats":      result = await execGetMemberStats(); break;
+          case "get_site_config":       result = await execGetSiteConfig(); break;
+          case "update_site_config":    result = await execUpdateSiteConfig(args); break;
+          case "add_site_section":      result = await execAddSiteSection(args); break;
           default:                      result = JSON.stringify({ error: `Unknown tool: ${call.function.name}` });
         }
       } catch (err) {
