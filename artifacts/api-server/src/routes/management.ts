@@ -55,6 +55,7 @@ import {
 } from "./members";
 import { ensureMembersPortalProvisioned } from "../lib/membersPortalProvision";
 import { SECTION_REGISTRY, validateSection } from "../lib/sectionRegistry";
+import { sendOrgEmail } from "../mailer";
 
 // Canonical site_config keys that update_site_config / get_site_config
 // are allowed to read and write. These match the top-level fields produced
@@ -496,6 +497,61 @@ router.post("/chat", async (req: Request, res: Response) => {
           required: ["ids"],
           properties: {
             ids: { type: "array", items: { type: "string" }, description: "List of message IDs to mark as read" },
+          },
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "reply_to_message",
+        description: "Send an email reply to someone who contacted the organization through its public contact form. Sends FROM the organization's verified sender address TO the person who originally wrote in. Use when the user says 'reply to that message', 'email them back', 'respond to the contact form', 'send a response to John', 'reply to message #abc'. Always read the original message back to the user and confirm the reply text before sending. After sending, the message is marked as replied so it isn't answered twice.",
+        parameters: {
+          type: "object",
+          required: ["messageId", "body"],
+          properties: {
+            messageId: { type: "string", description: "The contact submission ID (from list_messages)." },
+            subject: { type: "string", description: "Optional subject line. Defaults to 'Re: your message to <orgName>'." },
+            body: { type: "string", description: "The reply text the admin wants to send. Plain text — line breaks become paragraphs." },
+          },
+        },
+      },
+    },
+
+    // ── 9b. Members-portal announcements ─────────────────────────────────
+    {
+      type: "function",
+      function: {
+        name: "list_announcements",
+        description: "Show all announcements posted to the members-only portal. Use when the user says 'what announcements are posted', 'show portal announcements', 'what did we post to members', 'any notices up'.",
+        parameters: { type: "object", properties: {} },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "post_announcement",
+        description: "Post a new announcement to the members-only portal. All logged-in members see it when they visit the portal. Use when the user says 'post an announcement', 'tell the members something', 'put a notice on the portal', 'let members know about the meeting change'. Do NOT use for public-site posts or for sending email — announcements are in-portal only. For public-site updates use add_site_section; for email blasts use send_newsletter.",
+        parameters: {
+          type: "object",
+          required: ["title", "body"],
+          properties: {
+            title: { type: "string", description: "Short headline shown at the top of the announcement card." },
+            body: { type: "string", description: "Full announcement text. Plain text or simple markdown — line breaks become paragraphs." },
+          },
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "delete_announcement",
+        description: "Remove an announcement from the members portal permanently. Use when the user says 'delete that announcement', 'take down the old notice', 'remove it from the portal'. Always confirm before deleting.",
+        parameters: {
+          type: "object",
+          required: ["announcementId"],
+          properties: {
+            announcementId: { type: "string", description: "The ID of the announcement to remove (from list_announcements)." },
           },
         },
       },
@@ -1344,6 +1400,141 @@ router.post("/chat", async (req: Request, res: Response) => {
     }
 
     return JSON.stringify({ ok: true, markedRead: ids.length });
+  }
+
+  // ── Reply to a contact-form message (outbound email) ─────────────────────
+  async function execReplyToMessage(args: Record<string, unknown>): Promise<string> {
+    const messageId = String(args.messageId ?? "").trim();
+    const bodyText = String(args.body ?? "").trim();
+    if (!messageId) return JSON.stringify({ error: "messageId is required" });
+    if (!bodyText) return JSON.stringify({ error: "body is required" });
+
+    // Defense-in-depth: lookup is scoped to this org
+    const [msg] = await db
+      .select()
+      .from(orgContactSubmissionsTable)
+      .where(and(eq(orgContactSubmissionsTable.id, messageId), eq(orgContactSubmissionsTable.orgId, org.id)));
+    if (!msg) return JSON.stringify({ error: `Message not found: ${messageId}` });
+
+    const recipient = (msg.email ?? "").trim();
+    if (!recipient) return JSON.stringify({ error: "Original message has no email address to reply to" });
+
+    const fromEmail = (org.senderEmail ?? "").trim();
+    if (!fromEmail) {
+      return JSON.stringify({
+        error: "This organization hasn't set a verified sender email yet. Set it under Settings → Email before replying.",
+      });
+    }
+    const fromName = (org.senderName ?? org.name ?? "").trim() || org.name;
+    const subject = (typeof args.subject === "string" && args.subject.trim())
+      ? String(args.subject).trim()
+      : `Re: your message to ${org.name}`;
+
+    const paragraphs = bodyText
+      .split(/\n{2,}|\n/)
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .map((p) => `<p style="margin:0 0 14px;font-size:15px;color:#0a0f1e;line-height:1.7;">${p.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>`)
+      .join("");
+    const bodyHtml = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#0a0f1e;">${paragraphs}<p style="margin:24px 0 0;font-size:13px;color:#6b7280;">— ${fromName}</p></div>`;
+    const plainText = `${bodyText}\n\n— ${fromName}`;
+
+    const result = await sendOrgEmail({
+      to: recipient,
+      subject,
+      bodyHtml,
+      bodyText: plainText,
+      fromName,
+      fromEmail,
+    });
+
+    if (!result.sent && !result.simulated) {
+      return JSON.stringify({ error: result.error ?? "Email failed to send" });
+    }
+
+    // Mark replied + read so the inbox reflects that this thread is handled
+    await db
+      .update(orgContactSubmissionsTable)
+      .set({ repliedAt: new Date(), read: true })
+      .where(and(eq(orgContactSubmissionsTable.id, messageId), eq(orgContactSubmissionsTable.orgId, org.id)));
+
+    return JSON.stringify({
+      ok: true,
+      simulated: result.simulated === true,
+      to: recipient,
+      from: `${fromName} <${fromEmail}>`,
+      subject,
+      message: result.simulated
+        ? `Reply prepared for ${recipient} (email is simulated — no Resend key configured).`
+        : `Reply sent to ${recipient}.`,
+    });
+  }
+
+  // ── Members-portal announcements ──────────────────────────────────────────
+  async function execListAnnouncements(): Promise<string> {
+    const rows = await db.execute(sql`
+      SELECT id, title, body, created_at, updated_at
+      FROM cs_announcements
+      WHERE org_id = ${org.id}
+      ORDER BY created_at DESC
+      LIMIT 20
+    `);
+    const announcements = (rows.rows as Array<Record<string, unknown>>).map((r) => ({
+      id: String(r.id),
+      title: r.title,
+      body: r.body,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    }));
+    return JSON.stringify({ announcements, count: announcements.length });
+  }
+
+  async function execPostAnnouncement(args: Record<string, unknown>): Promise<string> {
+    const title = String(args.title ?? "").trim();
+    const body = String(args.body ?? "").trim();
+    if (!title) return JSON.stringify({ error: "title is required" });
+    if (!body) return JSON.stringify({ error: "body is required" });
+    if (title.length > 200) return JSON.stringify({ error: "title must be 200 characters or fewer" });
+
+    const inserted = await db.execute(sql`
+      INSERT INTO cs_announcements (org_id, title, body)
+      VALUES (${org.id}, ${title}, ${body})
+      RETURNING id, title, body, created_at
+    `);
+    const row = (inserted.rows as Array<Record<string, unknown>>)[0];
+    return JSON.stringify({
+      ok: true,
+      announcement: {
+        id: String(row.id),
+        title: row.title,
+        body: row.body,
+        createdAt: row.created_at,
+      },
+      message: `Announcement "${title}" posted to the members portal.`,
+    });
+  }
+
+  async function execDeleteAnnouncement(args: Record<string, unknown>): Promise<string> {
+    const announcementId = String(args.announcementId ?? "").trim();
+    if (!announcementId) return JSON.stringify({ error: "announcementId is required" });
+    // Cast explicitly so a non-numeric input doesn't blow up the query
+    const idNum = Number(announcementId);
+    if (!Number.isInteger(idNum) || idNum <= 0) {
+      return JSON.stringify({ error: `Invalid announcementId: ${announcementId}` });
+    }
+
+    // Defense-in-depth: confirm the row belongs to this org BEFORE deleting
+    const existing = await db.execute(sql`
+      SELECT id, title FROM cs_announcements WHERE id = ${idNum} AND org_id = ${org.id}
+    `);
+    const found = (existing.rows as Array<Record<string, unknown>>)[0];
+    if (!found) return JSON.stringify({ error: `Announcement not found: ${announcementId}` });
+
+    await db.execute(sql`DELETE FROM cs_announcements WHERE id = ${idNum} AND org_id = ${org.id}`);
+    return JSON.stringify({
+      ok: true,
+      message: `Announcement "${found.title}" removed from the members portal.`,
+    });
   }
 
   // ── Sponsor edits ────────────────────────────────────────────────────────
@@ -2691,6 +2882,10 @@ Always end with the site URL and events URL.`;
           case "get_site_config":       result = await execGetSiteConfig(); break;
           case "update_site_config":    result = await execUpdateSiteConfig(args); break;
           case "add_site_section":      result = await execAddSiteSection(args); break;
+          case "reply_to_message":      result = await execReplyToMessage(args); break;
+          case "list_announcements":    result = await execListAnnouncements(); break;
+          case "post_announcement":     result = await execPostAnnouncement(args); break;
+          case "delete_announcement":   result = await execDeleteAnnouncement(args); break;
           default:                      result = JSON.stringify({ error: `Unknown tool: ${call.function.name}` });
         }
       } catch (err) {

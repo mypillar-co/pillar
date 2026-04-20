@@ -295,6 +295,9 @@ async function runMigrations() {
     `);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS cs_announcements_org_idx ON cs_announcements (org_id, created_at DESC)`);
 
+    // Track which contact-form messages an admin has replied to (via Autopilot reply_to_message tool)
+    await db.execute(sql`ALTER TABLE org_contact_submissions ADD COLUMN IF NOT EXISTS replied_at timestamptz`);
+
     logger.info("Startup migrations complete");
   } catch (err) {
     logger.warn({ err }, "Startup migration warning — continuing");

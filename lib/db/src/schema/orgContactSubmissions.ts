@@ -9,6 +9,7 @@ export const orgContactSubmissionsTable = pgTable("org_contact_submissions", {
   message: text("message").notNull(),
   read: boolean("read").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  repliedAt: timestamp("replied_at", { withTimezone: true }),
 }, (table) => ({
   orgIdx: index("ocs_org_idx").on(table.orgId),
 }));
