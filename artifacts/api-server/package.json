@@ -10,7 +10,8 @@
     "start": "fuser -k 8080/tcp 2>/dev/null; sleep 0.3; node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "e2e": "tsx src/scripts/e2e-healthcheck.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
