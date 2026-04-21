@@ -1,0 +1,18 @@
+Good report. 47/59 is a strong baseline. Here’s the honest read of every finding:
+The 3 NO-GOs:
+SERVICE_API_KEY and PILLAR_SERVICE_KEY showing as not set is almost certainly the same env propagation issue we saw before — the secrets exist in Replit but the spawned tsx process doesn’t inherit them. Tell Replit to add a check at the top of the script that reads from the Replit secrets store directly rather than process.env, or just verify by running echo $SERVICE_API_KEY in the shell. Not a real platform bug.
+The newsletter endpoint returning 404 is a real gap. The newsletter subscriber table exists but there’s no API route serving it. Not blocking anything today but needs a route.
+The 9 WARNs sorted by priority:
+Fix now — Stripe not configured. You cannot take ticket payments without this. Get the Stripe secret key into Replit Secrets before any org tries to sell tickets.
+Fix now — Buffer client ID not set. Social posting won’t work without it.
+Fix soon — Sentry not configured. You’re flying blind on production errors without it.
+Not a real bug — the three 403s on AI edit, agent endpoint, and logo upload. These require auth which the script doesn’t have. All GO in reality.
+Not a real bug — no portal_provisioned column. The check was looking for a column that doesn’t exist — portal status is stored in site_config JSONB not as a separate column. Update the check.
+Not a real bug — no primary_color column. Same issue — colors are in site_config JSONB.
+Real but low priority — 14 slugs with random suffixes. These are existing orgs created before generateCleanOrgSlug was implemented. Won’t fix themselves but don’t cause any current problems.
+Tell Replit:
+Three targeted fixes:
+Fix 1 — Add GET /api/newsletter/subscribers route to the API server. It should return the count and list of active newsletter subscribers for the org. Protect it with the existing auth middleware. This closes the only genuine NO-GO.
+Fix 2 — Update the systems-check script. Change the brand colors check to look inside site_config JSONB for primaryColor instead of looking for a primary_color column. Change the portal provisioned check to query site_config -> membersPortal instead of looking for a portal_provisioned column. Change the three 403 checks for AI edit, agent, and logo upload to report GO instead of WARN — a 403 means the route exists and is correctly protected.
+Fix 3 — Add STRIPE_SECRET_KEY and BUFFER_CLIENT_ID to the systems-check as NO-GO instead of WARN. These are required for core revenue features — ticket sales and social posting. A platform without Stripe cannot make money.
+After both fixes rerun the systems-check and report the new score. Target is 55+/59 GO with 0 NO-GO.​​​​​​​​​​​​​​​​

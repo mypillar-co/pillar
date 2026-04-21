@@ -36,6 +36,7 @@ import membersRouter from "./members";
 import membersPortalRouter from "./membersPortal";
 import announcementsRouter from "./announcements";
 import internalMembersRouter from "./internalMembers";
+import newsletterRouter from "./newsletter";
 
 const router: IRouter = Router();
 
@@ -77,5 +78,6 @@ router.use("/members", membersRouter);
 router.use("/members-portal", membersPortalRouter);
 router.use("/announcements", announcementsRouter);
 router.use("/internal", internalMembersRouter);
+router.use("/newsletter", newsletterRouter);
 
 export default router;

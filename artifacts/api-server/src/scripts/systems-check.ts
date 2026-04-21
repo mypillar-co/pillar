@@ -101,7 +101,7 @@ async function main() {
   }
   envCheck("INFRASTRUCTURE", "Sentry configured", "SENTRY_DSN", false);
   envCheck("INFRASTRUCTURE", "Resend configured", "RESEND_API_KEY", false);
-  envCheck("INFRASTRUCTURE", "Stripe configured", "STRIPE_SECRET_KEY", false);
+  envCheck("INFRASTRUCTURE", "Stripe configured", "STRIPE_SECRET_KEY", true);
   envCheck("INFRASTRUCTURE", "Service key configured", "SERVICE_API_KEY", true);
   envCheck("INFRASTRUCTURE", "Pillar service key configured", "PILLAR_SERVICE_KEY", true);
   envCheck("INFRASTRUCTURE", "OpenAI configured", "AI_INTEGRATIONS_OPENAI_API_KEY", false);
@@ -129,15 +129,12 @@ async function main() {
     add("ORGANIZATIONS", "Org has provisioned community site", "WARN", (err as Error).message);
   }
   try {
-    const hasPc = await columnExists(pool, "organizations", "primary_color");
-    if (hasPc) {
-      const r = await pool.query("SELECT COUNT(*)::int AS n FROM organizations WHERE primary_color IS NOT NULL");
-      const n = r.rows[0].n as number;
-      if (n > 0) add("ORGANIZATIONS", "Org has brand colors set", "GO", `${n} orgs with primary_color`);
-      else add("ORGANIZATIONS", "Org has brand colors set", "WARN", "no orgs have primary_color set");
-    } else {
-      add("ORGANIZATIONS", "Org has brand colors set", "WARN", "no primary_color column");
-    }
+    const r = await pool.query(
+      "SELECT COUNT(*)::int AS n FROM organizations WHERE site_config->>'primaryColor' IS NOT NULL",
+    );
+    const n = r.rows[0].n as number;
+    if (n > 0) add("ORGANIZATIONS", "Org has brand colors set", "GO", `${n} orgs with site_config.primaryColor`);
+    else add("ORGANIZATIONS", "Org has brand colors set", "WARN", "no orgs have site_config.primaryColor set");
   } catch (err) {
     add("ORGANIZATIONS", "Org has brand colors set", "WARN", (err as Error).message);
   }
@@ -216,14 +213,16 @@ async function main() {
   // ── MEMBER PORTAL ──
   add("MEMBER PORTAL", "Members table exists", (await tableExists(pool, "members")) ? "GO" : "NO-GO", "SELECT 1 FROM members LIMIT 1");
   try {
-    const hasPp = await columnExists(pool, "organizations", "portal_provisioned");
-    if (hasPp) {
-      const r = await pool.query("SELECT COUNT(*)::int AS n FROM organizations WHERE portal_provisioned = true");
-      const n = r.rows[0].n as number;
-      add("MEMBER PORTAL", "Org has portal provisioned", n > 0 ? "GO" : "WARN", n > 0 ? `${n} orgs with portal_provisioned=true` : "no orgs have portal_provisioned set");
-    } else {
-      add("MEMBER PORTAL", "Org has portal provisioned", "WARN", "no portal_provisioned column on organizations");
-    }
+    const r = await pool.query(
+      "SELECT COUNT(*)::int AS n FROM organizations WHERE site_config->'membersPortal' IS NOT NULL",
+    );
+    const n = r.rows[0].n as number;
+    add(
+      "MEMBER PORTAL",
+      "Org has portal provisioned",
+      n > 0 ? "GO" : "WARN",
+      n > 0 ? `${n} orgs with site_config.membersPortal` : "no orgs have site_config.membersPortal",
+    );
   } catch (err) {
     add("MEMBER PORTAL", "Org has portal provisioned", "WARN", (err as Error).message);
   }
@@ -284,7 +283,7 @@ async function main() {
   }
   {
     const r = await httpReq("POST", `${API}/api/community-site/ai-edit`, { body: "{}" });
-    if (r.status === 400 || r.status === 401) add("CONTENT AND AI", "AI edit endpoint", "GO", `returned ${r.status}`);
+    if (r.status === 400 || r.status === 401 || r.status === 403) add("CONTENT AND AI", "AI edit endpoint", "GO", `returned ${r.status} (route exists, auth-protected)`);
     else if (r.status === 404) add("CONTENT AND AI", "AI edit endpoint", "NO-GO", "returned 404");
     else add("CONTENT AND AI", "AI edit endpoint", "WARN", `returned ${r.status}`);
   }
@@ -305,7 +304,7 @@ async function main() {
   // ── AUTOPILOT AGENT ──
   {
     const r = await httpReq("POST", `${API}/api/management/agent`, { body: "{}" });
-    if (r.status === 400 || r.status === 401) add("AUTOPILOT AGENT", "Agent endpoint exists", "GO", `returned ${r.status}`);
+    if (r.status === 400 || r.status === 401 || r.status === 403) add("AUTOPILOT AGENT", "Agent endpoint exists", "GO", `returned ${r.status} (route exists, auth-protected)`);
     else if (r.status === 404) add("AUTOPILOT AGENT", "Agent endpoint exists", "NO-GO", "returned 404");
     else add("AUTOPILOT AGENT", "Agent endpoint exists", "WARN", `returned ${r.status}`);
   }
@@ -328,7 +327,7 @@ async function main() {
     else if (r.status === 404) add("SOCIAL AND BUFFER", "Social accounts endpoint", "NO-GO", "returned 404");
     else add("SOCIAL AND BUFFER", "Social accounts endpoint", "WARN", `returned ${r.status}`);
   }
-  envCheck("SOCIAL AND BUFFER", "Buffer client ID configured", "BUFFER_CLIENT_ID", false);
+  envCheck("SOCIAL AND BUFFER", "Buffer client ID configured", "BUFFER_CLIENT_ID", true);
 
   // ── SPONSORS ──
   add("SPONSORS", "Sponsors table exists", (await tableExists(pool, "cs_sponsors")) ? "GO" : "NO-GO", "");
@@ -389,7 +388,7 @@ async function main() {
   }
   {
     const r = await httpReq("POST", `${API}/api/community-site/logo-upload-url`, { body: "{}" });
-    if (r.status === 200 || r.status === 401) add("STORAGE", "Logo upload endpoint", "GO", `returned ${r.status}`);
+    if (r.status === 200 || r.status === 401 || r.status === 403) add("STORAGE", "Logo upload endpoint", "GO", `returned ${r.status} (route exists, auth-protected)`);
     else if (r.status === 404) add("STORAGE", "Logo upload endpoint", "NO-GO", "returned 404");
     else add("STORAGE", "Logo upload endpoint", "WARN", `returned ${r.status}`);
   }
