@@ -1,0 +1,113 @@
+Tell Replit:
+Create a new file artifacts/api-server/src/scripts/systems-check.ts that runs a comprehensive all-systems status report. This is different from the e2e healthcheck — it checks every named feature and function of the platform and reports a clear status for each one. Run it with pnpm –filter @workspace/api-server exec tsx src/scripts/systems-check.ts
+The output should look like a mission control checklist — each item is either GO, WARN, or NO-GO with a one-line explanation.
+Here is the complete checklist to implement. For each item, run the check described and report the status:
+INFRASTRUCTURE
+[ ] API server responding — GET /api/healthz returns status ok
+[ ] Database connected — GET /api/healthz returns db ok
+[ ] Community platform responding — GET http://localhost:5001/api/healthz returns status ok
+[ ] Deploy gate artifact exists — dist/public/index.html exists
+[ ] Deploy gate base path correct — index.html contains /sites/placeholder/assets/
+[ ] Sentry configured — SENTRY_DSN env var is set
+[ ] Resend configured — RESEND_API_KEY env var is set
+[ ] Stripe configured — STRIPE_SECRET_KEY env var is set
+[ ] Service key configured — SERVICE_API_KEY env var is set
+[ ] Pillar service key configured — PILLAR_SERVICE_KEY env var is set
+[ ] OpenAI configured — AI_INTEGRATIONS_OPENAI_API_KEY env var is set
+ORGANIZATIONS
+[ ] At least one org exists in database
+[ ] At least one org has a provisioned community site — isProvisioned true
+[ ] At least one org has brand colors set — primaryColor not null
+[ ] Slug generation — generateCleanOrgSlug produces clean slugs without random suffixes
+COMMUNITY PLATFORM
+[ ] Test org site loads — GET /sites/norwin-rotary-uic5/ returns 200
+[ ] Org config resolves — GET /api/org-config with x-org-id header returns non-empty config
+[ ] Events endpoint works — GET /api/events returns 200 and array
+[ ] Contact endpoint works — GET /api/org-config returns contact fields
+[ ] Public registration rejects bad token — POST /api/members/register with fake token returns 404 not 500
+[ ] Login rejects wrong password — POST /api/members/login with wrong password returns 401 not 500
+[ ] Forgot password always returns 200 — POST /api/members/forgot-password returns 200 regardless of email
+MEMBER PORTAL
+[ ] Members table exists — SELECT 1 FROM members LIMIT 1 does not throw
+[ ] At least one org has portal provisioned — portalProvisioned true in stats
+[ ] Portal config endpoint works — GET /api/members-portal/config returns 200 or 401
+[ ] Invite flow — registration_token column exists on members table
+[ ] Password reset — reset_token column exists on members table
+[ ] Renewal reminders — renewal_date column exists on members table
+EVENTS AND TICKETS
+[ ] Events table exists — SELECT 1 FROM events LIMIT 1 does not throw
+[ ] Ticket types table exists — SELECT 1 FROM ticket_types LIMIT 1 does not throw
+[ ] Ticket sales table exists — SELECT 1 FROM ticket_sales LIMIT 1 does not throw
+[ ] Events API returns array — GET /api/events returns 200
+[ ] Event count across all orgs — report total event count
+CONTENT AND AI
+[ ] AI service reachable — POST to AI base URL with a minimal ping returns without connection error
+[ ] Content studio endpoint exists — GET /api/content/tasks returns 200 or 401
+[ ] Content history endpoint exists — GET /api/content/history returns 200 or 401
+[ ] AI edit endpoint exists — POST /api/community-site/ai-edit returns 400 or 401 not 404
+[ ] Section registry loaded — sectionRegistry.ts exports SECTION_REGISTRY with at least 6 types
+AUTOPILOT AGENT
+[ ] Agent endpoint exists — POST /api/management/agent returns 400 or 401 not 404
+[ ] Agent tool count — read the tools array from management.ts and report how many tools are defined
+SOCIAL AND BUFFER
+[ ] Social accounts endpoint exists — GET /api/social/accounts returns 200 or 401 not 404
+[ ] Buffer client ID configured — BUFFER_CLIENT_ID env var is set
+SPONSORS AND BUSINESSES
+[ ] Sponsors table exists — SELECT 1 FROM cs_sponsors LIMIT 1 does not throw
+[ ] Sponsors endpoint exists — GET /api/sponsors returns 200 or 401 not 404
+NEWSLETTERS
+[ ] Newsletter subscribers table exists — query cs_newsletter_subscribers or equivalent
+[ ] Newsletter endpoint exists — GET /api/newsletter/subscribers returns 200 or 401 not 404
+ANNOUNCEMENTS
+[ ] Announcements table exists — SELECT 1 FROM cs_announcements LIMIT 1 does not throw
+[ ] Announcements endpoint exists via management agent tool list
+SCHEDULED TASKS
+[ ] Scheduler file exists — artifacts/api-server/src/scheduler.ts exists
+[ ] Renewal reminder function defined — scheduler.ts contains sendMemberRenewalReminders
+STORAGE AND UPLOADS
+[ ] Object storage configured — PRIVATE_OBJECT_DIR env var is set or Replit object storage available
+[ ] Logo upload endpoint exists — POST /api/community-site/logo-upload-url returns 200 or 401 not 404
+DEPLOY AND SAFETY
+[ ] deploy-cp.sh exists at repo root
+[ ] deploy-cp.sh is executable
+[ ] vite.config.ts has build-time conditional base path — contains command === “build”
+[ ] Base swap never hardcoded — vite.config.ts does not contain base: “/” as a simple string assignment
+TEST SUITE
+[ ] e2e healthcheck script exists — src/scripts/e2e-healthcheck.ts exists
+[ ] Playwright config exists — artifacts/playwright.config.ts exists
+[ ] Playwright test files exist — count .spec.ts files in artifacts/e2e/
+At the end print a summary:
+════════════════════════════════════════════
+PILLAR SYSTEMS STATUS REPORT
+{timestamp}
+════════════════════════════════════════════
+INFRASTRUCTURE         {n}/{total} GO
+ORGANIZATIONS          {n}/{total} GO
+COMMUNITY PLATFORM     {n}/{total} GO
+MEMBER PORTAL          {n}/{total} GO
+EVENTS AND TICKETS     {n}/{total} GO
+CONTENT AND AI         {n}/{total} GO
+AUTOPILOT AGENT        {n}/{total} GO
+SOCIAL AND BUFFER      {n}/{total} GO
+SPONSORS               {n}/{total} GO
+NEWSLETTERS            {n}/{total} GO
+ANNOUNCEMENTS          {n}/{total} GO
+SCHEDULED TASKS        {n}/{total} GO
+STORAGE                {n}/{total} GO
+DEPLOY AND SAFETY      {n}/{total} GO
+TEST SUITE             {n}/{total} GO
+────────────────────────────────────────────
+OVERALL: {total_go}/{total} GO  {total_warn} WARN  {total_nogo} NO-GO
+────────────────────────────────────────────
+NO-GO ITEMS:
+{list every NO-GO with its category and description}
+WARN ITEMS:
+{list every WARN with its category and description}
+Use these status rules:
+GO — check passed, everything working
+WARN — partially working, missing optional config, or could not fully verify
+NO-GO — definitively broken, missing required table, endpoint returns 404, or critical env var missing
+Exit code 0 if zero NO-GO items. Exit code 1 if any NO-GO items.
+Add to artifacts/api-server/package.json scripts:
+“systems-check”: “tsx src/scripts/systems-check.ts”
+Run it immediately after creating it and paste the full output.​​​​​​​​​​​​​​​​

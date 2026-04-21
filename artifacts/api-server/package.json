@@ -11,7 +11,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "e2e": "tsx src/scripts/e2e-healthcheck.ts"
+    "e2e": "tsx src/scripts/e2e-healthcheck.ts",
+    "systems-check": "tsx src/scripts/systems-check.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
