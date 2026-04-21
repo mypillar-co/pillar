@@ -9,10 +9,11 @@
  */
 
 import { Router, type Request, type Response } from "express";
-import { db, organizationsTable, sitesTable } from "@workspace/db";
+import { db, organizationsTable, sessionsTable, sitesTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import OpenAI from "openai";
 import { logger } from "../lib/logger";
+import { createSession, SESSION_COOKIE } from "../lib/auth";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -114,6 +115,122 @@ function getOpenAIClient() {
 
 router.get("/health", (_req: Request, res: Response) => {
   res.json({ ok: true, service: "pillar-api", timestamp: new Date().toISOString() });
+});
+
+// ─── GET /api/service/session-token ───────────────────────────────────────────
+//
+// TEST-ONLY: mints a short-lived session cookie scoped to a test org for use
+// by automated end-to-end healthchecks. Hits the same session store and
+// authMiddleware that real user sessions use, so it exercises the full
+// session-cookie / req.user / resolveFullOrg path without needing OAuth.
+//
+// Query params:
+//   orgSlug   (required) — slug of the org whose owning user becomes req.user
+//   ttlSec    (optional, default 300, max 3600) — session lifetime
+//
+// Returns:
+//   {
+//     sid: "<hex>",                 // raw session id (also useful as Bearer token)
+//     cookie: "sid=<hex>; ...",     // ready to set as Cookie header
+//     cookieName: "sid",
+//     user: { id, email, ... },     // the user the session is bound to
+//     orgId, orgSlug,
+//     expiresAt: <unix-ms>,
+//   }
+//
+// Hard-disabled when NODE_ENV === "production". Authenticated by SERVICE_API_KEY
+// via the existing serviceAuth middleware, so callers must already be trusted.
+
+router.get("/session-token", async (req: Request, res: Response) => {
+  if (process.env.NODE_ENV === "production") {
+    res.status(403).json({ error: "session-token endpoint is disabled in production" });
+    return;
+  }
+
+  const orgSlug = typeof req.query.orgSlug === "string" ? req.query.orgSlug.trim() : "";
+  if (!orgSlug) {
+    res.status(400).json({ error: "orgSlug query parameter is required" });
+    return;
+  }
+
+  const ttlSecRaw = Number(req.query.ttlSec ?? 300);
+  const ttlSec = Number.isFinite(ttlSecRaw) ? Math.min(Math.max(Math.trunc(ttlSecRaw), 30), 3600) : 300;
+
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) {
+    res.status(404).json({ error: `Organization not found: ${orgSlug}` });
+    return;
+  }
+  if (!org.userId) {
+    res.status(409).json({ error: `Organization ${orgSlug} has no owning user_id; cannot mint a session` });
+    return;
+  }
+
+  // Look up the user that owns the org. If the row exists, we use its real
+  // email/name so the session is indistinguishable from a real login. If the
+  // user row is missing, we fall back to a synthetic user with just the id —
+  // resolveFullOrg only needs req.user.id to find the org.
+  let userRow: { id: string; email: string | null; firstName: string | null; lastName: string | null; profileImageUrl: string | null } | null = null;
+  try {
+    const r = await db.execute(sql`
+      SELECT id, email, first_name AS "firstName", last_name AS "lastName", profile_image_url AS "profileImageUrl"
+      FROM users WHERE id = ${org.userId}
+      LIMIT 1
+    `);
+    const row = (r.rows as Record<string, unknown>[])[0];
+    if (row) {
+      userRow = {
+        id: String(row.id),
+        email: (row.email as string | null) ?? null,
+        firstName: (row.firstName as string | null) ?? null,
+        lastName: (row.lastName as string | null) ?? null,
+        profileImageUrl: (row.profileImageUrl as string | null) ?? null,
+      };
+    }
+  } catch {
+    // users table might not be queryable in this exact shape — fall through
+    userRow = null;
+  }
+
+  const user = userRow ?? {
+    id: org.userId,
+    email: null,
+    firstName: null,
+    lastName: null,
+    profileImageUrl: null,
+  };
+
+  // Mint the session. createSession writes the row with the standard 7-day
+  // TTL, so we immediately UPDATE the expire column down to the requested
+  // short ttlSec — without this the "test-only" claim would be false and a
+  // leaked SID could log in for a week. authMiddleware → getSession() rejects
+  // any row whose expire < now() and deletes it, so the short window is real.
+  const sid = await createSession({ user });
+  const expiresAtMs = Date.now() + ttlSec * 1000;
+  await db
+    .update(sessionsTable)
+    .set({ expire: new Date(expiresAtMs) })
+    .where(eq(sessionsTable.sid, sid));
+  const expiresAt = expiresAtMs;
+
+  // Build a Cookie header value the e2e script can replay verbatim.
+  const cookieValue = `${SESSION_COOKIE}=${sid}; Path=/; HttpOnly; SameSite=Lax`;
+
+  logger.info(
+    { orgSlug, orgId: org.id, userId: user.id, ttlSec },
+    "[service-api] minted test session token",
+  );
+
+  res.json({
+    sid,
+    cookie: cookieValue,
+    cookieName: SESSION_COOKIE,
+    user,
+    orgId: org.id,
+    orgSlug: org.slug,
+    expiresAt,
+    note: "TEST-ONLY. Disabled when NODE_ENV=production. Use as Cookie header or as Bearer token.",
+  });
 });
 
 // ─── GET /api/service/files ───────────────────────────────────────────────────

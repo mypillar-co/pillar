@@ -1,0 +1,11 @@
+28 pass, 0 fail is a good baseline. Here’s the honest read of what actually needs fixing:
+Fix immediately — two real bugs:
+The missing primaryColor and accentColor on the Westside Rotary org means their community site is rendering with default colors instead of their brand. Tell Replit to backfill those two fields in site_config for every org that has a config but is missing color values. Use the ORG_TYPE_COLORS_MAP that already exists in communitySite.ts to pick the right defaults by org type.
+The events filtering issue in FLOW 6d is potentially serious. If events created through the dashboard never appear on the community site until manually published, org admins will think the feature is broken. Replit needs to check what status value POST /api/events sets by default and whether the CP /api/events endpoint filters those out.
+The 5 SKIPs need a real solution:
+The AI edit, content studio, autopilot agent, and social endpoints are all untested because they need session auth. This is the biggest gap in the healthcheck — the most complex and failure-prone parts of the platform are completely invisible to automated testing.
+Tell Replit:
+Fix three things in order:
+	1.	Backfill primaryColor and accentColor for every org in organizations where site_config exists but primaryColor is null. Use the org type to pick colors from ORG_TYPE_COLORS_MAP.
+	2.	Check what status POST /api/events sets by default. If it is draft or anything other than active/published, change the default to active so events appear on the community site immediately. Also check the CP /api/events filter and confirm it shows active events.
+	3.	Add a service-key authenticated test bypass for the 5 skipped flows. Create GET /api/service/session-token that accepts the SERVICE_API_KEY header and returns a short-lived test session cookie scoped to a test org. The e2e script can use this token to exercise the session-gated endpoints without touching the real auth model. Protect it with a check that NODE_ENV is not production so it can never be used on live traffic.​​​​​​​​​​​​​​​​

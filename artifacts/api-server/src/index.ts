@@ -56,6 +56,12 @@ async function runMigrations() {
     await db.execute(sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS featured_on_site boolean DEFAULT false`);
     await db.execute(sql`ALTER TABLE events ADD COLUMN IF NOT EXISTS has_sponsor_section boolean DEFAULT false`);
 
+    // Default events.status to 'active' so dashboard-created events publish
+    // immediately. The CP /api/events filter does not check status today,
+    // but this aligns the column default with that observable behavior so
+    // future filters (e.g. "exclude drafts") don't silently hide events.
+    await db.execute(sql`ALTER TABLE events ALTER COLUMN status SET DEFAULT 'active'`);
+
     // Vendor registration extended fields
     await db.execute(sql`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS last_servsafe_reminder timestamptz`);
     await db.execute(sql`ALTER TABLE registrations ADD COLUMN IF NOT EXISTS last_insurance_reminder timestamptz`);

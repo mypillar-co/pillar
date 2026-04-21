@@ -8,7 +8,7 @@ export const eventsTable = pgTable("events", {
   slug: varchar("slug").notNull(),
   description: text("description"),
   eventType: varchar("event_type"),
-  status: varchar("status").default("draft"),
+  status: varchar("status").default("active"),
   startDate: varchar("start_date"),
   endDate: varchar("end_date"),
   startTime: varchar("start_time"),
