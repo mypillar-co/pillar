@@ -8,7 +8,7 @@
  * Run: pnpm --filter @workspace/api-server run e2e
  */
 
-import { Pool } from "pg";
+import { pool } from "@workspace/db";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -60,7 +60,6 @@ async function fetchJson(url: string, init: RequestInit = {}, timeoutMs = 10_000
   } finally { clearTimeout(t); }
 }
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 // ───────────────────────── FLOW 1 — API HEALTH ─────────────────────────────
 async function flow1() {
@@ -110,16 +109,15 @@ async function flow2() {
   // 2b — /api/community-site/target requires session auth, so call the equivalent query from the CP side
   if (primaryOrg) {
     await safe(async () => {
-      const r = await pool.query<{ has_config: boolean; has_url: boolean; has_csorg: boolean }>(`
+      const r = await pool.query<{ has_config: boolean; has_url: boolean }>(`
         SELECT
           (site_config IS NOT NULL) AS has_config,
-          (community_site_url IS NOT NULL) AS has_url,
-          (cs_org_id IS NOT NULL) AS has_csorg
+          (community_site_url IS NOT NULL) AS has_url
         FROM organizations WHERE id = $1
       `, [primaryOrg!.id]);
       const row = r.rows[0]!;
-      const isProvisioned = row.has_config || row.has_url || row.has_csorg;
-      pass(F, "2b community-site/target (db)", `isProvisioned=${isProvisioned} (config=${row.has_config} url=${row.has_url} csorg=${row.has_csorg})`);
+      const isProvisioned = row.has_config || row.has_url;
+      pass(F, "2b community-site/target (db)", `isProvisioned=${isProvisioned} (config=${row.has_config} url=${row.has_url})`);
     }, (e) => fail(F, "2b community-site/target", errMsg(e)));
   }
 }
@@ -147,13 +145,16 @@ async function flow3() {
       fail(F, "3b CP /sites/" + slug + "/", `status=${r.status} ct=${ct}`);
       return;
     }
-    // 3c — base swap check
-    if (text.includes("/sites/placeholder/assets/")) {
-      pass(F, "3c base swap", `placeholder asset path present (was rewritten by api-server proxy)`);
+    // 3c — base swap check (only meaningful for production-built CP, not Vite dev)
+    const isDevMode = text.includes("/@vite/client") || text.includes("/@react-refresh");
+    if (isDevMode) {
+      warn(F, "3c base swap", `CP is in Vite dev mode — placeholder-asset check skipped (production-only). FLOW 13c covers the built artifact.`);
+    } else if (text.includes("/sites/placeholder/assets/")) {
+      pass(F, "3c base swap", `placeholder asset path present (rewritten at runtime)`);
     } else if (text.includes(`/sites/${slug}/assets/`)) {
       pass(F, "3c base swap", `slug asset path present (build-time substitution)`);
     } else {
-      fail(F, "3c base swap", `neither /sites/placeholder/assets/ nor /sites/${slug}/assets/ found in HTML — base swap broken`);
+      fail(F, "3c base swap", `prod build served but neither /sites/placeholder/assets/ nor /sites/${slug}/assets/ found — base swap broken`);
     }
   }, (e) => fail(F, "3b/3c CP /sites/...", errMsg(e)));
 
@@ -385,7 +386,11 @@ async function flow7() {
   if (!orgWithMembers) { skip(F, "7 (all)", "no test org"); return; }
   await safe(async () => {
     const r = await pool.query<any>(`
-      SELECT id, name, primary_color, accent_color, location, site_config IS NOT NULL AS has_config
+      SELECT id, name,
+             site_config -> 'theme' ->> 'primaryColor' AS primary_color,
+             site_config -> 'theme' ->> 'accentColor'  AS accent_color,
+             site_config ->> 'location'                AS location,
+             site_config IS NOT NULL                   AS has_config
       FROM organizations WHERE id = $1
     `, [orgWithMembers!.id]);
     const row = r.rows[0];
@@ -399,7 +404,7 @@ async function flow7() {
     if (!row.accent_color) missing.push("accentColor");
     if (!row.name) missing.push("orgName");
     if (!row.location) missing.push("location");
-    if (missing.length) warn(F, "7b non-null check", `missing: ${missing.join(", ")}`);
+    if (missing.length) warn(F, "7b non-null check", `missing in site_config: ${missing.join(", ")}`);
     else pass(F, "7b non-null check", `all four fields populated`);
   }, (e) => fail(F, "7", errMsg(e)));
 }
@@ -422,6 +427,7 @@ async function flow9() {
     }, 30_000);
     if (r.status === 200 && typeof r.json?.output === "string") pass(F, "9a content/generate", `200 output.len=${r.json.output.length}`);
     else if (r.status === 401) skip(F, "9a content/generate", `401 — session auth required, expected`);
+    else if (r.status === 403 && /csrf/i.test(r.text)) skip(F, "9a content/generate", `403 CSRF — session+CSRF token required for state-changing endpoint, expected`);
     else fail(F, "9a content/generate", `status=${r.status} body=${r.text.slice(0, 200)}`);
   }, (e) => fail(F, "9a", errMsg(e)));
 

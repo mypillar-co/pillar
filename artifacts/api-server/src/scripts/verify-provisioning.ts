@@ -10,13 +10,9 @@
  * Run: pnpm --filter @workspace/api-server exec tsx src/scripts/verify-provisioning.ts
  */
 
-import { Pool } from "pg";
-import {
-  ensureMembersFeatureEnabled,
-  ensureMembersPortalProvisioned,
-} from "../lib/membersPortalProvision.js";
-
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+import { pool } from "@workspace/db";
+import { ensureMembersPortalProvisioned } from "../lib/membersPortalProvision.js";
+import { ensureMembersFeatureEnabled } from "../routes/members.js";
 
 function header(label: string) {
   console.log(`\n──────────────────────────────────────────────────────────────`);
@@ -32,8 +28,8 @@ async function step1() {
 
   // Create a minimal fresh org (the same shape the POST /api/organizations route writes)
   await pool.query(`
-    INSERT INTO organizations (id, name, slug, user_id, primary_color, accent_color, location)
-    VALUES ($1, 'E2E Provision Test Org', $2, 'e2e-test-user', '#0a0a0a', '#facc15', 'Test, ZZ')
+    INSERT INTO organizations (id, name, slug, user_id, type)
+    VALUES ($1, 'E2E Provision Test Org', $2, 'e2e-test-user', 'rotary')
   `, [orgId, slug]);
   console.log(`[setup] inserted fresh org id=${orgId} slug=${slug}`);
   console.log(`[setup] site_config is NULL — portal NOT yet provisioned`);
