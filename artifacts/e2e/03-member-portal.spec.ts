@@ -1,7 +1,13 @@
 import { test, expect } from "@playwright/test";
-import { sql } from "drizzle-orm";
 import crypto from "crypto";
+import { Pool } from "pg";
 import { TEST_ORG_URL, TEST_ORG_SLUG } from "./helpers";
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+async function query(sql: string, params?: any[]) {
+  const res = await pool.query(sql, params);
+  return res.rows;
+}
 
 test.describe("Member Portal Flow", () => {
   let testEmail: string;
@@ -12,22 +18,25 @@ test.describe("Member Portal Flow", () => {
     testEmail = `playwright-member-${Date.now()}@pillar-test.local`;
     testToken = crypto.randomBytes(32).toString("hex");
     const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-    const { db } = await import("@workspace/db");
-    const orgRow = await db.execute(sql`SELECT id FROM organizations WHERE slug = ${TEST_ORG_SLUG} LIMIT 1`);
-    const orgId = (orgRow.rows[0] as any).id;
-    const res = await db.execute(sql`
-      INSERT INTO members (id, org_id, email, first_name, last_name, status, registration_token, token_expires_at, created_at, updated_at)
-      VALUES (gen_random_uuid(), ${orgId}, ${testEmail}, 'Playwright', 'Tester', 'pending', ${testToken}, ${expires}, NOW(), NOW())
-      RETURNING id
-    `);
-    memberId = (res.rows[0] as any).id;
+    const orgRows = await query(
+      "SELECT id FROM organizations WHERE slug = $1 LIMIT 1",
+      [TEST_ORG_SLUG],
+    );
+    const orgId = (orgRows[0] as any).id;
+    const rows = await query(
+      `INSERT INTO members (id, org_id, email, first_name, last_name, status, registration_token, token_expires_at, created_at, updated_at)
+       VALUES (gen_random_uuid(), $1, $2, 'Playwright', 'Tester', 'pending', $3, $4, NOW(), NOW())
+       RETURNING id`,
+      [orgId, testEmail, testToken, expires],
+    );
+    memberId = (rows[0] as any).id;
   });
 
   test.afterAll(async () => {
     if (memberId) {
-      const { db } = await import("@workspace/db");
-      await db.execute(sql`DELETE FROM members WHERE id = ${memberId}`);
+      await query("DELETE FROM members WHERE id = $1", [memberId]);
     }
+    await pool.end();
   });
 
   test("Register page renders with valid token", async ({ page }) => {

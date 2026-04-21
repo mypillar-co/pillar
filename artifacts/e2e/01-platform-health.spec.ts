@@ -26,7 +26,7 @@ test.describe("Platform Health", () => {
 
   test("Deploy gate artifact has correct base path", async () => {
     const { readFileSync } = await import("fs");
-    const html = readFileSync("community-platform/dist/public/index.html", "utf8");
+    const html = readFileSync("artifacts/community-platform/dist/public/index.html", "utf8");
     expect(html).toContain("/sites/placeholder/assets/");
   });
 

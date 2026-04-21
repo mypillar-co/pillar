@@ -1,29 +1,38 @@
 import { test, expect } from "@playwright/test";
-import { sql } from "drizzle-orm";
+import { Pool } from "pg";
 import { CP, TEST_ORG_URL, TEST_ORG_SLUG } from "./helpers";
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+async function query(sql: string, params?: any[]) {
+  const res = await pool.query(sql, params);
+  return res.rows;
+}
 
 test.describe("Events", () => {
   let eventId: string;
   const eventSlug = `playwright-test-event-${Date.now()}`;
 
   test.beforeAll(async () => {
-    const { db } = await import("@workspace/db");
-    const orgRow = await db.execute(sql`SELECT id FROM organizations WHERE slug = ${TEST_ORG_SLUG} LIMIT 1`);
-    const orgId = (orgRow.rows[0] as any).id;
+    const orgRows = await query(
+      "SELECT id FROM organizations WHERE slug = $1 LIMIT 1",
+      [TEST_ORG_SLUG],
+    );
+    const orgId = (orgRows[0] as any).id;
     const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
-    const res = await db.execute(sql`
-      INSERT INTO events (id, org_id, name, slug, description, start_date, start_time, location, is_active, show_on_public_site, event_type, created_at, updated_at)
-      VALUES (gen_random_uuid(), ${orgId}, 'Playwright Test Event', ${eventSlug}, 'A test event created by Playwright', ${tomorrow}, '18:00', 'Test Location', true, true, 'meeting', NOW(), NOW())
-      RETURNING id
-    `);
-    eventId = (res.rows[0] as any).id;
+    const rows = await query(
+      `INSERT INTO events (id, org_id, name, slug, description, start_date, start_time, location, is_active, show_on_public_site, event_type, created_at, updated_at)
+       VALUES (gen_random_uuid(), $1, 'Playwright Test Event', $2, 'A test event created by Playwright', $3, '18:00', 'Test Location', true, true, 'meeting', NOW(), NOW())
+       RETURNING id`,
+      [orgId, eventSlug, tomorrow],
+    );
+    eventId = (rows[0] as any).id;
   });
 
   test.afterAll(async () => {
     if (eventId) {
-      const { db } = await import("@workspace/db");
-      await db.execute(sql`DELETE FROM events WHERE id = ${eventId}`);
+      await query("DELETE FROM events WHERE id = $1", [eventId]);
     }
+    await pool.end();
   });
 
   test("Events page loads on community site", async ({ page }) => {

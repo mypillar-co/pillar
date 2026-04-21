@@ -1,0 +1,780 @@
+PILLAR PLATFORM — STEWARD DASHBOARD PLAYWRIGHT TESTS
+Add to artifacts/e2e/ alongside existing test files
+
+Read this entire document before touching any file.
+Create each file exactly as written.
+After creating all files run the full suite and report complete results.
+Do not fix failures — just report them honestly.
+
+# ====================================================================================
+SETUP — Update playwright.config.ts
+
+Replace artifacts/playwright.config.ts with this content:
+
+import { defineConfig } from “@playwright/test”;
+
+export default defineConfig({
+testDir: “./e2e”,
+timeout: 90000,
+retries: 0,
+use: {
+headless: true,
+screenshot: “only-on-failure”,
+video: “retain-on-failure”,
+},
+projects: [
+{
+name: “community-platform”,
+testMatch: “0[1-6]-*.spec.ts”,
+use: { baseURL: “http://localhost:5001” },
+},
+{
+name: “steward-dashboard”,
+testMatch: “0[7-9]-*.spec.ts”,
+use: { baseURL: “http://localhost:5173” },
+},
+],
+reporter: [[“list”], [“html”, { outputFolder: “e2e-report”, open: “never” }]],
+});
+
+# ====================================================================================
+UPDATE — artifacts/e2e/helpers.ts
+
+Replace the entire file with this content:
+
+import { Page, request as playwrightRequest } from “@playwright/test”;
+import { Pool } from “pg”;
+
+export const API = “http://localhost:8080”;
+export const CP = “http://localhost:5001”;
+export const STEWARD = “http://localhost:5173”;
+export const TEST_ORG_SLUG = “norwin-rotary-uic5”;
+export const TEST_ORG_URL = `${CP}/sites/${TEST_ORG_SLUG}`;
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+export async function dbQuery(sql: string, params?: any[]) {
+const res = await pool.query(sql, params);
+return res.rows;
+}
+
+export async function getTestOrgId(): Promise<string> {
+const rows = await dbQuery(“SELECT id FROM organizations WHERE slug = $1 LIMIT 1”, [TEST_ORG_SLUG]);
+return rows[0]?.id;
+}
+
+export async function loginToSteward(page: Page) {
+await page.goto(`${STEWARD}/login`);
+await page.waitForLoadState(“networkidle”);
+const emailInput = page.locator(‘input[type=“email”], input[name=“email”], input[placeholder*=“email” i]’).first();
+const passwordInput = page.locator(‘input[type=“password”]’).first();
+await emailInput.fill(process.env.TEST_ADMIN_EMAIL ?? “admin@pillar.test”);
+await passwordInput.fill(process.env.TEST_ADMIN_PASSWORD ?? “testpassword”);
+await page.locator(‘button[type=“submit”], button:has-text(“Sign In”), button:has-text(“Log in”)’).first().click();
+await page.waitForTimeout(3000);
+}
+
+export async function ensureLoggedIn(page: Page) {
+const url = page.url();
+if (url.includes(”/login”) || url === `${STEWARD}/`) {
+await loginToSteward(page);
+}
+}
+
+# ====================================================================================
+FILE: artifacts/e2e/07-steward-auth.spec.ts
+
+import { test, expect } from “@playwright/test”;
+import { STEWARD, loginToSteward } from “./helpers”;
+
+test.describe(“Steward Authentication”, () => {
+
+test(“Login page renders without errors”, async ({ page }) => {
+const errors: string[] = [];
+page.on(“pageerror”, e => errors.push(e.message));
+await page.goto(`${STEWARD}/login`);
+await page.waitForLoadState(“networkidle”);
+const body = await page.textContent(“body”);
+expect(body?.length).toBeGreaterThan(50);
+const syntaxErrors = errors.filter(e => e.includes(“SyntaxError”));
+expect(syntaxErrors).toHaveLength(0);
+});
+
+test(“Login page has email and password fields”, async ({ page }) => {
+await page.goto(`${STEWARD}/login`);
+await page.waitForLoadState(“networkidle”);
+const emailInput = page.locator(‘input[type=“email”], input[name=“email”], input[placeholder*=“email” i]’);
+const passwordInput = page.locator(‘input[type=“password”]’);
+await expect(emailInput.first()).toBeVisible();
+await expect(passwordInput.first()).toBeVisible();
+});
+
+test(“Login with wrong credentials shows error”, async ({ page }) => {
+await page.goto(`${STEWARD}/login`);
+await page.waitForLoadState(“networkidle”);
+const emailInput = page.locator(‘input[type=“email”], input[name=“email”], input[placeholder*=“email” i]’).first();
+const passwordInput = page.locator(‘input[type=“password”]’).first();
+await emailInput.fill(“wrong@wrong.com”);
+await passwordInput.fill(“wrongpassword”);
+await page.locator(‘button[type=“submit”]’).first().click();
+await page.waitForTimeout(2000);
+const body = await page.textContent(“body”);
+const isStillOnLogin = page.url().includes(”/login”) || body?.toLowerCase().includes(“invalid”) || body?.toLowerCase().includes(“incorrect”) || body?.toLowerCase().includes(“error”);
+expect(isStillOnLogin).toBe(true);
+});
+
+test(“Admin can log in and reach dashboard”, async ({ page }) => {
+await loginToSteward(page);
+await page.waitForTimeout(2000);
+const url = page.url();
+const isDashboard = url.includes(”/dashboard”) || url.includes(”/overview”) || !url.includes(”/login”);
+expect(isDashboard).toBe(true);
+});
+
+test(“Dashboard renders without JavaScript errors after login”, async ({ page }) => {
+const errors: string[] = [];
+page.on(“pageerror”, e => errors.push(e.message));
+await loginToSteward(page);
+await page.waitForTimeout(2000);
+const syntaxErrors = errors.filter(e => e.includes(“SyntaxError”) || e.includes(“Unexpected token”));
+expect(syntaxErrors).toHaveLength(0);
+});
+
+});
+
+# ====================================================================================
+FILE: artifacts/e2e/08-steward-dashboard.spec.ts
+
+import { test, expect } from “@playwright/test”;
+import { STEWARD, loginToSteward } from “./helpers”;
+
+test.describe(“Steward Dashboard Pages”, () => {
+
+test.beforeEach(async ({ page }) => {
+await loginToSteward(page);
+await page.waitForTimeout(1000);
+});
+
+test(“Overview page loads with stat cards”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard`);
+await page.waitForLoadState(“networkidle”);
+const body = await page.textContent(“body”);
+expect(body?.length).toBeGreaterThan(100);
+await page.screenshot({ path: “e2e-report/dashboard-overview.png” });
+});
+
+test(“Events page loads”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/events`);
+await page.waitForLoadState(“networkidle”);
+const body = await page.textContent(“body”);
+expect(body?.length).toBeGreaterThan(100);
+await page.screenshot({ path: “e2e-report/dashboard-events.png” });
+});
+
+test(“Members page loads with table or empty state”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/members`);
+await page.waitForLoadState(“networkidle”);
+const body = await page.textContent(“body”);
+expect(body?.length).toBeGreaterThan(100);
+await page.screenshot({ path: “e2e-report/dashboard-members.png” });
+});
+
+test(“Members page has Add Member button”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/members`);
+await page.waitForLoadState(“networkidle”);
+const addButton = page.locator(‘button:has-text(“Add Member”), button:has-text(“Add member”), button:has-text(”+ Add”)’);
+await expect(addButton.first()).toBeVisible();
+});
+
+test(“Sponsors page loads”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/sponsors`);
+await page.waitForLoadState(“networkidle”);
+const body = await page.textContent(“body”);
+expect(body?.length).toBeGreaterThan(100);
+await page.screenshot({ path: “e2e-report/dashboard-sponsors.png” });
+});
+
+test(“Events page has Create Event button”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/events`);
+await page.waitForLoadState(“networkidle”);
+const createButton = page.locator(‘button:has-text(“Create”), button:has-text(“New Event”), button:has-text(“Add Event”)’);
+await expect(createButton.first()).toBeVisible();
+});
+
+test(“Social page loads”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/social`);
+await page.waitForLoadState(“networkidle”);
+const body = await page.textContent(“body”);
+expect(body?.length).toBeGreaterThan(100);
+await page.screenshot({ path: “e2e-report/dashboard-social.png” });
+});
+
+test(“Content Studio page loads”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/content`);
+await page.waitForLoadState(“networkidle”);
+const body = await page.textContent(“body”);
+expect(body?.length).toBeGreaterThan(100);
+await page.screenshot({ path: “e2e-report/dashboard-content.png” });
+});
+
+test(“Website builder page loads”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/website`);
+await page.waitForLoadState(“networkidle”);
+const body = await page.textContent(“body”);
+expect(body?.length).toBeGreaterThan(100);
+await page.screenshot({ path: “e2e-report/dashboard-website.png” });
+});
+
+test(“Contacts page loads”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/contacts`);
+await page.waitForLoadState(“networkidle”);
+const body = await page.textContent(“body”);
+expect(body?.length).toBeGreaterThan(100);
+});
+
+test(“No dashboard page shows a blank white screen”, async ({ page }) => {
+const pages = [
+“/dashboard”,
+“/dashboard/events”,
+“/dashboard/members”,
+“/dashboard/sponsors”,
+“/dashboard/social”,
+“/dashboard/content”,
+“/dashboard/website”,
+];
+for (const path of pages) {
+await page.goto(`${STEWARD}${path}`);
+await page.waitForLoadState(“networkidle”);
+const body = await page.textContent(“body”);
+expect(body?.length, `Page ${path} appears blank`).toBeGreaterThan(100);
+}
+});
+
+test(“No JavaScript errors on any dashboard page”, async ({ page }) => {
+const errors: string[] = [];
+page.on(“pageerror”, e => errors.push(e.message));
+const pages = [
+“/dashboard”,
+“/dashboard/events”,
+“/dashboard/members”,
+“/dashboard/website”,
+];
+for (const path of pages) {
+await page.goto(`${STEWARD}${path}`);
+await page.waitForLoadState(“networkidle”);
+}
+const syntaxErrors = errors.filter(e => e.includes(“SyntaxError”) || e.includes(“Unexpected token”));
+expect(syntaxErrors).toHaveLength(0);
+});
+
+test(“Sidebar navigation is visible”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard`);
+await page.waitForLoadState(“networkidle”);
+const nav = page.locator(‘nav, [role=“navigation”], aside’);
+await expect(nav.first()).toBeVisible();
+});
+
+});
+
+# ====================================================================================
+FILE: artifacts/e2e/09-steward-features.spec.ts
+
+import { test, expect } from “@playwright/test”;
+import { STEWARD, loginToSteward, dbQuery, getTestOrgId } from “./helpers”;
+
+test.describe(“Steward Feature Flows”, () => {
+
+test.beforeEach(async ({ page }) => {
+await loginToSteward(page);
+await page.waitForTimeout(1000);
+});
+
+// ── MEMBERS ──────────────────────────────────────────────────────────────────
+
+test(“Members page shows stat cards”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/members`);
+await page.waitForLoadState(“networkidle”);
+const body = await page.textContent(“body”);
+const hasStats = body?.includes(“Total”) || body?.includes(“Active”) || body?.includes(“Member”);
+expect(hasStats).toBe(true);
+});
+
+test(“Add Member dialog opens”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/members`);
+await page.waitForLoadState(“networkidle”);
+const addButton = page.locator(‘button:has-text(“Add Member”), button:has-text(“Add member”), button:has-text(”+ Add”)’).first();
+await addButton.click();
+await page.waitForTimeout(1000);
+const dialog = page.locator(’[role=“dialog”], [data-radix-dialog-content], .dialog-content’);
+await expect(dialog.first()).toBeVisible();
+await page.screenshot({ path: “e2e-report/members-add-dialog.png” });
+});
+
+test(“Add Member form has required fields”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/members`);
+await page.waitForLoadState(“networkidle”);
+await page.locator(‘button:has-text(“Add Member”), button:has-text(“Add member”), button:has-text(”+ Add”)’).first().click();
+await page.waitForTimeout(1000);
+const firstNameInput = page.locator(‘input[name=“firstName”], input[placeholder*=“first” i], input[placeholder*=“First” i]’);
+const emailInput = page.locator(‘input[type=“email”], input[name=“email”]’);
+await expect(firstNameInput.first()).toBeVisible();
+await expect(emailInput.first()).toBeVisible();
+});
+
+test(“Can create a member and it appears in the list”, async ({ page }) => {
+const testEmail = `playwright-e2e-${Date.now()}@test.local`;
+await page.goto(`${STEWARD}/dashboard/members`);
+await page.waitForLoadState(“networkidle”);
+await page.locator(‘button:has-text(“Add Member”), button:has-text(“Add member”), button:has-text(”+ Add”)’).first().click();
+await page.waitForTimeout(500);
+await page.locator(‘input[name=“firstName”], input[placeholder*=“first” i]’).first().fill(“E2E”);
+await page.locator(‘input[name=“lastName”], input[placeholder*=“last” i]’).first().fill(“TestMember”);
+await page.locator(‘input[type=“email”], input[name=“email”]’).first().fill(testEmail);
+await page.locator(’[role=“dialog”] button[type=“submit”], [role=“dialog”] button:has-text(“Save”), [role=“dialog”] button:has-text(“Add”)’).first().click();
+await page.waitForTimeout(2000);
+const body = await page.textContent(“body”);
+expect(body).toContain(“E2E”);
+// Cleanup
+const orgId = await getTestOrgId();
+await dbQuery(“DELETE FROM members WHERE email = $1 AND org_id = $2”, [testEmail, orgId]);
+});
+
+// ── EVENTS ───────────────────────────────────────────────────────────────────
+
+test(“Events page shows event list or empty state”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/events`);
+await page.waitForLoadState(“networkidle”);
+const body = await page.textContent(“body”);
+const hasContent = body?.includes(“Event”) || body?.includes(“event”) || body?.includes(“No events”);
+expect(hasContent).toBe(true);
+});
+
+test(“Create Event dialog opens”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/events`);
+await page.waitForLoadState(“networkidle”);
+await page.locator(‘button:has-text(“Create”), button:has-text(“New Event”), button:has-text(“Add Event”)’).first().click();
+await page.waitForTimeout(1000);
+const dialog = page.locator(’[role=“dialog”], [data-radix-dialog-content]’);
+await expect(dialog.first()).toBeVisible();
+await page.screenshot({ path: “e2e-report/events-create-dialog.png” });
+});
+
+// ── WEBSITE BUILDER ───────────────────────────────────────────────────────────
+
+test(“Website builder shows management view for provisioned org”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/website`);
+await page.waitForLoadState(“networkidle”);
+await page.waitForTimeout(2000);
+const body = await page.textContent(“body”);
+const hasManagementView = body?.includes(“Update”) || body?.includes(“Edit”) || body?.includes(“Apply”) || body?.includes(“Site Preview”) || body?.includes(“Banner”);
+expect(hasManagementView).toBe(true);
+await page.screenshot({ path: “e2e-report/website-management.png” });
+});
+
+test(“Website builder does not show welcome screen for provisioned org”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/website`);
+await page.waitForLoadState(“networkidle”);
+await page.waitForTimeout(2000);
+const body = await page.textContent(“body”);
+const isWelcomeScreen = body?.includes(“Let’s set up”) || body?.includes(“Let’s get started”);
+expect(isWelcomeScreen).toBe(false);
+});
+
+test(“Site preview iframe is visible”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/website`);
+await page.waitForLoadState(“networkidle”);
+await page.waitForTimeout(2000);
+const iframe = page.locator(‘iframe[title=“Site preview”]’);
+await expect(iframe).toBeVisible();
+});
+
+test(“AI edit box is present”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/website`);
+await page.waitForLoadState(“networkidle”);
+await page.waitForTimeout(2000);
+const textarea = page.locator(‘textarea[placeholder*=“change” i], textarea[placeholder*=“describe” i], textarea[placeholder*=“update” i]’);
+await expect(textarea.first()).toBeVisible();
+});
+
+test(“AI edit suggestion chips are visible”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/website`);
+await page.waitForLoadState(“networkidle”);
+await page.waitForTimeout(2000);
+const chips = page.locator(‘button:has-text(“Change our contact”), button:has-text(“Update our colors”), button:has-text(“Change meeting”)’);
+const count = await chips.count();
+expect(count).toBeGreaterThan(0);
+});
+
+// ── CONTENT STUDIO ────────────────────────────────────────────────────────────
+
+test(“Content Studio shows task categories”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/content`);
+await page.waitForLoadState(“networkidle”);
+const body = await page.textContent(“body”);
+const hasCategories = body?.includes(“Press Release”) || body?.includes(“Newsletter”) || body?.includes(“communications”) || body?.includes(“Communications”);
+expect(hasCategories).toBe(true);
+});
+
+test(“Content Studio task opens and shows input fields”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/content`);
+await page.waitForLoadState(“networkidle”);
+const taskButton = page.locator(‘button:has-text(“Press Release”), [role=“button”]:has-text(“Press Release”)’).first();
+await taskButton.click();
+await page.waitForTimeout(1000);
+const body = await page.textContent(“body”);
+const hasInputs = body?.includes(“Headline”) || body?.includes(“Details”) || body?.includes(“headline”);
+expect(hasInputs).toBe(true);
+await page.screenshot({ path: “e2e-report/content-studio-task.png” });
+});
+
+// ── SOCIAL ────────────────────────────────────────────────────────────────────
+
+test(“Social page renders Buffer section”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/social`);
+await page.waitForLoadState(“networkidle”);
+const body = await page.textContent(“body”);
+const hasBuffer = body?.includes(“Buffer”) || body?.includes(“Connect”) || body?.includes(“social”);
+expect(hasBuffer).toBe(true);
+});
+
+test(“Social page has compose post area”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/social`);
+await page.waitForLoadState(“networkidle”);
+const body = await page.textContent(“body”);
+const hasCompose = body?.includes(“Compose”) || body?.includes(“compose”) || body?.includes(“Post”) || body?.includes(“Write”);
+expect(hasCompose).toBe(true);
+});
+
+// ── AUTOPILOT AGENT ───────────────────────────────────────────────────────────
+
+test(“Autopilot agent page or panel loads”, async ({ page }) => {
+// Try common routes for the agent
+const agentRoutes = [
+“/dashboard/agent”,
+“/dashboard/autopilot”,
+“/dashboard/assistant”,
+“/dashboard/ai”,
+];
+let found = false;
+for (const route of agentRoutes) {
+await page.goto(`${STEWARD}${route}`);
+await page.waitForLoadState(“networkidle”);
+const status = await page.evaluate(() => document.title);
+const body = await page.textContent(“body”);
+if (!page.url().includes(”/404”) && body && body.length > 100 && !body.includes(“Page not found”)) {
+found = true;
+await page.screenshot({ path: “e2e-report/autopilot-agent.png” });
+break;
+}
+}
+// If no dedicated route, check if agent is embedded in overview
+if (!found) {
+await page.goto(`${STEWARD}/dashboard`);
+await page.waitForLoadState(“networkidle”);
+const body = await page.textContent(“body”);
+found = !!(body?.includes(“Autopilot”) || body?.includes(“Agent”) || body?.includes(“Ask me”));
+}
+expect(found).toBe(true);
+});
+
+test(“Autopilot agent has a message input”, async ({ page }) => {
+const agentRoutes = [
+“/dashboard/agent”,
+“/dashboard/autopilot”,
+“/dashboard/assistant”,
+“/dashboard/ai”,
+“/dashboard”,
+];
+let hasInput = false;
+for (const route of agentRoutes) {
+await page.goto(`${STEWARD}${route}`);
+await page.waitForLoadState(“networkidle”);
+const inputs = page.locator(‘input[placeholder*=“ask” i], input[placeholder*=“message” i], textarea[placeholder*=“ask” i], textarea[placeholder*=“message” i], textarea[placeholder*=“type” i]’);
+const count = await inputs.count();
+if (count > 0) {
+hasInput = true;
+break;
+}
+}
+expect(hasInput).toBe(true);
+});
+
+// ── HERO IMAGE PICKER ─────────────────────────────────────────────────────────
+
+test(“Hero image picker button is visible on website page”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/website`);
+await page.waitForLoadState(“networkidle”);
+await page.waitForTimeout(2000);
+const pickerButton = page.locator(‘button:has-text(“AI picks”), button:has-text(“Upload photo”), button:has-text(“Banner”), button:has-text(“Homepage Banner”)’);
+const count = await pickerButton.count();
+expect(count).toBeGreaterThan(0);
+});
+
+test(“AI picks button opens photo grid”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/website`);
+await page.waitForLoadState(“networkidle”);
+await page.waitForTimeout(2000);
+const aiPicksButton = page.locator(‘button:has-text(“AI picks”)’).first();
+await aiPicksButton.click();
+await page.waitForTimeout(3000);
+const body = await page.textContent(“body”);
+const hasPhotos = body?.includes(“Unsplash”) || body?.includes(“stock”) || body?.includes(“photo”) || body?.includes(“Photo”);
+expect(hasPhotos).toBe(true);
+await page.screenshot({ path: “e2e-report/hero-image-picker.png” });
+});
+
+// ── SETTINGS AND BILLING ──────────────────────────────────────────────────────
+
+test(“Settings or profile page loads”, async ({ page }) => {
+const settingsRoutes = [”/dashboard/settings”, “/dashboard/profile”, “/dashboard/account”];
+let found = false;
+for (const route of settingsRoutes) {
+await page.goto(`${STEWARD}${route}`);
+await page.waitForLoadState(“networkidle”);
+const body = await page.textContent(“body”);
+if (body && body.length > 100 && !body.includes(“Page not found”) && !page.url().includes(”/404”)) {
+found = true;
+break;
+}
+}
+expect(found).toBe(true);
+});
+
+});
+
+# ====================================================================================
+FILE: artifacts/e2e/10-ai-features.spec.ts
+
+import { test, expect } from “@playwright/test”;
+import { STEWARD, API, loginToSteward } from “./helpers”;
+
+test.describe(“AI Features”, () => {
+
+test.beforeEach(async ({ page }) => {
+await loginToSteward(page);
+await page.waitForTimeout(1000);
+});
+
+test(“AI edit applies a change successfully”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/website`);
+await page.waitForLoadState(“networkidle”);
+await page.waitForTimeout(2000);
+const textarea = page.locator(‘textarea[placeholder*=“change” i], textarea[placeholder*=“describe” i], textarea[placeholder*=“update” i]’).first();
+await textarea.fill(“Update our tagline to: Serving our community with pride”);
+const applyButton = page.locator(‘button:has-text(“Apply changes”), button:has-text(“Apply”), button:has-text(“Submit”)’).first();
+await applyButton.click();
+await page.waitForTimeout(10000);
+const body = await page.textContent(“body”);
+const hasError = body?.includes(“Edit failed”) || body?.includes(“timeout”) || body?.includes(“error”);
+expect(hasError).toBe(false);
+await page.screenshot({ path: “e2e-report/ai-edit-result.png” });
+});
+
+test(“AI edit suggestion chip works”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/website`);
+await page.waitForLoadState(“networkidle”);
+await page.waitForTimeout(2000);
+const chip = page.locator(‘button:has-text(“Change meeting time”), button:has-text(“Update our tagline”)’).first();
+await chip.click();
+await page.waitForTimeout(500);
+const textarea = page.locator(‘textarea’).first();
+const value = await textarea.inputValue();
+expect(value.length).toBeGreaterThan(0);
+});
+
+test(“Content Studio generates a press release”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/content`);
+await page.waitForLoadState(“networkidle”);
+await page.locator(‘button:has-text(“Press Release”), [role=“button”]:has-text(“Press Release”)’).first().click();
+await page.waitForTimeout(1000);
+const headlineInput = page.locator(‘input[placeholder*=“headline” i], input[placeholder*=“Headline” i], textarea[placeholder*=“headline” i]’).first();
+await headlineInput.fill(“Annual Fundraiser Raises Record Amount”);
+const detailsInput = page.locator(‘textarea[placeholder*=“details” i], textarea[placeholder*=“Details” i], textarea[placeholder*=“key” i]’).first();
+await detailsInput.fill(“The event raised $50,000 on Saturday May 10th at the community center. Over 200 attendees celebrated.”);
+const generateButton = page.locator(‘button:has-text(“Generate”), button:has-text(“Create”), button:has-text(“Run”)’).first();
+await generateButton.click();
+await page.waitForTimeout(30000);
+const body = await page.textContent(“body”);
+const hasOutput = body?.includes(“FOR IMMEDIATE RELEASE”) || body?.includes(“Press Release”) || body?.includes(“fundraiser”) || body?.includes(“Fundraiser”);
+expect(hasOutput).toBe(true);
+await page.screenshot({ path: “e2e-report/content-studio-press-release.png” });
+});
+
+test(“Content Studio history tab shows past outputs”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/content`);
+await page.waitForLoadState(“networkidle”);
+const historyTab = page.locator(‘button:has-text(“History”), [role=“tab”]:has-text(“History”)’);
+const count = await historyTab.count();
+if (count > 0) {
+await historyTab.first().click();
+await page.waitForTimeout(1000);
+const body = await page.textContent(“body”);
+expect(body?.length).toBeGreaterThan(100);
+} else {
+test.skip();
+}
+});
+
+test(“Autopilot agent responds to a simple question”, async ({ page }) => {
+const agentRoutes = [
+“/dashboard/agent”,
+“/dashboard/autopilot”,
+“/dashboard/assistant”,
+“/dashboard/ai”,
+“/dashboard”,
+];
+let agentInput = null;
+for (const route of agentRoutes) {
+await page.goto(`${STEWARD}${route}`);
+await page.waitForLoadState(“networkidle”);
+const inputs = page.locator(‘input[placeholder*=“ask” i], input[placeholder*=“message” i], textarea[placeholder*=“ask” i], textarea[placeholder*=“message” i]’);
+if (await inputs.count() > 0) {
+agentInput = inputs.first();
+break;
+}
+}
+if (!agentInput) { test.skip(); return; }
+await agentInput.fill(“How many members do we have?”);
+await page.keyboard.press(“Enter”);
+await page.waitForTimeout(15000);
+const body = await page.textContent(“body”);
+const hasResponse = body?.includes(“member”) || body?.includes(“Member”) || /\d+/.test(body ?? “”);
+expect(hasResponse).toBe(true);
+await page.screenshot({ path: “e2e-report/autopilot-response.png” });
+});
+
+test(“Autopilot agent does not crash on unknown request”, async ({ page }) => {
+const agentRoutes = [”/dashboard/agent”, “/dashboard/autopilot”, “/dashboard/assistant”, “/dashboard/ai”, “/dashboard”];
+let agentInput = null;
+for (const route of agentRoutes) {
+await page.goto(`${STEWARD}${route}`);
+await page.waitForLoadState(“networkidle”);
+const inputs = page.locator(‘input[placeholder*=“ask” i], textarea[placeholder*=“ask” i]’);
+if (await inputs.count() > 0) { agentInput = inputs.first(); break; }
+}
+if (!agentInput) { test.skip(); return; }
+await agentInput.fill(“xyzzy frobulate the quantum donut”);
+await page.keyboard.press(“Enter”);
+await page.waitForTimeout(15000);
+const errors: string[] = [];
+page.on(“pageerror”, e => errors.push(e.message));
+const syntaxErrors = errors.filter(e => e.includes(“SyntaxError”));
+expect(syntaxErrors).toHaveLength(0);
+const body = await page.textContent(“body”);
+expect(body?.length).toBeGreaterThan(100);
+});
+
+});
+
+# ====================================================================================
+FILE: artifacts/e2e/11-cross-tenant.spec.ts
+
+import { test, expect } from “@playwright/test”;
+import { CP } from “./helpers”;
+import crypto from “crypto”;
+import { Pool } from “pg”;
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+test.describe(“Cross-Tenant Isolation”, () => {
+
+let orgAId: string; let orgBId: string;
+let memberAToken: string; let memberBToken: string;
+let memberAId: string; let memberBId: string;
+
+test.beforeAll(async () => {
+const orgASlug = `e2e-tenant-a-${Date.now()}`;
+const orgBSlug = `e2e-tenant-b-${Date.now()}`;
+const resA = await pool.query(`INSERT INTO organizations (id, name, slug, tier) VALUES (gen_random_uuid()::text, 'Tenant A', $1, 'tier1') RETURNING id`, [orgASlug]);
+const resB = await pool.query(`INSERT INTO organizations (id, name, slug, tier) VALUES (gen_random_uuid()::text, 'Tenant B', $1, 'tier1') RETURNING id`, [orgBSlug]);
+orgAId = resA.rows[0].id;
+orgBId = resB.rows[0].id;
+memberAToken = crypto.randomBytes(32).toString(“hex”);
+memberBToken = crypto.randomBytes(32).toString(“hex”);
+const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+const mA = await pool.query(`INSERT INTO members (id, org_id, first_name, email, member_type, status, registration_token, token_expires_at) VALUES (gen_random_uuid()::text, $1, 'MemberA', 'member-a@e2e.local', 'general', 'pending', $2, $3) RETURNING id`, [orgAId, memberAToken, expires]);
+const mB = await pool.query(`INSERT INTO members (id, org_id, first_name, email, member_type, status, registration_token, token_expires_at) VALUES (gen_random_uuid()::text, $1, 'MemberB', 'member-b@e2e.local', 'general', 'pending', $2, $3) RETURNING id`, [orgBId, memberBToken, expires]);
+memberAId = mA.rows[0].id;
+memberBId = mB.rows[0].id;
+});
+
+test.afterAll(async () => {
+await pool.query(“DELETE FROM members WHERE id = ANY($1)”, [[memberAId, memberBId]]);
+await pool.query(“DELETE FROM organizations WHERE id = ANY($1)”, [[orgAId, orgBId]]);
+await pool.end();
+});
+
+test(“Org A token rejected on Org B subdomain”, async ({ request }) => {
+const regRes = await request.post(`${CP}/api/members/register`, {
+data: { token: memberAToken, password: “TestPass123!” },
+headers: { “x-org-id”: orgBId },
+});
+expect(regRes.status()).toBe(404);
+});
+
+test(“Org B token rejected on Org A subdomain”, async ({ request }) => {
+const regRes = await request.post(`${CP}/api/members/register`, {
+data: { token: memberBToken, password: “TestPass123!” },
+headers: { “x-org-id”: orgAId },
+});
+expect(regRes.status()).toBe(404);
+});
+
+test(“Org A member cannot log into Org B”, async ({ request }) => {
+// Register member A first on org A
+await request.post(`${CP}/api/members/register`, {
+data: { token: memberAToken, password: “TestPass123!” },
+headers: { “x-org-id”: orgAId },
+});
+// Try to log in as org A member but on org B
+const loginRes = await request.post(`${CP}/api/members/login`, {
+data: { email: “member-a@e2e.local”, password: “TestPass123!” },
+headers: { “x-org-id”: orgBId },
+});
+expect(loginRes.status()).toBe(401);
+});
+
+test(“Member directory only shows own org members”, async ({ request }) => {
+// Register both members
+await request.post(`${CP}/api/members/register`, {
+data: { token: memberBToken, password: “TestPass123!” },
+headers: { “x-org-id”: orgBId },
+});
+// Log in as member B
+const loginRes = await request.post(`${CP}/api/members/login`, {
+data: { email: “member-b@e2e.local”, password: “TestPass123!” },
+headers: { “x-org-id”: orgBId },
+});
+const cookie = loginRes.headers()[“set-cookie”];
+if (!cookie) { test.skip(); return; }
+// Get directory — should not contain member A
+const dirRes = await request.get(`${CP}/api/members/directory`, {
+headers: { “x-org-id”: orgBId, “Cookie”: cookie },
+});
+if (dirRes.status() !== 200) { test.skip(); return; }
+const members = await dirRes.json();
+const hasOrgAMember = members.some((m: any) => m.email === “member-a@e2e.local”);
+expect(hasOrgAMember).toBe(false);
+});
+
+});
+
+# ====================================================================================
+STEP: RUN THE FULL SUITE
+
+After creating all files above, run this command from the artifacts directory:
+
+pnpm exec playwright test –config=playwright.config.ts
+
+Report the complete output including:
+
+1. Total tests run across all files
+1. Total passed
+1. Total failed
+1. Total skipped
+1. Every failure with the exact error message and file name
+1. List of all screenshots saved to e2e-report/
+1. Whether the Steward login worked (if all 07-09 tests fail it means the admin credentials are wrong)
+
+If all tests in 07-10 fail with a login error, report the exact URL Playwright navigated to for the login page and what HTML it found there. The admin login credentials may need to be set via TEST_ADMIN_EMAIL and TEST_ADMIN_PASSWORD environment variables.
+
+Do not fix any failures. Report the baseline honestly.
