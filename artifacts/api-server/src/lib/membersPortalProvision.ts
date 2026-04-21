@@ -59,7 +59,18 @@ function applyAboutMissionToWelcome(
  *     generated yet, etc.) we log a warning and return — never throw.
  *     Member creation must succeed regardless of portal provisioning.
  */
-export async function ensureMembersPortalProvisioned(orgId: string): Promise<void> {
+export interface ProvisionResult {
+  ok: boolean;
+  /** Set when the api-server-side write to organizations.site_config failed. */
+  error?: string;
+  /** Set when the CP-side mirror failed but the api-server-side write succeeded. */
+  cpMirrorError?: string;
+  /** True when the function short-circuited because the portal was already provisioned. */
+  alreadyProvisioned?: boolean;
+}
+
+export async function ensureMembersPortalProvisioned(orgId: string): Promise<ProvisionResult> {
+  let cpMirrorError: string | undefined;
   try {
     const result = await db.execute(sql`
       SELECT id, slug, name, type, site_config
@@ -70,10 +81,12 @@ export async function ensureMembersPortalProvisioned(orgId: string): Promise<voi
     const org = result.rows[0] as OrgRowForProvisioning | undefined;
     if (!org) {
       logger.warn({ orgId }, "[members-portal] org not found, skipping provision");
-      return;
+      return { ok: false, error: "org not found" };
     }
 
-    if (portalAlreadyProvisioned(org.site_config)) return;
+    if (portalAlreadyProvisioned(org.site_config)) {
+      return { ok: true, alreadyProvisioned: true };
+    }
 
     const orgName = org.name ?? "your organization";
     const starter: MembersPortalConfig = buildStarterPortalConfig(org.type, orgName);
@@ -122,7 +135,9 @@ export async function ensureMembersPortalProvisioned(orgId: string): Promise<voi
     } catch (cpErr) {
       // Site may not be provisioned on CP yet — that's OK. The portal config
       // is already in organizations.site_config and will be pushed the next
-      // time the site is published.
+      // time the site is published. Surface the partial-failure to the caller
+      // so route handlers can include it in their response/log line.
+      cpMirrorError = cpErr instanceof Error ? cpErr.message : String(cpErr);
       logger.warn(
         { err: cpErr, orgId, cpOrgId },
         "[members-portal] could not mirror portal config to CP — site may not be provisioned yet",
@@ -130,13 +145,19 @@ export async function ensureMembersPortalProvisioned(orgId: string): Promise<voi
     }
 
     logger.info(
-      { orgId, orgType: org.type, sectionCount: starter.sections.length },
+      { orgId, orgType: org.type, sectionCount: starter.sections.length, cpMirrorError },
       "[members-portal] provisioned starter portal sections",
     );
+    return { ok: true, cpMirrorError };
   } catch (err) {
     logger.warn(
       { err, orgId },
       "[members-portal] portal provisioning failed (non-fatal)",
     );
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      cpMirrorError,
+    };
   }
 }

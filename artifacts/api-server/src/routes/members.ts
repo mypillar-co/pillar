@@ -66,16 +66,24 @@ This link expires in ${TOKEN_TTL_DAYS} days. If it expires, ask your administrat
   return result;
 }
 
-export async function ensureMembersFeatureEnabled(orgId: string): Promise<void> {
+export interface FeatureEnableResult {
+  ok: boolean;
+  error?: string;
+  /** True when the function short-circuited because the flag was already on. */
+  alreadyEnabled?: boolean;
+}
+
+export async function ensureMembersFeatureEnabled(orgId: string): Promise<FeatureEnableResult> {
   // Flip features.members = true on cs_org_configs so the Members nav link appears.
-  // Best-effort: failure must not block member creation.
+  // Best-effort by default (we still log + swallow), but we now return a structured
+  // result so route handlers can surface failures explicitly. Defense-in-depth:
+  // every WHERE clause filters by the orgId argument, never by client input.
   try {
-    // Read current features so we patch the merged JSONB rather than overwriting it.
     const row = await db.execute(sql`
       SELECT features FROM cs_org_configs WHERE org_id = ${orgId} LIMIT 1
     `);
     const current = (row.rows[0]?.features ?? {}) as Record<string, unknown>;
-    if (current.members === true) return; // already enabled
+    if (current.members === true) return { ok: true, alreadyEnabled: true };
 
     await syncOrgConfigPatchToPillar({
       orgId,
@@ -84,8 +92,10 @@ export async function ensureMembersFeatureEnabled(orgId: string): Promise<void> 
       ...(({ features: { ...current, members: true } } as unknown) as Record<string, never>),
     });
     logger.info({ orgId }, "[members] enabled members feature on community site");
+    return { ok: true };
   } catch (err) {
     logger.warn({ err, orgId }, "[members] could not enable members feature on CP — site may not be provisioned yet");
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -164,11 +174,32 @@ router.post("/", async (req: Request, res: Response) => {
     invite = { sent: result.sent, simulated: result.simulated, url };
   }
 
-  // Best-effort: turn on the members feature on the community site nav.
-  void ensureMembersFeatureEnabled(org.id);
-  // Best-effort: auto-provision the members portal sections on first member
-  // add. Idempotent — no-op if a portal config already exists.
-  void ensureMembersPortalProvisioned(org.id);
+  // Synchronously turn on the members feature + provision the members portal.
+  // Awaited so timing is deterministic; the helpers swallow exceptions internally
+  // and return structured results so we can surface failures at error level here
+  // (previously fire-and-forget, which hid CP-sync failures from operators).
+  // Member creation is NOT rolled back if provisioning fails — the member row
+  // is the source of truth and the new POST /api/members/repair-portal endpoint
+  // can be used to retry provisioning out-of-band.
+  const featureResult = await ensureMembersFeatureEnabled(org.id);
+  if (!featureResult.ok) {
+    logger.error(
+      { orgId: org.id, error: featureResult.error },
+      "[members] feature-flag enable failed for org " + org.id,
+    );
+  }
+  const portalResult = await ensureMembersPortalProvisioned(org.id);
+  if (!portalResult.ok) {
+    logger.error(
+      { orgId: org.id, error: portalResult.error, cpMirrorError: portalResult.cpMirrorError },
+      "[members] portal provisioning failed for org " + org.id,
+    );
+  } else if (portalResult.cpMirrorError) {
+    logger.error(
+      { orgId: org.id, cpMirrorError: portalResult.cpMirrorError },
+      "[members] portal provisioned but CP mirror failed for org " + org.id,
+    );
+  }
 
   const [member] = await db
     .select()
@@ -310,12 +341,80 @@ router.get("/stats", async (req: Request, res: Response) => {
     FROM members WHERE org_id = ${org.id}
   `);
   const list = rows.rows as Array<{ status: string; member_type: string; is_registered: boolean }>;
+  // Surface portal provisioning health so the dashboard can warn when members
+  // exist but the public-site portal isn't wired up. Defense-in-depth: the
+  // WHERE clause filters by the resolved org id, never trusts client input.
+  const portalRows = await db.execute(sql`
+    SELECT (site_config ? 'membersPortal') AS provisioned
+    FROM organizations WHERE id = ${org.id} LIMIT 1
+  `);
+  const portalProvisioned = Boolean(
+    (portalRows.rows[0] as { provisioned?: boolean } | undefined)?.provisioned,
+  );
   res.json({
     total: list.length,
     active: list.filter((m) => m.status === "active").length,
     board: list.filter((m) => m.member_type === "board").length,
     pending: list.filter((m) => m.status === "pending").length,
     registered: list.filter((m) => m.is_registered).length,
+    portalProvisioned,
+  });
+});
+
+// POST /api/members/repair-portal — manually re-runs ensureMembersPortalProvisioned
+// for the resolved org. Lets an admin (or the AI agent) repair a broken
+// provisioning state without having to add a new member. Same auth surface as
+// the rest of /api/members (resolveFullOrg enforces dashboard auth + org scope).
+router.post("/repair-portal", async (req: Request, res: Response) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+  // Run both repair steps and collect their structured results. The helpers
+  // never throw, so we rely on the returned { ok, error } shape to detect
+  // failure deterministically (a previous version of this handler used a
+  // try/catch, which was dead code — exceptions were swallowed inside the
+  // helpers and never reached the route).
+  const featureResult = await ensureMembersFeatureEnabled(org.id);
+  const portalResult = await ensureMembersPortalProvisioned(org.id);
+
+  // Re-check the api-server-side provisioning state so the caller can verify
+  // the repair actually landed (defense-in-depth: even if the helpers report
+  // ok, we re-read from organizations.site_config to confirm).
+  const portalRows = await db.execute(sql`
+    SELECT (site_config ? 'membersPortal') AS provisioned
+    FROM organizations WHERE id = ${org.id} LIMIT 1
+  `);
+  const portalProvisioned = Boolean(
+    (portalRows.rows[0] as { provisioned?: boolean } | undefined)?.provisioned,
+  );
+
+  const overallOk = featureResult.ok && portalResult.ok && portalProvisioned;
+  const status = overallOk ? 200 : 500;
+  if (!overallOk) {
+    logger.error(
+      {
+        orgId: org.id,
+        featureResult,
+        portalResult,
+        portalProvisioned,
+      },
+      "[members] repair-portal returned failure for org " + org.id,
+    );
+  } else if (portalResult.cpMirrorError) {
+    // API-side write succeeded and the org now shows membersPortal in
+    // organizations.site_config, but mirroring to cs_org_configs failed.
+    // The site nav may not show the Members link until the next CP sync;
+    // surface this at error level so operators can intervene.
+    logger.error(
+      { orgId: org.id, cpMirrorError: portalResult.cpMirrorError },
+      "[members] repair-portal: api-server write OK but CP mirror failed for org " + org.id,
+    );
+  }
+  res.status(status).json({
+    ok: overallOk,
+    orgId: org.id,
+    portalProvisioned,
+    featureFlag: featureResult,
+    portal: portalResult,
   });
 });
 
