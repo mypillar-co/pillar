@@ -26,6 +26,10 @@ author = "agent"
 task = "workflow.run"
 args = "E2E Health Check"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Playwright E2E"
+
 [[workflows.workflow]]
 name = "E2E Health Check"
 author = "agent"
@@ -33,6 +37,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/api-server run e2e"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Playwright E2E"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm exec playwright test --config=artifacts/playwright.config.ts"
 
 [workflows.workflow.metadata]
 outputType = "console"

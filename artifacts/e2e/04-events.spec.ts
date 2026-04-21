@@ -1,0 +1,55 @@
+import { test, expect } from "@playwright/test";
+import { sql } from "drizzle-orm";
+import { CP, TEST_ORG_URL, TEST_ORG_SLUG } from "./helpers";
+
+test.describe("Events", () => {
+  let eventId: string;
+  const eventSlug = `playwright-test-event-${Date.now()}`;
+
+  test.beforeAll(async () => {
+    const { db } = await import("@workspace/db");
+    const orgRow = await db.execute(sql`SELECT id FROM organizations WHERE slug = ${TEST_ORG_SLUG} LIMIT 1`);
+    const orgId = (orgRow.rows[0] as any).id;
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
+    const res = await db.execute(sql`
+      INSERT INTO events (id, org_id, name, slug, description, start_date, start_time, location, is_active, show_on_public_site, event_type, created_at, updated_at)
+      VALUES (gen_random_uuid(), ${orgId}, 'Playwright Test Event', ${eventSlug}, 'A test event created by Playwright', ${tomorrow}, '18:00', 'Test Location', true, true, 'meeting', NOW(), NOW())
+      RETURNING id
+    `);
+    eventId = (res.rows[0] as any).id;
+  });
+
+  test.afterAll(async () => {
+    if (eventId) {
+      const { db } = await import("@workspace/db");
+      await db.execute(sql`DELETE FROM events WHERE id = ${eventId}`);
+    }
+  });
+
+  test("Events page loads on community site", async ({ page }) => {
+    await page.goto(`${TEST_ORG_URL}/events`);
+    await page.waitForLoadState("networkidle");
+    const body = await page.textContent("body");
+    expect(body?.length).toBeGreaterThan(50);
+  });
+
+  test("Test event appears on community site", async ({ page }) => {
+    await page.goto(`${TEST_ORG_URL}/events`);
+    await page.waitForLoadState("networkidle");
+    const body = await page.textContent("body");
+    expect(body).toContain("Playwright Test Event");
+  });
+
+  test("CP events API returns test event", async ({ request }) => {
+    const r = await request.get(`${CP}/api/events`, { headers: { "x-org-id": TEST_ORG_SLUG } });
+    expect(r.status()).toBe(200);
+    const events = await r.json();
+    const found = events.find((e: any) => e.name === "Playwright Test Event" || e.title === "Playwright Test Event");
+    expect(found).toBeTruthy();
+  });
+
+  test("Event detail page loads", async ({ page }) => {
+    await page.goto(`${TEST_ORG_URL}/events/playwright-test-event-${Date.now()}`);
+    await page.waitForLoadState("networkidle");
+  });
+});
