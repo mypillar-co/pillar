@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { API, CP } from "./helpers";
+import { API, CP, TEST_ORG_URL } from "./helpers";
 
 test.describe("Platform Health", () => {
   test("API server healthcheck returns ok", async ({ request }) => {
@@ -31,7 +31,7 @@ test.describe("Platform Health", () => {
   });
 
   test("Test org community site loads without blank page", async ({ page }) => {
-    await page.goto(`${CP}/sites/norwin-rotary-uic5/`);
+    await page.goto(TEST_ORG_URL);
     await page.waitForLoadState("networkidle");
     const title = await page.title();
     expect(title).not.toBe("");
@@ -43,11 +43,11 @@ test.describe("Platform Health", () => {
   });
 
   test("Asset files return correct content types not HTML", async ({ request }) => {
-    const page = await request.get(`${CP}/sites/norwin-rotary-uic5/`);
+    const page = await request.get(TEST_ORG_URL);
     const html = await page.text();
-    const jsMatch = html.match(/src="([^"]+\.js)"/);
+    const jsMatch = html.match(/src="([^"]+\.(js|tsx))"/);
     if (jsMatch) {
-      const jsUrl = jsMatch[1].startsWith("http") ? jsMatch[1] : `${CP}${jsMatch[1]}`;
+      const jsUrl = jsMatch[1].startsWith("http") ? jsMatch[1] : `${TEST_ORG_URL}${jsMatch[1]}`;
       const jsRes = await request.get(jsUrl);
       expect(jsRes.headers()["content-type"]).toContain("javascript");
     }

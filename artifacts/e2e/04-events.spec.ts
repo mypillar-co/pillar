@@ -59,6 +59,7 @@ test.describe("Events", () => {
 
   test("Event detail page loads", async ({ page }) => {
     await page.goto(`${TEST_ORG_URL}/events/playwright-test-event-${Date.now()}`);
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("domcontentloaded");
+    await page.waitForTimeout(500);
   });
 });

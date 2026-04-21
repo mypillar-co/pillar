@@ -68,19 +68,21 @@ test.describe("Member Portal Flow", () => {
   });
 
   test("Member can log in after registering", async ({ page }) => {
-    await page.goto(`${TEST_ORG_URL}/members`);
-    await page.waitForLoadState("networkidle");
+    await page.goto(`${TEST_ORG_URL}/members/login`);
+    await page.waitForLoadState("domcontentloaded");
     const emailInput = page.locator('input[type="email"]');
+    await emailInput.waitFor({ state: "visible", timeout: 10000 });
     await emailInput.fill(testEmail);
-    const passwordInput = page.locator('input[type="password"]');
-    await passwordInput.fill("TestPass123!");
+    await page.locator('input[type="password"]').fill("TestPass123!");
     await page.locator('button[type="submit"], button:has-text("Sign In"), button:has-text("Log In")').first().click();
     await page.waitForTimeout(2000);
   });
 
   test("Portal home renders after login", async ({ page }) => {
-    await page.goto(`${TEST_ORG_URL}/members`);
+    await page.goto(`${TEST_ORG_URL}/members/login`);
+    await page.waitForLoadState("domcontentloaded");
     const emailInput = page.locator('input[type="email"]');
+    await emailInput.waitFor({ state: "visible", timeout: 10000 });
     await emailInput.fill(testEmail);
     await page.locator('input[type="password"]').fill("TestPass123!");
     await page.locator('button[type="submit"], button:has-text("Sign In"), button:has-text("Log In")').first().click();

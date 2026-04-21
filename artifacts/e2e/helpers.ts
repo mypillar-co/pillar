@@ -3,7 +3,7 @@ import { Page } from "@playwright/test";
 export const API = "http://localhost:8080";
 export const CP = "http://localhost:5001";
 export const TEST_ORG_SLUG = "norwin-rotary-uic5";
-export const TEST_ORG_URL = `http://localhost:5001/sites/${TEST_ORG_SLUG}`;
+export const TEST_ORG_URL = CP;
 
 export async function loginAsAdmin(page: Page) {
   await page.goto("http://localhost:5173/login");

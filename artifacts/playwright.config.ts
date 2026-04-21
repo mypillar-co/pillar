@@ -9,6 +9,9 @@ export default defineConfig({
     headless: true,
     screenshot: "only-on-failure",
     video: "retain-on-failure",
+    extraHTTPHeaders: {
+      "x-org-id": "norwin-rotary-uic5",
+    },
   },
   projects: [{ name: "chromium", use: { browserName: "chromium" } }],
   reporter: [["list"], ["html", { outputFolder: "e2e-report", open: "never" }]],
