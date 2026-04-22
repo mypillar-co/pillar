@@ -1,0 +1,299 @@
+=== 20-full-ai-interview ===
+
+Running 1 test using 1 worker
+
+Org already has a site — skipping interview, testing edit flow instead
+  ✓  1 [desktop-chrome] › artifacts/e2e/20-full-ai-interview.spec.ts:17:7 › Full AI Interview Flow › Complete AI interview creates a working site (11.1s)
+
+  1 passed (14.2s)
+EXIT=0
+=== 21-ai-edit-verified ===
+
+Running 3 tests using 1 worker
+
+Tagline before: Service above self
+  ✘  1 [desktop-chrome] › artifacts/e2e/21-ai-edit-verified.spec.ts:10:7 › AI Edit Verified Changes › AI edit actually changes site config in database (20.8s)
+No suggestion chips visible — skipping
+  -  2 [desktop-chrome] › artifacts/e2e/21-ai-edit-verified.spec.ts:68:7 › AI Edit Verified Changes › AI edit suggestion chip pre-fills and applies
+Primary color before: #003DA5
+EXIT=124
+=== 22-member-complete-flow ===
+
+Running 8 tests using 1 worker
+
+undefined
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command was killed with SIGKILL (Forced termination): playwright test --config=artifacts/playwright.config.ts --project=desktop-chrome --timeout=20000 --reporter=list 22-member-complete-flow.spec.ts
+EXIT=1
+=== 23-events-complete-flow ===
+
+Running 4 tests using 1 worker
+
+  ✘  1 [desktop-chrome] › artifacts/e2e/23-events-complete-flow.spec.ts:19:7 › Complete Events Flow › Step 1: Admin creates an event from dashboard (21.6s)
+  -  2 [desktop-chrome] › artifacts/e2e/23-events-complete-flow.spec.ts:85:7 › Complete Events Flow › Step 2: Event appears on community site
+  -  3 [desktop-chrome] › artifacts/e2e/23-events-complete-flow.spec.ts:102:7 › Complete Events Flow › Step 3: Event detail page loads
+  -  4 [desktop-chrome] › artifacts/e2e/23-events-complete-flow.spec.ts:124:7 › Complete Events Flow › Step 4: Event shows in dashboard event list
+
+
+  1) [desktop-chrome] › artifacts/e2e/23-events-complete-flow.spec.ts:19:7 › Complete Events Flow › Step 1: Admin creates an event from dashboard 
+
+    [31mTest timeout of 20000ms exceeded.[39m
+
+    Error: locator.click: Test timeout of 20000ms exceeded.
+    Call log:
+    [2m  - waiting for locator('button:has-text("Create"), button:has-text("New Event"), button:has-text("Add Event"), button:has-text("+ Create")').first()[22m
+
+
+      28 |       )
+      29 |       .first()
+    > 30 |       .click();
+         |        ^
+      31 |     await page.waitForTimeout(1000);
+      32 |     await screenshotStep(page, "23-02-create-dialog");
+      33 |
+        at /home/runner/workspace/artifacts/e2e/23-events-complete-flow.spec.ts:30:8
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/23-events-complete-flow-Co-ce9a1-tes-an-event-from-dashboard-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/23-events-complete-flow-Co-ce9a1-tes-an-event-from-dashboard-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/23-events-complete-flow-Co-ce9a1-tes-an-event-from-dashboard-desktop-chrome/error-context.md
+
+    Error Context: test-results/23-events-complete-flow-Co-ce9a1-tes-an-event-from-dashboard-desktop-chrome/error-context.md
+
+    attachment #5: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/23-events-complete-flow-Co-ce9a1-tes-an-event-from-dashboard-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/23-events-complete-flow-Co-ce9a1-tes-an-event-from-dashboard-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [desktop-chrome] › artifacts/e2e/23-events-complete-flow.spec.ts:19:7 › Complete Events Flow › Step 1: Admin creates an event from dashboard 
+  3 skipped
+EXIT=1
+=== 21-ai-edit-verified ===
+
+Running 3 tests using 1 worker
+
+Tagline before: Service above self
+  ✘  1 [desktop-chrome] › artifacts/e2e/21-ai-edit-verified.spec.ts:10:7 › AI Edit Verified Changes › AI edit actually changes site config in database (22.9s)
+No suggestion chips visible — skipping
+  -  2 [desktop-chrome] › artifacts/e2e/21-ai-edit-verified.spec.ts:68:7 › AI Edit Verified Changes › AI edit suggestion chip pre-fills and applies
+Primary color before: #003DA5
+  ✘  3 [desktop-chrome] › artifacts/e2e/21-ai-edit-verified.spec.ts:96:7 › AI Edit Verified Changes › Color change chip updates colors on site (32.0s)
+
+
+  1) [desktop-chrome] › artifacts/e2e/21-ai-edit-verified.spec.ts:10:7 › AI Edit Verified Changes › AI edit actually changes site config in database 
+
+    TimeoutError: locator.waitFor: Timeout 10000ms exceeded.
+    Call log:
+    [2m  - waiting for locator('textarea[placeholder*="change" i], textarea[placeholder*="describe" i], textarea[placeholder*="update" i], textarea').first() to be visible[22m
+
+
+      26 |       )
+      27 |       .first();
+    > 28 |     await textarea.waitFor({ state: "visible", timeout: 10000 });
+         |                    ^
+      29 |     const uniqueTagline = `Playwright verified tagline ${Date.now()}`;
+      30 |     await textarea.fill(`Change our tagline to: ${uniqueTagline}`);
+      31 |     await screenshotStep(page, "21-02-filled-textarea");
+        at /home/runner/workspace/artifacts/e2e/21-ai-edit-verified.spec.ts:28:20
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/21-ai-edit-verified-AI-Edi-0590c-ges-site-config-in-database-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/21-ai-edit-verified-AI-Edi-0590c-ges-site-config-in-database-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/21-ai-edit-verified-AI-Edi-0590c-ges-site-config-in-database-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/21-ai-edit-verified-AI-Edi-0590c-ges-site-config-in-database-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/21-ai-edit-verified-AI-Edi-0590c-ges-site-config-in-database-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [desktop-chrome] › artifacts/e2e/21-ai-edit-verified.spec.ts:96:7 › AI Edit Verified Changes › Color change chip updates colors on site 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: locator.fill: Test timeout of 30000ms exceeded.
+    Call log:
+    [2m  - waiting for locator('textarea').first()[22m
+
+
+      106 |
+      107 |     const textarea = page.locator("textarea").first();
+    > 108 |     await textarea.fill("Change our primary color to #8B0000");
+          |                    ^
+      109 |     await page
+      110 |       .locator('button:has-text("Apply changes"), button:has-text("Apply")')
+      111 |       .first()
+        at /home/runner/workspace/artifacts/e2e/21-ai-edit-verified.spec.ts:108:20
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/21-ai-edit-verified-AI-Edi-41348-chip-updates-colors-on-site-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/21-ai-edit-verified-AI-Edi-41348-chip-updates-colors-on-site-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/21-ai-edit-verified-AI-Edi-41348-chip-updates-colors-on-site-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/21-ai-edit-verified-AI-Edi-41348-chip-updates-colors-on-site-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/21-ai-edit-verified-AI-Edi-41348-chip-updates-colors-on-site-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    [desktop-chrome] › artifacts/e2e/21-ai-edit-verified.spec.ts:10:7 › AI Edit Verified Changes › AI edit actually changes site config in database 
+    [desktop-chrome] › artifacts/e2e/21-ai-edit-verified.spec.ts:96:7 › AI Edit Verified Changes › Color change chip updates colors on site 
+  1 skipped
+EXIT=1
+=== 22-member-complete-flow ===
+
+Running 8 tests using 1 worker
+
+  ✘  1 [desktop-chrome] › artifacts/e2e/22-member-complete-flow.spec.ts:23:7 › Complete Member Lifecycle › Step 1: Admin adds a member from dashboard (21.5s)
+  -  2 [desktop-chrome] › artifacts/e2e/22-member-complete-flow.spec.ts:78:7 › Complete Member Lifecycle › Step 2: Member receives invite and sees register page
+  -  3 [desktop-chrome] › artifacts/e2e/22-member-complete-flow.spec.ts:101:7 › Complete Member Lifecycle › Step 3: Member sets password and registers
+  ✘  4 [desktop-chrome] › artifacts/e2e/22-member-complete-flow.spec.ts:143:7 › Complete Member Lifecycle › Step 4: Member logs in (22.5s)
+  ✘  5 [desktop-chrome] › artifacts/e2e/22-member-complete-flow.spec.ts:168:7 › Complete Member Lifecycle › Step 5: Portal home renders after login (22.0s)
+EXIT=124
+=== 24-content-studio-complete ===
+
+Running 5 tests using 1 worker
+
+  ✘  1 [desktop-chrome] › artifacts/e2e/24-content-studio-complete.spec.ts:10:7 › Content Studio Complete Flow › Press release generates real output (20.7s)
+  ✘  2 [desktop-chrome] › artifacts/e2e/24-content-studio-complete.spec.ts:57:7 › Content Studio Complete Flow › Newsletter intro generates real output (20.9s)
+  ✘  3 [desktop-chrome] › artifacts/e2e/24-content-studio-complete.spec.ts:91:7 › Content Studio Complete Flow › Fundraising appeal generates real output (20.6s)
+No history tab visible
+  ✓  4 [desktop-chrome] › artifacts/e2e/24-content-studio-complete.spec.ts:126:7 › Content Studio Complete Flow › History tab shows past outputs (9.1s)
+EXIT=124
+=== 25-autopilot-agent-complete ===
+
+Running 5 tests using 1 worker
+
+  -  1 [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:41:7 › Autopilot Agent Complete Flow › Agent responds to how many members question
+  -  2 [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:58:7 › Autopilot Agent Complete Flow › Agent responds to list events question
+  -  3 [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:72:7 › Autopilot Agent Complete Flow › Agent handles update site config request
+  -  4 [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:93:7 › Autopilot Agent Complete Flow › Agent responds gracefully to unknown request
+EXIT=124
+=== 25-retry (2 tests) ===
+
+Running 1 test using 1 worker
+
+  -  1 [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:41:7 › Autopilot Agent Complete Flow › Agent responds to how many members question
+
+  1 skipped
+EXIT=0
+=== 26-hero-image-complete ===
+
+Running 3 tests using 1 worker
+
+No AI picks button found
+  -  1 [desktop-chrome] › artifacts/e2e/26-hero-image-complete.spec.ts:16:7 › Hero Image Picker Complete Flow › AI picks button opens photo grid with real photos
+Hero image before: none
+  -  2 [desktop-chrome] › artifacts/e2e/26-hero-image-complete.spec.ts:44:7 › Hero Image Picker Complete Flow › Clicking a photo saves it as hero image
+  ✘  3 [desktop-chrome] › artifacts/e2e/26-hero-image-complete.spec.ts:91:7 › Hero Image Picker Complete Flow › Upload photo button is visible (10.9s)
+
+
+  1) [desktop-chrome] › artifacts/e2e/26-hero-image-complete.spec.ts:91:7 › Hero Image Picker Complete Flow › Upload photo button is visible 
+
+    Error: Upload photo option should be present
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoBeGreaterThan[2m([22m[32mexpected[39m[2m)[22m
+
+    Expected: > [32m0[39m
+    Received:   [31m0[39m
+
+       98 |     );
+       99 |     const count = await uploadBtn.count();
+    > 100 |     expect(count, "Upload photo option should be present").toBeGreaterThan(0);
+          |                                                            ^
+      101 |     await screenshotStep(page, "26-04-upload-button");
+      102 |   });
+      103 | });
+        at /home/runner/workspace/artifacts/e2e/26-hero-image-complete.spec.ts:100:60
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/26-hero-image-complete-Her-4d923-oad-photo-button-is-visible-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/26-hero-image-complete-Her-4d923-oad-photo-button-is-visible-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/26-hero-image-complete-Her-4d923-oad-photo-button-is-visible-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/26-hero-image-complete-Her-4d923-oad-photo-button-is-visible-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/26-hero-image-complete-Her-4d923-oad-photo-button-is-visible-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [desktop-chrome] › artifacts/e2e/26-hero-image-complete.spec.ts:91:7 › Hero Image Picker Complete Flow › Upload photo button is visible 
+  2 skipped
+EXIT=1
+=== 27-dashboard-navigation ===
+
+Running 2 tests using 1 worker
+
+Found 0 nav links
+  ✓  1 [desktop-chrome] › artifacts/e2e/27-dashboard-navigation.spec.ts:5:7 › Dashboard Navigation - Click Everything › Every sidebar nav item loads without error (14.3s)
+  ✘  2 [desktop-chrome] › artifacts/e2e/27-dashboard-navigation.spec.ts:56:7 › Dashboard Navigation - Click Everything › Every dashboard page takes a screenshot (33.3s)
+
+
+  1) [desktop-chrome] › artifacts/e2e/27-dashboard-navigation.spec.ts:56:7 › Dashboard Navigation - Click Everything › Every dashboard page takes a screenshot 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: page.waitForTimeout: Test timeout of 30000ms exceeded.
+
+      70 |       await page.goto(`${STEWARD}${route.path}`);
+      71 |       await page.waitForLoadState("networkidle");
+    > 72 |       await page.waitForTimeout(2000);
+         |                  ^
+      73 |       await page.screenshot({
+      74 |         path: `e2e-report/pages/${route.name}-full.png`,
+      75 |         fullPage: true,
+        at /home/runner/workspace/artifacts/e2e/27-dashboard-navigation.spec.ts:72:18
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/27-dashboard-navigation-Da-95700-ard-page-takes-a-screenshot-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/27-dashboard-navigation-Da-95700-ard-page-takes-a-screenshot-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/27-dashboard-navigation-Da-95700-ard-page-takes-a-screenshot-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/27-dashboard-navigation-Da-95700-ard-page-takes-a-screenshot-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/27-dashboard-navigation-Da-95700-ard-page-takes-a-screenshot-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [desktop-chrome] › artifacts/e2e/27-dashboard-navigation.spec.ts:56:7 › Dashboard Navigation - Click Everything › Every dashboard page takes a screenshot 
+  1 passed (52.0s)
+EXIT=1

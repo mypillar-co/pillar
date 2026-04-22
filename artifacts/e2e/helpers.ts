@@ -3,7 +3,7 @@ import { Pool } from "pg";
 
 export const API = "http://localhost:8080";
 export const CP = "http://localhost:5001";
-export const STEWARD = "http://localhost:5173";
+export const STEWARD = process.env.STEWARD_URL ?? "http://localhost:18402";
 export const TEST_ORG_SLUG = "norwin-rotary-uic5";
 export const TEST_ORG_URL = `${API}/sites/${TEST_ORG_SLUG}`;
 
