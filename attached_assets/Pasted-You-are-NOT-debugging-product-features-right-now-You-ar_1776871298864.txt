@@ -1,0 +1,220 @@
+You are NOT debugging product features right now.
+
+You are fixing the **test authentication layer** so Playwright can reach authenticated dashboard routes.
+
+## Root truth
+
+The current `loginToSteward` helper is invalid because `/login` no longer renders an email/password form. It only offers Google/Apple OAuth. As a result, dashboard tests are not logged in and are being redirected to the public landing page. That makes downstream selector failures meaningless.
+
+There is already a correct dev-only mechanism in the codebase:
+`GET /api/service/session-token?orgSlug=...&ttlSec=...`
+
+That endpoint mints a real session cookie using the same session path as OAuth. The healthcheck script already uses it.
+
+## Objective
+
+Do NOT modify application product behavior.
+
+Do NOT keep iterating on selectors until auth is fixed.
+
+Make Playwright authenticate by minting a session cookie programmatically.
+
+---
+
+## Step 1 — verify env unblock first
+
+Confirm that `SERVICE_API_KEY` is visible inside the **api-server runtime**, not just listed in project secrets.
+
+Run this exact check from the shell that can talk to the running server:
+
+```bash
+printenv SERVICE_API_KEY
+```
+
+Then verify the endpoint:
+
+```bash
+curl -s \
+  -H "x-service-key: $SERVICE_API_KEY" \
+  "http://localhost:8080/api/service/session-token?orgSlug=norwin-rotary-uic5&ttlSec=600"
+```
+
+Expected result:
+
+* JSON payload
+* contains `sid`
+* contains `cookie`
+* contains `cookieName`
+
+If this returns:
+
+* `503`
+* or `SERVICE_API_KEY missing`
+
+stop and report that the server process still does not have the secret injected.
+
+Do not continue to selector work until this endpoint works.
+
+---
+
+## Step 2 — replace `loginToSteward` in `artifacts/e2e/helpers.ts`
+
+Remove the form-filling login assumption.
+
+Implement `loginToSteward` so it:
+
+1. calls the session-token endpoint
+2. parses the returned cookie
+3. adds the cookie to Playwright with domain `localhost`
+4. navigates directly to the requested dashboard route
+5. verifies that the landing page is NOT shown
+
+Use this exact helper shape:
+
+```ts
+import { expect, type BrowserContext, type Page } from "@playwright/test";
+
+export const API = process.env.API_URL ?? "http://localhost:8080";
+export const STEWARD = process.env.STEWARD_URL ?? "http://localhost:18402";
+export const TEST_ORG_SLUG = process.env.TEST_ORG_SLUG ?? "norwin-rotary-uic5";
+
+type SessionTokenResponse = {
+  sid: string;
+  cookie: string;
+  cookieName: string;
+  expiresAt?: string;
+};
+
+function parseSetCookieLikeString(cookieString: string) {
+  const firstPart = cookieString.split(";")[0];
+  const eq = firstPart.indexOf("=");
+  if (eq === -1) throw new Error(`Invalid cookie string: ${cookieString}`);
+  return {
+    name: firstPart.slice(0, eq),
+    value: firstPart.slice(eq + 1),
+  };
+}
+
+export async function loginToSteward(
+  page: Page,
+  opts?: { orgSlug?: string; targetPath?: string }
+) {
+  const orgSlug = opts?.orgSlug ?? TEST_ORG_SLUG;
+  const targetPath = opts?.targetPath ?? "/dashboard";
+  const serviceKey = process.env.SERVICE_API_KEY;
+
+  if (!serviceKey) {
+    throw new Error("SERVICE_API_KEY is missing in Playwright process env");
+  }
+
+  const resp = await page.request.get(
+    `${API}/api/service/session-token?orgSlug=${encodeURIComponent(orgSlug)}&ttlSec=600`,
+    {
+      headers: {
+        "x-service-key": serviceKey,
+      },
+    }
+  );
+
+  if (!resp.ok()) {
+    const body = await resp.text();
+    throw new Error(`session-token failed: ${resp.status()} ${body}`);
+  }
+
+  const data = (await resp.json()) as SessionTokenResponse;
+  const parsed = parseSetCookieLikeString(data.cookie);
+
+  await page.context().addCookies([
+    {
+      name: parsed.name,
+      value: parsed.value,
+      domain: "localhost",
+      path: "/",
+      httpOnly: true,
+      secure: false,
+      sameSite: "Lax",
+    },
+  ]);
+
+  await page.goto(`${STEWARD}${targetPath}`, { waitUntil: "domcontentloaded" });
+
+  await expect(page).not.toHaveURL(/\\/login|^http:\\/\\/localhost:18402\\/$/);
+}
+```
+
+Do not use UI login.
+Do not visit `/login`.
+Do not fill nonexistent inputs.
+
+---
+
+## Step 3 — add one auth sanity helper
+
+Also add:
+
+```ts
+export async function assertAuthenticated(page: Page) {
+  const url = page.url();
+  if (url === `${STEWARD}/` || /\\/login$/.test(url)) {
+    throw new Error(`Expected authenticated dashboard route, got redirected to: ${url}`);
+  }
+}
+```
+
+Call it immediately after `loginToSteward(...)` in dashboard specs.
+
+---
+
+## Step 4 — re-run a single proof spec first
+
+Run only spec 21 first, with the correct config:
+
+```bash
+timeout 90 pnpm exec playwright test \
+  --config=artifacts/playwright.config.ts \
+  --project=desktop-chrome \
+  artifacts/e2e/21-ai-edit-verified.spec.ts \
+  --workers=1
+```
+
+Goal:
+
+* prove we are actually on `/dashboard/site`
+* prove the textarea can be found after auth is fixed
+
+Only after this passes or reaches a real in-app failure do we continue.
+
+---
+
+## Step 5 — then validate the selector fixes
+
+Once auth is working, keep the previously identified selector corrections:
+
+* `/dashboard/website` → `/dashboard/site`
+* event opener: `[data-tour="new-event-btn"]`
+* exact text: `Add Member`
+* member submit: `Save`
+* content card: `Press Release`
+* content submit: `Generate`
+* autopilot route: `/dashboard/autopilot`
+* autopilot input: `input[placeholder^="Try:"]`
+* hero image route: `/dashboard/site`
+* hero buttons: `Upload photo`, `AI picks`
+
+But treat those as **post-auth validation**, not root-cause fixes.
+
+---
+
+## Step 6 — report back in this order
+
+When done, report only these items:
+
+1. Is `SERVICE_API_KEY` visible inside the api-server runtime?
+2. Does `/api/service/session-token` return a valid cookie payload?
+3. Does the new `loginToSteward` set a real cookie and land on a dashboard page?
+4. What happens when spec 21 is rerun after auth is fixed?
+5. Only then: which remaining failures are real product issues vs selector issues?
+
+Do not broaden scope.
+Do not edit app product code yet.
+This is an auth-helper repair pass only.
