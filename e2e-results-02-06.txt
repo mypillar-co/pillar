@@ -1,0 +1,342 @@
+=== 02-community-site ===
+
+Running 8 tests using 1 worker
+
+  ✘  1 [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:5:7 › Community Platform Rendering › Homepage renders org name and tagline (1.6s)
+  ✘  2 [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:12:7 › Community Platform Rendering › Homepage has nav links (6.8s)
+  ✘  3 [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:19:7 › Community Platform Rendering › Events page loads (1.4s)
+  ✘  4 [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:27:7 › Community Platform Rendering › Contact page loads (1.4s)
+  ✘  5 [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:34:7 › Community Platform Rendering › Members login page renders (1.5s)
+  ✘  6 [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:42:7 › Community Platform Rendering › Members login page shows sign in form not blank (1.4s)
+  ✓  7 [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:49:7 › Community Platform Rendering › No JavaScript errors on homepage (1.4s)
+  ✓  8 [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:58:7 › Community Platform Rendering › No JavaScript errors on members page (1.0s)
+
+
+  1) [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:5:7 › Community Platform Rendering › Homepage renders org name and tagline 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBeGreaterThan[2m([22m[32mexpected[39m[2m)[22m
+
+    Expected: > [32m200[39m
+    Received:   [31m15[39m
+
+       7 |     await page.waitForLoadState("networkidle");
+       8 |     const body = await page.textContent("body");
+    >  9 |     expect(body?.length).toBeGreaterThan(200);
+         |                          ^
+      10 |   });
+      11 |
+      12 |   test("Homepage has nav links", async ({ page }) => {
+        at /home/runner/workspace/artifacts/e2e/02-community-site.spec.ts:9:26
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/02-community-site-Communit-3440f-enders-org-name-and-tagline-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/02-community-site-Communit-3440f-enders-org-name-and-tagline-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/02-community-site-Communit-3440f-enders-org-name-and-tagline-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/02-community-site-Communit-3440f-enders-org-name-and-tagline-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/02-community-site-Communit-3440f-enders-org-name-and-tagline-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:12:7 › Community Platform Rendering › Homepage has nav links 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: locator('nav')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for locator('nav')[22m
+
+
+      14 |     await page.waitForLoadState("networkidle");
+      15 |     const nav = page.locator("nav");
+    > 16 |     await expect(nav).toBeVisible();
+         |                       ^
+      17 |   });
+      18 |
+      19 |   test("Events page loads", async ({ page }) => {
+        at /home/runner/workspace/artifacts/e2e/02-community-site.spec.ts:16:23
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/02-community-site-Communit-3693d-ring-Homepage-has-nav-links-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/02-community-site-Communit-3693d-ring-Homepage-has-nav-links-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/02-community-site-Communit-3693d-ring-Homepage-has-nav-links-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/02-community-site-Communit-3693d-ring-Homepage-has-nav-links-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/02-community-site-Communit-3693d-ring-Homepage-has-nav-links-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:19:7 › Community Platform Rendering › Events page loads 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBeGreaterThan[2m([22m[32mexpected[39m[2m)[22m
+
+    Expected: > [32m50[39m
+    Received:   [31m15[39m
+
+      22 |     expect(page.url()).toContain("/events");
+      23 |     const body = await page.textContent("body");
+    > 24 |     expect(body?.length).toBeGreaterThan(50);
+         |                          ^
+      25 |   });
+      26 |
+      27 |   test("Contact page loads", async ({ page }) => {
+        at /home/runner/workspace/artifacts/e2e/02-community-site.spec.ts:24:26
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/02-community-site-Communit-cf98a-Rendering-Events-page-loads-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/02-community-site-Communit-cf98a-Rendering-Events-page-loads-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/02-community-site-Communit-cf98a-Rendering-Events-page-loads-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/02-community-site-Communit-cf98a-Rendering-Events-page-loads-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/02-community-site-Communit-cf98a-Rendering-Events-page-loads-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:27:7 › Community Platform Rendering › Contact page loads 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBeGreaterThan[2m([22m[32mexpected[39m[2m)[22m
+
+    Expected: > [32m50[39m
+    Received:   [31m15[39m
+
+      29 |     await page.waitForLoadState("networkidle");
+      30 |     const body = await page.textContent("body");
+    > 31 |     expect(body?.length).toBeGreaterThan(50);
+         |                          ^
+      32 |   });
+      33 |
+      34 |   test("Members login page renders", async ({ page }) => {
+        at /home/runner/workspace/artifacts/e2e/02-community-site.spec.ts:31:26
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/02-community-site-Communit-4a848-endering-Contact-page-loads-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/02-community-site-Communit-4a848-endering-Contact-page-loads-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/02-community-site-Communit-4a848-endering-Contact-page-loads-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/02-community-site-Communit-4a848-endering-Contact-page-loads-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/02-community-site-Communit-4a848-endering-Contact-page-loads-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5) [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:34:7 › Community Platform Rendering › Members login page renders 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBeGreaterThan[2m([22m[32mexpected[39m[2m)[22m
+
+    Expected: > [32m50[39m
+    Received:   [31m15[39m
+
+      37 |     const body = await page.textContent("body");
+      38 |     expect(body).toBeTruthy();
+    > 39 |     expect(body?.length).toBeGreaterThan(50);
+         |                          ^
+      40 |   });
+      41 |
+      42 |   test("Members login page shows sign in form not blank", async ({ page }) => {
+        at /home/runner/workspace/artifacts/e2e/02-community-site.spec.ts:39:26
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/02-community-site-Communit-1ee21--Members-login-page-renders-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/02-community-site-Communit-1ee21--Members-login-page-renders-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/02-community-site-Communit-1ee21--Members-login-page-renders-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/02-community-site-Communit-1ee21--Members-login-page-renders-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/02-community-site-Communit-1ee21--Members-login-page-renders-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  6) [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:42:7 › Community Platform Rendering › Members login page shows sign in form not blank 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBeGreaterThan[2m([22m[32mexpected[39m[2m)[22m
+
+    Expected: > [32m0[39m
+    Received:   [31m0[39m
+
+      44 |     await page.waitForLoadState("networkidle");
+      45 |     const hasForm = await page.locator('input[type=email], input[type=password], button').count();
+    > 46 |     expect(hasForm).toBeGreaterThan(0);
+         |                     ^
+      47 |   });
+      48 |
+      49 |   test("No JavaScript errors on homepage", async ({ page }) => {
+        at /home/runner/workspace/artifacts/e2e/02-community-site.spec.ts:46:21
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/02-community-site-Communit-ad910-hows-sign-in-form-not-blank-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/02-community-site-Communit-ad910-hows-sign-in-form-not-blank-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/02-community-site-Communit-ad910-hows-sign-in-form-not-blank-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/02-community-site-Communit-ad910-hows-sign-in-form-not-blank-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/02-community-site-Communit-ad910-hows-sign-in-form-not-blank-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  6 failed
+    [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:5:7 › Community Platform Rendering › Homepage renders org name and tagline 
+    [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:12:7 › Community Platform Rendering › Homepage has nav links 
+    [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:19:7 › Community Platform Rendering › Events page loads 
+    [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:27:7 › Community Platform Rendering › Contact page loads 
+    [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:34:7 › Community Platform Rendering › Members login page renders 
+    [desktop-chrome] › artifacts/e2e/02-community-site.spec.ts:42:7 › Community Platform Rendering › Members login page shows sign in form not blank 
+  2 passed (31.9s)
+EXIT=1
+=== 03-member-portal ===
+
+Running 5 tests using 1 worker
+
+  ✘  1 [desktop-chrome] › artifacts/e2e/03-member-portal.spec.ts:42:7 › Member Portal Flow › Register page renders with valid token (7.0s)
+  ✘  2 [desktop-chrome] › artifacts/e2e/03-member-portal.spec.ts:53:7 › Member Portal Flow › Register page does not show blank page (1.6s)
+=== 03 ===
+
+Running 5 tests using 1 worker
+
+  ✘  1 [desktop-chrome] › artifacts/e2e/03-member-portal.spec.ts:42:7 › Member Portal Flow › Register page renders with valid token (6.8s)
+  ✘  2 [desktop-chrome] › artifacts/e2e/03-member-portal.spec.ts:53:7 › Member Portal Flow › Register page does not show blank page (1.5s)
+EXIT=124
+=== 04 ===
+
+Running 4 tests using 1 worker
+
+  ✘  1 [desktop-chrome] › artifacts/e2e/04-events.spec.ts:38:7 › Events › Events page loads on community site (1.4s)
+  ✘  2 [desktop-chrome] › artifacts/e2e/04-events.spec.ts:45:7 › Events › Test event appears on community site (1.5s)
+  ✓  3 [desktop-chrome] › artifacts/e2e/04-events.spec.ts:52:7 › Events › CP events API returns test event (406ms)
+  ✓  4 [desktop-chrome] › artifacts/e2e/04-events.spec.ts:60:7 › Events › Event detail page loads (1.4s)
+
+
+  1) [desktop-chrome] › artifacts/e2e/04-events.spec.ts:38:7 › Events › Events page loads on community site 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBeGreaterThan[2m([22m[32mexpected[39m[2m)[22m
+
+    Expected: > [32m50[39m
+    Received:   [31m15[39m
+
+      40 |     await page.waitForLoadState("networkidle");
+      41 |     const body = await page.textContent("body");
+    > 42 |     expect(body?.length).toBeGreaterThan(50);
+         |                          ^
+      43 |   });
+      44 |
+      45 |   test("Test event appears on community site", async ({ page }) => {
+        at /home/runner/workspace/artifacts/e2e/04-events.spec.ts:42:26
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/04-events-Events-Events-page-loads-on-community-site-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/04-events-Events-Events-page-loads-on-community-site-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/04-events-Events-Events-page-loads-on-community-site-desktop-chrome/error-context.md
+
+    Error Context: test-results/04-events-Events-Events-page-loads-on-community-site-desktop-chrome/error-context.md
+
+    attachment #5: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/04-events-Events-Events-page-loads-on-community-site-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/04-events-Events-Events-page-loads-on-community-site-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [desktop-chrome] › artifacts/e2e/04-events.spec.ts:45:7 › Events › Test event appears on community site 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoContain[2m([22m[32mexpected[39m[2m) // indexOf[22m
+
+    Expected substring: [32m"Playwright Test Event"[39m
+    Received string:    [31m"··············[39m
+    [31m"[39m
+
+      47 |     await page.waitForLoadState("networkidle");
+      48 |     const body = await page.textContent("body");
+    > 49 |     expect(body).toContain("Playwright Test Event");
+         |                  ^
+      50 |   });
+      51 |
+      52 |   test("CP events API returns test event", async ({ request }) => {
+        at /home/runner/workspace/artifacts/e2e/04-events.spec.ts:49:18
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/04-events-Events-Test-event-appears-on-community-site-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/04-events-Events-Test-event-appears-on-community-site-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/04-events-Events-Test-event-appears-on-community-site-desktop-chrome/error-context.md
+
+    Error Context: test-results/04-events-Events-Test-event-appears-on-community-site-desktop-chrome/error-context.md
+
+    attachment #5: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/04-events-Events-Test-event-appears-on-community-site-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/04-events-Events-Test-event-appears-on-community-site-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    [desktop-chrome] › artifacts/e2e/04-events.spec.ts:38:7 › Events › Events page loads on community site 
+    [desktop-chrome] › artifacts/e2e/04-events.spec.ts:45:7 › Events › Test event appears on community site 
+  2 passed (11.8s)
+EXIT=1
+=== 03-retry ===
+
+Running 5 tests using 1 worker
+
+  ✘  1 [desktop-chrome] › artifacts/e2e/03-member-portal.spec.ts:42:7 › Member Portal Flow › Register page renders with valid token (6.7s)
+  ✘  2 [desktop-chrome] › artifacts/e2e/03-member-portal.spec.ts:53:7 › Member Portal Flow › Register page does not show blank page (1.4s)
+EXIT=124

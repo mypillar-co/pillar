@@ -1,0 +1,108 @@
+=== 03-member-portal ===
+
+Running 5 tests using 1 worker
+
+  ✘  1 [desktop-chrome] › artifacts/e2e/03-member-portal.spec.ts:42:7 › Member Portal Flow › Register page renders with valid token (6.7s)
+  ✘  2 [desktop-chrome] › artifacts/e2e/03-member-portal.spec.ts:53:7 › Member Portal Flow › Register page does not show blank page (1.4s)
+  ✘  3 [desktop-chrome] › artifacts/e2e/03-member-portal.spec.ts:60:7 › Member Portal Flow › Member can set password and register (16.2s)
+  ✘  4 [desktop-chrome] › artifacts/e2e/03-member-portal.spec.ts:70:7 › Member Portal Flow › Member can log in after registering (11.6s)
+EXIT=124
+=== 05-site-rendering ===
+
+Running 5 tests using 1 worker
+
+  ✓  1 [desktop-chrome] › artifacts/e2e/05-site-rendering.spec.ts:5:7 › Site Visual Rendering › Homepage has visible text content above the fold (1.5s)
+  ✓  2 [desktop-chrome] › artifacts/e2e/05-site-rendering.spec.ts:13:7 › Site Visual Rendering › Homepage renders on mobile viewport (1.0s)
+  ✘  3 [desktop-chrome] › artifacts/e2e/05-site-rendering.spec.ts:25:7 › Site Visual Rendering › Members page renders on mobile Safari viewport (1.1s)
+  ✘  4 [desktop-chrome] › artifacts/e2e/05-site-rendering.spec.ts:38:7 › Site Visual Rendering › Register page renders on mobile viewport (1.4s)
+  ✓  5 [desktop-chrome] › artifacts/e2e/05-site-rendering.spec.ts:50:7 › Site Visual Rendering › No mixed content warnings on any page (1.3s)
+
+
+  1) [desktop-chrome] › artifacts/e2e/05-site-rendering.spec.ts:25:7 › Site Visual Rendering › Members page renders on mobile Safari viewport 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBeGreaterThan[2m([22m[32mexpected[39m[2m)[22m
+
+    Expected: > [32m50[39m
+    Received:   [31m15[39m
+
+      33 |     expect(syntaxErrors).toHaveLength(0);
+      34 |     const body = await page.textContent("body");
+    > 35 |     expect(body?.length).toBeGreaterThan(50);
+         |                          ^
+      36 |   });
+      37 |
+      38 |   test("Register page renders on mobile viewport", async ({ page }) => {
+        at /home/runner/workspace/artifacts/e2e/05-site-rendering.spec.ts:35:26
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/05-site-rendering-Site-Vis-01072-s-on-mobile-Safari-viewport-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/05-site-rendering-Site-Vis-01072-s-on-mobile-Safari-viewport-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/05-site-rendering-Site-Vis-01072-s-on-mobile-Safari-viewport-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/05-site-rendering-Site-Vis-01072-s-on-mobile-Safari-viewport-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/05-site-rendering-Site-Vis-01072-s-on-mobile-Safari-viewport-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [desktop-chrome] › artifacts/e2e/05-site-rendering.spec.ts:38:7 › Site Visual Rendering › Register page renders on mobile viewport 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoBeGreaterThan[2m([22m[32mexpected[39m[2m)[22m
+
+    Expected: > [32m50[39m
+    Received:   [31m15[39m
+
+      45 |     const syntaxErrors = errors.filter(e => e.includes("SyntaxError"));
+      46 |     expect(syntaxErrors).toHaveLength(0);
+    > 47 |     expect(body?.length).toBeGreaterThan(50);
+         |                          ^
+      48 |   });
+      49 |
+      50 |   test("No mixed content warnings on any page", async ({ page }) => {
+        at /home/runner/workspace/artifacts/e2e/05-site-rendering.spec.ts:47:26
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/05-site-rendering-Site-Vis-3d01c--renders-on-mobile-viewport-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/05-site-rendering-Site-Vis-3d01c--renders-on-mobile-viewport-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/05-site-rendering-Site-Vis-3d01c--renders-on-mobile-viewport-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/05-site-rendering-Site-Vis-3d01c--renders-on-mobile-viewport-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/05-site-rendering-Site-Vis-3d01c--renders-on-mobile-viewport-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    [desktop-chrome] › artifacts/e2e/05-site-rendering.spec.ts:25:7 › Site Visual Rendering › Members page renders on mobile Safari viewport 
+    [desktop-chrome] › artifacts/e2e/05-site-rendering.spec.ts:38:7 › Site Visual Rendering › Register page renders on mobile viewport 
+  3 passed (12.7s)
+EXIT=1
+=== 06-api-contracts ===
+
+Running 8 tests using 1 worker
+
+  ✓  1 [desktop-chrome] › artifacts/e2e/06-api-contracts.spec.ts:5:7 › API Contracts › GET /api/healthz shape (90ms)
+  ✓  2 [desktop-chrome] › artifacts/e2e/06-api-contracts.spec.ts:13:7 › API Contracts › CP GET /api/org-config returns config or empty (357ms)
+  ✓  3 [desktop-chrome] › artifacts/e2e/06-api-contracts.spec.ts:20:7 › API Contracts › CP GET /api/events returns array (45ms)
+  ✓  4 [desktop-chrome] › artifacts/e2e/06-api-contracts.spec.ts:27:7 › API Contracts › CP GET /api/members/directory requires auth (55ms)
+  ✓  5 [desktop-chrome] › artifacts/e2e/06-api-contracts.spec.ts:32:7 › API Contracts › CP GET /api/members/announcements requires auth (31ms)
+  ✓  6 [desktop-chrome] › artifacts/e2e/06-api-contracts.spec.ts:37:7 › API Contracts › Invalid token returns 404 not 500 (37ms)
+  ✓  7 [desktop-chrome] › artifacts/e2e/06-api-contracts.spec.ts:46:7 › API Contracts › Login with wrong password returns 401 not 500 (35ms)
+  ✓  8 [desktop-chrome] › artifacts/e2e/06-api-contracts.spec.ts:55:7 › API Contracts › Forgot password always returns 200 (33ms)
+
+  8 passed (2.7s)
+EXIT=0

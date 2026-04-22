@@ -1,0 +1,1122 @@
+PILLAR PLATFORM — FULL END-TO-END BROWSER AUTOMATION
+Add these files to artifacts/e2e/
+
+This suite simulates a real user going through every flow from scratch.
+It clicks on everything, fills in every form, and verifies every result.
+Create all files then run: pnpm exec playwright test –config=artifacts/playwright.config.ts
+Report every pass, fail, and screenshot. Do not fix failures — report honestly.
+
+# ====================================================================================
+STEP 1: Update artifacts/playwright.config.ts
+
+Replace the entire file with:
+
+import { defineConfig, devices } from “@playwright/test”;
+
+export default defineConfig({
+testDir: “./e2e”,
+timeout: 120000,
+retries: 0,
+workers: 1,
+use: {
+headless: true,
+screenshot: “on”,
+video: “on”,
+trace: “on”,
+extraHTTPHeaders: { “x-org-id”: “norwin-rotary-uic5” },
+},
+projects: [
+{
+name: “desktop-chrome”,
+use: { …devices[“Desktop Chrome”] },
+},
+{
+name: “mobile-safari”,
+use: { …devices[“iPhone 13”] },
+},
+],
+reporter: [
+[“list”],
+[“html”, { outputFolder: “e2e-report”, open: “never” }],
+],
+});
+
+# ====================================================================================
+STEP 2: Update artifacts/e2e/helpers.ts
+
+Replace the entire file with:
+
+import { Page, APIRequestContext } from “@playwright/test”;
+import { Pool } from “pg”;
+
+export const API = “http://localhost:8080”;
+export const CP = “http://localhost:5001”;
+export const STEWARD = “http://localhost:5173”;
+export const TEST_ORG_SLUG = “norwin-rotary-uic5”;
+export const TEST_ORG_URL = `${API}/sites/${TEST_ORG_SLUG}`;
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+export async function dbQuery(sql: string, params?: any[]): Promise<any[]> {
+const res = await pool.query(sql, params);
+return res.rows;
+}
+
+export async function getTestOrgId(): Promise<string> {
+const rows = await dbQuery(
+“SELECT id FROM organizations WHERE slug = $1 LIMIT 1”,
+[TEST_ORG_SLUG]
+);
+return rows[0]?.id;
+}
+
+export async function loginToSteward(page: Page): Promise<void> {
+await page.goto(`${STEWARD}/login`);
+await page.waitForLoadState(“networkidle”);
+await page.locator(‘input[type=“email”], input[name=“email”], input[placeholder*=“email” i]’).first().fill(process.env.TEST_ADMIN_EMAIL ?? “admin@pillar.test”);
+await page.locator(‘input[type=“password”]’).first().fill(process.env.TEST_ADMIN_PASSWORD ?? “testpassword”);
+await page.locator(‘button[type=“submit”]’).first().click();
+await page.waitForTimeout(3000);
+}
+
+export async function screenshotStep(page: Page, name: string): Promise<void> {
+await page.screenshot({ path: `e2e-report/steps/${name}.png`, fullPage: true });
+}
+
+export async function waitAndClick(page: Page, selector: string): Promise<void> {
+await page.locator(selector).first().waitFor({ state: “visible”, timeout: 10000 });
+await page.locator(selector).first().click();
+}
+
+# ====================================================================================
+STEP 3: Create artifacts/e2e/20-full-ai-interview.spec.ts
+
+This test simulates a brand new org going through the complete AI interview.
+
+import { test, expect } from “@playwright/test”;
+import { STEWARD, loginToSteward, screenshotStep, dbQuery } from “./helpers”;
+
+test.describe(“Full AI Interview Flow”, () => {
+let createdOrgSlug: string;
+
+test.afterAll(async () => {
+if (createdOrgSlug) {
+await dbQuery(“DELETE FROM cs_org_configs WHERE org_id IN (SELECT id FROM organizations WHERE slug = $1)”, [createdOrgSlug]);
+await dbQuery(“DELETE FROM organizations WHERE slug = $1”, [createdOrgSlug]);
+}
+});
+
+test(“Complete AI interview creates a working site”, async ({ page }) => {
+await loginToSteward(page);
+await screenshotStep(page, “20-01-logged-in”);
+
+```
+// Navigate to Website page
+await page.goto(`${STEWARD}/dashboard/website`);
+await page.waitForLoadState("networkidle");
+await page.waitForTimeout(2000);
+await screenshotStep(page, "20-02-website-page");
+
+const body = await page.textContent("body");
+const isWelcome = body?.includes("Let's set up") || body?.includes("Let's get started") || body?.includes("get started");
+
+if (!isWelcome) {
+  console.log("Org already has a site — skipping interview, testing edit flow instead");
+  return;
+}
+
+// Click Let's get started
+await page.locator('button:has-text("Let\'s get started"), button:has-text("Get started"), button:has-text("Start")').first().click();
+await page.waitForTimeout(1000);
+await screenshotStep(page, "20-03-interview-started");
+
+// Answer each interview question
+// Org type
+const orgTypeSelect = page.locator('select, [role="combobox"], [role="listbox"]').first();
+if (await orgTypeSelect.isVisible()) {
+  await orgTypeSelect.click();
+  await page.waitForTimeout(500);
+  await page.locator('[role="option"]:has-text("Rotary"), option:has-text("Rotary")').first().click();
+  await page.waitForTimeout(500);
+}
+
+// Click Next or Continue
+const nextBtn = page.locator('button:has-text("Next"), button:has-text("Continue"), button:has-text("OK")');
+if (await nextBtn.first().isVisible()) await nextBtn.first().click();
+await page.waitForTimeout(800);
+await screenshotStep(page, "20-04-org-type");
+
+// Org name
+const nameInput = page.locator('input[placeholder*="name" i], input[placeholder*="organization" i], input[type="text"]').first();
+if (await nameInput.isVisible()) {
+  await nameInput.fill("Playwright Test Rotary Club");
+  if (await nextBtn.first().isVisible()) await nextBtn.first().click();
+  await page.waitForTimeout(800);
+}
+await screenshotStep(page, "20-05-org-name");
+
+// Fill in remaining text fields generically
+for (let i = 0; i < 15; i++) {
+  const textInput = page.locator('input[type="text"]:visible, textarea:visible').first();
+  const isVisible = await textInput.isVisible().catch(() => false);
+  if (isVisible) {
+    const placeholder = await textInput.getAttribute("placeholder") ?? "";
+    let value = "Test value";
+    if (placeholder.toLowerCase().includes("city")) value = "Pittsburgh";
+    if (placeholder.toLowerCase().includes("state")) value = "PA";
+    if (placeholder.toLowerCase().includes("email")) value = "test@playwright.local";
+    if (placeholder.toLowerCase().includes("phone")) value = "555-123-4567";
+    if (placeholder.toLowerCase().includes("tagline") || placeholder.toLowerCase().includes("mission")) value = "Serving our community with pride";
+    if (placeholder.toLowerCase().includes("meeting")) value = "Every Tuesday at 7:00 PM, Community Center";
+    if (placeholder.toLowerCase().includes("address")) value = "123 Main St";
+    if (placeholder.toLowerCase().includes("facebook")) value = "https://facebook.com/testrotary";
+    await textInput.fill(value);
+  }
+  const continueBtn = page.locator('button:has-text("Next"), button:has-text("Continue"), button:has-text("OK"), button:has-text("Skip")');
+  if (await continueBtn.first().isVisible()) {
+    await continueBtn.first().click();
+    await page.waitForTimeout(600);
+  }
+  const isFinalized = await page.locator('button:has-text("Finalize"), button:has-text("Build my site"), button:has-text("Launch")').isVisible().catch(() => false);
+  if (isFinalized) break;
+}
+await screenshotStep(page, "20-06-interview-answers");
+
+// Click Finalize / Build site
+const finalizeBtn = page.locator('button:has-text("Finalize"), button:has-text("Build my site"), button:has-text("Launch"), button:has-text("Create site")');
+if (await finalizeBtn.first().isVisible()) {
+  await finalizeBtn.first().click();
+  await page.waitForTimeout(10000);
+  await screenshotStep(page, "20-07-site-building");
+}
+
+// Verify management view appears
+await page.waitForTimeout(5000);
+await screenshotStep(page, "20-08-after-build");
+const finalBody = await page.textContent("body");
+const hasManagement = finalBody?.includes("Update") || finalBody?.includes("Edit") || finalBody?.includes("Apply") || finalBody?.includes("Site Preview") || finalBody?.includes("Preview");
+expect(hasManagement, "Site management view should appear after interview completes").toBe(true);
+```
+
+});
+
+});
+
+# ====================================================================================
+STEP 4: Create artifacts/e2e/21-ai-edit-verified.spec.ts
+
+This test verifies AI edits actually change the site, not just return 200.
+
+import { test, expect } from “@playwright/test”;
+import { STEWARD, API, TEST_ORG_SLUG, loginToSteward, screenshotStep, dbQuery } from “./helpers”;
+
+test.describe(“AI Edit Verified Changes”, () => {
+
+test.beforeEach(async ({ page }) => {
+await loginToSteward(page);
+await page.waitForTimeout(1000);
+});
+
+test(“AI edit actually changes site config in database”, async ({ page }) => {
+// Get current tagline before edit
+const orgId = await dbQuery(“SELECT id FROM organizations WHERE slug = $1 LIMIT 1”, [TEST_ORG_SLUG]);
+const before = await dbQuery(“SELECT site_config->>‘tagline’ as tagline FROM organizations WHERE slug = $1 LIMIT 1”, [TEST_ORG_SLUG]);
+const beforeTagline = before[0]?.tagline ?? “”;
+console.log(“Tagline before:”, beforeTagline);
+
+```
+await page.goto(`${STEWARD}/dashboard/website`);
+await page.waitForLoadState("networkidle");
+await page.waitForTimeout(2000);
+await screenshotStep(page, "21-01-before-edit");
+
+const textarea = page.locator('textarea[placeholder*="change" i], textarea[placeholder*="describe" i], textarea[placeholder*="update" i], textarea').first();
+await textarea.waitFor({ state: "visible", timeout: 10000 });
+const uniqueTagline = `Playwright verified tagline ${Date.now()}`;
+await textarea.fill(`Change our tagline to: ${uniqueTagline}`);
+await screenshotStep(page, "21-02-filled-textarea");
+
+const applyButton = page.locator('button:has-text("Apply changes"), button:has-text("Apply"), button:has-text("Submit"), button:has-text("Update")').first();
+await applyButton.click();
+await screenshotStep(page, "21-03-clicked-apply");
+
+// Wait up to 45 seconds for AI response
+await page.waitForTimeout(15000);
+await screenshotStep(page, "21-04-after-wait");
+
+const bodyAfter = await page.textContent("body");
+const hasError = bodyAfter?.includes("Edit failed") || bodyAfter?.includes("timeout") || bodyAfter?.includes("Error");
+if (hasError) {
+  await screenshotStep(page, "21-05-error-state");
+}
+expect(hasError, "AI edit should not show an error message").toBe(false);
+
+// Verify database actually changed
+await page.waitForTimeout(3000);
+const after = await dbQuery("SELECT site_config->>'tagline' as tagline FROM organizations WHERE slug = $1 LIMIT 1", [TEST_ORG_SLUG]);
+const afterTagline = after[0]?.tagline ?? "";
+console.log("Tagline after:", afterTagline);
+await screenshotStep(page, "21-06-final-state");
+expect(afterTagline, "Tagline in database should have changed after AI edit").toContain("Playwright");
+```
+
+});
+
+test(“AI edit suggestion chip pre-fills and applies”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/website`);
+await page.waitForLoadState(“networkidle”);
+await page.waitForTimeout(2000);
+
+```
+const chip = page.locator('button:has-text("Change our contact"), button:has-text("Update our colors"), button:has-text("Change meeting"), button:has-text("Update our tagline")').first();
+const chipVisible = await chip.isVisible().catch(() => false);
+if (!chipVisible) {
+  console.log("No suggestion chips visible — skipping");
+  test.skip();
+  return;
+}
+const chipText = await chip.textContent();
+await chip.click();
+await page.waitForTimeout(500);
+const textarea = page.locator('textarea').first();
+const value = await textarea.inputValue();
+expect(value.length, `Chip "${chipText}" should pre-fill the textarea`).toBeGreaterThan(0);
+await screenshotStep(page, "21-07-chip-prefilled");
+```
+
+});
+
+test(“Color change chip updates colors on site”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/website`);
+await page.waitForLoadState(“networkidle”);
+await page.waitForTimeout(2000);
+
+```
+const colorsBefore = await dbQuery(
+  "SELECT site_config->>'primaryColor' as primary FROM organizations WHERE slug = $1 LIMIT 1",
+  [TEST_ORG_SLUG]
+);
+console.log("Primary color before:", colorsBefore[0]?.primary);
+
+const textarea = page.locator('textarea').first();
+await textarea.fill("Change our primary color to #8B0000");
+await page.locator('button:has-text("Apply changes"), button:has-text("Apply")').first().click();
+await page.waitForTimeout(20000);
+
+const colorsAfter = await dbQuery(
+  "SELECT site_config->>'primaryColor' as primary FROM organizations WHERE slug = $1 LIMIT 1",
+  [TEST_ORG_SLUG]
+);
+console.log("Primary color after:", colorsAfter[0]?.primary);
+await screenshotStep(page, "21-08-color-change");
+
+// Restore original color
+const originalColor = colorsBefore[0]?.primary ?? "#003DA5";
+await textarea.fill(`Change our primary color back to ${originalColor}`);
+await page.locator('button:has-text("Apply changes"), button:has-text("Apply")').first().click();
+await page.waitForTimeout(20000);
+```
+
+});
+
+});
+
+# ====================================================================================
+STEP 5: Create artifacts/e2e/22-member-complete-flow.spec.ts
+
+This test walks through the complete member lifecycle from add to portal use.
+
+import { test, expect } from “@playwright/test”;
+import { STEWARD, CP, TEST_ORG_SLUG, TEST_ORG_URL, loginToSteward, screenshotStep, dbQuery, getTestOrgId } from “./helpers”;
+import crypto from “crypto”;
+
+test.describe(“Complete Member Lifecycle”, () => {
+const testEmail = `playwright-lifecycle-${Date.now()}@test.local`;
+let memberId: string;
+let inviteToken: string;
+
+test.afterAll(async () => {
+if (memberId) {
+await dbQuery(“DELETE FROM members WHERE id = $1”, [memberId]);
+}
+});
+
+test(“Step 1: Admin adds a member from dashboard”, async ({ page }) => {
+await loginToSteward(page);
+await page.goto(`${STEWARD}/dashboard/members`);
+await page.waitForLoadState(“networkidle”);
+await screenshotStep(page, “22-01-members-page”);
+
+```
+await page.locator('button:has-text("Add Member"), button:has-text("Add member"), button:has-text("+ Add")').first().click();
+await page.waitForTimeout(500);
+await screenshotStep(page, "22-02-add-dialog");
+
+await page.locator('input[name="firstName"], input[placeholder*="first" i]').first().fill("Lifecycle");
+await page.locator('input[name="lastName"], input[placeholder*="last" i]').first().fill("TestMember");
+await page.locator('input[type="email"], input[name="email"]').first().fill(testEmail);
+await screenshotStep(page, "22-03-form-filled");
+
+await page.locator('[role="dialog"] button[type="submit"], [role="dialog"] button:has-text("Save"), [role="dialog"] button:has-text("Add"), [role="dialog"] button:has-text("Create")').first().click();
+await page.waitForTimeout(3000);
+await screenshotStep(page, "22-04-after-save");
+
+const body = await page.textContent("body");
+expect(body).toContain("Lifecycle");
+
+// Get the member from database
+const orgId = await getTestOrgId();
+const rows = await dbQuery("SELECT id, registration_token FROM members WHERE email = $1 AND org_id = $2 LIMIT 1", [testEmail, orgId]);
+expect(rows.length, "Member should exist in database").toBeGreaterThan(0);
+memberId = rows[0].id;
+inviteToken = rows[0].registration_token;
+console.log("Member created:", memberId, "Token:", inviteToken ? "present" : "MISSING");
+expect(inviteToken, "Member should have a registration token").toBeTruthy();
+```
+
+});
+
+test(“Step 2: Member receives invite and sees register page”, async ({ page }) => {
+if (!inviteToken) { test.skip(); return; }
+await page.goto(`${TEST_ORG_URL}/members/register?token=${inviteToken}`, {
+extraHTTPHeaders: { “x-org-id”: TEST_ORG_SLUG }
+});
+await page.waitForLoadState(“domcontentloaded”);
+await page.waitForTimeout(3000);
+await screenshotStep(page, “22-05-register-page”);
+
+```
+const body = await page.textContent("body");
+expect(body, "Register page should not show blank").toBeTruthy();
+expect(body?.length, "Register page should have content").toBeGreaterThan(100);
+expect(body, "Register page should not say Site Not Found").not.toContain("Site Not Found");
+
+const passwordInput = page.locator('input[type="password"]').first();
+await expect(passwordInput).toBeVisible({ timeout: 10000 });
+```
+
+});
+
+test(“Step 3: Member sets password and registers”, async ({ page }) => {
+if (!inviteToken) { test.skip(); return; }
+await page.goto(`${TEST_ORG_URL}/members/register?token=${inviteToken}`, {
+extraHTTPHeaders: { “x-org-id”: TEST_ORG_SLUG }
+});
+await page.waitForLoadState(“domcontentloaded”);
+await page.waitForTimeout(3000);
+
+```
+const passwords = page.locator('input[type="password"]');
+await passwords.nth(0).fill("LifecycleTest123!");
+const secondPassword = await passwords.nth(1).isVisible().catch(() => false);
+if (secondPassword) await passwords.nth(1).fill("LifecycleTest123!");
+await screenshotStep(page, "22-06-password-filled");
+
+await page.locator('button[type="submit"], button:has-text("Set Password"), button:has-text("Create Account"), button:has-text("Register"), button:has-text("Join")').first().click();
+await page.waitForTimeout(3000);
+await screenshotStep(page, "22-07-after-register");
+
+const body = await page.textContent("body");
+expect(body, "Should not show error after registration").not.toContain("Invalid");
+expect(body, "Should not show invitation not found").not.toContain("Invitation not found");
+
+// Verify in database
+const rows = await dbQuery("SELECT registered_at FROM members WHERE id = $1", [memberId]);
+expect(rows[0]?.registered_at, "Member should be marked as registered in database").toBeTruthy();
+```
+
+});
+
+test(“Step 4: Member logs in”, async ({ page }) => {
+await page.goto(`${TEST_ORG_URL}/members/login`, {
+extraHTTPHeaders: { “x-org-id”: TEST_ORG_SLUG }
+});
+await page.waitForLoadState(“domcontentloaded”);
+await page.waitForTimeout(2000);
+await screenshotStep(page, “22-08-login-page”);
+
+```
+await page.locator('input[type="email"]').first().fill(testEmail);
+await page.locator('input[type="password"]').first().fill("LifecycleTest123!");
+await screenshotStep(page, "22-09-login-filled");
+
+await page.locator('button[type="submit"], button:has-text("Sign In"), button:has-text("Log In")').first().click();
+await page.waitForTimeout(3000);
+await screenshotStep(page, "22-10-after-login");
+
+const body = await page.textContent("body");
+expect(body, "Should not show invalid password error").not.toContain("Invalid email or password");
+```
+
+});
+
+test(“Step 5: Portal home renders after login”, async ({ page }) => {
+// Login first
+await page.goto(`${TEST_ORG_URL}/members/login`, {
+extraHTTPHeaders: { “x-org-id”: TEST_ORG_SLUG }
+});
+await page.waitForLoadState(“domcontentloaded”);
+await page.waitForTimeout(2000);
+await page.locator(‘input[type=“email”]’).first().fill(testEmail);
+await page.locator(‘input[type=“password”]’).first().fill(“LifecycleTest123!”);
+await page.locator(‘button[type=“submit”], button:has-text(“Sign In”), button:has-text(“Log In”)’).first().click();
+await page.waitForTimeout(3000);
+
+```
+await screenshotStep(page, "22-11-portal-home");
+const body = await page.textContent("body");
+expect(body?.length, "Portal home should have content").toBeGreaterThan(100);
+expect(body, "Portal home should not show login form again").not.toContain("Sign In");
+expect(body, "Portal home should not say Site Not Found").not.toContain("Site Not Found");
+```
+
+});
+
+test(“Step 6: Member can view directory”, async ({ page }) => {
+await page.goto(`${TEST_ORG_URL}/members/login`, {
+extraHTTPHeaders: { “x-org-id”: TEST_ORG_SLUG }
+});
+await page.waitForLoadState(“domcontentloaded”);
+await page.waitForTimeout(2000);
+await page.locator(‘input[type=“email”]’).first().fill(testEmail);
+await page.locator(‘input[type=“password”]’).first().fill(“LifecycleTest123!”);
+await page.locator(‘button[type=“submit”]’).first().click();
+await page.waitForTimeout(3000);
+
+```
+const directoryLink = page.locator('a:has-text("Directory"), button:has-text("Directory"), [href*="directory"]');
+const hasDirectory = await directoryLink.isVisible().catch(() => false);
+if (hasDirectory) {
+  await directoryLink.first().click();
+  await page.waitForTimeout(2000);
+  await screenshotStep(page, "22-12-directory");
+  const body = await page.textContent("body");
+  expect(body?.length).toBeGreaterThan(50);
+}
+```
+
+});
+
+test(“Step 7: Member can edit their profile”, async ({ page }) => {
+await page.goto(`${TEST_ORG_URL}/members/login`, {
+extraHTTPHeaders: { “x-org-id”: TEST_ORG_SLUG }
+});
+await page.waitForLoadState(“domcontentloaded”);
+await page.waitForTimeout(2000);
+await page.locator(‘input[type=“email”]’).first().fill(testEmail);
+await page.locator(‘input[type=“password”]’).first().fill(“LifecycleTest123!”);
+await page.locator(‘button[type=“submit”]’).first().click();
+await page.waitForTimeout(3000);
+
+```
+const profileLink = page.locator('a:has-text("Profile"), button:has-text("Profile"), [href*="profile"]');
+const hasProfile = await profileLink.isVisible().catch(() => false);
+if (hasProfile) {
+  await profileLink.first().click();
+  await page.waitForTimeout(2000);
+  await screenshotStep(page, "22-13-profile-page");
+  const bioInput = page.locator('textarea[placeholder*="bio" i], input[name="bio"], textarea[name="bio"]');
+  if (await bioInput.isVisible().catch(() => false)) {
+    await bioInput.fill("Playwright test bio");
+    const saveBtn = page.locator('button:has-text("Save"), button[type="submit"]').first();
+    await saveBtn.click();
+    await page.waitForTimeout(2000);
+    await screenshotStep(page, "22-14-profile-saved");
+  }
+}
+```
+
+});
+
+test(“Step 8: Forgot password flow works”, async ({ page }) => {
+await page.goto(`${TEST_ORG_URL}/members/login`, {
+extraHTTPHeaders: { “x-org-id”: TEST_ORG_SLUG }
+});
+await page.waitForLoadState(“domcontentloaded”);
+await page.waitForTimeout(2000);
+
+```
+const forgotLink = page.locator('a:has-text("Forgot"), button:has-text("Forgot"), a:has-text("Reset")');
+const hasForgot = await forgotLink.isVisible().catch(() => false);
+if (!hasForgot) { console.log("No forgot password link visible"); test.skip(); return; }
+
+await forgotLink.first().click();
+await page.waitForTimeout(1000);
+await screenshotStep(page, "22-15-forgot-password");
+
+const emailInput = page.locator('input[type="email"]').first();
+if (await emailInput.isVisible().catch(() => false)) {
+  await emailInput.fill(testEmail);
+  await page.locator('button[type="submit"], button:has-text("Send"), button:has-text("Reset")').first().click();
+  await page.waitForTimeout(2000);
+  await screenshotStep(page, "22-16-forgot-submitted");
+  const body = await page.textContent("body");
+  const showsConfirmation = body?.includes("sent") || body?.includes("check") || body?.includes("email") || body?.includes("submitted");
+  expect(showsConfirmation, "Should show confirmation after forgot password submit").toBe(true);
+}
+```
+
+});
+
+});
+
+# ====================================================================================
+STEP 6: Create artifacts/e2e/23-events-complete-flow.spec.ts
+
+import { test, expect } from “@playwright/test”;
+import { STEWARD, TEST_ORG_URL, TEST_ORG_SLUG, loginToSteward, screenshotStep, dbQuery, getTestOrgId } from “./helpers”;
+
+test.describe(“Complete Events Flow”, () => {
+let eventId: string;
+const eventName = `Playwright Live Event ${Date.now()}`;
+const eventSlug = `playwright-live-${Date.now()}`;
+
+test.afterAll(async () => {
+if (eventId) await dbQuery(“DELETE FROM events WHERE id = $1”, [eventId]);
+});
+
+test(“Step 1: Admin creates an event from dashboard”, async ({ page }) => {
+await loginToSteward(page);
+await page.goto(`${STEWARD}/dashboard/events`);
+await page.waitForLoadState(“networkidle”);
+await screenshotStep(page, “23-01-events-page”);
+
+```
+await page.locator('button:has-text("Create"), button:has-text("New Event"), button:has-text("Add Event"), button:has-text("+ Create")').first().click();
+await page.waitForTimeout(1000);
+await screenshotStep(page, "23-02-create-dialog");
+
+const nameInput = page.locator('input[name="name"], input[placeholder*="name" i], input[placeholder*="Event" i]').first();
+await nameInput.fill(eventName);
+
+const dateInput = page.locator('input[type="date"], input[name="startDate"], input[name="date"]').first();
+if (await dateInput.isVisible().catch(() => false)) {
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
+  await dateInput.fill(tomorrow);
+}
+
+const descInput = page.locator('textarea[name="description"], textarea[placeholder*="description" i]').first();
+if (await descInput.isVisible().catch(() => false)) {
+  await descInput.fill("A test event created by Playwright automation");
+}
+
+const locationInput = page.locator('input[name="location"], input[placeholder*="location" i]').first();
+if (await locationInput.isVisible().catch(() => false)) {
+  await locationInput.fill("Community Center, Pittsburgh PA");
+}
+await screenshotStep(page, "23-03-form-filled");
+
+await page.locator('[role="dialog"] button[type="submit"], [role="dialog"] button:has-text("Save"), [role="dialog"] button:has-text("Create"), [role="dialog"] button:has-text("Add")').first().click();
+await page.waitForTimeout(3000);
+await screenshotStep(page, "23-04-after-save");
+
+const body = await page.textContent("body");
+expect(body).toContain(eventName.substring(0, 20));
+
+const orgId = await getTestOrgId();
+const rows = await dbQuery("SELECT id FROM events WHERE name = $1 AND org_id = $2 LIMIT 1", [eventName, orgId]);
+if (rows.length > 0) eventId = rows[0].id;
+console.log("Event created:", eventId ?? "NOT FOUND IN DB");
+```
+
+});
+
+test(“Step 2: Event appears on community site”, async ({ page }) => {
+if (!eventId) { test.skip(); return; }
+await page.goto(`${TEST_ORG_URL}/events`, {
+extraHTTPHeaders: { “x-org-id”: TEST_ORG_SLUG }
+});
+await page.waitForLoadState(“domcontentloaded”);
+await page.waitForTimeout(3000);
+await screenshotStep(page, “23-05-events-public”);
+
+```
+const body = await page.textContent("body");
+const eventVisible = body?.includes("Playwright Live Event") || body?.includes(eventName.substring(0, 20));
+expect(eventVisible, "Event should appear on the public community site").toBe(true);
+```
+
+});
+
+test(“Step 3: Event detail page loads”, async ({ page }) => {
+if (!eventId) { test.skip(); return; }
+await page.goto(`${TEST_ORG_URL}/events`, {
+extraHTTPHeaders: { “x-org-id”: TEST_ORG_SLUG }
+});
+await page.waitForLoadState(“domcontentloaded”);
+await page.waitForTimeout(3000);
+
+```
+const eventLink = page.locator(`a:has-text("Playwright Live"), a[href*="playwright"]`).first();
+const hasLink = await eventLink.isVisible().catch(() => false);
+if (hasLink) {
+  await eventLink.click();
+  await page.waitForTimeout(2000);
+  await screenshotStep(page, "23-06-event-detail");
+  const body = await page.textContent("body");
+  expect(body).toContain("Community Center");
+}
+```
+
+});
+
+test(“Step 4: Event shows in dashboard event list”, async ({ page }) => {
+if (!eventId) { test.skip(); return; }
+await loginToSteward(page);
+await page.goto(`${STEWARD}/dashboard/events`);
+await page.waitForLoadState(“networkidle”);
+await page.waitForTimeout(2000);
+await screenshotStep(page, “23-07-events-dashboard”);
+const body = await page.textContent(“body”);
+expect(body).toContain(eventName.substring(0, 20));
+});
+
+});
+
+# ====================================================================================
+STEP 7: Create artifacts/e2e/24-content-studio-complete.spec.ts
+
+import { test, expect } from “@playwright/test”;
+import { STEWARD, loginToSteward, screenshotStep } from “./helpers”;
+
+test.describe(“Content Studio Complete Flow”, () => {
+
+test.beforeEach(async ({ page }) => {
+await loginToSteward(page);
+await page.waitForTimeout(1000);
+});
+
+test(“Press release generates real output”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/content`);
+await page.waitForLoadState(“networkidle”);
+await screenshotStep(page, “24-01-content-studio”);
+
+```
+await page.locator('button:has-text("Press Release"), [role="button"]:has-text("Press Release"), div:has-text("Press Release")').first().click();
+await page.waitForTimeout(1000);
+await screenshotStep(page, "24-02-press-release-form");
+
+await page.locator('input[placeholder*="headline" i], input[placeholder*="Headline" i]').first().fill("Annual Fundraiser Raises Record $50,000");
+await page.locator('textarea[placeholder*="detail" i], textarea[placeholder*="Detail" i]').first().fill("The event was held Saturday May 10th at the Pittsburgh Community Center. Over 200 members and guests attended. Funds support local scholarships.");
+await screenshotStep(page, "24-03-form-filled");
+
+await page.locator('button:has-text("Generate"), button:has-text("Create"), button:has-text("Run"), button:has-text("Write")').first().click();
+await screenshotStep(page, "24-04-generating");
+await page.waitForTimeout(30000);
+await screenshotStep(page, "24-05-generated");
+
+const body = await page.textContent("body");
+const hasOutput = body?.includes("FOR IMMEDIATE RELEASE") || body?.includes("FOR IMMEDIATE") || body?.includes("fundraiser") || body?.includes("Fundraiser") || body?.includes("Pittsburgh") || body?.includes("scholarship");
+expect(hasOutput, "Press release should contain real generated content").toBe(true);
+```
+
+});
+
+test(“Newsletter intro generates real output”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/content`);
+await page.waitForLoadState(“networkidle”);
+
+```
+await page.locator('button:has-text("Newsletter"), div:has-text("Newsletter Intro")').first().click();
+await page.waitForTimeout(1000);
+
+await page.locator('input[placeholder*="month" i], input[placeholder*="period" i]').first().fill("May 2026").catch(() => {});
+await page.locator('textarea').first().fill("We held our annual fundraiser, welcomed 5 new members, and launched our community garden project");
+await page.locator('button:has-text("Generate"), button:has-text("Create"), button:has-text("Run")').first().click();
+await page.waitForTimeout(30000);
+await screenshotStep(page, "24-06-newsletter-generated");
+
+const body = await page.textContent("body");
+expect(body?.length).toBeGreaterThan(200);
+```
+
+});
+
+test(“Fundraising appeal generates real output”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/content`);
+await page.waitForLoadState(“networkidle”);
+
+```
+await page.locator('button:has-text("Fundraising"), div:has-text("Fundraising Appeal")').first().click();
+await page.waitForTimeout(1000);
+
+await page.locator('input[placeholder*="cause" i], input[placeholder*="Cause" i], input').first().fill("Annual scholarship fund for local high school students");
+await page.locator('textarea').first().fill("We have awarded 47 scholarships over 20 years, changing lives in our community");
+await page.locator('button:has-text("Generate"), button:has-text("Create"), button:has-text("Run")').first().click();
+await page.waitForTimeout(30000);
+await screenshotStep(page, "24-07-appeal-generated");
+
+const body = await page.textContent("body");
+expect(body?.length).toBeGreaterThan(200);
+```
+
+});
+
+test(“History tab shows past outputs”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/content`);
+await page.waitForLoadState(“networkidle”);
+
+```
+const historyTab = page.locator('button:has-text("History"), [role="tab"]:has-text("History"), a:has-text("History")');
+if (await historyTab.isVisible().catch(() => false)) {
+  await historyTab.first().click();
+  await page.waitForTimeout(2000);
+  await screenshotStep(page, "24-08-history-tab");
+  const body = await page.textContent("body");
+  expect(body?.length).toBeGreaterThan(100);
+} else {
+  console.log("No history tab visible");
+}
+```
+
+});
+
+test(“Copy button copies output to clipboard”, async ({ page, context }) => {
+await context.grantPermissions([“clipboard-read”, “clipboard-write”]);
+await page.goto(`${STEWARD}/dashboard/content`);
+await page.waitForLoadState(“networkidle”);
+
+```
+await page.locator('button:has-text("Press Release"), div:has-text("Press Release")').first().click();
+await page.waitForTimeout(500);
+await page.locator('input[placeholder*="headline" i]').first().fill("Test Headline for Copy");
+await page.locator('textarea').first().fill("Test details for clipboard test");
+await page.locator('button:has-text("Generate"), button:has-text("Create")').first().click();
+await page.waitForTimeout(20000);
+
+const copyBtn = page.locator('button:has-text("Copy"), button[aria-label*="copy" i]').first();
+if (await copyBtn.isVisible().catch(() => false)) {
+  await copyBtn.click();
+  await page.waitForTimeout(500);
+  await screenshotStep(page, "24-09-copied");
+  const body = await page.textContent("body");
+  const showsCopied = body?.includes("Copied") || body?.includes("copied");
+  expect(showsCopied, "Copy button should show confirmation").toBe(true);
+}
+```
+
+});
+
+});
+
+# ====================================================================================
+STEP 8: Create artifacts/e2e/25-autopilot-agent-complete.spec.ts
+
+import { test, expect } from “@playwright/test”;
+import { STEWARD, loginToSteward, screenshotStep } from “./helpers”;
+
+async function findAgentPage(page: any): Promise<boolean> {
+const routes = [”/dashboard/agent”, “/dashboard/autopilot”, “/dashboard/assistant”, “/dashboard/ai”, “/dashboard”];
+for (const route of routes) {
+await page.goto(`${STEWARD}${route}`);
+await page.waitForLoadState(“networkidle”);
+await page.waitForTimeout(1000);
+const inputs = page.locator(‘input[placeholder*=“ask” i], textarea[placeholder*=“ask” i], input[placeholder*=“message” i], textarea[placeholder*=“message” i], input[placeholder*=“type” i]’);
+if (await inputs.count() > 0) return true;
+}
+return false;
+}
+
+async function sendAgentMessage(page: any, message: string): Promise<void> {
+const input = page.locator(‘input[placeholder*=“ask” i], textarea[placeholder*=“ask” i], input[placeholder*=“message” i], textarea[placeholder*=“message” i]’).first();
+await input.fill(message);
+await page.keyboard.press(“Enter”);
+await page.waitForTimeout(20000);
+}
+
+test.describe(“Autopilot Agent Complete Flow”, () => {
+
+test.beforeEach(async ({ page }) => {
+await loginToSteward(page);
+await page.waitForTimeout(1000);
+});
+
+test(“Agent responds to how many members question”, async ({ page }) => {
+const found = await findAgentPage(page);
+if (!found) { test.skip(); return; }
+await screenshotStep(page, “25-01-agent-page”);
+
+```
+await sendAgentMessage(page, "How many members do we have?");
+await screenshotStep(page, "25-02-members-response");
+
+const body = await page.textContent("body");
+const hasResponse = body?.includes("member") || body?.includes("Member") || /\d/.test(body ?? "");
+expect(hasResponse, "Agent should respond about members").toBe(true);
+```
+
+});
+
+test(“Agent responds to list events question”, async ({ page }) => {
+const found = await findAgentPage(page);
+if (!found) { test.skip(); return; }
+
+```
+await sendAgentMessage(page, "List our upcoming events");
+await screenshotStep(page, "25-03-events-response");
+
+const body = await page.textContent("body");
+expect(body?.length, "Agent should give a substantive response").toBeGreaterThan(100);
+```
+
+});
+
+test(“Agent handles update site config request”, async ({ page }) => {
+const found = await findAgentPage(page);
+if (!found) { test.skip(); return; }
+
+```
+await sendAgentMessage(page, "What are our current site settings?");
+await screenshotStep(page, "25-04-config-response");
+
+const body = await page.textContent("body");
+const hasConfig = body?.includes("color") || body?.includes("Color") || body?.includes("contact") || body?.includes("Contact") || body?.includes("tagline") || body?.includes("Tagline");
+expect(hasConfig, "Agent should return site configuration").toBe(true);
+```
+
+});
+
+test(“Agent responds gracefully to unknown request”, async ({ page }) => {
+const found = await findAgentPage(page);
+if (!found) { test.skip(); return; }
+
+```
+await sendAgentMessage(page, "xyzzy frobulate the quantum donut");
+await screenshotStep(page, "25-05-unknown-request");
+
+const errors: string[] = [];
+page.on("pageerror", e => errors.push(e.message));
+const body = await page.textContent("body");
+expect(body?.length).toBeGreaterThan(100);
+const syntaxErrors = errors.filter(e => e.includes("SyntaxError"));
+expect(syntaxErrors).toHaveLength(0);
+```
+
+});
+
+test(“Agent runs self test successfully”, async ({ page }) => {
+const found = await findAgentPage(page);
+if (!found) { test.skip(); return; }
+
+```
+await sendAgentMessage(page, "Run a self test");
+await page.waitForTimeout(30000);
+await screenshotStep(page, "25-06-self-test");
+
+const body = await page.textContent("body");
+const hasTestResult = body?.includes("PASS") || body?.includes("pass") || body?.includes("✓") || body?.includes("working") || body?.includes("healthy") || body?.includes("OK");
+expect(hasTestResult, "Self test should show results").toBe(true);
+```
+
+});
+
+});
+
+# ====================================================================================
+STEP 9: Create artifacts/e2e/26-hero-image-complete.spec.ts
+
+import { test, expect } from “@playwright/test”;
+import { STEWARD, TEST_ORG_SLUG, loginToSteward, screenshotStep, dbQuery } from “./helpers”;
+
+test.describe(“Hero Image Picker Complete Flow”, () => {
+
+test.beforeEach(async ({ page }) => {
+await loginToSteward(page);
+await page.waitForTimeout(1000);
+});
+
+test(“AI picks button opens photo grid with real photos”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/website`);
+await page.waitForLoadState(“networkidle”);
+await page.waitForTimeout(2000);
+await screenshotStep(page, “26-01-website-page”);
+
+```
+const aiPicksBtn = page.locator('button:has-text("AI picks"), button:has-text("Browse photos"), button:has-text("Stock photos")').first();
+const hasBtn = await aiPicksBtn.isVisible().catch(() => false);
+if (!hasBtn) { console.log("No AI picks button found"); test.skip(); return; }
+
+await aiPicksBtn.click();
+await page.waitForTimeout(5000);
+await screenshotStep(page, "26-02-photo-grid");
+
+const images = page.locator('img[src*="unsplash"], img[src*="images.unsplash"]');
+const imgCount = await images.count();
+console.log("Unsplash images found:", imgCount);
+expect(imgCount, "Photo grid should show Unsplash images").toBeGreaterThan(0);
+```
+
+});
+
+test(“Clicking a photo saves it as hero image”, async ({ page }) => {
+const beforeRows = await dbQuery(
+“SELECT site_config->>‘heroImageUrl’ as hero FROM organizations WHERE slug = $1 LIMIT 1”,
+[TEST_ORG_SLUG]
+);
+const heroBefore = beforeRows[0]?.hero;
+console.log(“Hero image before:”, heroBefore ?? “none”);
+
+```
+await page.goto(`${STEWARD}/dashboard/website`);
+await page.waitForLoadState("networkidle");
+await page.waitForTimeout(2000);
+
+const aiPicksBtn = page.locator('button:has-text("AI picks"), button:has-text("Browse photos")').first();
+if (!await aiPicksBtn.isVisible().catch(() => false)) { test.skip(); return; }
+await aiPicksBtn.click();
+await page.waitForTimeout(5000);
+
+const images = page.locator('img[src*="unsplash"]');
+if (await images.count() === 0) { test.skip(); return; }
+
+await images.first().click();
+await page.waitForTimeout(5000);
+await screenshotStep(page, "26-03-after-photo-click");
+
+const body = await page.textContent("body");
+const hasError = body?.includes("Failed to save") || body?.includes("error") || body?.includes("Error");
+expect(hasError, "Clicking photo should not show save error").toBe(false);
+
+const afterRows = await dbQuery(
+  "SELECT site_config->>'heroImageUrl' as hero FROM organizations WHERE slug = $1 LIMIT 1",
+  [TEST_ORG_SLUG]
+);
+const heroAfter = afterRows[0]?.hero;
+console.log("Hero image after:", heroAfter ?? "none");
+```
+
+});
+
+test(“Upload photo button is visible”, async ({ page }) => {
+await page.goto(`${STEWARD}/dashboard/website`);
+await page.waitForLoadState(“networkidle”);
+await page.waitForTimeout(2000);
+
+```
+const uploadBtn = page.locator('button:has-text("Upload photo"), button:has-text("Upload"), input[type="file"]');
+const count = await uploadBtn.count();
+expect(count, "Upload photo option should be present").toBeGreaterThan(0);
+await screenshotStep(page, "26-04-upload-button");
+```
+
+});
+
+});
+
+# ====================================================================================
+STEP 10: Create artifacts/e2e/27-dashboard-navigation.spec.ts
+
+This test clicks through every nav item and verifies no broken pages.
+
+import { test, expect } from “@playwright/test”;
+import { STEWARD, loginToSteward, screenshotStep } from “./helpers”;
+
+test.describe(“Dashboard Navigation - Click Everything”, () => {
+
+test(“Every sidebar nav item loads without error”, async ({ page }) => {
+await loginToSteward(page);
+await page.waitForTimeout(1000);
+await page.goto(`${STEWARD}/dashboard`);
+await page.waitForLoadState(“networkidle”);
+await screenshotStep(page, “27-01-dashboard-start”);
+
+```
+// Get all sidebar nav links
+const navLinks = page.locator('nav a[href], aside a[href], [role="navigation"] a[href]');
+const count = await navLinks.count();
+console.log(`Found ${count} nav links`);
+
+const visited: string[] = [];
+const errors: { href: string; error: string }[] = [];
+
+for (let i = 0; i < count; i++) {
+  const link = navLinks.nth(i);
+  const href = await link.getAttribute("href").catch(() => "");
+  if (!href || visited.includes(href) || href.startsWith("http") || href === "#") continue;
+  visited.push(href);
+
+  await page.goto(`${STEWARD}${href}`);
+  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.waitForTimeout(1000);
+
+  const body = await page.textContent("body").catch(() => "");
+  const isBlank = (body?.length ?? 0) < 100;
+  const is404 = body?.includes("404") || body?.includes("Page not found") || body?.includes("Not found");
+
+  if (isBlank) errors.push({ href, error: "Page appears blank (< 100 chars)" });
+  if (is404) errors.push({ href, error: "Page shows 404" });
+
+  console.log(`${isBlank || is404 ? "FAIL" : "PASS"} ${href}`);
+}
+
+await screenshotStep(page, "27-02-nav-complete");
+
+if (errors.length > 0) {
+  console.log("FAILED PAGES:", JSON.stringify(errors, null, 2));
+}
+expect(errors, `${errors.length} nav pages failed: ${JSON.stringify(errors)}`).toHaveLength(0);
+```
+
+});
+
+test(“Every dashboard page takes a screenshot”, async ({ page }) => {
+await loginToSteward(page);
+const routes = [
+{ path: “/dashboard”, name: “overview” },
+{ path: “/dashboard/events”, name: “events” },
+{ path: “/dashboard/members”, name: “members” },
+{ path: “/dashboard/sponsors”, name: “sponsors” },
+{ path: “/dashboard/social”, name: “social” },
+{ path: “/dashboard/content”, name: “content” },
+{ path: “/dashboard/website”, name: “website” },
+{ path: “/dashboard/contacts”, name: “contacts” },
+];
+
+```
+for (const route of routes) {
+  await page.goto(`${STEWARD}${route.path}`);
+  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(2000);
+  await page.screenshot({ path: `e2e-report/pages/${route.name}-full.png`, fullPage: true });
+  const body = await page.textContent("body");
+  expect(body?.length, `${route.path} should have content`).toBeGreaterThan(100);
+}
+```
+
+});
+
+});
+
+# ====================================================================================
+STEP 11: Create e2e-report/steps and e2e-report/pages directories
+
+Run these commands:
+mkdir -p artifacts/e2e-report/steps
+mkdir -p artifacts/e2e-report/pages
+
+# ====================================================================================
+STEP 12: RUN THE FULL SUITE
+
+Run this command from the workspace root:
+
+pnpm exec playwright test –config=artifacts/playwright.config.ts –project=desktop-chrome 2>&1 | tee e2e-full-results.txt
+
+Then report:
+
+1. Total tests run
+1. Total passed
+1. Total failed
+1. Total skipped
+1. Every failure with exact error message and file name
+1. List of all screenshots taken in e2e-report/steps/ and e2e-report/pages/
+1. Specific answers to these questions:
+- Did the AI interview complete and create a site? (file 20)
+- Did the AI edit actually change the tagline in the database? (file 21)
+- Did the member complete the full register → login → portal flow? (file 22)
+- Did the event appear on the public community site? (file 23)
+- Did the content studio generate real press release text? (file 24)
+- Did the autopilot agent respond correctly? (file 25)
+- Did the hero image picker show real photos and save? (file 26)
+- Did every nav link load without blank or 404? (file 27)
+
+Do not fix any failures. Report the complete honest baseline.

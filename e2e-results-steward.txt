@@ -1,0 +1,864 @@
+=== 20-full-ai-interview ===
+
+Running 1 test using 1 worker
+
+  ✘  1 [desktop-chrome] › artifacts/e2e/20-full-ai-interview.spec.ts:17:7 › Full AI Interview Flow › Complete AI interview creates a working site (736ms)
+
+
+  1) [desktop-chrome] › artifacts/e2e/20-full-ai-interview.spec.ts:17:7 › Full AI Interview Flow › Complete AI interview creates a working site 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/20-full-ai-interview.spec.ts:18:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/20-full-ai-interview-Full--b9ceb-view-creates-a-working-site-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/20-full-ai-interview-Full--b9ceb-view-creates-a-working-site-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/20-full-ai-interview-Full--b9ceb-view-creates-a-working-site-desktop-chrome/error-context.md
+
+    Error Context: test-results/20-full-ai-interview-Full--b9ceb-view-creates-a-working-site-desktop-chrome/error-context.md
+
+    attachment #5: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/20-full-ai-interview-Full--b9ceb-view-creates-a-working-site-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/20-full-ai-interview-Full--b9ceb-view-creates-a-working-site-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [desktop-chrome] › artifacts/e2e/20-full-ai-interview.spec.ts:17:7 › Full AI Interview Flow › Complete AI interview creates a working site 
+EXIT=1
+=== 21-ai-edit-verified ===
+
+Running 3 tests using 1 worker
+
+  ✘  1 [desktop-chrome] › artifacts/e2e/21-ai-edit-verified.spec.ts:10:7 › AI Edit Verified Changes › AI edit actually changes site config in database (754ms)
+  ✘  2 [desktop-chrome] › artifacts/e2e/21-ai-edit-verified.spec.ts:68:7 › AI Edit Verified Changes › AI edit suggestion chip pre-fills and applies (837ms)
+  ✘  3 [desktop-chrome] › artifacts/e2e/21-ai-edit-verified.spec.ts:96:7 › AI Edit Verified Changes › Color change chip updates colors on site (738ms)
+
+
+  1) [desktop-chrome] › artifacts/e2e/21-ai-edit-verified.spec.ts:10:7 › AI Edit Verified Changes › AI edit actually changes site config in database 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/21-ai-edit-verified.spec.ts:6:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/21-ai-edit-verified-AI-Edi-0590c-ges-site-config-in-database-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/21-ai-edit-verified-AI-Edi-0590c-ges-site-config-in-database-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/21-ai-edit-verified-AI-Edi-0590c-ges-site-config-in-database-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/21-ai-edit-verified-AI-Edi-0590c-ges-site-config-in-database-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/21-ai-edit-verified-AI-Edi-0590c-ges-site-config-in-database-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [desktop-chrome] › artifacts/e2e/21-ai-edit-verified.spec.ts:68:7 › AI Edit Verified Changes › AI edit suggestion chip pre-fills and applies 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/21-ai-edit-verified.spec.ts:6:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/21-ai-edit-verified-AI-Edi-15093--chip-pre-fills-and-applies-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/21-ai-edit-verified-AI-Edi-15093--chip-pre-fills-and-applies-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/21-ai-edit-verified-AI-Edi-15093--chip-pre-fills-and-applies-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/21-ai-edit-verified-AI-Edi-15093--chip-pre-fills-and-applies-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/21-ai-edit-verified-AI-Edi-15093--chip-pre-fills-and-applies-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [desktop-chrome] › artifacts/e2e/21-ai-edit-verified.spec.ts:96:7 › AI Edit Verified Changes › Color change chip updates colors on site 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/21-ai-edit-verified.spec.ts:6:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/21-ai-edit-verified-AI-Edi-41348-chip-updates-colors-on-site-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/21-ai-edit-verified-AI-Edi-41348-chip-updates-colors-on-site-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/21-ai-edit-verified-AI-Edi-41348-chip-updates-colors-on-site-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/21-ai-edit-verified-AI-Edi-41348-chip-updates-colors-on-site-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/21-ai-edit-verified-AI-Edi-41348-chip-updates-colors-on-site-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3 failed
+    [desktop-chrome] › artifacts/e2e/21-ai-edit-verified.spec.ts:10:7 › AI Edit Verified Changes › AI edit actually changes site config in database 
+    [desktop-chrome] › artifacts/e2e/21-ai-edit-verified.spec.ts:68:7 › AI Edit Verified Changes › AI edit suggestion chip pre-fills and applies 
+    [desktop-chrome] › artifacts/e2e/21-ai-edit-verified.spec.ts:96:7 › AI Edit Verified Changes › Color change chip updates colors on site 
+EXIT=1
+=== 22-member-complete-flow ===
+
+Running 8 tests using 1 worker
+
+  ✘  1 [desktop-chrome] › artifacts/e2e/22-member-complete-flow.spec.ts:23:7 › Complete Member Lifecycle › Step 1: Admin adds a member from dashboard (857ms)
+  -  2 [desktop-chrome] › artifacts/e2e/22-member-complete-flow.spec.ts:78:7 › Complete Member Lifecycle › Step 2: Member receives invite and sees register page
+  -  3 [desktop-chrome] › artifacts/e2e/22-member-complete-flow.spec.ts:101:7 › Complete Member Lifecycle › Step 3: Member sets password and registers
+  ✘  4 [desktop-chrome] › artifacts/e2e/22-member-complete-flow.spec.ts:143:7 › Complete Member Lifecycle › Step 4: Member logs in (10.8s)
+  ✘  5 [desktop-chrome] › artifacts/e2e/22-member-complete-flow.spec.ts:168:7 › Complete Member Lifecycle › Step 5: Portal home renders after login (10.9s)
+EXIT=124
+=== 23-events-complete-flow ===
+
+Running 4 tests using 1 worker
+
+  ✘  1 [desktop-chrome] › artifacts/e2e/23-events-complete-flow.spec.ts:19:7 › Complete Events Flow › Step 1: Admin creates an event from dashboard (754ms)
+  -  2 [desktop-chrome] › artifacts/e2e/23-events-complete-flow.spec.ts:85:7 › Complete Events Flow › Step 2: Event appears on community site
+  -  3 [desktop-chrome] › artifacts/e2e/23-events-complete-flow.spec.ts:102:7 › Complete Events Flow › Step 3: Event detail page loads
+  -  4 [desktop-chrome] › artifacts/e2e/23-events-complete-flow.spec.ts:124:7 › Complete Events Flow › Step 4: Event shows in dashboard event list
+
+
+  1) [desktop-chrome] › artifacts/e2e/23-events-complete-flow.spec.ts:19:7 › Complete Events Flow › Step 1: Admin creates an event from dashboard 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/23-events-complete-flow.spec.ts:20:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/23-events-complete-flow-Co-ce9a1-tes-an-event-from-dashboard-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/23-events-complete-flow-Co-ce9a1-tes-an-event-from-dashboard-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/23-events-complete-flow-Co-ce9a1-tes-an-event-from-dashboard-desktop-chrome/error-context.md
+
+    Error Context: test-results/23-events-complete-flow-Co-ce9a1-tes-an-event-from-dashboard-desktop-chrome/error-context.md
+
+    attachment #5: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/23-events-complete-flow-Co-ce9a1-tes-an-event-from-dashboard-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/23-events-complete-flow-Co-ce9a1-tes-an-event-from-dashboard-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [desktop-chrome] › artifacts/e2e/23-events-complete-flow.spec.ts:19:7 › Complete Events Flow › Step 1: Admin creates an event from dashboard 
+  3 skipped
+EXIT=1
+=== 24-content-studio-complete ===
+
+Running 5 tests using 1 worker
+
+  ✘  1 [desktop-chrome] › artifacts/e2e/24-content-studio-complete.spec.ts:10:7 › Content Studio Complete Flow › Press release generates real output (1.2s)
+  ✘  2 [desktop-chrome] › artifacts/e2e/24-content-studio-complete.spec.ts:57:7 › Content Studio Complete Flow › Newsletter intro generates real output (1.3s)
+  ✘  3 [desktop-chrome] › artifacts/e2e/24-content-studio-complete.spec.ts:91:7 › Content Studio Complete Flow › Fundraising appeal generates real output (840ms)
+  ✘  4 [desktop-chrome] › artifacts/e2e/24-content-studio-complete.spec.ts:126:7 › Content Studio Complete Flow › History tab shows past outputs (757ms)
+  ✘  5 [desktop-chrome] › artifacts/e2e/24-content-studio-complete.spec.ts:144:7 › Content Studio Complete Flow › Copy button copies output to clipboard (798ms)
+
+
+  1) [desktop-chrome] › artifacts/e2e/24-content-studio-complete.spec.ts:10:7 › Content Studio Complete Flow › Press release generates real output 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/24-content-studio-complete.spec.ts:6:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/24-content-studio-complete-4bee4-lease-generates-real-output-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/24-content-studio-complete-4bee4-lease-generates-real-output-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/24-content-studio-complete-4bee4-lease-generates-real-output-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/24-content-studio-complete-4bee4-lease-generates-real-output-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/24-content-studio-complete-4bee4-lease-generates-real-output-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [desktop-chrome] › artifacts/e2e/24-content-studio-complete.spec.ts:57:7 › Content Studio Complete Flow › Newsletter intro generates real output 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/24-content-studio-complete.spec.ts:6:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/24-content-studio-complete-818ad-intro-generates-real-output-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/24-content-studio-complete-818ad-intro-generates-real-output-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/24-content-studio-complete-818ad-intro-generates-real-output-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/24-content-studio-complete-818ad-intro-generates-real-output-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/24-content-studio-complete-818ad-intro-generates-real-output-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [desktop-chrome] › artifacts/e2e/24-content-studio-complete.spec.ts:91:7 › Content Studio Complete Flow › Fundraising appeal generates real output 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/24-content-studio-complete.spec.ts:6:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/24-content-studio-complete-779cd-ppeal-generates-real-output-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/24-content-studio-complete-779cd-ppeal-generates-real-output-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/24-content-studio-complete-779cd-ppeal-generates-real-output-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/24-content-studio-complete-779cd-ppeal-generates-real-output-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/24-content-studio-complete-779cd-ppeal-generates-real-output-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) [desktop-chrome] › artifacts/e2e/24-content-studio-complete.spec.ts:126:7 › Content Studio Complete Flow › History tab shows past outputs 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/24-content-studio-complete.spec.ts:6:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/24-content-studio-complete-ae948-tory-tab-shows-past-outputs-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/24-content-studio-complete-ae948-tory-tab-shows-past-outputs-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/24-content-studio-complete-ae948-tory-tab-shows-past-outputs-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/24-content-studio-complete-ae948-tory-tab-shows-past-outputs-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/24-content-studio-complete-ae948-tory-tab-shows-past-outputs-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5) [desktop-chrome] › artifacts/e2e/24-content-studio-complete.spec.ts:144:7 › Content Studio Complete Flow › Copy button copies output to clipboard 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/24-content-studio-complete.spec.ts:6:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/24-content-studio-complete-cbbd2--copies-output-to-clipboard-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/24-content-studio-complete-cbbd2--copies-output-to-clipboard-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/24-content-studio-complete-cbbd2--copies-output-to-clipboard-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/24-content-studio-complete-cbbd2--copies-output-to-clipboard-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/24-content-studio-complete-cbbd2--copies-output-to-clipboard-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5 failed
+    [desktop-chrome] › artifacts/e2e/24-content-studio-complete.spec.ts:10:7 › Content Studio Complete Flow › Press release generates real output 
+    [desktop-chrome] › artifacts/e2e/24-content-studio-complete.spec.ts:57:7 › Content Studio Complete Flow › Newsletter intro generates real output 
+    [desktop-chrome] › artifacts/e2e/24-content-studio-complete.spec.ts:91:7 › Content Studio Complete Flow › Fundraising appeal generates real output 
+    [desktop-chrome] › artifacts/e2e/24-content-studio-complete.spec.ts:126:7 › Content Studio Complete Flow › History tab shows past outputs 
+    [desktop-chrome] › artifacts/e2e/24-content-studio-complete.spec.ts:144:7 › Content Studio Complete Flow › Copy button copies output to clipboard 
+EXIT=1
+=== 25-autopilot-agent-complete ===
+
+Running 5 tests using 1 worker
+
+  ✘  1 [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:41:7 › Autopilot Agent Complete Flow › Agent responds to how many members question (703ms)
+  ✘  2 [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:58:7 › Autopilot Agent Complete Flow › Agent responds to list events question (729ms)
+  ✘  3 [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:72:7 › Autopilot Agent Complete Flow › Agent handles update site config request (742ms)
+  ✘  4 [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:93:7 › Autopilot Agent Complete Flow › Agent responds gracefully to unknown request (747ms)
+  ✘  5 [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:112:7 › Autopilot Agent Complete Flow › Agent runs self test successfully (715ms)
+
+
+  1) [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:41:7 › Autopilot Agent Complete Flow › Agent responds to how many members question 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/25-autopilot-agent-complete.spec.ts:37:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/25-autopilot-agent-complet-8d821-o-how-many-members-question-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/25-autopilot-agent-complet-8d821-o-how-many-members-question-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/25-autopilot-agent-complet-8d821-o-how-many-members-question-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/25-autopilot-agent-complet-8d821-o-how-many-members-question-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/25-autopilot-agent-complet-8d821-o-how-many-members-question-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:58:7 › Autopilot Agent Complete Flow › Agent responds to list events question 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/25-autopilot-agent-complete.spec.ts:37:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/25-autopilot-agent-complet-7de99-nds-to-list-events-question-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/25-autopilot-agent-complet-7de99-nds-to-list-events-question-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/25-autopilot-agent-complet-7de99-nds-to-list-events-question-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/25-autopilot-agent-complet-7de99-nds-to-list-events-question-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/25-autopilot-agent-complet-7de99-nds-to-list-events-question-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:72:7 › Autopilot Agent Complete Flow › Agent handles update site config request 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/25-autopilot-agent-complete.spec.ts:37:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/25-autopilot-agent-complet-89555--update-site-config-request-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/25-autopilot-agent-complet-89555--update-site-config-request-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/25-autopilot-agent-complet-89555--update-site-config-request-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/25-autopilot-agent-complet-89555--update-site-config-request-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/25-autopilot-agent-complet-89555--update-site-config-request-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:93:7 › Autopilot Agent Complete Flow › Agent responds gracefully to unknown request 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/25-autopilot-agent-complete.spec.ts:37:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/25-autopilot-agent-complet-f49ef-acefully-to-unknown-request-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/25-autopilot-agent-complet-f49ef-acefully-to-unknown-request-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/25-autopilot-agent-complet-f49ef-acefully-to-unknown-request-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/25-autopilot-agent-complet-f49ef-acefully-to-unknown-request-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/25-autopilot-agent-complet-f49ef-acefully-to-unknown-request-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5) [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:112:7 › Autopilot Agent Complete Flow › Agent runs self test successfully 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/25-autopilot-agent-complete.spec.ts:37:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/25-autopilot-agent-complet-bcd9f-runs-self-test-successfully-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/25-autopilot-agent-complet-bcd9f-runs-self-test-successfully-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/25-autopilot-agent-complet-bcd9f-runs-self-test-successfully-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/25-autopilot-agent-complet-bcd9f-runs-self-test-successfully-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/25-autopilot-agent-complet-bcd9f-runs-self-test-successfully-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5 failed
+    [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:41:7 › Autopilot Agent Complete Flow › Agent responds to how many members question 
+    [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:58:7 › Autopilot Agent Complete Flow › Agent responds to list events question 
+    [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:72:7 › Autopilot Agent Complete Flow › Agent handles update site config request 
+    [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:93:7 › Autopilot Agent Complete Flow › Agent responds gracefully to unknown request 
+    [desktop-chrome] › artifacts/e2e/25-autopilot-agent-complete.spec.ts:112:7 › Autopilot Agent Complete Flow › Agent runs self test successfully 
+EXIT=1
+=== 26-hero-image-complete ===
+
+Running 3 tests using 1 worker
+
+  ✘  1 [desktop-chrome] › artifacts/e2e/26-hero-image-complete.spec.ts:16:7 › Hero Image Picker Complete Flow › AI picks button opens photo grid with real photos (707ms)
+  ✘  2 [desktop-chrome] › artifacts/e2e/26-hero-image-complete.spec.ts:44:7 › Hero Image Picker Complete Flow › Clicking a photo saves it as hero image (739ms)
+  ✘  3 [desktop-chrome] › artifacts/e2e/26-hero-image-complete.spec.ts:91:7 › Hero Image Picker Complete Flow › Upload photo button is visible (859ms)
+
+
+  1) [desktop-chrome] › artifacts/e2e/26-hero-image-complete.spec.ts:16:7 › Hero Image Picker Complete Flow › AI picks button opens photo grid with real photos 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/26-hero-image-complete.spec.ts:12:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/26-hero-image-complete-Her-fadc8-photo-grid-with-real-photos-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/26-hero-image-complete-Her-fadc8-photo-grid-with-real-photos-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/26-hero-image-complete-Her-fadc8-photo-grid-with-real-photos-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/26-hero-image-complete-Her-fadc8-photo-grid-with-real-photos-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/26-hero-image-complete-Her-fadc8-photo-grid-with-real-photos-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [desktop-chrome] › artifacts/e2e/26-hero-image-complete.spec.ts:44:7 › Hero Image Picker Complete Flow › Clicking a photo saves it as hero image 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/26-hero-image-complete.spec.ts:12:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/26-hero-image-complete-Her-32dc1-hoto-saves-it-as-hero-image-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/26-hero-image-complete-Her-32dc1-hoto-saves-it-as-hero-image-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/26-hero-image-complete-Her-32dc1-hoto-saves-it-as-hero-image-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/26-hero-image-complete-Her-32dc1-hoto-saves-it-as-hero-image-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/26-hero-image-complete-Her-32dc1-hoto-saves-it-as-hero-image-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [desktop-chrome] › artifacts/e2e/26-hero-image-complete.spec.ts:91:7 › Hero Image Picker Complete Flow › Upload photo button is visible 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/26-hero-image-complete.spec.ts:12:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/26-hero-image-complete-Her-4d923-oad-photo-button-is-visible-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/26-hero-image-complete-Her-4d923-oad-photo-button-is-visible-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/26-hero-image-complete-Her-4d923-oad-photo-button-is-visible-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/26-hero-image-complete-Her-4d923-oad-photo-button-is-visible-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/26-hero-image-complete-Her-4d923-oad-photo-button-is-visible-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3 failed
+    [desktop-chrome] › artifacts/e2e/26-hero-image-complete.spec.ts:16:7 › Hero Image Picker Complete Flow › AI picks button opens photo grid with real photos 
+    [desktop-chrome] › artifacts/e2e/26-hero-image-complete.spec.ts:44:7 › Hero Image Picker Complete Flow › Clicking a photo saves it as hero image 
+    [desktop-chrome] › artifacts/e2e/26-hero-image-complete.spec.ts:91:7 › Hero Image Picker Complete Flow › Upload photo button is visible 
+EXIT=1
+=== 27-dashboard-navigation ===
+
+Running 2 tests using 1 worker
+
+  ✘  1 [desktop-chrome] › artifacts/e2e/27-dashboard-navigation.spec.ts:5:7 › Dashboard Navigation - Click Everything › Every sidebar nav item loads without error (801ms)
+  ✘  2 [desktop-chrome] › artifacts/e2e/27-dashboard-navigation.spec.ts:56:7 › Dashboard Navigation - Click Everything › Every dashboard page takes a screenshot (788ms)
+
+
+  1) [desktop-chrome] › artifacts/e2e/27-dashboard-navigation.spec.ts:5:7 › Dashboard Navigation - Click Everything › Every sidebar nav item loads without error 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/27-dashboard-navigation.spec.ts:6:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/27-dashboard-navigation-Da-ed714-av-item-loads-without-error-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/27-dashboard-navigation-Da-ed714-av-item-loads-without-error-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/27-dashboard-navigation-Da-ed714-av-item-loads-without-error-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/27-dashboard-navigation-Da-ed714-av-item-loads-without-error-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/27-dashboard-navigation-Da-ed714-av-item-loads-without-error-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [desktop-chrome] › artifacts/e2e/27-dashboard-navigation.spec.ts:56:7 › Dashboard Navigation - Click Everything › Every dashboard page takes a screenshot 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/login
+    Call log:
+    [2m  - navigating to "http://localhost:5173/login", waiting until "load"[22m
+
+
+       at helpers.ts:26
+
+      24 |
+      25 | export async function loginToSteward(page: Page): Promise<void> {
+    > 26 |   await page.goto(`${STEWARD}/login`);
+         |              ^
+      27 |   await page.waitForLoadState("networkidle");
+      28 |   await page
+      29 |     .locator(
+        at loginToSteward (/home/runner/workspace/artifacts/e2e/helpers.ts:26:14)
+        at /home/runner/workspace/artifacts/e2e/27-dashboard-navigation.spec.ts:57:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/27-dashboard-navigation-Da-95700-ard-page-takes-a-screenshot-desktop-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/27-dashboard-navigation-Da-95700-ard-page-takes-a-screenshot-desktop-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/27-dashboard-navigation-Da-95700-ard-page-takes-a-screenshot-desktop-chrome/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/27-dashboard-navigation-Da-95700-ard-page-takes-a-screenshot-desktop-chrome/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/27-dashboard-navigation-Da-95700-ard-page-takes-a-screenshot-desktop-chrome/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    [desktop-chrome] › artifacts/e2e/27-dashboard-navigation.spec.ts:5:7 › Dashboard Navigation - Click Everything › Every sidebar nav item loads without error 
+    [desktop-chrome] › artifacts/e2e/27-dashboard-navigation.spec.ts:56:7 › Dashboard Navigation - Click Everything › Every dashboard page takes a screenshot 
+EXIT=1
+=== 22-member-complete-flow ===
+
+Running 8 tests using 1 worker
+
+  ✘  1 [desktop-chrome] › artifacts/e2e/22-member-complete-flow.spec.ts:23:7 › Complete Member Lifecycle › Step 1: Admin adds a member from dashboard (797ms)
+  -  2 [desktop-chrome] › artifacts/e2e/22-member-complete-flow.spec.ts:78:7 › Complete Member Lifecycle › Step 2: Member receives invite and sees register page
+  -  3 [desktop-chrome] › artifacts/e2e/22-member-complete-flow.spec.ts:101:7 › Complete Member Lifecycle › Step 3: Member sets password and registers
+  ✘  4 [desktop-chrome] › artifacts/e2e/22-member-complete-flow.spec.ts:143:7 › Complete Member Lifecycle › Step 4: Member logs in (8.6s)
+  ✘  5 [desktop-chrome] › artifacts/e2e/22-member-complete-flow.spec.ts:168:7 › Complete Member Lifecycle › Step 5: Portal home renders after login (8.9s)
+EXIT=124
