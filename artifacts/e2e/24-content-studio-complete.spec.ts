@@ -12,33 +12,23 @@ test.describe("Content Studio Complete Flow", () => {
     await page.waitForLoadState("networkidle");
     await screenshotStep(page, "24-01-content-studio");
 
-    await page
-      .locator(
-        'button:has-text("Press Release"), [role="button"]:has-text("Press Release"), div:has-text("Press Release")',
-      )
-      .first()
-      .click();
+    await page.locator('button:has-text("Press Release")').first().click();
     await page.waitForTimeout(1000);
     await screenshotStep(page, "24-02-press-release-form");
 
     await page
-      .locator('input[placeholder*="headline" i], input[placeholder*="Headline" i]')
+      .locator('input[placeholder*="Local Chamber"]')
       .first()
       .fill("Annual Fundraiser Raises Record $50,000");
     await page
-      .locator('textarea[placeholder*="detail" i], textarea[placeholder*="Detail" i]')
+      .locator('textarea[placeholder*="Date, location"]')
       .first()
       .fill(
         "The event was held Saturday May 10th at the Pittsburgh Community Center. Over 200 members and guests attended. Funds support local scholarships.",
       );
     await screenshotStep(page, "24-03-form-filled");
 
-    await page
-      .locator(
-        'button:has-text("Generate"), button:has-text("Create"), button:has-text("Run"), button:has-text("Write")',
-      )
-      .first()
-      .click();
+    await page.locator('button:has-text("Generate")').first().click();
     await screenshotStep(page, "24-04-generating");
     await page.waitForTimeout(30000);
     await screenshotStep(page, "24-05-generated");
@@ -58,29 +48,21 @@ test.describe("Content Studio Complete Flow", () => {
     await page.goto(`${STEWARD}/dashboard/content`);
     await page.waitForLoadState("networkidle");
 
-    await page
-      .locator('button:has-text("Newsletter"), div:has-text("Newsletter Intro")')
-      .first()
-      .click();
+    await page.locator('button:has-text("Newsletter Intro")').first().click();
     await page.waitForTimeout(1000);
 
     await page
-      .locator('input[placeholder*="month" i], input[placeholder*="period" i]')
+      .locator('input[placeholder*="March 2026"]')
       .first()
       .fill("May 2026")
       .catch(() => {});
     await page
-      .locator("textarea")
+      .locator('textarea[placeholder*="3-5 things"]')
       .first()
       .fill(
         "We held our annual fundraiser, welcomed 5 new members, and launched our community garden project",
       );
-    await page
-      .locator(
-        'button:has-text("Generate"), button:has-text("Create"), button:has-text("Run")',
-      )
-      .first()
-      .click();
+    await page.locator('button:has-text("Generate")').first().click();
     await page.waitForTimeout(30000);
     await screenshotStep(page, "24-06-newsletter-generated");
 
@@ -92,30 +74,20 @@ test.describe("Content Studio Complete Flow", () => {
     await page.goto(`${STEWARD}/dashboard/content`);
     await page.waitForLoadState("networkidle");
 
-    await page
-      .locator('button:has-text("Fundraising"), div:has-text("Fundraising Appeal")')
-      .first()
-      .click();
+    await page.locator('button:has-text("Fundraising Appeal")').first().click();
     await page.waitForTimeout(1000);
 
     await page
-      .locator(
-        'input[placeholder*="cause" i], input[placeholder*="Cause" i], input',
-      )
+      .locator('input[placeholder*="annual scholarship fund"]')
       .first()
       .fill("Annual scholarship fund for local high school students");
     await page
-      .locator("textarea")
+      .locator('textarea[placeholder*="What has your org achieved"]')
       .first()
       .fill(
         "We have awarded 47 scholarships over 20 years, changing lives in our community",
       );
-    await page
-      .locator(
-        'button:has-text("Generate"), button:has-text("Create"), button:has-text("Run")',
-      )
-      .first()
-      .click();
+    await page.locator('button:has-text("Generate")').first().click();
     await page.waitForTimeout(30000);
     await screenshotStep(page, "24-07-appeal-generated");
 
@@ -146,20 +118,17 @@ test.describe("Content Studio Complete Flow", () => {
     await page.goto(`${STEWARD}/dashboard/content`);
     await page.waitForLoadState("networkidle");
 
-    await page
-      .locator('button:has-text("Press Release"), div:has-text("Press Release")')
-      .first()
-      .click();
+    await page.locator('button:has-text("Press Release")').first().click();
     await page.waitForTimeout(500);
     await page
-      .locator('input[placeholder*="headline" i]')
+      .locator('input[placeholder*="Local Chamber"]')
       .first()
       .fill("Test Headline for Copy");
-    await page.locator("textarea").first().fill("Test details for clipboard test");
     await page
-      .locator('button:has-text("Generate"), button:has-text("Create")')
+      .locator('textarea[placeholder*="Date, location"]')
       .first()
-      .click();
+      .fill("Test details for clipboard test");
+    await page.locator('button:has-text("Generate")').first().click();
     await page.waitForTimeout(20000);
 
     const copyBtn = page

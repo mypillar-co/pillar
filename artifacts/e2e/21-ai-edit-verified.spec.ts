@@ -15,15 +15,13 @@ test.describe("AI Edit Verified Changes", () => {
     const beforeTagline = before[0]?.tagline ?? "";
     console.log("Tagline before:", beforeTagline);
 
-    await page.goto(`${STEWARD}/dashboard/website`);
+    await page.goto(`${STEWARD}/dashboard/site`);
     await page.waitForLoadState("networkidle");
     await page.waitForTimeout(2000);
     await screenshotStep(page, "21-01-before-edit");
 
     const textarea = page
-      .locator(
-        'textarea[placeholder*="change" i], textarea[placeholder*="describe" i], textarea[placeholder*="update" i], textarea',
-      )
+      .locator('textarea[placeholder*="Change our primary color"]')
       .first();
     await textarea.waitFor({ state: "visible", timeout: 10000 });
     const uniqueTagline = `Playwright verified tagline ${Date.now()}`;
@@ -66,7 +64,7 @@ test.describe("AI Edit Verified Changes", () => {
   });
 
   test("AI edit suggestion chip pre-fills and applies", async ({ page }) => {
-    await page.goto(`${STEWARD}/dashboard/website`);
+    await page.goto(`${STEWARD}/dashboard/site`);
     await page.waitForLoadState("networkidle");
     await page.waitForTimeout(2000);
 
@@ -84,7 +82,9 @@ test.describe("AI Edit Verified Changes", () => {
     const chipText = await chip.textContent();
     await chip.click();
     await page.waitForTimeout(500);
-    const textarea = page.locator("textarea").first();
+    const textarea = page
+      .locator('textarea[placeholder*="Change our primary color"]')
+      .first();
     const value = await textarea.inputValue();
     expect(
       value.length,
@@ -94,7 +94,7 @@ test.describe("AI Edit Verified Changes", () => {
   });
 
   test("Color change chip updates colors on site", async ({ page }) => {
-    await page.goto(`${STEWARD}/dashboard/website`);
+    await page.goto(`${STEWARD}/dashboard/site`);
     await page.waitForLoadState("networkidle");
     await page.waitForTimeout(2000);
 
@@ -104,7 +104,9 @@ test.describe("AI Edit Verified Changes", () => {
     );
     console.log("Primary color before:", colorsBefore[0]?.primary);
 
-    const textarea = page.locator("textarea").first();
+    const textarea = page
+      .locator('textarea[placeholder*="Change our primary color"]')
+      .first();
     await textarea.fill("Change our primary color to #8B0000");
     await page
       .locator('button:has-text("Apply changes"), button:has-text("Apply")')

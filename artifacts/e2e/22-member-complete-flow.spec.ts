@@ -26,32 +26,18 @@ test.describe("Complete Member Lifecycle", () => {
     await page.waitForLoadState("networkidle");
     await screenshotStep(page, "22-01-members-page");
 
-    await page
-      .locator(
-        'button:has-text("Add Member"), button:has-text("Add member"), button:has-text("+ Add")',
-      )
-      .first()
-      .click();
+    await page.locator('button:has-text("Add Member")').first().click();
     await page.waitForTimeout(500);
     await screenshotStep(page, "22-02-add-dialog");
 
-    await page
-      .locator('input[name="firstName"], input[placeholder*="first" i]')
-      .first()
-      .fill("Lifecycle");
-    await page
-      .locator('input[name="lastName"], input[placeholder*="last" i]')
-      .first()
-      .fill("TestMember");
-    await page.locator('input[type="email"], input[name="email"]').first().fill(testEmail);
+    const dialog = page.locator('[role="dialog"]:has-text("Add Member")');
+    const dialogInputs = dialog.locator('input:not([type="email"]):not([type="date"])');
+    await dialogInputs.nth(0).fill("Lifecycle");
+    await dialogInputs.nth(1).fill("TestMember");
+    await dialog.locator('input[type="email"]').fill(testEmail);
     await screenshotStep(page, "22-03-form-filled");
 
-    await page
-      .locator(
-        '[role="dialog"] button[type="submit"], [role="dialog"] button:has-text("Save"), [role="dialog"] button:has-text("Add"), [role="dialog"] button:has-text("Create")',
-      )
-      .first()
-      .click();
+    await dialog.locator('button:has-text("Save")').click();
     await page.waitForTimeout(3000);
     await screenshotStep(page, "22-04-after-save");
 

@@ -2,31 +2,15 @@ import { test, expect, Page } from "@playwright/test";
 import { STEWARD, loginToSteward, screenshotStep } from "./helpers";
 
 async function findAgentPage(page: Page): Promise<boolean> {
-  const routes = [
-    "/dashboard/agent",
-    "/dashboard/autopilot",
-    "/dashboard/assistant",
-    "/dashboard/ai",
-    "/dashboard",
-  ];
-  for (const route of routes) {
-    await page.goto(`${STEWARD}${route}`);
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(1000);
-    const inputs = page.locator(
-      'input[placeholder*="ask" i], textarea[placeholder*="ask" i], input[placeholder*="message" i], textarea[placeholder*="message" i], input[placeholder*="type" i]',
-    );
-    if ((await inputs.count()) > 0) return true;
-  }
-  return false;
+  await page.goto(`${STEWARD}/dashboard/autopilot`);
+  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(1000);
+  const input = page.locator('input[placeholder^="Try:"]');
+  return (await input.count()) > 0;
 }
 
 async function sendAgentMessage(page: Page, message: string): Promise<void> {
-  const input = page
-    .locator(
-      'input[placeholder*="ask" i], textarea[placeholder*="ask" i], input[placeholder*="message" i], textarea[placeholder*="message" i]',
-    )
-    .first();
+  const input = page.locator('input[placeholder^="Try:"]').first();
   await input.fill(message);
   await page.keyboard.press("Enter");
   await page.waitForTimeout(20000);

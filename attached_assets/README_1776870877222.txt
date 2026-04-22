@@ -1,0 +1,16 @@
+Pillar Hardening Plan
+
+This package contains a structured implementation plan to stabilize and productionize the Pillar platform.
+
+Follow execution order strictly:
+
+1. Add test IDs and label linkage
+2. Fix Playwright specs (21–26)
+3. Add page-ready markers
+4. Investigate/fix auth session persistence
+5. Reconcile Drizzle schema and migrations
+6. Tighten weak assertions
+7. Add CI workflow
+
+Do NOT add new features during this phase.
+Focus is reliability, determinism, and test truth.

@@ -1,0 +1,17 @@
+Add page-ready markers:
+
+Dashboard pages:
+- page-site-ready
+- page-members-ready
+- page-events-ready
+- page-content-ready
+- page-autopilot-ready
+
+Community site:
+- community-site-ready
+
+Update helpers.ts:
+
+export async function waitForDashboardPage(page, testId) {
+  await page.waitForSelector(`[data-testid="${testId}"]`);
+}

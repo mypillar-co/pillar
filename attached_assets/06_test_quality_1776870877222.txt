@@ -1,0 +1,13 @@
+Replace weak assertions:
+
+BAD:
+- expect(true).toBe(true)
+
+GOOD:
+- expect(element).toBeVisible()
+- expect(output).not.toContain("placeholder")
+
+Ensure tests validate real outcomes:
+- DB change
+- UI update
+- content generation

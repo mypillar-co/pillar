@@ -1,0 +1,11 @@
+Create CI workflow:
+
+Run only critical specs:
+- 20–27
+
+Use:
+pnpm exec playwright test --workers=1
+
+Schedule nightly execution
+
+Do not include full suite yet

@@ -1,6 +1,77 @@
 # Pillar — Project Status
 
-_Last updated: 2026-04-22_
+_Last updated: 2026-04-22 (revised)_
+
+## ⚠️ NEW BLOCKER FOUND THIS SESSION
+
+The selector-mismatch story was incomplete. After applying the selector fixes
+(routes, button text, placeholders) and re-running spec 21, the failure shifted
+to a TimeoutError on the `Change our primary color` textarea. The captured page
+snapshot at the moment of failure shows the **marketing landing page**, not the
+dashboard. Root cause:
+
+1. `artifacts/steward/src/pages/Login.tsx` only renders `signInWithGoogle` and
+   `signInWithApple` — there is no email/password form. The `loginToSteward`
+   helper in `artifacts/e2e/helpers.ts` fills `input[type="password"]` /
+   `input[type="email"]` selectors that no longer exist, so authentication
+   silently fails. Every subsequent `page.goto('/dashboard/...')` redirects
+   the unauthenticated browser back to the marketing landing page.
+2. The right unblock is the existing test-only endpoint
+   `GET /api/service/session-token?orgSlug=…&ttlSec=…` (in
+   `artifacts/api-server/src/routes/serviceApi.ts`, lines 120–229). It mints a
+   real session cookie via the same `createSession` path the OAuth flow uses,
+   guarded by `SERVICE_API_KEY` and disabled in production. The existing
+   healthcheck (`scripts/e2e-healthcheck.ts:421`) already calls it via
+   `mintTestSession`.
+3. **However, the api-server process does not currently see `SERVICE_API_KEY`
+   in its environment.** A live call returns
+   `503 {"error":"Service API not configured (SERVICE_API_KEY missing)"}`
+   even after a workflow restart. The interactive shell also lacks the
+   variable, while other secrets (RESEND_API_KEY, ANTHROPIC_API_KEY, etc.) are
+   present. The secret is listed in the project's available secrets but is not
+   being injected into the api-server workflow.
+
+### Implication for the test tally
+
+The previously reported "3 pass / 11 fail / 14 skip" baseline on specs 20–27
+is misleading. The 11 failures are **not** product bugs and are not (only)
+selector mismatches — they are auth failures that bounce every dashboard test
+to the landing page. Until auth is fixed, the dashboard specs cannot
+meaningfully exercise the product, and the selector fixes already applied
+cannot be validated.
+
+### Unblock plan (next session)
+
+1. Make `SERVICE_API_KEY` visible to the api-server workflow process. Either
+   (a) restart the workflow with the secret injected, or (b) ask the user to
+   re-add the secret. Confirm with
+   `curl -s -H "x-service-key: $SERVICE_API_KEY" \
+     "http://localhost:8080/api/service/session-token?orgSlug=norwin-rotary-uic5&ttlSec=600"`
+   returning JSON with `sid`, `cookie`, `cookieName`.
+2. Replace `loginToSteward` with a programmatic helper that:
+   - Fetches the session-token JSON using `process.env.SERVICE_API_KEY`.
+   - Adds the cookie to Playwright's context with `domain: "localhost"` so
+     cross-port requests (steward 18402 → api-server 8080) include it.
+   - Navigates directly to `/dashboard/...` without visiting `/login`.
+3. Re-run specs 20–27 in single-spec batches (the 115 s shell ceiling is real;
+   one spec ≈ 60–90 s with `--timeout=20000`).
+
+### Already-applied changes still valid
+
+- `STEWARD = process.env.STEWARD_URL ?? "http://localhost:18402"` in
+  `helpers.ts`.
+- Mechanical selector fixes in specs 21–26: `/dashboard/website` →
+  `/dashboard/site`; exact button text (`Add Member`, `Create Event`,
+  `Press Release`, `Newsletter Intro`, `Fundraising Appeal`, `AI picks`,
+  `Upload photo`, `Generate`); `[data-tour="new-event-btn"]` for the event
+  opener; placeholder-scoped inputs; autopilot scoped to `/dashboard/autopilot`
+  with `input[placeholder^="Try:"]`.
+
+These will be validated as soon as auth is restored. No app code was modified
+this session.
+
+---
+
 
 Pillar is an AI SaaS for civic organizations. Community sites are served at
 `*.mypillar.co` by the Community Platform on port 5001; the API server on

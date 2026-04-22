@@ -22,12 +22,7 @@ test.describe("Complete Events Flow", () => {
     await page.waitForLoadState("networkidle");
     await screenshotStep(page, "23-01-events-page");
 
-    await page
-      .locator(
-        'button:has-text("Create"), button:has-text("New Event"), button:has-text("Add Event"), button:has-text("+ Create")',
-      )
-      .first()
-      .click();
+    await page.locator('[data-tour="new-event-btn"]').click();
     await page.waitForTimeout(1000);
     await screenshotStep(page, "23-02-create-dialog");
 
@@ -62,10 +57,7 @@ test.describe("Complete Events Flow", () => {
     await screenshotStep(page, "23-03-form-filled");
 
     await page
-      .locator(
-        '[role="dialog"] button[type="submit"], [role="dialog"] button:has-text("Save"), [role="dialog"] button:has-text("Create"), [role="dialog"] button:has-text("Add")',
-      )
-      .first()
+      .locator('[role="dialog"] button:has-text("Create Event")')
       .click();
     await page.waitForTimeout(3000);
     await screenshotStep(page, "23-04-after-save");

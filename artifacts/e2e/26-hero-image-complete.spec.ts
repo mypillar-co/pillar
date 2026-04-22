@@ -14,16 +14,12 @@ test.describe("Hero Image Picker Complete Flow", () => {
   });
 
   test("AI picks button opens photo grid with real photos", async ({ page }) => {
-    await page.goto(`${STEWARD}/dashboard/website`);
+    await page.goto(`${STEWARD}/dashboard/site`);
     await page.waitForLoadState("networkidle");
     await page.waitForTimeout(2000);
     await screenshotStep(page, "26-01-website-page");
 
-    const aiPicksBtn = page
-      .locator(
-        'button:has-text("AI picks"), button:has-text("Browse photos"), button:has-text("Stock photos")',
-      )
-      .first();
+    const aiPicksBtn = page.locator('button:has-text("AI picks")').first();
     const hasBtn = await aiPicksBtn.isVisible().catch(() => false);
     if (!hasBtn) {
       console.log("No AI picks button found");
@@ -49,13 +45,11 @@ test.describe("Hero Image Picker Complete Flow", () => {
     const heroBefore = beforeRows[0]?.hero;
     console.log("Hero image before:", heroBefore ?? "none");
 
-    await page.goto(`${STEWARD}/dashboard/website`);
+    await page.goto(`${STEWARD}/dashboard/site`);
     await page.waitForLoadState("networkidle");
     await page.waitForTimeout(2000);
 
-    const aiPicksBtn = page
-      .locator('button:has-text("AI picks"), button:has-text("Browse photos")')
-      .first();
+    const aiPicksBtn = page.locator('button:has-text("AI picks")').first();
     if (!(await aiPicksBtn.isVisible().catch(() => false))) {
       test.skip();
       return;
@@ -89,15 +83,12 @@ test.describe("Hero Image Picker Complete Flow", () => {
   });
 
   test("Upload photo button is visible", async ({ page }) => {
-    await page.goto(`${STEWARD}/dashboard/website`);
+    await page.goto(`${STEWARD}/dashboard/site`);
     await page.waitForLoadState("networkidle");
     await page.waitForTimeout(2000);
 
-    const uploadBtn = page.locator(
-      'button:has-text("Upload photo"), button:has-text("Upload"), input[type="file"]',
-    );
-    const count = await uploadBtn.count();
-    expect(count, "Upload photo option should be present").toBeGreaterThan(0);
+    const uploadBtn = page.locator('button:has-text("Upload photo")');
+    await expect(uploadBtn.first()).toBeVisible({ timeout: 10000 });
     await screenshotStep(page, "26-04-upload-button");
   });
 });
