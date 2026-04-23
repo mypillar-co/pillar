@@ -1,0 +1,89 @@
+Proceed to stabilize spec 21 completely and then apply the same pattern to its remaining tests.
+
+Do not move to other specs yet.
+
+## Objective
+Standardize the AI edit flow in tests:
+
+Apply → Proposal → Launch → Persist → Assert
+
+---
+
+## Step 1 — extract reusable helper
+
+In artifacts/e2e/helpers.ts, add:
+
+ts export async function applyAndLaunch(page: Page) {   const apply = page.getByRole("button", { name: "Apply changes" });   await expect(apply).toBeVisible();   await expect(apply).toBeEnabled();   await apply.click();    const launch = page.getByRole("button", { name: /Launch Community Site/i });   await expect(launch).toBeVisible({ timeout: 20000 });   await expect(launch).toBeEnabled();   await launch.click(); } 
+
+---
+
+## Step 2 — update spec 21 test 2 and 3
+
+File:
+artifacts/e2e/21-ai-edit-verified.spec.ts
+
+For each remaining test:
+
+1. Ensure textarea is filled correctly
+2. Replace any Apply click logic with:
+
+ts await applyAndLaunch(page); 
+
+3. Remove any:
+ts waitForTimeout(...) 
+
+---
+
+## Step 3 — fix assertions to match real data source
+
+Always read from:
+
+sql SELECT site_config FROM organizations WHERE slug = $1 
+
+Extract fields like:
+
+ts const tagline = config?.tagline; 
+
+Do NOT read from:
+- site_config table (legacy assumption)
+- any other table
+
+---
+
+## Step 4 — use polling, not static waits
+
+Replace any fixed delays with:
+
+ts await expect.poll(async () => {   const res = await dbQuery(`     SELECT site_config     FROM organizations     WHERE slug = 'norwin-rotary-uic5'   `);    return JSON.stringify(res?.[0]?.site_config); }, {   timeout: 30000 }).toContain("expected change"); 
+
+---
+
+## Step 5 — keep request tracing (scoped)
+
+Keep the request/response logging only inside spec 21 for now.
+
+Confirm both fire:
+
+- /api/community-site/ai-edit
+- /api/community-site/provision
+
+---
+
+## Step 6 — rerun spec 21 fully
+
+bash timeout 90 pnpm exec playwright test \   --config=artifacts/playwright.config.ts \   --project=desktop-chrome \   artifacts/e2e/21-ai-edit-verified.spec.ts \   --workers=1 
+
+---
+
+## Step 7 — report
+
+Return:
+
+1. Do all 3 tests in spec 21 pass?
+2. Any remaining failures?
+3. Are all AI flows consistently:
+   - firing ai-edit
+   - firing provision
+   - mutating organizations.site_config
+
+Do not move to spec 22 yet.

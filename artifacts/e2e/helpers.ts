@@ -100,6 +100,27 @@ export async function loginToSteward(
   await assertAuthenticated(page);
 }
 
+/**
+ * Standard AI-edit confirmation flow on /dashboard/site:
+ *   Apply changes (POST /api/community-site/ai-edit, returns proposal payload)
+ *     → Launch Community Site (POST /api/community-site/provision, persists site_config)
+ *
+ * Caller is responsible for filling the AI textarea before calling this and
+ * for asserting the persisted change afterwards (typically via expect.poll
+ * against organizations.site_config).
+ */
+export async function applyAndLaunch(page: Page): Promise<void> {
+  const apply = page.getByRole("button", { name: "Apply changes" });
+  await expect(apply).toBeVisible();
+  await expect(apply).toBeEnabled();
+  await apply.click();
+
+  const launch = page.getByRole("button", { name: /Launch Community Site/i });
+  await expect(launch).toBeVisible({ timeout: 20000 });
+  await expect(launch).toBeEnabled();
+  await launch.click();
+}
+
 export async function dismissGuidedTourIfPresent(page: Page): Promise<void> {
   const overlay = page.locator('[data-replit-metadata*="GuidedTour.tsx"]');
   if (await overlay.first().isVisible().catch(() => false)) {
