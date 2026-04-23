@@ -80,9 +80,46 @@ export async function loginToSteward(
     },
   ]);
 
+  // Mark the first-run GuidedTour as completed before any page script runs,
+  // so the overlay never mounts and can't intercept clicks. Key matches
+  // TOUR_STORAGE_KEY in artifacts/steward/src/components/GuidedTour.tsx.
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem("steward-tour-completed", "true");
+    } catch {
+      /* ignore */
+    }
+  });
+
   await page.goto(`${STEWARD}${targetPath}`, { waitUntil: "domcontentloaded" });
   await expect(page).not.toHaveURL(/\/login$/);
   await expect(page).not.toHaveURL(new RegExp(`^${STEWARD}/?$`));
+
+  // Belt-and-suspenders: if the tour somehow still appeared, dismiss it.
+  await dismissGuidedTourIfPresent(page);
+  await assertAuthenticated(page);
+}
+
+export async function dismissGuidedTourIfPresent(page: Page): Promise<void> {
+  const overlay = page.locator('[data-replit-metadata*="GuidedTour.tsx"]');
+  if (await overlay.first().isVisible().catch(() => false)) {
+    const skipButton = page.getByRole("button", {
+      name: /skip|dismiss|close|got it|done/i,
+    });
+    if (await skipButton.first().isVisible().catch(() => false)) {
+      await skipButton.first().click();
+      await overlay
+        .first()
+        .waitFor({ state: "hidden", timeout: 5000 })
+        .catch(() => {});
+      return;
+    }
+    await page.keyboard.press("Escape");
+    await overlay
+      .first()
+      .waitFor({ state: "hidden", timeout: 5000 })
+      .catch(() => {});
+  }
 }
 
 export async function assertAuthenticated(page: Page): Promise<void> {
