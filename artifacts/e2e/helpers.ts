@@ -109,6 +109,26 @@ export async function loginToSteward(
  * for asserting the persisted change afterwards (typically via expect.poll
  * against organizations.site_config).
  */
+/** Read the current `site_config` JSON from organizations for a slug. */
+export async function getSiteConfig(slug: string): Promise<Record<string, unknown> | null> {
+  const rows = await dbQuery(
+    "SELECT site_config FROM organizations WHERE slug = $1 LIMIT 1",
+    [slug],
+  );
+  return (rows[0]?.site_config as Record<string, unknown> | null) ?? null;
+}
+
+/** Poll organizations.site_config until `predicate` returns truthy or timeout. */
+export async function waitForSiteConfigChange(
+  slug: string,
+  predicate: (cfg: Record<string, unknown> | null) => boolean,
+  timeout = 60000,
+): Promise<void> {
+  await expect
+    .poll(async () => predicate(await getSiteConfig(slug)), { timeout })
+    .toBeTruthy();
+}
+
 export async function applyAndLaunch(page: Page): Promise<void> {
   const apply = page.getByRole("button", { name: "Apply changes" });
   await expect(apply).toBeVisible();
