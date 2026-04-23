@@ -1,0 +1,151 @@
+Good. Now you finally have a real product failure, not auth noise, not selector noise, not tour noise.
+
+Tell it this:
+
+Proceed to diagnose spec 21 only.
+
+Do not broaden to other specs.
+
+The current real failure is:
+
+* /dashboard/site loads
+* AI edit textarea is found
+* Apply click works
+* no overlay blocks it
+* but DB tagline remains unchanged after 15s
+
+Objective
+
+Find whether the AI edit flow is:
+
+1. not sending a request
+2. sending a request that fails
+3. returning a proposal that requires another confirmation step
+4. writing to a different table/column than the test asserts
+5. blocked by missing org/session context
+
+⸻
+
+Step 1 — trace the browser request
+
+In 21-ai-edit-verified.spec.ts, temporarily add request/response logging around the Apply click:
+
+page.on("request", req => {
+  const url = req.url();
+  if (url.includes("/api/") || url.includes("site") || url.includes("ai")) {
+    console.log("[REQ]", req.method(), url);
+  }
+});
+page.on("response", async res => {
+  const url = res.url();
+  if (url.includes("/api/") || url.includes("site") || url.includes("ai")) {
+    console.log("[RES]", res.status(), url);
+    if (res.status() >= 400) {
+      console.log("[RES_BODY]", await res.text().catch(() => ""));
+    }
+  }
+});
+
+Rerun spec 21 once.
+
+⸻
+
+Step 2 — inspect CommunityBuilder.tsx
+
+Find the exact Apply button and handler.
+
+Search:
+
+grep -n "Apply" artifacts/steward/src/pages/dashboard/CommunityBuilder.tsx
+grep -n "ai" artifacts/steward/src/pages/dashboard/CommunityBuilder.tsx
+grep -n "tagline" artifacts/steward/src/pages/dashboard/CommunityBuilder.tsx
+
+Report:
+
+* button line
+* handler name
+* API endpoint called
+* whether there is a second confirmation/save step
+
+⸻
+
+Step 3 — inspect API route
+
+Find the server route used by that handler.
+
+Search:
+
+grep -R "site.*edit\\|ai.*edit\\|tagline\\|CommunityBuilder" artifacts/api-server/src -n
+
+Report:
+
+* route file
+* route path
+* required auth/org context
+* table/column written
+
+⸻
+
+Step 4 — check assertion target
+
+The test reads:
+
+SELECT tagline FROM site_config WHERE org_id = ...
+
+Verify whether the app actually writes to:
+
+* site_config.tagline
+* cs_org_configs
+* organizations
+* another table
+
+If the product writes to a different canonical table, update the test assertion to match the product’s real source of truth.
+
+If the product should write to site_config.tagline but does not, fix the route.
+
+⸻
+
+Step 5 — do the smallest valid fix
+
+Based on evidence:
+
+If no request fires:
+
+fix the Apply handler wiring.
+
+If request fails:
+
+fix the API route or missing context.
+
+If request succeeds but only creates a proposal:
+
+update the test to perform the required confirmation step.
+
+If request writes elsewhere:
+
+update the DB assertion to read the canonical table.
+
+If route succeeds but never persists:
+
+fix the server mutation.
+
+⸻
+
+Step 6 — rerun spec 21
+
+timeout 90 pnpm exec playwright test \
+  --config=artifacts/playwright.config.ts \
+  --project=desktop-chrome \
+  artifacts/e2e/21-ai-edit-verified.spec.ts \
+  --workers=1
+
+Report only
+
+1. Did the Apply click send an API request?
+2. What endpoint?
+3. What response?
+4. What table/column does the app actually write?
+5. Was the test wrong, or was the product mutation broken?
+6. Final spec 21 result.
+
+This is the right next cut. One spec. One flow. No guessing.
