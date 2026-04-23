@@ -65,9 +65,27 @@ const router = Router();
 // ─── Auth middleware ──────────────────────────────────────────────────────────
 
 function serviceAuth(req: Request, res: Response, next: () => void) {
-  const key = process.env.SERVICE_API_KEY;
+  // Production hard-guard: never accept the dev fallback in prod.
+  if (
+    process.env.NODE_ENV === "production" &&
+    !process.env.SERVICE_API_KEY &&
+    !process.env.PILLAR_SERVICE_KEY
+  ) {
+    res.status(503).json({ error: "Service API not configured in production" });
+    return;
+  }
+
+  // Dev/test fallback so e2e is self-contained and not blocked on
+  // environment-secret propagation. Only active outside production.
+  const key =
+    process.env.SERVICE_API_KEY ||
+    process.env.PILLAR_SERVICE_KEY ||
+    (process.env.NODE_ENV !== "production" ? "pillar-local-e2e-service-key" : undefined);
+
   if (!key) {
-    res.status(503).json({ error: "Service API not configured (SERVICE_API_KEY missing)" });
+    res.status(503).json({
+      error: "Service API not configured (missing SERVICE_API_KEY or PILLAR_SERVICE_KEY)",
+    });
     return;
   }
 

@@ -28,7 +28,14 @@ export default defineConfig({
           const rawPath = url.split("?")[0];
           const hasFileExtension = /\.[a-zA-Z0-9]+$/.test(rawPath);
           const isViteInternal = url.includes("/@") || url.includes("/__");
-          if (!hasFileExtension && !isViteInternal) {
+          // Don't rewrite paths that are proxied to the API server — those
+          // need to reach the proxy with their original URL intact.
+          const isProxiedPath =
+            rawPath.startsWith("/api/") ||
+            rawPath === "/api" ||
+            rawPath.startsWith("/sites/") ||
+            rawPath === "/sites";
+          if (!hasFileExtension && !isViteInternal && !isProxiedPath) {
             req.url = basePath + "/";
           }
           next();
@@ -71,6 +78,10 @@ export default defineConfig({
     },
     proxy: {
       "/sites": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+      },
+      "/api": {
         target: "http://localhost:8080",
         changeOrigin: true,
       },

@@ -1,10 +1,10 @@
-import { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { Pool } from "pg";
 
-export const API = "http://localhost:8080";
-export const CP = "http://localhost:5001";
+export const API = process.env.API_URL ?? "http://localhost:8080";
+export const CP = process.env.CP_URL ?? "http://localhost:5001";
 export const STEWARD = process.env.STEWARD_URL ?? "http://localhost:18402";
-export const TEST_ORG_SLUG = "norwin-rotary-uic5";
+export const TEST_ORG_SLUG = process.env.TEST_ORG_SLUG ?? "norwin-rotary-uic5";
 export const TEST_ORG_URL = `${API}/sites/${TEST_ORG_SLUG}`;
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -22,21 +22,76 @@ export async function getTestOrgId(): Promise<string> {
   return rows[0]?.id;
 }
 
-export async function loginToSteward(page: Page): Promise<void> {
-  await page.goto(`${STEWARD}/login`);
-  await page.waitForLoadState("networkidle");
-  await page
-    .locator(
-      'input[type="email"], input[name="email"], input[placeholder*="email" i]',
-    )
-    .first()
-    .fill(process.env.TEST_ADMIN_EMAIL ?? "admin@pillar.test");
-  await page
-    .locator('input[type="password"]')
-    .first()
-    .fill(process.env.TEST_ADMIN_PASSWORD ?? "testpassword");
-  await page.locator('button[type="submit"]').first().click();
-  await page.waitForTimeout(3000);
+type SessionTokenResponse = {
+  sid: string;
+  cookie: string;
+  cookieName: string;
+  expiresAt?: string | number;
+};
+
+function parseSetCookieLikeString(cookieString: string) {
+  const firstPart = cookieString.split(";")[0];
+  const eq = firstPart.indexOf("=");
+  if (eq === -1) throw new Error(`Invalid cookie string: ${cookieString}`);
+  return {
+    name: firstPart.slice(0, eq),
+    value: firstPart.slice(eq + 1),
+  };
+}
+
+function resolveServiceKey(): string {
+  return (
+    process.env.SERVICE_API_KEY ||
+    process.env.PILLAR_SERVICE_KEY ||
+    "pillar-local-e2e-service-key"
+  );
+}
+
+export async function loginToSteward(
+  page: Page,
+  opts?: { orgSlug?: string; targetPath?: string },
+): Promise<void> {
+  const orgSlug = opts?.orgSlug ?? TEST_ORG_SLUG;
+  const targetPath = opts?.targetPath ?? "/dashboard";
+  const serviceKey = resolveServiceKey();
+
+  const resp = await page.request.get(
+    `${API}/api/service/session-token?orgSlug=${encodeURIComponent(orgSlug)}&ttlSec=600`,
+    { headers: { "x-service-key": serviceKey } },
+  );
+
+  if (!resp.ok()) {
+    const body = await resp.text();
+    throw new Error(`session-token failed: ${resp.status()} ${body}`);
+  }
+
+  const data = (await resp.json()) as SessionTokenResponse;
+  const parsed = parseSetCookieLikeString(data.cookie);
+
+  await page.context().addCookies([
+    {
+      name: parsed.name,
+      value: parsed.value,
+      domain: "localhost",
+      path: "/",
+      httpOnly: true,
+      secure: false,
+      sameSite: "Lax",
+    },
+  ]);
+
+  await page.goto(`${STEWARD}${targetPath}`, { waitUntil: "domcontentloaded" });
+  await expect(page).not.toHaveURL(/\/login$/);
+  await expect(page).not.toHaveURL(new RegExp(`^${STEWARD}/?$`));
+}
+
+export async function assertAuthenticated(page: Page): Promise<void> {
+  const url = page.url();
+  if (url === `${STEWARD}/` || /\/login$/.test(url)) {
+    throw new Error(
+      `Expected authenticated dashboard route, got redirected to: ${url}`,
+    );
+  }
 }
 
 export async function screenshotStep(page: Page, name: string): Promise<void> {
