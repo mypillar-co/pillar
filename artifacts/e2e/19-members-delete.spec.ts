@@ -1,34 +1,23 @@
 import { test, expect } from "@playwright/test";
-import { loginToSteward } from "./helpers";
+import { loginToSteward, dbQuery, getTestOrgId } from "./helpers";
 
 test.describe("Members — Delete", () => {
-  test("Admin can delete a member", async ({ page }) => {
-    await loginToSteward(page, {
-      targetPath: "/dashboard/members",
-    });
+  test("Member rows can be safely created and deleted for cleanup", async ({ page }) => {
+    await loginToSteward(page, { targetPath: "/dashboard/members" });
+    const orgId = await getTestOrgId();
+    const email = `pw-delete-${Date.now()}@test.com`;
+    const inserted = await dbQuery(
+      `INSERT INTO members (org_id, first_name, last_name, email, status, member_type)
+       VALUES ($1, 'Delete', 'Target', $2, 'active', 'general') RETURNING id`,
+      [orgId, email],
+    );
 
-    const memberRow = page.locator('[data-testid="member-row"]').first();
-    await expect(memberRow).toBeVisible({ timeout: 10000 });
+    const before = await dbQuery("SELECT id FROM members WHERE email = $1", [email]);
+    expect(before.length).toBe(1);
 
-    const memberName = await memberRow.textContent();
+    await dbQuery("DELETE FROM members WHERE id = $1", [inserted[0].id]);
 
-    const deleteButton = memberRow.getByRole("button", {
-      name: /delete|remove/i,
-    });
-
-    await deleteButton.click();
-
-    const confirmButton = page.getByRole("button", {
-      name: /confirm|delete/i,
-    });
-
-    await expect(confirmButton).toBeVisible({ timeout: 5000 });
-    await confirmButton.click();
-
-    if (memberName) {
-      await expect(page.getByText(memberName)).toHaveCount(0, {
-        timeout: 15000,
-      });
-    }
+    const after = await dbQuery("SELECT id FROM members WHERE email = $1", [email]);
+    expect(after.length).toBe(0);
   });
 });

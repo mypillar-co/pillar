@@ -42,6 +42,82 @@ function tierAllowsRecurring(tier: string | null | undefined): boolean {
   return tier === "tier3";
 }
 
+
+function isValidISODate(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(parsed);
+}
+
+function isReasonableEventDate(value: unknown): boolean {
+  if (!isValidISODate(value)) return false;
+  const year = Number(String(value).slice(0, 4));
+  return year >= 2000 && year <= 2100;
+}
+
+function isValidTime(value: unknown): boolean {
+  if (value == null || value === "") return true;
+  if (typeof value !== "string") return false;
+  return /^([01]?\d|2[0-3]):[0-5]\d$/.test(value) || /^\d{1,2}:\d{2}\s*(AM|PM)$/i.test(value);
+}
+
+function isNonNegativeNumberLike(value: unknown): boolean {
+  if (value == null || value === "") return true;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0;
+}
+
+function validateEventInput(body: Record<string, unknown>, opts: { requireName: boolean; requireStartDate: boolean }): string | null {
+  const { name, startDate, endDate, startTime, endTime, maxCapacity, ticketPrice, ticketCapacity } = body;
+
+  if (opts.requireName) {
+    if (typeof name !== "string" || name.trim().length < 3) {
+      return "Event name must be at least 3 characters";
+    }
+  } else if (name !== undefined && (typeof name !== "string" || name.trim().length < 3)) {
+    return "Event name must be at least 3 characters";
+  }
+
+  if (opts.requireStartDate && !startDate) {
+    return "startDate is required";
+  }
+
+  if (startDate !== undefined && startDate !== null && startDate !== "" && !isReasonableEventDate(startDate)) {
+    return "Invalid start date";
+  }
+
+  if (endDate !== undefined && endDate !== null && endDate !== "" && !isReasonableEventDate(endDate)) {
+    return "Invalid end date";
+  }
+
+  if (startDate && endDate && String(endDate) < String(startDate)) {
+    return "End date cannot be before start date";
+  }
+
+  if (!isValidTime(startTime)) {
+    return "Invalid start time";
+  }
+
+  if (!isValidTime(endTime)) {
+    return "Invalid end time";
+  }
+
+  if (!isNonNegativeNumberLike(maxCapacity)) {
+    return "Capacity must be positive";
+  }
+
+  if (!isNonNegativeNumberLike(ticketPrice)) {
+    return "Ticket price must be positive";
+  }
+
+  if (!isNonNegativeNumberLike(ticketCapacity)) {
+    return "Ticket capacity must be positive";
+  }
+
+  return null;
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Tier guard middleware — all event routes require Tier 2+ except /public/*
 // ─────────────────────────────────────────────────────────────────
@@ -702,20 +778,26 @@ router.get("/", async (req: Request, res: Response) => {
   const includeInactive = req.query.includeInactive === "1";
   const conditions = [eq(eventsTable.orgId, org.id)];
   if (!includeInactive) conditions.push(eq(eventsTable.isActive, true));
-  const [events, salesByEvent] = await Promise.all([
-    db.select().from(eventsTable).where(and(...conditions)).orderBy(asc(eventsTable.startDate)),
-    db.select({
-      eventId: ticketSalesTable.eventId,
-      totalSold: sum(ticketSalesTable.quantity),
-      totalRevenue: sum(ticketSalesTable.amountPaid),
-    })
-      .from(ticketSalesTable)
-      .where(eq(ticketSalesTable.orgId, org.id))
-      .groupBy(ticketSalesTable.eventId),
-  ]);
-  const statsMap = new Map(salesByEvent.map(r => [r.eventId, { totalSold: Number(r.totalSold ?? 0), totalRevenue: Number(r.totalRevenue ?? 0) }]));
-  const result = events.map(e => ({ ...e, totalSold: statsMap.get(e.id)?.totalSold ?? 0, totalRevenue: statsMap.get(e.id)?.totalRevenue ?? 0 }));
-  res.json(result);
+
+  try {
+    const [events, salesByEvent] = await Promise.all([
+      db.select().from(eventsTable).where(and(...conditions)).orderBy(asc(eventsTable.startDate)),
+      db.select({
+        eventId: ticketSalesTable.eventId,
+        totalSold: sum(ticketSalesTable.quantity),
+        totalRevenue: sum(ticketSalesTable.amountPaid),
+      })
+        .from(ticketSalesTable)
+        .where(eq(ticketSalesTable.orgId, org.id))
+        .groupBy(ticketSalesTable.eventId),
+    ]);
+    const statsMap = new Map(salesByEvent.map(r => [r.eventId, { totalSold: Number(r.totalSold ?? 0), totalRevenue: Number(r.totalRevenue ?? 0) }]));
+    const result = events.map(e => ({ ...e, totalSold: statsMap.get(e.id)?.totalSold ?? 0, totalRevenue: statsMap.get(e.id)?.totalRevenue ?? 0 }));
+    res.json(result);
+  } catch (err) {
+    console.error("[events] GET /api/events failed", err);
+    res.status(500).json({ error: "Failed to load events" });
+  }
 });
 
 // GET /api/events/:id/ticket-purchases — admin view of all ticket purchases for an event
@@ -796,16 +878,16 @@ router.post("/", async (req: Request, res: Response) => {
   if (!org) return;
   const body = req.body as Record<string, unknown>;
   const { name, description, eventType, startDate, endDate, startTime, endTime, location, maxCapacity, isTicketed, ticketPrice, ticketCapacity, requiresApproval, hasRegistration, hasSponsorSection, membersOnly } = body;
-  if (!name || typeof name !== "string") {
-    res.status(400).json({ error: "name is required" });
+  const validationError = validateEventInput(body, { requireName: true, requireStartDate: true });
+  if (validationError) {
+    res.status(400).json({ error: validationError });
     return;
   }
-  if (startDate && endDate && String(endDate) < String(startDate)) {
-    res.status(400).json({ error: "End date cannot be before start date" });
-    return;
-  }
+
+  const cleanName = String(name).trim();
+
   // Generate URL-safe slug from name
-  const rawSlug = String(name)
+  const rawSlug = cleanName
     .toLowerCase()
     .replace(/['']/g, "")
     .replace(/[^a-z0-9]+/g, "-")
@@ -820,7 +902,7 @@ router.post("/", async (req: Request, res: Response) => {
     .insert(eventsTable)
     .values({
       orgId: org.id,
-      name: String(name),
+      name: cleanName,
       slug: uniqueSlug,
       description: description ? String(description) : undefined,
       eventType: eventType ? String(eventType) : undefined,
@@ -884,12 +966,15 @@ router.put("/:id", async (req: Request, res: Response) => {
     res.status(404).json({ error: "Event not found" });
     return;
   }
-  const effectiveStart = String(updates.startDate ?? existing.startDate ?? "");
-  const effectiveEnd = String(updates.endDate ?? existing.endDate ?? "");
-  if (effectiveStart && effectiveEnd && effectiveEnd < effectiveStart) {
-    res.status(400).json({ error: "End date cannot be before start date" });
+  const validationError = validateEventInput(
+    { ...updates, startDate: updates.startDate ?? existing.startDate, endDate: updates.endDate ?? existing.endDate },
+    { requireName: false, requireStartDate: false },
+  );
+  if (validationError) {
+    res.status(400).json({ error: validationError });
     return;
   }
+
   const [updated] = await db
     .update(eventsTable)
     .set(updates)

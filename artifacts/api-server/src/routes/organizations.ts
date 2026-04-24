@@ -539,43 +539,65 @@ router.get("/organizations/hero-image/suggest", async (req: Request, res: Respon
   if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
 
   try {
-    if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY || !process.env.AI_INTEGRATIONS_OPENAI_BASE_URL) {
-      throw new Error("AI service not configured");
-    }
-    const openai = new OpenAI({
-      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-    });
-
     // Library photos are hardcoded, curated Unsplash CDN URLs — no runtime
     // verification needed. Outbound HEAD checks were unreliable in this
     // environment and caused the route to return zero photos.
     const livePhotos = HERO_PHOTO_LIBRARY;
 
-    // Step 2: AI ranks only the live photos — guarantees top-6 are all reachable
+    // AI evaluates ALL photos and ranks them best-to-worst for this org.
+    // All indices are returned so the UI can display every available option.
     const libraryJson = livePhotos.map((p, i) => `${i}: ${p.description}`).join("\n");
-    const prompt = `You are picking hero background photos for a community website. The organization is "${org.name}" (type: ${org.type || "civic"})${org.category ? `, tagline: "${org.category}"` : ""}.\n\nAvailable photos (by index):\n${libraryJson}\n\nReturn exactly ${Math.min(6, livePhotos.length)} indices (0–${livePhotos.length - 1}), comma-separated, ordered best-to-worst fit. Return ONLY numbers, e.g.: 2,0,5,3,7,1`;
+    const prompt = `You are picking hero background photos for a community website. The organization is "${org.name}" (type: ${org.type || "civic"})${org.category ? `, tagline: "${org.category}"` : ""}.\n\nAvailable photos (by index):\n${libraryJson}\n\nReturn ALL ${livePhotos.length} indices (0–${livePhotos.length - 1}), comma-separated, ordered best-to-worst fit. Include every index exactly once. Return ONLY numbers, e.g.: 2,0,5,3,7,1,4,8,9,11,10,6`;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
-      max_tokens: 20,
-    });
-    const raw = completion.choices[0]?.message?.content?.trim() ?? "";
+    let raw = "";
+    // Try Replit OpenAI integration
+    if (process.env.AI_INTEGRATIONS_OPENAI_API_KEY && process.env.AI_INTEGRATIONS_OPENAI_BASE_URL) {
+      try {
+        const openaiForSuggest = new OpenAI({
+          apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+          baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+        });
+        const completion = await openaiForSuggest.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 60,
+        });
+        raw = completion.choices[0]?.message?.content?.trim() ?? "";
+      } catch (_openaiErr) {
+        // fall through to Anthropic
+      }
+    }
+    // Anthropic fallback
+    if (!raw && process.env.ANTHROPIC_API_KEY) {
+      try {
+        const { default: AnthropicSdk } = await import("@anthropic-ai/sdk");
+        const anthropicForSuggest = new AnthropicSdk({ apiKey: process.env.ANTHROPIC_API_KEY });
+        const msg = await anthropicForSuggest.messages.create({
+          model: "claude-3-5-haiku-latest",
+          max_tokens: 60,
+          messages: [{ role: "user", content: prompt }],
+        });
+        const tb = msg.content.find((b) => b.type === "text");
+        raw = tb?.type === "text" ? (tb.text?.trim() ?? "") : "";
+      } catch (_anthropicErr) {
+        // fall through to natural order
+      }
+    }
     const aiIndices: number[] = raw
       .split(",")
       .map(s => parseInt(s.trim(), 10))
       .filter(n => !isNaN(n) && n >= 0 && n < livePhotos.length);
 
-    // Deduplicate AI picks and pad with remaining live photos
+    // Deduplicate AI ranking and append any photos the AI omitted at the end
     const seen = new Set<number>();
     const ordered: number[] = [];
     for (const idx of aiIndices) { if (!seen.has(idx)) { seen.add(idx); ordered.push(idx); } }
-    for (let i = 0; i < livePhotos.length && ordered.length < 6; i++) {
+    for (let i = 0; i < livePhotos.length; i++) {
       if (!seen.has(i)) { seen.add(i); ordered.push(i); }
     }
 
-    const photos = ordered.slice(0, 6).map(idx => {
+    // Return ALL photos ranked — no artificial cap
+    const photos = ordered.map(idx => {
       const p = livePhotos[idx];
       return {
         id: p.id,

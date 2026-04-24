@@ -500,18 +500,25 @@ function HeroImagePanel({ initialUrl, autoTriggerAi }: { initialUrl: string | nu
   }
 
   async function handleAiPick() {
-    setPhase("picking");
     setError(null);
+    setSaved(false);
+    setPhase("loading");
+
     try {
-      const res = await csrfFetch("/api/organizations/hero-image/suggest");
-      const d = await res.json() as { photos?: UnsplashPhoto[]; query?: string; error?: string };
-      if (!res.ok || !d.photos?.length) throw new Error(d.error ?? "No photos found");
-      setPhotos(d.photos);
-      setQuery(d.query ?? "");
+      const res = await fetch("/api/organizations/hero-image/suggest");
+      if (!res.ok) throw new Error("Failed to fetch photos");
+
+      const data = await res.json();
+
+      setPhotos(data.photos || []);
+      setQuery(data.query || "");
+
+      // 🔥 THIS LINE IS THE FIX
       setPhase("approving");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load photos");
-      setPhase("idle");
+
+    } catch (err: any) {
+      setError(err.message || "Failed to load photos");
+      setPhase("error");
     }
   }
 
@@ -590,16 +597,24 @@ function HeroImagePanel({ initialUrl, autoTriggerAi }: { initialUrl: string | nu
               Refresh
             </button>
           </div>
+          {photos.length === 0 && (
+            <p className="text-xs text-[#7a9cbf]">No photo suggestions loaded yet. Try Refresh.</p>
+          )}
           <div className="grid grid-cols-3 gap-1.5">
             {photos.map(photo => (
               <button
                 key={photo.id}
+                type="button"
+                aria-label={`Apply photo: ${photo.description || photo.id}`}
+                data-testid="hero-photo-option"
+                data-photo-id={photo.id}
                 onClick={() => void applyPhoto(photo)}
                 className="relative aspect-video rounded-md overflow-hidden group focus:outline-none focus:ring-2 focus:ring-[#d4a017]"
               >
                 <img
                   src={photoThumb(photo)}
-                  alt={photo.description}
+                  alt={photo.description || "Hero image option"}
+                  data-testid="hero-photo-option-image"
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                 />
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
@@ -1404,15 +1419,13 @@ export default function CommunityBuilder() {
               I have everything I need! Review your configuration below, then click <strong>Launch Site</strong> to go live.
             </BotBubble>
 
-            {/* Hero image picker — shown inline after interview if org chose a photo background */}
-            {answers.heroBackground !== "Brand colors only (no photo)" && (
-              <div className="w-full">
-                <HeroImagePanel
-                  initialUrl={siteStatus?.heroImageUrl}
-                  autoTriggerAi={answers.heroBackground === "AI picks a community photo"}
-                />
-              </div>
-            )}
+            {/* Hero image picker — shown inline after interview */}
+            <div className="w-full">
+              <HeroImagePanel
+                initialUrl={siteStatus?.heroImageUrl}
+                autoTriggerAi={answers.heroBackground === "AI picks a community photo"}
+              />
+            </div>
           </>
         )}
 

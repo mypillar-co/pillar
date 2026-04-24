@@ -1786,17 +1786,38 @@ Rules:
   // ── Layout planning ───────────────────────────────────────────────────────
   const plan = planLayout(scores, hasActualHeroPhoto, !!(logoDataUrl ?? importedLogoUrl));
 
-  // ── Hero image selection — only use hero-qualified images ─────────────────
+  // ── Hero image selection — explicit user choice wins, then safe fallbacks ─────
   const safeHeroId = contentData.heroUnsplashId || HERO_IDS[Math.floor(Math.random() * HERO_IDS.length)];
   const safeAboutId = contentData.aboutUnsplashId || ABOUT_IDS[Math.floor(Math.random() * ABOUT_IDS.length)];
 
-  // Hero photo: uploaded real photo > imported real photo > Unsplash (only for photo hero)
-  const heroPhoto = isHeroQualified(uploadedHeroClass) ? photoUrls[0]
-    : (importedHeroIsActualPhoto ? importedHeroUrl : null);
+  // Explicit hero image selected in the frontend.
+  // This is intentionally trusted as user intent, while preserving existing fallback logic.
+  const explicitHero =
+    typeof req.body.heroImageUrl === "string" &&
+    req.body.heroImageUrl.trim().length > 0
+      ? req.body.heroImageUrl.trim()
+      : null;
 
-  // For gradient hero: no image tag at all (clean gradient from CSS)
-  // For photo hero: real photo required
-  const usePhotoHero = plan.heroType === "photo" || (plan.heroType === "featured-event" && heroPhoto !== null);
+  // Hero photo priority:
+  // 1. explicit frontend-selected hero
+  // 2. first uploaded hero-qualified real photo
+  // 3. imported real photo
+  // 4. Unsplash fallback if the layout wants a photo hero
+  const heroPhoto = explicitHero
+    ? explicitHero
+    : isHeroQualified(uploadedHeroClass)
+      ? photoUrls[0]
+      : importedHeroIsActualPhoto
+        ? importedHeroUrl
+        : null;
+
+  // For gradient hero: no image tag at all.
+  // For photo hero: use chosen real photo or safe Unsplash fallback.
+  const usePhotoHero =
+    plan.heroType === "photo" ||
+    plan.heroType === "featured-event" ||
+    !!explicitHero;
+
   const heroImageUrl = usePhotoHero && heroPhoto
     ? heroPhoto
     : usePhotoHero
@@ -1808,6 +1829,7 @@ Rules:
   // About image: second uploaded photo > first imported extra > imported hero if photo
   const aboutPhoto = photoUrls.length > 1 ? photoUrls[1]
     : (importedImageUrls[0] ?? (importedHeroIsActualPhoto ? importedHeroUrl : null));
+
   const aboutImageUrl = aboutPhoto ?? `https://images.unsplash.com/photo-${safeAboutId}?auto=format&fit=crop&w=900&q=80`;
 
   // Logo priority: user-uploaded data URL > imported logo URL > org name text

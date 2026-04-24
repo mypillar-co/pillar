@@ -4,6 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import { resolveFullOrg } from "../lib/resolveOrg";
 import { getSectionRegistryPrompt, validateSection } from "../lib/sectionRegistry";
 import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { load as cheerioLoad } from "cheerio";
 
 const SIDECAR = "http://127.0.0.1:1106";
@@ -35,9 +36,9 @@ const CONTEXT_TURNS = 12;
 const MAX_INTERVIEW_TOKENS = 750;
 const MAX_PAYLOAD_TOKENS = 2200;
 
-function getOpenAIClient() {
+function tryGetOpenAIClient(): OpenAI | null {
   if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || !process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
-    throw new Error("AI integration not configured.");
+    return null;
   }
   return new OpenAI({
     apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -46,17 +47,96 @@ function getOpenAIClient() {
   });
 }
 
+// callAI: tries the Replit OpenAI integration first, then falls back to
+// ANTHROPIC_API_KEY if the integration is not configured or returns an error.
 async function callAI(
   messages: OpenAI.ChatCompletionMessageParam[],
   maxTokens: number,
 ): Promise<string> {
-  const client = getOpenAIClient();
-  const response = await (client.chat.completions.create as (p: Record<string, unknown>) => Promise<OpenAI.ChatCompletion>)({
-    model: "gpt-5-mini",
-    max_completion_tokens: maxTokens,
-    messages,
+  // Attempt 1: Replit OpenAI integration
+  const openaiClient = tryGetOpenAIClient();
+  if (openaiClient) {
+    try {
+      const response = await openaiClient.chat.completions.create({
+        model: "gpt-4o-mini",
+        max_tokens: maxTokens,
+        messages,
+      });
+      const content = response.choices[0]?.message?.content ?? "";
+      if (content) return content;
+    } catch (_openaiErr) {
+      // Fall through to Anthropic
+    }
+  }
+
+  // Attempt 2: Anthropic SDK fallback
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) throw new Error("AI service not configured (no ANTHROPIC_API_KEY)");
+
+  const anthropic = new Anthropic({ apiKey: anthropicKey });
+  const systemParts = messages
+    .filter((m) => m.role === "system")
+    .map((m) => (typeof m.content === "string" ? m.content : ""))
+    .join("\n");
+  const userAssistantMsgs = messages
+    .filter((m) => m.role !== "system")
+    .map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: typeof m.content === "string" ? m.content : "",
+    }));
+
+  // Anthropic requires at least one message; add a stub if all were system messages
+  const anthropicMessages: { role: "user" | "assistant"; content: string }[] =
+    userAssistantMsgs.length > 0
+      ? userAssistantMsgs
+      : [{ role: "user", content: systemParts || "Hello" }];
+
+  const msg = await anthropic.messages.create({
+    model: "claude-haiku-4-5",
+    max_tokens: Math.min(maxTokens, 8192),
+    ...(systemParts && userAssistantMsgs.length > 0 ? { system: systemParts } : {}),
+    messages: anthropicMessages,
   });
-  return response.choices[0]?.message?.content ?? "";
+
+  const textBlock = msg.content.find((b) => b.type === "text");
+  return textBlock?.type === "text" ? textBlock.text : "";
+}
+
+// Deterministic regex-based fallback for simple field-update prompts.
+// Used when all AI services are unavailable. Returns a partial site_config update
+// or null if the pattern is not recognised.
+function parseDirectEditFallback(changeRequest: string): Record<string, string> | null {
+  const lower = changeRequest.toLowerCase().trim();
+  // Match "change our X [back] to[:]  Y" or "set X to Y" or "update X to Y"
+  const m = changeRequest.match(
+    /(?:change (?:our\s+)?[\s\S]*?\s+(?:back\s+)?to\s*:?\s*|set [\s\S]*?\s+to\s*:?\s*|update [\s\S]*?\s+to\s*:?\s*)(.+)$/i,
+  );
+  if (!m) return null;
+  const newValue = m[1].trim();
+  if (!newValue) return null;
+
+  if (lower.includes("tagline"))                                          return { tagline: newValue };
+  if (lower.includes("mission"))                                          return { mission: newValue };
+  if (lower.includes("primary color") || lower.includes("primary colour")) {
+    const hex = newValue.match(/#[0-9a-fA-F]{3,6}/)?.[0];
+    return hex ? { primaryColor: hex } : null;
+  }
+  if (lower.includes("accent color") || lower.includes("accent colour")) {
+    const hex = newValue.match(/#[0-9a-fA-F]{3,6}/)?.[0];
+    return hex ? { accentColor: hex } : null;
+  }
+  if (lower.includes("contact email") || (lower.includes("email") && !lower.includes("newsletter"))) {
+    return { contactEmail: newValue };
+  }
+  if (lower.includes("contact phone") || lower.includes("phone number")) {
+    return { contactPhone: newValue };
+  }
+  if (lower.includes("meeting time"))                                     return { meetingTime: newValue };
+  if (lower.includes("meeting day"))                                      return { meetingDay: newValue };
+  if (lower.includes("meeting location"))                                 return { meetingLocation: newValue };
+  if (lower.includes("address"))                                          return { contactAddress: newValue };
+  if (lower.includes("footer"))                                           return { footerText: newValue };
+  return null;
 }
 
 // Wraps callAI with up to 2 automatic retries on thrown exception (transient API errors).
@@ -806,10 +886,28 @@ Return only the JSON object, no markdown, no explanation.`;
     req.setTimeout(90_000);
     res.setTimeout(90_000);
 
-    const aiRaw = await Promise.race<string>([
-      callAI([{ role: "user", content: prompt }], 1800),
-      new Promise<string>((_, reject) => setTimeout(() => reject(new Error("timeout")), 45_000)),
-    ]);
+    let aiRaw: string;
+    try {
+      aiRaw = await Promise.race<string>([
+        callAI([{ role: "user", content: prompt }], 1800),
+        new Promise<string>((_, reject) => setTimeout(() => reject(new Error("timeout")), 45_000)),
+      ]);
+    } catch (_aiErr) {
+      // Both AI services unavailable — try deterministic regex-based fallback
+      const fallbackFields = parseDirectEditFallback(changeRequest);
+      if (fallbackFields !== null) {
+        const updatedPayload: Record<string, unknown> = { ...(currentConfig as Record<string, unknown>) };
+        for (const [k, v] of Object.entries(fallbackFields)) {
+          updatedPayload[k] = v;
+        }
+        await db.update(organizationsTable)
+          .set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` })
+          .where(eq(organizationsTable.id, org.id));
+        res.json({ ok: true, payload: updatedPayload });
+        return;
+      }
+      throw _aiErr;
+    }
 
     const jsonStart = aiRaw.indexOf("{");
     const jsonEnd   = aiRaw.lastIndexOf("}");

@@ -104,6 +104,7 @@ const COLOR_THEMES = [
 ] as const;
 
 const DEFAULT_SECTIONS = ["hero", "about", "events", "contact"];
+const MAX_SITE_PHOTOS = 12;
 
 const UPDATE_ITEMS = [
   { id: "events", label: "Upcoming events", description: "Keep the events section current" },
@@ -178,6 +179,7 @@ export default function SiteBuilder() {
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   const [uploadedPhotos, setUploadedPhotos] = useState<{ url: string; name: string }[]>([]);
+  const [heroImageUrl, setHeroImageUrl] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
 
   // ── Preview chat panel uploads ─────────────────────────────────────────────
@@ -341,8 +343,8 @@ export default function SiteBuilder() {
       alert("Please drop image files only.");
       return;
     }
-    if (uploadedPhotos.length + images.length > 6) {
-      alert("You can upload up to 6 photos.");
+    if (uploadedPhotos.length + images.length > MAX_SITE_PHOTOS) {
+      alert(`You can upload up to ${MAX_SITE_PHOTOS} photos.`);
       return;
     }
     setPhotoUploading(true);
@@ -355,6 +357,7 @@ export default function SiteBuilder() {
         })
       );
       setUploadedPhotos(prev => [...prev, ...results]);
+      setHeroImageUrl(prev => prev ?? results[0]?.url ?? null);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to upload photo. Please try again.");
     } finally {
@@ -651,6 +654,7 @@ export default function SiteBuilder() {
           orgType: org?.type,
           logoDataUrl: logoDataUrl ?? undefined,
           photoUrls: uploadedPhotos.length > 0 ? uploadedPhotos.map(p => p.url) : undefined,
+          heroImageUrl: heroImageUrl ?? uploadedPhotos[0]?.url ?? undefined,
           originalSiteUrl: importedFromUrl ?? undefined,
         }),
       });
@@ -878,6 +882,7 @@ export default function SiteBuilder() {
           body: JSON.stringify({
             changeRequest: text || "Incorporate the uploaded images into the site.",
             uploadedImageUrls: imagesCopy.length > 0 ? imagesCopy.map(i => i.url) : undefined,
+            heroImageUrl: heroImageUrl ?? undefined,
           }),
           signal: controller.signal,
         });
@@ -1799,7 +1804,7 @@ export default function SiteBuilder() {
               <div className="flex flex-col items-center gap-3 px-6 py-5 rounded-xl bg-[hsl(224,40%,10%)]/90 border border-emerald-400/40">
                 <Images className="w-8 h-8 text-emerald-300" />
                 <p className="text-sm font-medium text-emerald-200">Drop photos to add to your site</p>
-                <p className="text-xs text-emerald-300/70">Up to 6 images · {Math.max(0, 6 - uploadedPhotos.length)} remaining</p>
+                <p className="text-xs text-emerald-300/70">Up to {MAX_SITE_PHOTOS} images · {Math.max(0, MAX_SITE_PHOTOS - uploadedPhotos.length)} remaining</p>
               </div>
             </div>
           )}
@@ -2094,24 +2099,44 @@ export default function SiteBuilder() {
                   <p className="text-xs font-medium text-emerald-300 flex items-center gap-1.5">
                     <Images className="w-3.5 h-3.5" /> {uploadedPhotos.length} photo{uploadedPhotos.length !== 1 ? "s" : ""} added to site
                   </p>
-                  {uploadedPhotos.length < 6 && (
+                  {uploadedPhotos.length < MAX_SITE_PHOTOS && (
                     <button onClick={() => photoInputRef.current?.click()} className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors">
                       + Add more
                     </button>
                   )}
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                  {uploadedPhotos.map((photo, i) => (
-                    <div key={i} className="relative group">
-                      <img src={photo.url} alt={photo.name} className="h-14 w-14 object-cover rounded-md border border-white/10" />
-                      <button
-                        onClick={() => setUploadedPhotos(prev => prev.filter((_, idx) => idx !== i))}
-                        className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <X className="w-2.5 h-2.5" />
-                      </button>
-                    </div>
-                  ))}
+                  {uploadedPhotos.map((photo, i) => {
+                    const isHero = heroImageUrl === photo.url || (!heroImageUrl && i === 0);
+                    return (
+                      <div key={i} className={`relative group rounded-md border ${isHero ? "border-emerald-400" : "border-white/10"}`}>
+                        <img src={photo.url} alt={photo.name} className="h-14 w-14 object-cover rounded-md" />
+                        {isHero && (
+                          <span className="absolute left-1 bottom-1 rounded bg-emerald-500 px-1.5 py-0.5 text-[9px] font-semibold text-white shadow">Hero</span>
+                        )}
+                        {!isHero && (
+                          <button
+                            type="button"
+                            onClick={() => setHeroImageUrl(photo.url)}
+                            className="absolute left-1 bottom-1 rounded bg-slate-900/85 px-1.5 py-0.5 text-[9px] font-semibold text-white opacity-0 transition-opacity group-hover:opacity-100"
+                            title="Use this photo as the hero background"
+                          >
+                            Set hero
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUploadedPhotos(prev => prev.filter((_, idx) => idx !== i));
+                            setHeroImageUrl(prev => prev === photo.url ? null : prev);
+                          }}
+                          className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

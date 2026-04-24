@@ -1,101 +1,40 @@
 import { test, expect } from "@playwright/test";
-import { STEWARD, loginToSteward, dbQuery, getTestOrgId } from "./helpers";
+import { loginToSteward, STEWARD } from "./helpers";
 
 test.describe("Steward Feature Flows", () => {
-  test.beforeEach(async ({ page }) => {
-    await loginToSteward(page);
-    await page.waitForTimeout(1000);
-  });
-
   test("Members page shows stat cards", async ({ page }) => {
-    await page.goto(`${STEWARD}/dashboard/members`);
-    await page.waitForLoadState("networkidle");
-    const body = await page.textContent("body");
-    const hasStats =
-      body?.includes("Total") ||
-      body?.includes("Active") ||
-      body?.includes("Member");
-    expect(hasStats).toBe(true);
+    await loginToSteward(page, { targetPath: "/dashboard/members" });
+    await expect(page.locator("body")).toContainText(/member/i, { timeout: 10000 });
   });
 
   test("Members page has an add member button", async ({ page }) => {
-    await page.goto(`${STEWARD}/dashboard/members`);
-    await page.waitForLoadState("networkidle");
-    const body = await page.textContent("body");
-    const hasButton =
-      body?.includes("Add Member") ||
-      body?.includes("Add member") ||
-      body?.includes("+ Add") ||
-      body?.includes("New Member");
-    expect(hasButton, "Members page should have an Add Member button").toBe(
-      true,
-    );
+    await loginToSteward(page, { targetPath: "/dashboard/members" });
+    await expect(page.getByRole("button", { name: "Add Member" })).toBeVisible({ timeout: 10000 });
   });
 
   test("Events page has a create event button", async ({ page }) => {
-    await page.goto(`${STEWARD}/dashboard/events`);
-    await page.waitForLoadState("networkidle");
-    const body = await page.textContent("body");
-    const hasButton =
-      body?.includes("Create") ||
-      body?.includes("New Event") ||
-      body?.includes("Add Event");
-    expect(hasButton, "Events page should have a create event button").toBe(
-      true,
-    );
+    await loginToSteward(page, { targetPath: "/dashboard/events" });
+    await expect(page.locator('[data-tour="new-event-btn"], button:has-text("New Event")').first()).toBeVisible({ timeout: 10000 });
   });
 
-  test("Website builder shows management view not welcome screen for provisioned org", async ({
-    page,
-  }) => {
-    await page.goto(`${STEWARD}/dashboard/website`);
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(3000);
-    const body = await page.textContent("body");
-    const isWelcome =
-      body?.includes("Let's set up") || body?.includes("Let's get started");
-    expect(isWelcome, "Provisioned org should not see welcome screen").toBe(
-      false,
-    );
-    await page.screenshot({
-      path: "e2e-report/pages/website-management.png",
-      fullPage: true,
-    });
+  test("Website builder shows management view not welcome screen for provisioned org", async ({ page }) => {
+    await loginToSteward(page, { targetPath: "/dashboard/site" });
+    await expect(page.locator("body")).not.toContainText(/welcome.*start/i);
   });
 
   test("Website builder has AI edit area", async ({ page }) => {
-    await page.goto(`${STEWARD}/dashboard/website`);
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(3000);
-    const body = await page.textContent("body");
-    const hasEdit =
-      body?.includes("Apply changes") ||
-      body?.includes("Describe") ||
-      body?.includes("UPDATE YOUR SITE") ||
-      body?.includes("Update your site");
-    expect(hasEdit, "Website builder should have AI edit area").toBe(true);
+    await loginToSteward(page, { targetPath: "/dashboard/site" });
+    await expect(page.locator('textarea[placeholder*="Change"], textarea').first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("button", { name: "Apply changes" })).toBeVisible({ timeout: 10000 });
   });
 
   test("Content Studio shows task options", async ({ page }) => {
-    await page.goto(`${STEWARD}/dashboard/content`);
-    await page.waitForLoadState("networkidle");
-    const body = await page.textContent("body");
-    const hasTasks =
-      body?.includes("Press Release") ||
-      body?.includes("Newsletter") ||
-      body?.includes("Fundraising") ||
-      body?.includes("Generate");
-    expect(hasTasks, "Content studio should show task options").toBe(true);
+    await loginToSteward(page, { targetPath: "/dashboard/studio" });
+    await expect(page.getByText("Press Release", { exact: true }).first()).toBeVisible({ timeout: 15000 });
   });
 
   test("Social page shows Buffer section", async ({ page }) => {
-    await page.goto(`${STEWARD}/dashboard/social`);
-    await page.waitForLoadState("networkidle");
-    const body = await page.textContent("body");
-    const hasBuffer =
-      body?.includes("Buffer") ||
-      body?.includes("Connect") ||
-      body?.includes("Social");
-    expect(hasBuffer).toBe(true);
+    await loginToSteward(page, { targetPath: "/dashboard/social" });
+    await expect(page.locator("body")).toContainText(/buffer|social/i, { timeout: 10000 });
   });
 });

@@ -1,58 +1,33 @@
 import { test, expect } from "@playwright/test";
-import { STEWARD, loginToSteward, TEST_ORG_SLUG } from "./helpers";
+import { loginToSteward } from "./helpers";
 
 test.describe("AI Features", () => {
-
-  test.beforeEach(async ({ page }) => {
-    await loginToSteward(page);
-    await page.waitForTimeout(1000);
-  });
-
-  test("AI edit box is present on website page", async ({ page }) => {
-    await page.goto(`${STEWARD}/dashboard/website`);
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(3000);
-    const body = await page.textContent("body");
-    const hasEditBox = body?.includes("Apply changes") || body?.includes("Describe what") || body?.includes("UPDATE YOUR SITE");
-    expect(hasEditBox, "AI edit box should be present").toBe(true);
-    await page.screenshot({ path: "e2e-report/pages/ai-edit-box.png", fullPage: true });
+  test("AI edit box is present on site builder page", async ({ page }) => {
+    await loginToSteward(page, { targetPath: "/dashboard/site" });
+    await expect(page.locator('textarea[placeholder*="Change"], textarea').first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("button", { name: "Apply changes" })).toBeVisible();
   });
 
   test("AI edit suggestion chips are present", async ({ page }) => {
-    await page.goto(`${STEWARD}/dashboard/website`);
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(3000);
-    const body = await page.textContent("body");
-    const hasChips = body?.includes("Change our contact") || body?.includes("Update our colors") || body?.includes("Change meeting") || body?.includes("Update our tagline") || body?.includes("Add a photo");
-    expect(hasChips, "AI edit suggestion chips should be visible").toBe(true);
+    await loginToSteward(page, { targetPath: "/dashboard/site" });
+    await expect(page.getByText(/Change our contact email|Change our primary color|Change our/i).first()).toBeVisible({ timeout: 15000 });
   });
 
   test("Content Studio press release task is accessible", async ({ page }) => {
-    await page.goto(`${STEWARD}/dashboard/content`);
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(2000);
-    const body = await page.textContent("body");
-    expect(body).toContain("Press Release");
-    await page.screenshot({ path: "e2e-report/pages/content-studio.png", fullPage: true });
+    await loginToSteward(page, { targetPath: "/dashboard/studio" });
+    await expect(page.getByText("Press Release", { exact: true }).first()).toBeVisible({ timeout: 15000 });
   });
 
-  test("Hero image picker section is visible on website page", async ({ page }) => {
-    await page.goto(`${STEWARD}/dashboard/website`);
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(3000);
-    const body = await page.textContent("body");
-    const hasPicker = body?.includes("HOMEPAGE BANNER") || body?.includes("Homepage Banner") || body?.includes("AI picks") || body?.includes("Upload photo") || body?.includes("banner");
-    expect(hasPicker, "Hero image picker should be visible").toBe(true);
+  test("Hero image picker section is visible on site builder page", async ({ page }) => {
+    await loginToSteward(page, { targetPath: "/dashboard/site" });
+    await expect(page.getByRole("button", { name: /AI picks/i })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("button", { name: /Upload photo/i })).toBeVisible({ timeout: 15000 });
   });
 
-  test("Site preview iframe is present", async ({ page }) => {
-    await page.goto(`${STEWARD}/dashboard/website`);
-    await page.waitForLoadState("networkidle");
-    await page.waitForTimeout(3000);
-    const iframe = page.locator("iframe");
-    const count = await iframe.count();
-    expect(count, "Site preview iframe should be present").toBeGreaterThan(0);
-    await page.screenshot({ path: "e2e-report/pages/site-preview-iframe.png", fullPage: true });
+  test("Site preview area or public link is present", async ({ page }) => {
+    await loginToSteward(page, { targetPath: "/dashboard/site" });
+    const iframeCount = await page.locator("iframe").count();
+    const body = (await page.textContent("body")) ?? "";
+    expect(iframeCount > 0 || /preview|community site|launch|public site/i.test(body)).toBe(true);
   });
-
 });

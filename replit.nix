@@ -1,5 +1,6 @@
 {pkgs}: {
   deps = [
+    pkgs.timetrap
     pkgs.libglvnd
     pkgs.libGL
     pkgs.libgbm

@@ -23,6 +23,16 @@ export function inviteUrl(orgSlug: string, token: string): string {
   return `https://${orgSlug}.mypillar.co/members/register?token=${token}`;
 }
 
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function cleanOptionalEmail(value: unknown): string | null {
+  const trimmed = String(value ?? "").trim();
+  return trimmed.length ? trimmed : null;
+}
+
 export async function sendInviteEmail(opts: {
   to: string;
   firstName: string;
@@ -144,7 +154,12 @@ router.post("/", async (req: Request, res: Response) => {
     return;
   }
 
-  const trimmedEmail = (email ?? "").trim() || null;
+  const trimmedEmail = cleanOptionalEmail(email);
+  if (trimmedEmail && !isValidEmail(trimmedEmail)) {
+    res.status(400).json({ error: "Invalid email format" });
+    return;
+  }
+
   const token = trimmedEmail ? generateToken() : null;
   const tokenExpires = token ? new Date(Date.now() + TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000) : null;
 
@@ -231,11 +246,16 @@ router.put("/:id", async (req: Request, res: Response) => {
     res.status(400).json({ error: `status must be one of: ${[...VALID_STATUSES].join(", ")}` });
     return;
   }
+  const nextEmail = email !== undefined ? cleanOptionalEmail(email) : existing.email;
+  if (nextEmail && !isValidEmail(nextEmail)) {
+    res.status(400).json({ error: "Invalid email format" });
+    return;
+  }
   await db.execute(sql`
     UPDATE members SET
       first_name = COALESCE(${firstName}, first_name),
       last_name = ${lastName !== undefined ? lastName : existing.lastName},
-      email = ${email !== undefined ? email : existing.email},
+      email = ${nextEmail},
       phone = ${phone !== undefined ? phone : existing.phone},
       member_type = COALESCE(${memberType}, member_type),
       status = COALESCE(${status}, status),

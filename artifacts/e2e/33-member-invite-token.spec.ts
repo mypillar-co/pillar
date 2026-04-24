@@ -1,56 +1,31 @@
 import { test, expect } from "@playwright/test";
-import { loginToSteward, STEWARD } from "./helpers";
+import { loginToSteward, dbQuery, getTestOrgId } from "./helpers";
 
 test.describe("Members — Invite Token", () => {
-  test("New member receives a registration token", async ({ page }) => {
-    await loginToSteward(page, {
-      targetPath: "/dashboard/members",
-    });
+  test("New member receives a registration token in database", async ({ page }) => {
+    await loginToSteward(page, { targetPath: "/dashboard/members" });
 
     const email = `invite.${Date.now()}@example.com`;
-
     await page.getByRole("button", { name: "Add Member" }).click();
-
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
 
-    const textInputs = dialog.locator(
-      'input:not([type="email"]):not([type="date"]):not([type="number"]):not([type="time"])',
-    );
-
+    const textInputs = dialog.locator('input:not([type="email"]):not([type="date"]):not([type="number"]):not([type="time"])');
     await textInputs.nth(0).fill("Invite");
     await textInputs.nth(1).fill("Token");
-
     await dialog.locator('input[type="email"]').fill(email);
 
-    const createReq = page.waitForResponse(
-      (r) => r.url().endsWith("/api/members") && r.request().method() === "POST",
-      { timeout: 15000 },
-    );
-
+    const post = page.waitForResponse((r) => r.url().endsWith("/api/members") && r.request().method() === "POST");
     await dialog.getByRole("button", { name: "Save" }).click();
+    expect((await post).ok()).toBe(true);
 
-    const createRes = await createReq;
-    expect(createRes.ok(), "POST /api/members should succeed").toBe(true);
-
-    await expect
-      .poll(
-        async () => {
-          const res = await page.request.get(`${STEWARD}/api/members`);
-          if (!res.ok()) return false;
-
-          const members = await res.json();
-          const member = members.find((m: any) => m.email === email);
-
-          return Boolean(
-            member?.registrationToken ||
-              member?.registration_token ||
-              member?.inviteToken ||
-              member?.invite_token,
-          );
-        },
-        { timeout: 30000 },
-      )
-      .toBeTruthy();
+    const orgId = await getTestOrgId();
+    await expect.poll(async () => {
+      const rows = await dbQuery(
+        "SELECT registration_token FROM members WHERE email = $1 AND org_id = $2 LIMIT 1",
+        [email, orgId],
+      );
+      return Boolean(rows[0]?.registration_token);
+    }, { timeout: 30000 }).toBeTruthy();
   });
 });
