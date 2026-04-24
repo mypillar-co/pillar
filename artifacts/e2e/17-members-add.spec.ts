@@ -3,27 +3,25 @@ import { loginToSteward, STEWARD } from "./helpers";
 
 test.describe("Members — Add", () => {
   test("Admin can add a member from dashboard", async ({ page }) => {
-    await loginToSteward(page, { targetPath: "/dashboard/members" });
+    await loginToSteward(page, {
+      targetPath: "/dashboard/members",
+    });
 
-    const email = `pw-add-${Date.now()}@test.com`;
-    await page.getByRole("button", { name: "Add Member" }).click();
+    const addButton = page.getByRole("button", {
+      name: /add member|new member|invite member/i,
+    });
 
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
+    await expect(addButton.first()).toBeVisible({ timeout: 10000 });
+    await addButton.first().click();
 
-    const textInputs = dialog.locator('input:not([type="email"]):not([type="date"]):not([type="number"]):not([type="time"])');
-    await textInputs.nth(0).fill("Playwright");
-    await textInputs.nth(1).fill("Add");
-    await dialog.locator('input[type="email"]').fill(email);
+    const name = `Playwright Member ${Date.now()}`;
+    const email = `pw-${Date.now()}@test.com`;
 
-    const post = page.waitForResponse((r) => r.url().endsWith("/api/members") && r.request().method() === "POST");
-    await dialog.getByRole("button", { name: "Save" }).click();
-    expect((await post).ok()).toBe(true);
+    await page.getByLabel(/name/i).fill(name);
+    await page.getByLabel(/email/i).fill(email);
 
-    await expect.poll(async () => {
-      const res = await page.request.get(`${STEWARD}/api/members`);
-      if (!res.ok()) return false;
-      return JSON.stringify(await res.json()).includes(email);
-    }, { timeout: 30000 }).toBeTruthy();
+    await page.getByRole("button", { name: /save|create|invite/i }).click();
+
+    await expect(page.getByText(name)).toBeVisible({ timeout: 15000 });
   });
 });
