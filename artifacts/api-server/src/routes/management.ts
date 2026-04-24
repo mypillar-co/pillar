@@ -806,38 +806,67 @@ router.post("/chat", async (req: Request, res: Response) => {
         },
       },
     },
-    {
-      type: "function",
-      function: {
-        name: "add_site_section",
-        description: "Add a new content section to the public site. Available section types: leadership (board roster), gallery (photo grid), sponsors_showcase, history (timeline), volunteer_opportunities, documents (downloadable resources), meeting_schedule (cadence + upcoming dates). Use when the user says 'add a board page', 'show our sponsors on the homepage', 'add an our history section', 'add a documents section', 'add a leadership section'. Confirm the section's contents with the user before adding.",
-        parameters: {
-          type: "object",
-          properties: {
-            type: {
-              type: "string",
-              description: "Section type. One of: leadership, gallery, sponsors_showcase, history, volunteer_opportunities, documents, meeting_schedule.",
-            },
-            title: { type: "string", description: "Heading shown on the section." },
-            // Loosely typed body — different section types take different fields.
-            // The agent is expected to fill these in from the section type's example.
-            members:       { type: "array", description: "For leadership: [{name, title, email?, photoUrl?}]" },
-            photos:        { type: "array", description: "For gallery: [{url, caption?}]" },
-            sponsors:      { type: "array", description: "For sponsors_showcase: [{name, logoUrl?, website?, tier?}]" },
-            foundedYear:   { type: "string", description: "For history" },
-            narrative:     { type: "string", description: "For history" },
-            milestones:    { type: "array", description: "For history: [{year, event}]" },
-            intro:         { type: "string", description: "For volunteer_opportunities" },
-            opportunities: { type: "array", description: "For volunteer_opportunities: [{title, description, commitment?, contact?}]" },
-            documents:     { type: "array", description: "For documents: [{name, url, description?, category?}]" },
-            cadence:       { type: "string", description: "For meeting_schedule" },
-            location:      { type: "string", description: "For meeting_schedule" },
-            upcoming:      { type: "array", description: "For meeting_schedule: [{date, note?}]" },
+  {
+    type: "function",
+    function: {
+      name: "add_site_section",
+      description: "Add a new content section to the public site. Available section types: leadership (board roster), gallery (photo grid), sponsors_showcase, history (timeline), volunteer_opportunities, documents (downloadable resources), meeting_schedule (cadence + upcoming dates). Use when the user says 'add a board page', 'show our sponsors on the homepage', 'add an our history section', 'add a documents section', 'add a leadership section'. Confirm the section's contents with the user before adding.",
+      parameters: {
+        type: "object",
+        properties: {
+          type: {
+            type: "string",
+            description: "Section type. One of: leadership, gallery, sponsors_showcase, history, volunteer_opportunities, documents, meeting_schedule.",
           },
-          required: ["type"],
+          title: { type: "string", description: "Heading shown on the section." },
+
+          // Loosely typed body — different section types take different fields.
+          // The agent is expected to fill these in from the section type's example.
+          members: {
+            type: "array",
+            items: { type: "object" },
+            description: "For leadership: [{name, title, email?, photoUrl?}]",
+          },
+          photos: {
+            type: "array",
+            items: { type: "object" },
+            description: "For gallery: [{url, caption?}]",
+          },
+          sponsors: {
+            type: "array",
+            items: { type: "object" },
+            description: "For sponsors_showcase: [{name, logoUrl?, website?, tier?}]",
+          },
+          foundedYear: { type: "string", description: "For history" },
+          narrative: { type: "string", description: "For history" },
+          milestones: {
+            type: "array",
+            items: { type: "object" },
+            description: "For history: [{year, event}]",
+          },
+          intro: { type: "string", description: "For volunteer_opportunities" },
+          opportunities: {
+            type: "array",
+            items: { type: "object" },
+            description: "For volunteer_opportunities: [{title, description, commitment?, contact?}]",
+          },
+          documents: {
+            type: "array",
+            items: { type: "object" },
+            description: "For documents: [{name, url, description?, category?}]",
+          },
+          cadence: { type: "string", description: "For meeting_schedule" },
+          location: { type: "string", description: "For meeting_schedule" },
+          upcoming: {
+            type: "array",
+            items: { type: "object" },
+            description: "For meeting_schedule: [{date, note?}]",
+          },
         },
+        required: ["type"],
       },
     },
+  },
   ];
 
   // ── Tool execution functions ────────────────────────────────────────────
