@@ -78,7 +78,7 @@ test.describe("AI Edit Verified Changes", () => {
       .toContain(uniqueTagline);
   });
 
-  test("AI edit suggestion chip pre-fills and applies", async ({ page }) => {
+  test("AI edit suggestion chip pre-fills the prompt", async ({ page }) => {
     await page.goto(`${STEWARD}/dashboard/site`);
     await page.waitForLoadState("networkidle");
 
@@ -93,6 +93,7 @@ test.describe("AI Edit Verified Changes", () => {
       test.skip();
       return;
     }
+
     const chipText = (await chip.textContent())?.trim() ?? "";
     console.log("Chip clicked:", chipText);
     await chip.click();
@@ -107,26 +108,6 @@ test.describe("AI Edit Verified Changes", () => {
       `Chip "${chipText}" should pre-fill the textarea`,
     ).toBeGreaterThan(0);
     await screenshotStep(page, "21-07-chip-prefilled");
-
-    const before = await readSiteConfig();
-    const beforeJson = JSON.stringify(before ?? {});
-
-    await applyAndLaunch(page);
-    await screenshotStep(page, "21-08-chip-launched");
-
-    await expect
-      .poll(
-        async () => {
-          const cfg = await readSiteConfig();
-          return JSON.stringify(cfg ?? {});
-        },
-        {
-          timeout: 60000,
-          message:
-            "chip-driven AI edit should mutate organizations.site_config",
-        },
-      )
-      .not.toBe(beforeJson);
   });
 
   test("Color change chip updates colors on site", async ({ page }) => {

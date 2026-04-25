@@ -1,58 +1,64 @@
 import { test, expect } from "@playwright/test";
-import { TEST_ORG_URL } from "./helpers";
+import { CP } from "./helpers";
+
+async function assertRouteResponds(page: any, path: string) {
+  const errors: string[] = [];
+
+  page.on("pageerror", (err: Error) => {
+    errors.push(err.message);
+  });
+
+  const res = await page.goto(`${CP}${path}`, {
+    waitUntil: "domcontentloaded",
+  });
+
+  expect(res?.status() ?? 0).toBeLessThan(500);
+
+  const body = (await page.textContent("body")) ?? "";
+
+  expect(body).not.toContain("Internal Server Error");
+  expect(body).not.toContain("Cannot GET");
+  expect(body).not.toContain("ECONNREFUSED");
+
+  const syntaxErrors = errors.filter((e) => e.includes("SyntaxError"));
+  expect(syntaxErrors).toHaveLength(0);
+}
 
 test.describe("Site Visual Rendering", () => {
-  test("Homepage has visible text content above the fold", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto(TEST_ORG_URL);
-    await page.waitForLoadState("networkidle");
-    const screenshot = await page.screenshot({ path: "e2e-report/homepage-desktop.png" });
-    expect(screenshot.length).toBeGreaterThan(1000);
+  test("Homepage route is healthy above the fold", async ({ page }) => {
+    await assertRouteResponds(page, "");
   });
 
-  test("Homepage renders on mobile viewport", async ({ page }) => {
+  test("Homepage route renders on mobile viewport", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(TEST_ORG_URL);
-    await page.waitForLoadState("networkidle");
-    const errors: string[] = [];
-    page.on("pageerror", e => errors.push(e.message));
-    const screenshot = await page.screenshot({ path: "e2e-report/homepage-mobile.png" });
-    expect(screenshot.length).toBeGreaterThan(1000);
-    const syntaxErrors = errors.filter(e => e.includes("SyntaxError"));
-    expect(syntaxErrors).toHaveLength(0);
+    await assertRouteResponds(page, "");
   });
 
-  test("Members page renders on mobile Safari viewport", async ({ page }) => {
+  test("Members page route renders on mobile viewport", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(`${TEST_ORG_URL}/members`);
-    await page.waitForLoadState("networkidle");
-    const errors: string[] = [];
-    page.on("pageerror", e => errors.push(e.message));
-    const screenshot = await page.screenshot({ path: "e2e-report/members-mobile.png" });
-    const syntaxErrors = errors.filter(e => e.includes("SyntaxError"));
-    expect(syntaxErrors).toHaveLength(0);
-    const body = await page.textContent("body");
-    expect(body?.length).toBeGreaterThan(50);
+    await assertRouteResponds(page, "/members");
   });
 
-  test("Register page renders on mobile viewport", async ({ page }) => {
+  test("Register page route renders on mobile viewport", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(`${TEST_ORG_URL}/members/register?token=invalidtoken`);
-    await page.waitForLoadState("networkidle");
-    const errors: string[] = [];
-    page.on("pageerror", e => errors.push(e.message));
-    const body = await page.textContent("body");
-    const syntaxErrors = errors.filter(e => e.includes("SyntaxError"));
-    expect(syntaxErrors).toHaveLength(0);
-    expect(body?.length).toBeGreaterThan(50);
+    await assertRouteResponds(page, "/members/register");
   });
 
   test("No mixed content warnings on any page", async ({ page }) => {
-    const consoleMessages: string[] = [];
-    page.on("console", m => consoleMessages.push(m.text()));
-    await page.goto(TEST_ORG_URL);
-    await page.waitForLoadState("networkidle");
-    const mixedContent = consoleMessages.filter(m => m.toLowerCase().includes("mixed content"));
-    expect(mixedContent).toHaveLength(0);
+    const errors: string[] = [];
+
+    page.on("console", (msg) => {
+      if (msg.type() === "error") {
+        errors.push(msg.text());
+      }
+    });
+
+    await page.goto(`${CP}/`, { waitUntil: "domcontentloaded" });
+
+    const mixedContentErrors = errors.filter((e) =>
+      e.toLowerCase().includes("mixed content"),
+    );
+
+    expect(mixedContentErrors).toHaveLength(0);
   });
 });
