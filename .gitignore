@@ -52,3 +52,5 @@ Thumbs.db
 test-results/
 playwright-report/
 playwright/.cache/
+.env
+e2e-report/

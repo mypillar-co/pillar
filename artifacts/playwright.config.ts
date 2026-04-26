@@ -12,7 +12,7 @@ export default defineConfig({
     video: "on",
     trace: "on",
     baseURL: "http://localhost:5173",
-    extraHTTPHeaders: { "x-org-id": "norwin-rotary-uic5" },
+    extraHTTPHeaders: { "x-org-id": "norwin-rotary" },
   },
 
   projects: [
@@ -33,8 +33,16 @@ export default defineConfig({
 
   webServer: [
     {
-      command: "set -a; source .env; set +a; pnpm --filter @workspace/api-server dev",
+      command:
+        "set -a; source .env; set +a; pnpm --filter @workspace/api-server dev",
       port: 8080,
+      reuseExistingServer: true,
+      timeout: 120000,
+    },
+    {
+      command:
+        "set -a; source .env; set +a; PORT=5001 pnpm --filter @workspace/community-platform dev",
+      port: 5001,
       reuseExistingServer: true,
       timeout: 120000,
     },
