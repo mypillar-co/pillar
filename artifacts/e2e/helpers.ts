@@ -2,7 +2,7 @@ import { expect, type Page } from "@playwright/test";
 import { Pool } from "pg";
 
 export const API = process.env.API_URL ?? "http://localhost:8080";
-export const CP = process.env.CP_URL ?? "http://localhost:5001";
+export const CP = process.env.CP_URL ?? "http://localhost:8080";
 export const STEWARD = process.env.STEWARD_URL ?? "http://localhost:18402";
 export const TEST_ORG_SLUG = process.env.TEST_ORG_SLUG ?? "norwin-rotary-uic5";
 export const TEST_ORG_URL = `${API}/sites/${TEST_ORG_SLUG}`;

@@ -5,13 +5,16 @@ export default defineConfig({
   timeout: 120000,
   retries: 0,
   workers: 1,
+
   use: {
     headless: true,
     screenshot: "on",
     video: "on",
     trace: "on",
+    baseURL: "http://localhost:5173",
     extraHTTPHeaders: { "x-org-id": "norwin-rotary-uic5" },
   },
+
   projects: [
     {
       name: "desktop-chrome",
@@ -22,8 +25,24 @@ export default defineConfig({
       use: { ...devices["iPhone 13"] },
     },
   ],
+
   reporter: [
     ["list"],
     ["html", { outputFolder: "e2e-report", open: "never" }],
+  ],
+
+  webServer: [
+    {
+      command: "set -a; source .env; set +a; pnpm --filter @workspace/api-server dev",
+      port: 8080,
+      reuseExistingServer: true,
+      timeout: 120000,
+    },
+    {
+      command: "pnpm --filter @workspace/steward dev",
+      port: 5173,
+      reuseExistingServer: true,
+      timeout: 120000,
+    },
   ],
 });

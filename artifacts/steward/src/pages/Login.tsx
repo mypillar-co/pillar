@@ -85,6 +85,10 @@ export default function Login() {
     window.location.href = `${BASE}/api/auth/apple?returnTo=/dashboard`;
   };
 
+  const devLogin = () => {
+    window.location.href = `${BASE}/api/auth/dev-login?email=andrewpaluch01@gmail.com`;
+  };
+
   const hasSocialProviders = providers.google || providers.apple;
 
   return (
@@ -140,7 +144,6 @@ export default function Login() {
             )}
 
             <form onSubmit={submit} className="space-y-4">
-              {/* Bot honeypot — hidden from humans, filled by bots */}
               <div aria-hidden="true" style={{ position: "absolute", left: "-9999px", width: "1px", height: "1px", overflow: "hidden", opacity: 0 }}>
                 <label htmlFor="website">Website</label>
                 <input id="website" name="website" type="text" tabIndex={-1} autoComplete="off" value={honeypot} onChange={e => setHoneypot(e.target.value)} />
@@ -193,6 +196,15 @@ export default function Login() {
                   </button>
                 </div>
               </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 font-medium"
+                onClick={devLogin}
+              >
+                DEV LOGIN (Andrew)
+              </Button>
 
               <Button
                 type="submit"
