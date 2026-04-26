@@ -452,11 +452,11 @@ interface SiteStatusData {
 
 // ── Hero image panel ───────────────────────────────────────────────────────────
 
-type HeroPhase = "idle" | "picking" | "saving" | "approving";
+type HeroPhase = "idle" | "picking" | "saving" | "approving" | "selected";
 
 function HeroImagePanel({ initialUrl, autoTriggerAi }: { initialUrl: string | null | undefined; autoTriggerAi?: boolean }) {
   const [url, setUrl] = useState<string | null>(initialUrl ?? null);
-  const [phase, setPhase] = useState<HeroPhase>("idle");
+const [phase, setPhase] = useState<HeroPhase>(initialUrl ? "selected" : "idle");
   const [photos, setPhotos] = useState<UnsplashPhoto[]>([]);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -499,50 +499,61 @@ function HeroImagePanel({ initialUrl, autoTriggerAi }: { initialUrl: string | nu
     }
   }
 
-  async function handleAiPick() {
-    setError(null);
-    setSaved(false);
-    setPhase("loading");
+async function handleAiPick() {
+  setError(null);
+  setSaved(false);
+  setPhase("picking");
 
-    try {
-      const res = await fetch("/api/organizations/hero-image/suggest");
-      if (!res.ok) throw new Error("Failed to fetch photos");
+  try {
+    const res = await fetch("/api/organizations/hero-image/suggest");
+    if (!res.ok) throw new Error("Failed to fetch photos");
 
-      const data = await res.json();
+    const data = await res.json();
 
-      setPhotos(data.photos || []);
-      setQuery(data.query || "");
-
-      // 🔥 THIS LINE IS THE FIX
-      setPhase("approving");
-
-    } catch (err: any) {
-      setError(err.message || "Failed to load photos");
-      setPhase("error");
-    }
+    setPhotos(data.photos || []);
+    setQuery(data.query || "");
+    setPhase("approving");
+  } catch (err: any) {
+    setError(err.message || "Failed to load photos");
+    setPhase("idle");
   }
+}
 
   async function applyPhoto(photo: UnsplashPhoto) {
-    setPhase("saving");
-    setError(null);
-    try {
-      const res = await csrfFetch("/api/organizations/hero-image/apply-unsplash", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ photoId: photo.id, photoUrl: photoFull(photo), credit: photo.credit ?? photo.description }),
-      });
-      const d = await res.json() as { heroImageUrl?: string; error?: string };
-      if (!res.ok || !d.heroImageUrl) throw new Error(d.error ?? "Save failed");
-      setUrl(d.heroImageUrl);
-      setPhotos([]);
-      setPhase("idle");
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to apply photo");
-      setPhase("idle");
+  const optimisticUrl = photoFull(photo);
+
+  setPhase("saving");
+  setError(null);
+  setUrl(optimisticUrl);
+  setPhotos([]);
+  setSaved(false);
+
+  try {
+    const res = await csrfFetch("/api/organizations/hero-image/apply-unsplash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        photoId: photo.id,
+        photoUrl: optimisticUrl,
+        credit: photo.credit ?? photo.description,
+      }),
+    });
+
+    const d = (await res.json()) as { heroImageUrl?: string; error?: string };
+
+    if (!res.ok || !d.heroImageUrl) {
+      throw new Error(d.error ?? "Save failed");
     }
+
+    setUrl(d.heroImageUrl);
+    setSaved(true);
+    setPhase("selected");
+    setTimeout(() => setSaved(false), 3000);
+  } catch (e) {
+    setError(e instanceof Error ? e.message : "Failed to apply photo");
+    setPhase("selected");
   }
+}
 
   async function removeBanner() {
     setPhase("saving");
@@ -560,7 +571,7 @@ function HeroImagePanel({ initialUrl, autoTriggerAi }: { initialUrl: string | nu
   }
 
   return (
-    <div className="rounded-xl bg-[#0f1a2e] border border-[#1e3a5f] p-4 space-y-3">
+    <div data-testid="hero-image-panel" className="rounded-xl bg-[#0f1a2e] border border-[#1e3a5f] p-4 space-y-3">
       <p className="text-xs text-[#7a9cbf] font-medium uppercase tracking-wide">Homepage Banner</p>
 
       {/* Current image preview */}
@@ -651,7 +662,8 @@ function HeroImagePanel({ initialUrl, autoTriggerAi }: { initialUrl: string | nu
             <ImagePlus className="w-3.5 h-3.5 text-[#7a9cbf]" />
             Upload photo
           </button>
-          <button
+       <button
+            data-testid="hero-ai-picks-button"
             onClick={() => void handleAiPick()}
             disabled={phase !== "idle"}
             className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#d4a017]/30 bg-[#d4a017]/8 hover:bg-[#d4a017]/15 text-sm text-[#d4a017] font-medium transition-colors disabled:opacity-50"
