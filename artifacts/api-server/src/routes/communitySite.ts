@@ -281,6 +281,135 @@ const ORG_TYPE_SUBTITLE_MAP: Record<string, string> = {
   "Other":                              "Community Organization",
 };
 
+const SITE_STYLE_OPTIONS = [
+  "Classic",
+  "Modern Civic",
+  "Heritage",
+  "Bold Event",
+  "Warm Community",
+] as const;
+
+type SiteStyle = (typeof SITE_STYLE_OPTIONS)[number];
+
+function normalizeSiteStyle(value: unknown, orgType: string): SiteStyle {
+  if (typeof value === "string") {
+    const match = SITE_STYLE_OPTIONS.find((option) => option === value.trim());
+    if (match) return match;
+  }
+  if (orgType === "Fraternal Organization" || orgType === "VFW / American Legion") return "Heritage";
+  if (orgType === "Rotary Club" || orgType === "Lions Club") return "Modern Civic";
+  if (orgType === "Chamber of Commerce") return "Classic";
+  if (orgType === "Main Street / Downtown Association") return "Warm Community";
+  return "Modern Civic";
+}
+
+function deriveHeroHeadline(
+  orgType: string,
+  orgName: string,
+  location: string,
+  tagline: string,
+): string {
+  const place = location || "your community";
+  if (orgType === "Fraternal Organization") return `${orgName} keeps tradition visible in ${place}`;
+  if (orgType === "Rotary Club" || orgType === "Lions Club") return `See how ${orgName} serves ${place}`;
+  if (orgType === "Chamber of Commerce") return `${orgName} helps local business move together`;
+  if (orgType === "Main Street / Downtown Association") return `${orgName} brings more life to ${place}`;
+  if (orgType === "Community Foundation") return `${orgName} turns local generosity into visible impact`;
+  if (orgType === "Arts Council") return `${orgName} puts arts and culture at the center of ${place}`;
+  if (orgType === "PTA / PTO") return `${orgName} keeps families informed and involved`;
+  if (orgType === "VFW / American Legion") return `${orgName} honors service and strengthens ${place}`;
+  if (/festival|fair|parade|market/i.test(tagline)) return `${orgName} makes it easy to join the next big day in ${place}`;
+  return `${orgName} is building momentum in ${place}`;
+}
+
+function deriveHeroSubheadline(
+  orgType: string,
+  tagline: string,
+  meeting: { meetingDay: string | null; meetingTime: string | null; meetingLocation: string | null },
+  annualEvents: string | null | undefined,
+  membersOrBusinesses: string | null | undefined,
+): string {
+  const scheduleBits = [meeting.meetingDay, meeting.meetingTime, meeting.meetingLocation]
+    .filter(Boolean)
+    .join(" • ");
+  if (scheduleBits) {
+    return `${tagline}${tagline ? " " : ""}${scheduleBits ? `Meet with us ${scheduleBits}.` : ""}`.trim();
+  }
+  if (orgType === "Chamber of Commerce" && membersOrBusinesses) {
+    return `${tagline} Supporting ${membersOrBusinesses} local businesses with stronger visibility, better connections, and a more active downtown presence.`;
+  }
+  if ((orgType === "Rotary Club" || orgType === "Lions Club") && annualEvents) {
+    return `${tagline} Join neighbors, volunteers, and partners behind ${annualEvents} moments of service, fundraising, and community connection each year.`;
+  }
+  return tagline || "Built around real community activity, clear next steps, and a stronger public presence.";
+}
+
+function deriveHomepageCtas(
+  orgType: string,
+  hasNewsletter: boolean,
+  hasEvents: boolean,
+): {
+  primaryLabel: string;
+  primaryHref: string;
+  secondaryLabel: string;
+  secondaryHref: string;
+} {
+  if (orgType === "Fraternal Organization") {
+    return {
+      primaryLabel: "Plan Your Visit",
+      primaryHref: "/contact",
+      secondaryLabel: hasEvents ? "View Lodge Events" : "Learn Our History",
+      secondaryHref: hasEvents ? "/events" : "/about",
+    };
+  }
+  if (orgType === "Chamber of Commerce") {
+    return {
+      primaryLabel: "Connect With Local Business",
+      primaryHref: "/contact",
+      secondaryLabel: hasEvents ? "See Networking Events" : "Meet the Chamber",
+      secondaryHref: hasEvents ? "/events" : "/about",
+    };
+  }
+  if (orgType === "Main Street / Downtown Association") {
+    return {
+      primaryLabel: hasEvents ? "See What's Happening Downtown" : "Get Involved Downtown",
+      primaryHref: hasEvents ? "/events" : "/contact",
+      secondaryLabel: hasNewsletter ? "Get Community Updates" : "Learn About the District",
+      secondaryHref: hasNewsletter ? "#newsletter" : "/about",
+    };
+  }
+  if (orgType === "Community Foundation") {
+    return {
+      primaryLabel: "Support the Mission",
+      primaryHref: "/contact",
+      secondaryLabel: "See Community Impact",
+      secondaryHref: "/about",
+    };
+  }
+  if (orgType === "VFW / American Legion") {
+    return {
+      primaryLabel: "Join the Next Gathering",
+      primaryHref: hasEvents ? "/events" : "/contact",
+      secondaryLabel: "Support Veterans",
+      secondaryHref: "/about",
+    };
+  }
+  if (hasEvents) {
+    return {
+      primaryLabel: "See Upcoming Events",
+      primaryHref: "/events",
+      secondaryLabel: "Get Involved",
+      secondaryHref: "/contact",
+    };
+  }
+  return {
+    primaryLabel: "Get Involved",
+    primaryHref: "/contact",
+    secondaryLabel: "Learn More",
+    secondaryHref: "/about",
+  };
+}
+
 function parseMeetingSchedule(text: string | null | undefined): {
   meetingDay: string | null;
   meetingTime: string | null;
@@ -345,13 +474,38 @@ function buildFallbackPayload(
   const meeting      = parseMeetingSchedule(answers.meetingSchedule as string | null);
   const contactEmail = (answers.contactEmail as string | null) ?? "";
   const eventsEmail  = (answers.eventsEmail  as string | null) ?? null;
+  const siteStyle    = normalizeSiteStyle(answers.siteStyle, orgType);
 
   const boolVal = (v: unknown) => v === true || v === "Yes";
+  const hasBlog = tier === "tier1a" ? true : tier === "tier2" || tier === "tier3" ? boolVal(answers.hasBlog) : false;
+  const hasNewsletter = tier === "tier1a" ? true : tier === "tier2" || tier === "tier3" ? boolVal(answers.hasNewsletter) : false;
+  const hasEvents = true;
+  const ctas = deriveHomepageCtas(orgType, hasNewsletter, hasEvents);
+  const heroHeadline = deriveHeroHeadline(orgType, orgName, location, tagline);
+  const heroSubheadline = deriveHeroSubheadline(
+    orgType,
+    tagline,
+    meeting,
+    answers.annualEvents as string | null | undefined,
+    answers.membersOrBusinesses as string | null | undefined,
+  );
 
   const siteContent: Record<string, string> = {
     home_tagline:          tagline,
     home_intro:            tagline,
+    home_headline:         heroHeadline,
+    home_subheadline:      heroSubheadline,
+    home_primary_cta_label: ctas.primaryLabel,
+    home_primary_cta_href:  ctas.primaryHref,
+    home_secondary_cta_label: ctas.secondaryLabel,
+    home_secondary_cta_href:  ctas.secondaryHref,
+    home_section_eyebrow:  homeSubtitle,
     home_subtitle:         homeSubtitle,
+    events_heading:        orgType === "Main Street / Downtown Association" ? "Downtown Events" : orgType === "Chamber of Commerce" ? "Business Events & Gatherings" : orgType === "Fraternal Organization" ? "Lodge Calendar" : "Upcoming Events",
+    events_intro:          location ? `See what is coming up in ${location}.` : "See what is coming up next.",
+    partners_heading:      orgType === "Chamber of Commerce" ? "Business & Civic Partners" : "Community Partners",
+    newsletter_heading:    orgType === "Community Foundation" ? "Get mission updates" : "Stay connected",
+    style_name:            siteStyle,
     contact_address:       (answers.contactAddress as string | null) ?? "",
     contact_phone:         (answers.contactPhone   as string | null) ?? "",
     contact_email:         contactEmail,
@@ -368,8 +522,8 @@ function buildFallbackPayload(
     siteContent.has_newsletter   = "true";
     siteContent.pillarWebhookUrl = "__PILLAR_WEBHOOK_URL__";
   } else if (tier === "tier2" || tier === "tier3") {
-    siteContent.has_blog         = String(boolVal(answers.hasBlog));
-    siteContent.has_newsletter   = String(boolVal(answers.hasNewsletter));
+    siteContent.has_blog         = String(hasBlog);
+    siteContent.has_newsletter   = String(hasNewsletter);
     siteContent.pillarWebhookUrl = "__PILLAR_WEBHOOK_URL__";
     siteContent.event_categories = (answers.eventCategories as string | null) ?? "Community, Fundraiser, Social";
   } else {
@@ -410,6 +564,17 @@ function buildFallbackPayload(
       { value: "100%", label: "Volunteer Run" },
     ],
     partners,
+    features: {
+      blog: hasBlog,
+      newsletter: hasNewsletter,
+      vendors: tier === "tier2" || tier === "tier3" ? boolVal(answers.hasVendors) : false,
+      sponsors: tier === "tier2" || tier === "tier3" ? boolVal(answers.hasSponsors) : false,
+      businessDirectory: businessFocused,
+      ticketedEvents: tier === "tier2" || tier === "tier3" ? boolVal(answers.hasTicketedEvents) : false,
+      members: !businessFocused,
+      siteStyle,
+    },
+    siteStyle,
     siteContent,
   };
 
@@ -794,6 +959,9 @@ router.get("/target", async (req: Request, res: Response) => {
       primaryColor: (config.primaryColor as string | undefined) ?? null,
       accentColor:  (config.accentColor  as string | undefined) ?? null,
       tagline:      (config.tagline      as string | undefined) ?? null,
+      siteStyle:    (config.siteStyle as string | undefined)
+        ?? ((config.features as Record<string, unknown> | undefined)?.siteStyle as string | undefined)
+        ?? null,
     } : null;
 
     res.json({
@@ -807,6 +975,76 @@ router.get("/target", async (req: Request, res: Response) => {
   } catch {
     res.json({ url: null, hasKey: false, tier: null, isProvisioned: false, configSummary: null });
   }
+});
+
+router.post("/style", async (req: Request, res: Response) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+
+  const requestedStyle = (req.body as { siteStyle?: unknown } | undefined)?.siteStyle;
+  const siteStyle = normalizeSiteStyle(requestedStyle, (org.type as string | null) ?? "Other");
+
+  const row = await db.execute(sql`
+    SELECT site_config, slug FROM organizations WHERE id = ${org.id} LIMIT 1
+  `);
+  const current = row.rows[0] as { site_config?: Record<string, unknown> | null; slug?: string | null } | undefined;
+  const currentConfig = (current?.site_config ?? {}) as Record<string, unknown>;
+  const currentFeatures =
+    currentConfig.features && typeof currentConfig.features === "object" && !Array.isArray(currentConfig.features)
+      ? (currentConfig.features as Record<string, unknown>)
+      : {};
+  const currentSiteContent =
+    currentConfig.siteContent && typeof currentConfig.siteContent === "object" && !Array.isArray(currentConfig.siteContent)
+      ? (currentConfig.siteContent as Record<string, unknown>)
+      : {};
+
+  const nextConfig = {
+    ...currentConfig,
+    siteStyle,
+    features: {
+      ...currentFeatures,
+      siteStyle,
+    },
+    siteContent: {
+      ...currentSiteContent,
+      style_name: siteStyle,
+    },
+  };
+
+  await db.execute(sql`
+    UPDATE organizations
+    SET site_config = ${JSON.stringify(nextConfig)}::jsonb
+    WHERE id = ${org.id}
+  `);
+
+  const orgSlug = current?.slug ?? (org as { slug?: string | null }).slug;
+  if (orgSlug) {
+    const cpBaseUrl = process.env.COMMUNITY_PLATFORM_URL || "http://localhost:5001";
+    const cpKey = process.env.PILLAR_SERVICE_KEY;
+    if (cpKey) {
+      try {
+        await fetch(`${cpBaseUrl.replace(/\/$/, "")}/api/internal/org-config`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "x-pillar-service-key": cpKey,
+          },
+          body: JSON.stringify({
+            orgId: orgSlug,
+            features: {
+              ...currentFeatures,
+              siteStyle,
+            },
+          }),
+          signal: AbortSignal.timeout(15_000),
+        });
+      } catch (err) {
+        console.warn("[community-site/style] community-platform patch failed", err);
+      }
+    }
+  }
+
+  res.json({ ok: true, siteStyle });
 });
 
 // ── PUT /api/community-site/target ──────────────────────────────────────────
