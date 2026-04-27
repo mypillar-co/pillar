@@ -81094,8 +81094,18 @@ function registerRoutes(app2) {
   app2.get("/api/org-config", async (req, res) => {
     const orgId = getOrgId(req);
     const config3 = await getOrgConfig(orgId);
-    if (!config3) return res.json({ _empty: true, orgId });
-    res.json(config3);
+    let memberCount = 0;
+    try {
+      const orgIds = await getOrgIdCandidates(req);
+      const r = await db.execute(neonSql`
+        SELECT COUNT(*)::int AS c FROM members WHERE org_id = ANY(${orgIds})
+      `);
+      memberCount = Number(r.rows[0]?.c ?? 0);
+    } catch {
+      memberCount = 0;
+    }
+    if (!config3) return res.json({ _empty: true, orgId, memberCount });
+    res.json({ ...config3, memberCount });
   });
   async function getPillarEvents(orgSlug) {
     try {

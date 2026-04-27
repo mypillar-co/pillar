@@ -39,6 +39,7 @@ export interface OrgConfig {
     businessDirectory?: boolean;
     ticketedEvents?: boolean;
     members?: boolean;
+    siteStyle?: string;
   };
   _empty?: boolean;
 }
