@@ -36,36 +36,57 @@ const CONTEXT_TURNS = 12;
 const MAX_INTERVIEW_TOKENS = 750;
 const MAX_PAYLOAD_TOKENS = 2200;
 
-function tryGetOpenAIClient(): OpenAI | null {
-  if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || !process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
-    return null;
+type OpenAIProvider = {
+  client: OpenAI;
+  model: string;
+};
+
+function getOpenAIProviders(): OpenAIProvider[] {
+  const providers: OpenAIProvider[] = [];
+
+  if (process.env.OPENAI_API_KEY) {
+    providers.push({
+      client: new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+        baseURL: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+        timeout: 60_000,
+      }),
+      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+    });
   }
-  return new OpenAI({
-    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-    timeout: 60_000,
-  });
+
+  if (process.env.AI_INTEGRATIONS_OPENAI_BASE_URL && process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
+    providers.push({
+      client: new OpenAI({
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+        timeout: 60_000,
+      }),
+      model: "gpt-4o-mini",
+    });
+  }
+
+  return providers;
 }
 
-// callAI: tries the Replit OpenAI integration first, then falls back to
-// ANTHROPIC_API_KEY if the integration is not configured or returns an error.
+// callAI: tries standard OpenAI first, then the Replit OpenAI integration,
+// then falls back to ANTHROPIC_API_KEY.
 async function callAI(
   messages: OpenAI.ChatCompletionMessageParam[],
   maxTokens: number,
 ): Promise<string> {
-  // Attempt 1: Replit OpenAI integration
-  const openaiClient = tryGetOpenAIClient();
-  if (openaiClient) {
+  // Attempt 1: OpenAI-compatible providers
+  for (const provider of getOpenAIProviders()) {
     try {
-      const response = await openaiClient.chat.completions.create({
-        model: "gpt-4o-mini",
+      const response = await provider.client.chat.completions.create({
+        model: provider.model,
         max_tokens: maxTokens,
         messages,
       });
       const content = response.choices[0]?.message?.content ?? "";
       if (content) return content;
     } catch (_openaiErr) {
-      // Fall through to Anthropic
+      // Try the next provider, then Anthropic.
     }
   }
 
