@@ -11,6 +11,7 @@
   "test:e2e:ui": "playwright test --ui",
   "test:core": "playwright test artifacts/e2e/01-platform-health.spec.ts artifacts/e2e/27-dashboard-navigation.spec.ts artifacts/e2e/29-public-site-rendering.spec.ts --config=artifacts/playwright.config.ts --project=desktop-chrome --workers=1 --reporter=line",
   "test:branded-hero": "playwright test artifacts/e2e/81-branded-hero-banner.spec.ts --config=artifacts/playwright.config.ts --project=desktop-chrome --workers=1 --reporter=line",
+  "test:site-archetypes": "playwright test artifacts/e2e/89-site-archetype-lodge.spec.ts artifacts/e2e/90-site-archetype-civic.spec.ts artifacts/e2e/91-site-archetype-quality-gates.spec.ts --config=artifacts/playwright.config.ts --project=desktop-chrome --workers=1 --reporter=line",
   "doctor": "node scripts/doctor.mjs"
 },
   "private": true,

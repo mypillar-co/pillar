@@ -5,6 +5,12 @@ import { resolveFullOrg } from "../lib/resolveOrg";
 import OpenAI from "openai";
 import { buildSiteFromTemplate, SITE_SCRIPT_BLOCK, type SiteContent } from "../siteTemplate";
 import { sanitizeAiSiteHtml } from "../lib/sanitizeHtml";
+import {
+  buildHomepagePlan,
+  containsGenericHeroPhrase,
+  ensureSpecificLine,
+  getArchetypeImagePool,
+} from "../lib/siteArchetypes";
 import { load as cheerioLoad } from "cheerio";
 import { promises as dnsPromises } from "dns";
 import { isIP } from "net";
@@ -1508,7 +1514,7 @@ router.post("/generate", async (req: Request, res: Response) => {
   };
 
   let extractedSpec: SpecType = {
-    orgName: name, tagline: `Welcome to ${name}`, mission: `${name} serves our community.`,
+    orgName: name, tagline: "", mission: "",
     services: [], location: "", hours: "", events: [], contactEmail: "", contactPhone: "",
     socialMedia: [], audience: "", colors: "navy and gold", extras: "", hasBlog: false,
   };
@@ -1568,6 +1574,16 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
     .limit(10);
   const futureEvents = upcomingEvents.filter(e => !e.startDate || e.startDate >= today);
   const allEvents = futureEvents.length > 0 ? futureEvents : upcomingEvents.slice(0, 5);
+  const homepagePlan = buildHomepagePlan({
+    orgName: extractedSpec.orgName || name,
+    orgType: type,
+    orgCategory: (org as { category?: string | null }).category ?? null,
+    tagline: extractedSpec.tagline,
+    mission: extractedSpec.mission,
+    location: extractedSpec.location,
+    services: extractedSpec.services,
+    events: allEvents,
+  });
 
   // Step 3b: Fetch community framework — provides authoritative color palettes and page structure rules.
   // Framework is cached 1h; failure is non-blocking (generation continues with built-in rules).
@@ -1599,9 +1615,9 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
   const safeOrgName = (s.orgName || org.name).replace(/["<>&]/g, c => c === "&" ? "&amp;" : c === "<" ? "&lt;" : "&gt;");
   const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-  // Civic/community-appropriate Unsplash photos — people, service, professional gatherings
-  const HERO_IDS = ["1529156069898-aa78f52d3b87","1521737604082-f4eb08bd4e18","1573497491765-57b4f23b3624","1531545514256-b1400bc00f31","1488521787991-ed7bbaae773c","1521791055366-0d553872952f","1573164574572-cb89e39749b4","1559425036-3b9ba2e45e93"];
-  const ABOUT_IDS = ["1573497491765-57b4f23b3624","1531545514256-b1400bc00f31","1559425036-3b9ba2e45e93","1521737604082-f4eb08bd4e18","1488521787991-ed7bbaae773c","1582213782179-e0d53f98f2ca"];
+  const archetypeImages = getArchetypeImagePool(homepagePlan.archetype);
+  const HERO_IDS = archetypeImages.hero;
+  const ABOUT_IDS = archetypeImages.about;
 
   type ContentData = {
     primaryHex: string; accentHex: string; primaryRgb: string;
@@ -1629,18 +1645,18 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
   let contentData: ContentData = {
     primaryHex: "#1e3a5f", accentHex: "#c9a84c", primaryRgb: "30,58,95",
     heroUnsplashId: HERO_IDS[0], aboutUnsplashId: ABOUT_IDS[0],
-    orgTypeLabel: "Civic Organization",
-    aboutHeading: "Serving Our Community",
-    missionExpanded: s.mission || `${safeOrgName} is committed to serving our community through dedicated programs, meaningful connections, and a shared vision for a better tomorrow.`,
+    orgTypeLabel: type || "Community Organization",
+    aboutHeading: `Why ${safeOrgName} matters in ${s.location || "the community"}`,
+    missionExpanded: s.mission || `${safeOrgName} gives people in ${s.location || "the area"} a clear way to get involved, stay informed, and show up for one another.`,
     stat1Value: "1985", stat1Label: "Year Founded",
     stat2Value: "200+", stat2Label: "Active Members",
     stat3Value: "20+", stat3Label: "Annual Events",
     hasBlog: s.hasBlog ?? false,
     programs: defaultPrograms,
-    contactHeading: "Come Join Our Community",
-    contactIntro: "Whether you're curious about membership or want to partner with us, we'd love to connect. Our doors are open to all who share our values.",
-    contactCardHeading: "Ready to get involved?",
-    contactCardText: "Getting started is easy. Reach out and we'll personally connect you with the right program or membership pathway.",
+    contactHeading: homepagePlan.primaryCTA.label,
+    contactIntro: `${safeOrgName} is easiest to understand in person. Reach out and we'll help you find the right next step.`,
+    contactCardHeading: homepagePlan.primaryCTA.label,
+    contactCardText: `Use the details below to connect with ${safeOrgName}, ask a question, or take the next step with confidence.`,
   };
 
   const colorHints = s.colors || "navy and gold";
@@ -1658,6 +1674,11 @@ Use empty strings and empty arrays for anything not mentioned. Output ONLY the J
         content: `You are a master UX/UI designer and copywriter specializing in civic and community organizations. Your job is to produce content for a stunning, modern website that is far superior to the organization's existing site. Create content that is compelling, specific, and authentic — this will be seen by the community and must make a strong first impression.${originalSiteContext}${frameworkStructureNote}
 
 Output ONLY a valid JSON object — no explanation, no markdown fences.
+
+DETERMINISTIC HOMEPAGE PLAN — follow this exactly before writing copy:
+${JSON.stringify(homepagePlan, null, 2)}
+
+The site archetype above is already classified from real org data. Respect it. The CTA language, tone, section priorities, and image strategy should match it.
 
 COLOR SELECTION RULES — MANDATORY org-type colors (from specs/pillar-org-design-strategies.md + community framework):${frameworkColorNote}
 DETECT org type from name/description, then apply EXACT colors. These are NOT suggestions:
@@ -1717,6 +1738,10 @@ Rules:
 - Contact section must include when/where they meet and the most direct way to reach them.
 - aboutHeading must name the org or location specifically — "Serving Norwin Since 1952" not "Serving Our Community."
 - missionExpanded must include the human story: who they serve, what specifically changes in the community because of this org, what someone would gain by joining or attending.
+- Reject generic hero language such as: ${homepagePlan.avoidGenericPhrases.join(", ")}.
+- The opening copy must sound specific to ${safeOrgName} and ${s.location || "its place"}.
+- Favor the CTA pair from the homepage plan over generic "Learn More" language.
+- Follow the image strategy exactly: ${homepagePlan.imageStrategy}
 - No emojis anywhere in the output.`,
       },
       {
@@ -1738,6 +1763,51 @@ Rules:
     }
   } catch {
     // Use defaults
+  }
+
+  contentData.aboutHeading = ensureSpecificLine(
+    contentData.aboutHeading,
+    `Why ${safeOrgName} matters in ${s.location || "the community"}`,
+  );
+  contentData.missionExpanded = ensureSpecificLine(
+    contentData.missionExpanded,
+    `${safeOrgName} helps people in ${s.location || "the area"} stay connected, show up, and act on what matters locally.`,
+  );
+  contentData.contactHeading = ensureSpecificLine(
+    contentData.contactHeading,
+    homepagePlan.primaryCTA.label,
+  );
+  contentData.contactCardHeading = ensureSpecificLine(
+    contentData.contactCardHeading,
+    homepagePlan.primaryCTA.label,
+  );
+  contentData.contactIntro = ensureSpecificLine(
+    contentData.contactIntro,
+    `${safeOrgName} is built around real local participation, and the best next step is clear from the moment you land here.`,
+  );
+  contentData.contactCardText = ensureSpecificLine(
+    contentData.contactCardText,
+    `Reach out to ${safeOrgName} and we’ll help you find the right meeting, event, or membership path.`,
+  );
+  if (containsGenericHeroPhrase(s.tagline) || !(s.tagline ?? "").trim()) {
+    if (homepagePlan.archetype === "lodge_fraternal") {
+      s.tagline = `${safeOrgName} brings fellowship, tradition, and local service together in ${s.location || "your community"}.`;
+    } else if (homepagePlan.archetype === "civic_service") {
+      s.tagline = `${safeOrgName} turns service into visible local impact in ${s.location || "the community"}.`;
+    } else if (homepagePlan.archetype === "business_chamber") {
+      s.tagline = `${safeOrgName} connects local businesses, stronger networking, and a more visible ${s.location || "business community"}.`;
+    } else if (homepagePlan.archetype === "event_festival") {
+      const leadEvent = allEvents[0];
+      s.tagline = leadEvent?.startDate
+        ? `${safeOrgName} makes it easy to plan the next big date on the calendar in ${leadEvent.location || s.location || "town"}.`
+        : `${safeOrgName} gives ${s.location || "your town"} a clearer, more exciting way to show up for the next event.`;
+    } else if (homepagePlan.archetype === "nonprofit_service") {
+      s.tagline = `${safeOrgName} makes the mission concrete for volunteers, supporters, and neighbors in ${s.location || "the area"}.`;
+    } else if (homepagePlan.archetype === "membership_association") {
+      s.tagline = `${safeOrgName} gives members in ${s.location || "the area"} a stronger reason to gather, participate, and belong.`;
+    } else {
+      s.tagline = `${safeOrgName} gives ${s.location || "the community"} one clear place to connect, participate, and stay informed.`;
+    }
   }
 
   // CHANGE 3: Deterministic color override — getOrgTypeColors() enforces specs/pillar-org-design-strategies.md
@@ -1958,12 +2028,8 @@ Rules:
   });
 
   // ── Hero CTAs — strategy-aware, max 2 per section ────────────────────────
-  const heroPrimaryCta = (() => {
-    if (plan.strategy === "event-led")       return `<a href="#events" class="btn-primary">View Events</a>`;
-    if (plan.strategy === "membership-led")  return `<a href="#contact" class="btn-primary">Get Involved</a>`;
-    return `<a href="#about" class="btn-primary">Learn More</a>`;
-  })();
-  const heroSecondaryCta = `<a href="#contact" class="btn-ghost">Get in Touch</a>`;
+  const heroPrimaryCta = `<a href="${homepagePlan.primaryCTA.href}" class="btn-primary">${esc(homepagePlan.primaryCTA.label)}</a>`;
+  const heroSecondaryCta = `<a href="${homepagePlan.secondaryCTA.href}" class="btn-ghost">${esc(homepagePlan.secondaryCTA.label)}</a>`;
 
   // ── Featured events — up to 3 per specs/pillar-event-rendering-spec.md ──────
   // Priority: manually featured → ticketed/fundraiser events → soonest upcoming
@@ -2107,6 +2173,7 @@ Rules:
     const websiteSpecPayload: Record<string, unknown> = {
       ...(existing?.websiteSpec ?? {}),
       pillarWebhookUrl,
+      homepagePlan,
     };
 
     if (existing) {
@@ -2137,8 +2204,8 @@ Rules:
       const nameStr = names.length === 1 ? names[0] : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
       walkthroughSteps.push(`Programs — ${names.length} program${names.length !== 1 ? "s" : ""} highlighted: ${nameStr}.`);
     }
-    if (plan.showFeaturedEvent && plan.featuredEvent) {
-      walkthroughSteps.push(`Featured Event — "${plan.featuredEvent.name}" is spotlighted with the date, description, and a direct action button.`);
+    if (plan.showFeaturedEvent && featuredEvents[0]) {
+      walkthroughSteps.push(`Featured Event — "${featuredEvents[0].name}" is spotlighted with the date, description, and a direct action button.`);
     }
     if (plan.showEventList && allEvents.length > 0) {
       walkthroughSteps.push(`Events — ${Math.min(allEvents.length, 5)} upcoming event${allEvents.length !== 1 ? "s" : ""} listed with dates and details.`);
@@ -2146,8 +2213,8 @@ Rules:
     if (plan.showStats) {
       walkthroughSteps.push(`By the Numbers — Key stats are displayed to build credibility with new visitors.`);
     }
-    if (plan.showSponsorStrip && s.sponsors && s.sponsors.length >= 2) {
-      walkthroughSteps.push(`Sponsors — A sponsor strip recognizes ${s.sponsors.length} supporting organizations.`);
+    if (sponsorNames.length >= 2) {
+      walkthroughSteps.push(`Sponsors — A sponsor strip recognizes ${sponsorNames.length} supporting organizations.`);
     }
     walkthroughSteps.push(`Contact — Your contact information and an invitation to get involved round out the page.\n\nTell me what you'd like to change — colors, copy, layout, or any section.`);
 
