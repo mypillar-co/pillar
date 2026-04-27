@@ -58,11 +58,18 @@ async function getCurrentOrgForUser(userId: string) {
   return org ?? null;
 }
 
-async function saveHeroImageUrl(orgSlug: string, imageUrl: string): Promise<void> {
+async function saveHeroImageUrl(
+  org: { slug: string; name: string; type?: string | null },
+  imageUrl: string | null,
+): Promise<void> {
   await db.execute(sql`
-    INSERT INTO cs_org_configs (org_id, hero_image_url)
-    VALUES (${orgSlug}, ${imageUrl})
-    ON CONFLICT (org_id) DO UPDATE SET hero_image_url = EXCLUDED.hero_image_url
+    INSERT INTO cs_org_configs (org_id, org_name, org_type, hero_image_url)
+    VALUES (${org.slug}, ${org.name}, ${org.type ?? "community"}, ${imageUrl})
+    ON CONFLICT (org_id) DO UPDATE SET
+      hero_image_url = EXCLUDED.hero_image_url,
+      org_name = EXCLUDED.org_name,
+      org_type = EXCLUDED.org_type,
+      updated_at = NOW()
   `);
 }
 
@@ -646,7 +653,7 @@ router.post("/organizations/hero-image/upload", async (req: Request, res: Respon
     await bucket.file(objectName).save(imageBuffer, { contentType, resumable: false });
 
     const heroImageUrl = `/api/storage/objects/uploads/${objectId}.${ext}`;
-    await saveHeroImageUrl(org.slug, heroImageUrl);
+    await saveHeroImageUrl(org, heroImageUrl);
 
     res.json({ heroImageUrl });
   } catch (err) {
@@ -659,58 +666,41 @@ router.post("/organizations/hero-image/upload", async (req: Request, res: Respon
 // Downloads chosen photo into object storage and saves the URL to cs_org_configs.
 // Accepts: { photoUrl, credit } — photoUrl is the full-resolution image URL.
 router.post("/organizations/hero-image/apply-unsplash", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
 
-  // Accept both old (previewUrl) and new (photoUrl) key names for compatibility
-  const { photoUrl, previewUrl } = req.body as { photoUrl?: string; previewUrl?: string; credit?: string };
+  const { photoUrl, previewUrl } = req.body as {
+    photoUrl?: string;
+    previewUrl?: string;
+    credit?: string;
+  };
+
   const imageSourceUrl = photoUrl ?? previewUrl;
-  if (!imageSourceUrl) { res.status(400).json({ error: "photoUrl is required" }); return; }
+
+  if (!imageSourceUrl) {
+    res.status(400).json({ error: "photoUrl is required" });
+    return;
+  }
 
   const org = await getCurrentOrgForUser(req.user.id);
-  if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
+
+  if (!org) {
+    res.status(404).json({ error: "Organization not found" });
+    return;
+  }
 
   try {
-    // Download the image with a browser-like User-Agent (some CDNs require it)
-    const imageRes = await fetch(imageSourceUrl, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; Pillar/1.0)" },
-      signal: AbortSignal.timeout(15000),
-    });
+    // For AI-picked Unsplash images, save the external URL directly.
+    // This avoids local object-storage failures and makes the manual UI reliable.
+    await saveHeroImageUrl(org, imageSourceUrl);
 
-    if (!imageRes.ok) {
-      // If download fails, persist the external URL directly as a fallback
-      console.warn(`Hero image download returned ${imageRes.status} — saving URL directly`);
-      await saveHeroImageUrl(org.slug, imageSourceUrl);
-      res.json({ heroImageUrl: imageSourceUrl });
-      return;
-    }
-
-    const imageBuffer = Buffer.from(await imageRes.arrayBuffer());
-    const contentType = imageRes.headers.get("content-type") || "image/jpeg";
-    const ext = contentType.includes("png") ? "png" : "jpg";
-
-    // Upload to object storage
-    const privateDir = objectStorageService.getPrivateObjectDir().replace(/\/$/, "");
-    const objectId = randomUUID();
-    const objectPath = `${privateDir}/uploads/${objectId}.${ext}`;
-    const parts = objectPath.startsWith("/") ? objectPath.slice(1).split("/") : objectPath.split("/");
-    const bucketName = parts[0];
-    const objectName = parts.slice(1).join("/");
-    const bucket = objectStorageClient.bucket(bucketName);
-    await bucket.file(objectName).save(imageBuffer, { contentType, resumable: false });
-
-    const heroImageUrl = `/api/storage/objects/uploads/${objectId}.${ext}`;
-    await saveHeroImageUrl(org.slug, heroImageUrl);
-
-    res.json({ heroImageUrl });
+    res.json({ heroImageUrl: imageSourceUrl });
+    return;
   } catch (err) {
-    console.error("Hero image apply error:", err);
-    // Last-resort fallback: save the URL directly so the user isn't blocked
-    try {
-      await saveHeroImageUrl(org.slug, imageSourceUrl);
-      res.json({ heroImageUrl: imageSourceUrl });
-    } catch {
-      res.status(500).json({ error: "Failed to save hero image" });
-    }
+    console.error("Hero image direct save error:", err);
+    res.status(500).json({ error: "Failed to save hero image" });
   }
 });
 
@@ -727,12 +717,7 @@ router.post("/organizations/hero-image", async (req: Request, res: Response) => 
   if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
 
   try {
-    // Save null as empty string to clear; the DB stores it and CP treats "" as no image
-    await db.execute(sql`
-      INSERT INTO cs_org_configs (org_id, hero_image_url)
-      VALUES (${org.slug}, ${heroImageUrl ?? null})
-      ON CONFLICT (org_id) DO UPDATE SET hero_image_url = EXCLUDED.hero_image_url
-    `);
+    await saveHeroImageUrl(org, heroImageUrl ?? null);
     res.json({ heroImageUrl: heroImageUrl ?? null });
   } catch (err) {
     console.error("Hero image save error:", err);

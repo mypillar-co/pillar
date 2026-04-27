@@ -333,7 +333,9 @@ async function main() {
 
   try {
     const { execSync } = await import("child_process");
-    execSync(`fuser -k ${port}/tcp`, { stdio: "ignore" });
+    execSync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, {
+      stdio: "ignore",
+    });
   } catch {
   }
 
@@ -343,7 +345,11 @@ async function main() {
       process.exit(1);
     }
     logger.info({ port }, "Server listening");
-    startScheduler();
+    if (process.env.DISABLE_SCHEDULER === "1") {
+      logger.info("Schedulers disabled for local dev");
+    } else {
+      startScheduler();
+    }
   });
 
   // Graceful shutdown — drain in-flight requests before exiting.

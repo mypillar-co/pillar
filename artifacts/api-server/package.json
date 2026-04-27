@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
+    "dev": "NODE_ENV=development DISABLE_SCHEDULER=1 node --env-file=../../.env ./build.mjs && NODE_ENV=development DISABLE_SCHEDULER=1 node --env-file=../../.env ./dist/index.mjs",
     "build": "node ./build.mjs",
     "build:all": "pnpm --filter @workspace/norwin-rotary run build && pnpm --filter @workspace/steward run build && node ./build.mjs",
-    "start": "fuser -k 8080/tcp 2>/dev/null; sleep 0.3; node --enable-source-maps ./dist/index.mjs",
+    "start": "lsof -ti:8080 | xargs kill -9 2>/dev/null || true; sleep 0.3; node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

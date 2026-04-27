@@ -759,7 +759,7 @@ router.get("/target", async (req: Request, res: Response) => {
       SELECT o.community_site_url, o.community_site_key, o.site_config,
              c.org_id AS cs_org_id, c.hero_image_url
       FROM organizations o
-      LEFT JOIN cs_org_configs c ON c.org_id = o.id
+      LEFT JOIN cs_org_configs c ON c.org_id = o.slug OR c.org_id = o.id
       WHERE o.id = ${org.id}
       LIMIT 1
     `);
