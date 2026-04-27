@@ -155,6 +155,52 @@ function tierAllowsStrategy(tier: string | null | undefined): boolean {
   return tier === "tier3";
 }
 
+const ZERNIO_BASE = process.env.ZERNIO_API_BASE_URL ?? "https://zernio.com/api/v1";
+const ZERNIO_PROFILE_PLATFORM = "zernio_profile";
+
+function requireZernioConfigured(res: Response): boolean {
+  if (process.env.ZERNIO_API_KEY?.trim()) return true;
+  res.status(503).json({ error: "Social publishing is not configured" });
+  return false;
+}
+
+function zernioHeaders() {
+  return {
+    Authorization: `Bearer ${process.env.ZERNIO_API_KEY}`,
+    "Content-Type": "application/json",
+  };
+}
+
+async function getZernioProfileAccount(orgId: string) {
+  const [row] = await db
+    .select()
+    .from(socialAccountsTable)
+    .where(and(
+      eq(socialAccountsTable.orgId, orgId),
+      eq(socialAccountsTable.platform, ZERNIO_PROFILE_PLATFORM),
+    ));
+  return row ?? null;
+}
+
+async function getZernioProfileId(orgId: string): Promise<string | null> {
+  const row = await getZernioProfileAccount(orgId);
+  return row?.accountId ?? null;
+}
+
+async function saveZernioProfileId(orgId: string, profileId: string): Promise<void> {
+  await upsertSocialAccount(
+    orgId,
+    ZERNIO_PROFILE_PLATFORM,
+    "Social publishing profile",
+    encryptToken("managed-profile"),
+    profileId,
+  );
+}
+
+function isSocialPublishingTestMode(req: Request): boolean {
+  return process.env.NODE_ENV === "test" || req.get("x-test-mode") === "1";
+}
+
 function computeNextRun(frequency: string, dayOfWeek?: string | null, timeOfDay?: string | null): Date {
   const now = new Date();
   const next = new Date(now);
@@ -503,6 +549,7 @@ async function getOrgBufferToken(orgId: string): Promise<string | null> {
 router.get("/buffer/token-status", async (req, res) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
   const token = await getOrgBufferToken(org.id);
   res.json({ hasToken: !!token });
 });
@@ -511,6 +558,7 @@ router.get("/buffer/token-status", async (req, res) => {
 router.post("/buffer/token", async (req, res) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
   const { token } = req.body as { token?: string };
   if (!token?.trim()) { res.status(400).json({ error: "Token is required" }); return; }
   try {
@@ -536,6 +584,7 @@ router.post("/buffer/token", async (req, res) => {
 router.delete("/buffer/token", async (req, res) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
   await db.delete(socialAccountsTable)
     .where(and(eq(socialAccountsTable.orgId, org.id), eq(socialAccountsTable.platform, "buffer_account")));
   res.json({ ok: true });
@@ -616,6 +665,7 @@ router.post("/buffer/connect", async (req, res) => {
 router.delete("/buffer/connect/:profileId", async (req, res) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
   const { profileId } = req.params;
   await db
     .update(socialAccountsTable)
@@ -1157,5 +1207,117 @@ router.put("/strategy", async (req, res) => {
   }
 });
 
+// ─── Social Publishing Integration ──────────────────────────────
+
+router.get("/zernio/connect/:platform", async (req, res) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
+  if (!requireZernioConfigured(res)) return;
+
+  const { platform } = req.params;
+  const redirectUrl = `${getBaseUrl(req)}/dashboard/social?zernio=connected`;
+
+  let profileId = await getZernioProfileId(org.id);
+  if (!profileId) {
+    const createRes = await fetch(`${ZERNIO_BASE}/profiles`, {
+      method: "POST",
+      headers: zernioHeaders(),
+      body: JSON.stringify({ name: org.name }),
+    });
+    const created = await createRes.json() as { profile?: { _id?: string } };
+    profileId = created.profile?._id ?? null;
+    if (!createRes.ok || !profileId) {
+      logger.error({ status: createRes.status }, "Social publishing profile creation failed");
+      res.status(502).json({ error: "Social publishing is unavailable right now" });
+      return;
+    }
+    await saveZernioProfileId(org.id, profileId);
+  }
+
+  const connectUrl = `${ZERNIO_BASE}/connect/${platform}?profileId=${profileId}&redirect_url=${encodeURIComponent(redirectUrl)}`;
+  res.json({ connectUrl });
+});
+
+router.get("/zernio/accounts", async (req, res) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
+  if (!requireZernioConfigured(res)) return;
+
+  const profileId = await getZernioProfileId(org.id);
+  if (!profileId) {
+    res.json({ accounts: [] });
+    return;
+  }
+
+  const profileRes = await fetch(`${ZERNIO_BASE}/profiles/${profileId}`, {
+    headers: zernioHeaders(),
+  });
+  if (!profileRes.ok) {
+    logger.error({ status: profileRes.status }, "Social publishing accounts fetch failed");
+    res.status(502).json({ error: "Social publishing is unavailable right now" });
+    return;
+  }
+  const data = await profileRes.json() as { profile?: { accounts?: unknown[] } };
+  res.json({ accounts: data.profile?.accounts ?? [] });
+});
+
+router.post("/zernio/publish", async (req, res) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+  if (!tierAllowsSocial(org.tier)) { res.status(403).json({ error: "Social media features require the Autopilot plan or higher" }); return; }
+  if (!requireZernioConfigured(res)) return;
+
+  const profileId = await getZernioProfileId(org.id);
+  if (!profileId) {
+    res.status(400).json({ error: "Connect a social account first." });
+    return;
+  }
+
+  const { content, platforms, scheduledFor } = req.body as {
+    content: string;
+    platforms: string[];
+    scheduledFor?: string;
+  };
+
+  if (!content || !platforms?.length) {
+    res.status(400).json({ error: "content and platforms are required" });
+    return;
+  }
+
+  if (isSocialPublishingTestMode(req)) {
+    res.json({
+      success: true,
+      post: {
+        simulated: true,
+        profileId,
+        scheduledFor: scheduledFor ?? null,
+        platforms,
+      },
+    });
+    return;
+  }
+
+  const postRes = await fetch(`${ZERNIO_BASE}/posts`, {
+    method: "POST",
+    headers: zernioHeaders(),
+    body: JSON.stringify({
+      content,
+      profileId,
+      platforms: platforms.map((p) => ({ platform: p })),
+      ...(scheduledFor ? { scheduledFor } : { publishNow: true }),
+    }),
+  });
+
+  const result = await postRes.json();
+  if (!postRes.ok) {
+    logger.error({ status: postRes.status }, "Social publishing request failed");
+    res.status(502).json({ error: "Social publishing is unavailable right now" });
+    return;
+  }
+
+  res.json({ success: true, post: result });
+});
 export { decryptToken };
 export default router;
