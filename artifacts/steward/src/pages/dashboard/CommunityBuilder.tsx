@@ -155,7 +155,6 @@ const INTAKE_QUESTIONS: IntakeQuestion[] = [
     text: "For your homepage hero section, would you like a background photo or your brand colors?",
     type: "select",
     options: [
-      "AI picks a community photo",
       "I'll upload my own photo",
       "Brand colors only (no photo)",
     ],
@@ -457,11 +456,9 @@ type HeroPhase = "idle" | "picking" | "saving" | "approving" | "selected";
 
 function HeroImagePanel({
   initialUrl,
-  autoTriggerAi,
   onChange,
 }: {
   initialUrl: string | null | undefined;
-  autoTriggerAi?: boolean;
   onChange?: (heroImageUrl: string | null) => void;
 }) {
   const [url, setUrl] = useState<string | null>(initialUrl ?? null);
@@ -472,16 +469,6 @@ const [phase, setPhase] = useState<HeroPhase>(initialUrl ? "selected" : "idle");
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [branding, setBranding] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const autoTriggered = useRef(false);
-
-  // Auto-trigger the AI pick if the org chose "AI picks" during the interview
-  useEffect(() => {
-    if (autoTriggerAi && !url && !autoTriggered.current) {
-      autoTriggered.current = true;
-      void handleAiPick();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoTriggerAi]);
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -691,26 +678,14 @@ async function handleAiPick() {
       {/* Action buttons */}
       {phase !== "approving" && (
         <div className="space-y-2">
-          <div className="grid grid-cols-2 gap-2">
+          <div>
             <button
               onClick={() => { setError(null); setTimeout(() => fileRef.current?.click(), 50); }}
               disabled={phase !== "idle" || branding}
-              className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#1e3a5f] bg-[#0f1a2e] hover:bg-[#1e3a5f] text-sm text-[#c8d8e8] font-medium transition-colors disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#1e3a5f] bg-[#0f1a2e] hover:bg-[#1e3a5f] text-sm text-[#c8d8e8] font-medium transition-colors disabled:opacity-50"
             >
               <ImagePlus className="w-3.5 h-3.5 text-[#7a9cbf]" />
               Upload photo
-            </button>
-            <button
-              data-testid="hero-ai-picks-button"
-              onClick={() => void handleAiPick()}
-              disabled={phase !== "idle" || branding}
-              className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#d4a017]/30 bg-[#d4a017]/8 hover:bg-[#d4a017]/15 text-sm text-[#d4a017] font-medium transition-colors disabled:opacity-50"
-            >
-              {phase === "picking"
-                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                : <Wand2 className="w-3.5 h-3.5" />
-              }
-              {phase === "picking" ? "Searching…" : "AI picks"}
             </button>
           </div>
           {url && (
@@ -1561,7 +1536,6 @@ export default function CommunityBuilder() {
             <div className="w-full">
               <HeroImagePanel
                 initialUrl={siteStatus?.heroImageUrl}
-                autoTriggerAi={answers.heroBackground === "AI picks a community photo"}
                 onChange={updateHeroImageStatus}
               />
             </div>

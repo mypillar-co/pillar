@@ -497,28 +497,6 @@ export default function Onboard() {
                           iconBg: "bg-blue-500/10",
                           iconColor: "text-blue-400",
                         },
-                        {
-                          icon: Wand2,
-                          label: "You pick — AI chooses for me",
-                          sub: "AI picks a search query based on your org, then you approve a photo.",
-                          action: async () => {
-                            setHeroPhase("picking");
-                            setHeroError(null);
-                            try {
-                              const res = await fetch(`${BASE}/api/organizations/hero-image/suggest`, { credentials: "include" });
-                              const data = await res.json() as { query?: string; photos?: UnsplashPhoto[]; error?: string };
-                              if (!res.ok) throw new Error(data.error || "Failed to load suggestions");
-                              setHeroQuery(data.query || "");
-                              setHeroPhotos(data.photos || []);
-                              setHeroPhase("approving");
-                            } catch (err) {
-                              setHeroError((err as Error).message);
-                              setHeroPhase("choice");
-                            }
-                          },
-                          iconBg: "bg-purple-500/10",
-                          iconColor: "text-purple-400",
-                        },
                       ].map(({ icon: Icon, label, sub, action, iconBg, iconColor }) => (
                         <button
                           key={label}
