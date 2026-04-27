@@ -3,6 +3,7 @@ import {
   Send, Bot, User, Loader2, AlertCircle, CheckCircle2,
   Globe, Rocket, ExternalLink, ChevronDown, ChevronUp,
   ImagePlus, X, RefreshCw, Wand2, RotateCcw, Copy,
+  ArrowLeft, ArrowRight,
 } from "lucide-react";
 import { Link } from "wouter";
 import { useGetOrganization } from "@workspace/api-client-react";
@@ -705,6 +706,8 @@ function SiteManagementView({
 }) {
   const [aiInput, setAiInput] = useState("");
   const [copied, setCopied]   = useState(false);
+  const previewIframeRef = useRef<HTMLIFrameElement>(null);
+  const [previewKey, setPreviewKey] = useState(0);
 
   function copyUrl() {
     if (!status.url) return;
@@ -713,25 +716,87 @@ function SiteManagementView({
     setTimeout(() => setCopied(false), 2000);
   }
 
+  function goPreviewBack() {
+    try {
+      previewIframeRef.current?.contentWindow?.history.back();
+    } catch {
+      // The preview can be cross-origin in production; keep the control harmless.
+    }
+  }
+
+  function goPreviewForward() {
+    try {
+      previewIframeRef.current?.contentWindow?.history.forward();
+    } catch {
+      // The preview can be cross-origin in production; keep the control harmless.
+    }
+  }
+
+  function reloadPreview() {
+    const previewWindow = previewIframeRef.current?.contentWindow;
+    if (previewWindow) {
+      try {
+        previewWindow.location.reload();
+        return;
+      } catch {
+        // If browser sandboxing blocks direct reload access, remount the frame.
+      }
+    }
+    setPreviewKey((key) => key + 1);
+  }
+
   return (
     <div className="flex flex-col gap-5 py-6">
 
       {/* Site preview iframe */}
       {status.url && (
         <div className="rounded-xl overflow-hidden border border-white/10 bg-[#0f1a2e]">
-          <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
-            <span className="text-xs text-slate-400 font-medium">Site Preview</span>
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
+            <div className="hidden sm:flex items-center gap-1.5 flex-shrink-0">
+              <div className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" />
+              <div className="w-2.5 h-2.5 rounded-full bg-[#febc2e]" />
+              <div className="w-2.5 h-2.5 rounded-full bg-[#28c840]" />
+            </div>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <button
+                onClick={goPreviewBack}
+                title="Back"
+                className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={goPreviewForward}
+                title="Forward"
+                className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={reloadPreview}
+                title="Refresh"
+                className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="flex-1 min-w-0 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5">
+              <p className="truncate text-[11px] text-slate-300">{status.url}</p>
+            </div>
             <a
               href={status.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs text-[#d4a017] hover:text-[#b88a14] flex items-center gap-1"
+              title="Open full site"
+              className="p-1.5 rounded-md text-[#d4a017] hover:text-[#b88a14] hover:bg-[#d4a017]/10 transition-colors flex-shrink-0"
             >
-              Open full site <ExternalLink className="w-3 h-3" />
+              <ExternalLink className="w-3.5 h-3.5" />
             </a>
           </div>
           <div className="relative w-full" style={{ paddingBottom: "75%" }}>
             <iframe
+              key={previewKey}
+              ref={previewIframeRef}
               src={status.url}
               className="absolute inset-0 w-full h-full border-0"
               style={{

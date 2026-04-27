@@ -520,26 +520,130 @@ router.delete("/organizations", async (req: Request, res: Response) => {
 
 // ── Hero image routes ─────────────────────────────────────────────────────────
 
-// Curated civic/community Unsplash photo IDs — pre-approved, accessible without an API key
-const HERO_PHOTO_LIBRARY = [
-  { id: "1522202176988-66273c2fd55f", description: "People gathered around a community meeting table" },
-  { id: "1517048676732-d65bc937f952", description: "Diverse team collaborating and smiling" },
-  { id: "1454165804606-c3d57bc86b40", description: "Professional group discussion at a bright table" },
-  { id: "1557804506-669a67965ba0", description: "Engaged professionals in a bright office meeting" },
-  { id: "1491438590914-bc09fcaaf77a", description: "Energetic crowd at an outdoor community event" },
-  { id: "1497366216548-37526070297c", description: "Networking event with engaged professionals" },
-  { id: "1509099836639-18ba1795216d", description: "Community gathering — people connecting outdoors" },
-  { id: "1543269865-cbf427effbad", description: "People volunteering together in the community" },
-  { id: "1521791136064-7986c2920216", description: "Civic leaders addressing a community audience" },
-  { id: "1573496359142-b8d87734a5a2", description: "Collaborative team session with whiteboards" },
-  { id: "1552664730-d307ca884978", description: "Diverse group united around a common purpose" },
-  { id: "1523240795612-9a054b0db644", description: "Vibrant town square with community life" },
-];
+type HeroPhotoCategory =
+  | "masonic/lodge/tradition"
+  | "civic leadership/community"
+  | "rotary/chamber networking"
+  | "volunteers/nonprofit"
+  | "outdoor town events/festivals"
+  | "patriotic/community landmarks"
+  | "elegant fellowship/interior gatherings";
+
+type HeroPhotoLibraryItem = {
+  id: string;
+  category: HeroPhotoCategory;
+  description: string;
+  tags: string[];
+  businessOnly?: boolean;
+};
+
+// Curated civic/community Unsplash photo IDs — pre-approved, accessible without an API key.
+// Keep metadata internal; the endpoint response shape remains unchanged.
+const HERO_PHOTO_GROUPS: Record<HeroPhotoCategory, HeroPhotoLibraryItem[]> = {
+  "masonic/lodge/tradition": [
+    { id: "1518895949257-7621c3c786d7", category: "masonic/lodge/tradition", description: "Historic stone architecture with a formal, traditional civic feel", tags: ["historic", "stone", "tradition", "lodge", "heritage"] },
+    { id: "1518005020951-eccb494ad742", category: "masonic/lodge/tradition", description: "Grand interior hall with warm light and ceremonial atmosphere", tags: ["interior", "hall", "tradition", "formal", "heritage"] },
+    { id: "1494526585095-c41746248156", category: "masonic/lodge/tradition", description: "Elegant architectural detail suggesting history and institution", tags: ["architecture", "detail", "classic", "institution"] },
+    { id: "1500530855697-b586d89ba3ee", category: "masonic/lodge/tradition", description: "Distinguished public building exterior with timeless civic presence", tags: ["building", "civic", "formal", "heritage"] },
+    { id: "1511818966892-d7d671e672a2", category: "masonic/lodge/tradition", description: "Warm wood interior suited to a lodge or long-standing fellowship", tags: ["wood", "interior", "lodge", "warm", "traditional"] },
+    { id: "1516455590571-18256e5bb9ff", category: "masonic/lodge/tradition", description: "Classic columns and formal architecture for heritage organizations", tags: ["columns", "classic", "architecture", "tradition"] },
+  ],
+  "civic leadership/community": [
+    { id: "1521791136064-7986c2920216", category: "civic leadership/community", description: "Civic leaders addressing a community audience", tags: ["leadership", "audience", "civic", "public"] },
+    { id: "1552664730-d307ca884978", category: "civic leadership/community", description: "Diverse group united around a common purpose", tags: ["community", "purpose", "people", "team"] },
+    { id: "1523240795612-9a054b0db644", category: "civic leadership/community", description: "Vibrant town square with everyday community life", tags: ["town", "square", "community", "local"] },
+    { id: "1517048676732-d65bc937f952", category: "civic leadership/community", description: "Collaborative community group in an active discussion", tags: ["discussion", "community", "collaboration"] },
+    { id: "1522202176988-66273c2fd55f", category: "civic leadership/community", description: "People gathered around a community planning table", tags: ["planning", "meeting", "community", "table"] },
+    { id: "1529156069898-49953e39b3ac", category: "civic leadership/community", description: "Speaker presenting to an engaged local audience", tags: ["speaker", "audience", "presentation", "leadership"] },
+    { id: "1517245386807-bb43f82c33c4", category: "civic leadership/community", description: "Workshop-style civic planning session with notes and discussion", tags: ["workshop", "planning", "notes", "civic"] },
+  ],
+  "rotary/chamber networking": [
+    { id: "1497366216548-37526070297c", category: "rotary/chamber networking", description: "Networking event with engaged professionals", tags: ["networking", "professionals", "chamber", "event"] },
+    { id: "1454165804606-c3d57bc86b40", category: "rotary/chamber networking", description: "Professional group discussion at a bright table", tags: ["business", "professional", "meeting", "table"], businessOnly: true },
+    { id: "1557804506-669a67965ba0", category: "rotary/chamber networking", description: "Engaged professionals in a bright office meeting", tags: ["office", "business", "professional", "meeting"], businessOnly: true },
+    { id: "1573496359142-b8d87734a5a2", category: "rotary/chamber networking", description: "Collaborative team session with whiteboards", tags: ["whiteboard", "team", "strategy", "professional"], businessOnly: true },
+    { id: "1504384308090-c894fdcc538d", category: "rotary/chamber networking", description: "Business and civic leaders gathered for a focused discussion", tags: ["business", "leaders", "discussion", "professional"], businessOnly: true },
+    { id: "1515169067865-5387ec356754", category: "rotary/chamber networking", description: "Handshake and introductions at a professional gathering", tags: ["handshake", "networking", "chamber", "professional"] },
+    { id: "1527529482837-4698179dc6ce", category: "rotary/chamber networking", description: "Close-up of people connecting in a business networking setting", tags: ["networking", "connection", "business", "people"] },
+  ],
+  "volunteers/nonprofit": [
+    { id: "1543269865-cbf427effbad", category: "volunteers/nonprofit", description: "People volunteering together in the community", tags: ["volunteer", "service", "community", "nonprofit"] },
+    { id: "1531206715517-5c0ba140b2b8", category: "volunteers/nonprofit", description: "Volunteer hands joined together around a shared mission", tags: ["volunteer", "hands", "mission", "service"] },
+    { id: "1488521787991-ed7bbaae773c", category: "volunteers/nonprofit", description: "Community service and food support in action", tags: ["service", "food", "nonprofit", "helping"] },
+    { id: "1521737604893-d14cc237f11d", category: "volunteers/nonprofit", description: "Outdoor volunteers working side by side", tags: ["volunteer", "outdoor", "service", "team"] },
+    { id: "1559027615-cd4628902d4a", category: "volunteers/nonprofit", description: "Hands-on service project with people working together", tags: ["service", "project", "hands", "community"] },
+    { id: "1469571486292-0ba58a3f068b", category: "volunteers/nonprofit", description: "Community service moment with a hopeful, human focus", tags: ["service", "human", "helping", "community"] },
+    { id: "1556761175-b413da4baf72", category: "volunteers/nonprofit", description: "Volunteers sharing supplies and support", tags: ["volunteer", "supplies", "support", "nonprofit"] },
+  ],
+  "outdoor town events/festivals": [
+    { id: "1491438590914-bc09fcaaf77a", category: "outdoor town events/festivals", description: "Energetic crowd at an outdoor community event", tags: ["festival", "crowd", "outdoor", "event"] },
+    { id: "1509099836639-18ba1795216d", category: "outdoor town events/festivals", description: "Community gathering with people connecting outdoors", tags: ["outdoor", "gathering", "community", "people"] },
+    { id: "1472653431158-6364773b2a56", category: "outdoor town events/festivals", description: "Lively street event with local neighborhood energy", tags: ["street", "event", "festival", "local"] },
+    { id: "1505373877841-8d25f7d46678", category: "outdoor town events/festivals", description: "Outdoor market or fair with a welcoming town atmosphere", tags: ["market", "fair", "outdoor", "town"] },
+    { id: "1517457373958-b7bdd4587205", category: "outdoor town events/festivals", description: "Public celebration with lights, people, and local activity", tags: ["celebration", "lights", "festival", "public"] },
+    { id: "1500534314209-a25ddb2bd429", category: "outdoor town events/festivals", description: "Community event scene with open space and public activity", tags: ["event", "public", "outdoor", "community"] },
+    { id: "1528605248644-14dd04022da1", category: "outdoor town events/festivals", description: "People enjoying an outdoor gathering in warm natural light", tags: ["outdoor", "gathering", "warm", "people"] },
+  ],
+  "patriotic/community landmarks": [
+    { id: "1523731407965-2430cd12f5e4", category: "patriotic/community landmarks", description: "Main street architecture and local landmark character", tags: ["main street", "landmark", "town", "architecture"] },
+    { id: "1505238680356-667803448bb6", category: "patriotic/community landmarks", description: "Public square and civic landmark setting", tags: ["public", "square", "landmark", "civic"] },
+    { id: "1477959858617-67f85cf4f1df", category: "patriotic/community landmarks", description: "City skyline and local pride atmosphere", tags: ["skyline", "city", "pride", "local"] },
+    { id: "1494522855154-9297ac14b55f", category: "patriotic/community landmarks", description: "Iconic building exterior for a civic-minded organization", tags: ["building", "landmark", "civic", "iconic"] },
+    { id: "1493246507139-91e8fad9978e", category: "patriotic/community landmarks", description: "Formal public interior with institutional gravitas", tags: ["formal", "interior", "institution", "public"] },
+    { id: "1519302959554-a75be0afc82a", category: "patriotic/community landmarks", description: "Historic architectural detail for legacy and tradition", tags: ["historic", "architecture", "legacy", "tradition"] },
+  ],
+  "elegant fellowship/interior gatherings": [
+    { id: "1511795409834-ef04bbd61622", category: "elegant fellowship/interior gatherings", description: "Warm dinner table atmosphere for fellowship and connection", tags: ["dinner", "fellowship", "warm", "gathering"] },
+    { id: "1414235077428-338989a2e8c0", category: "elegant fellowship/interior gatherings", description: "Elegant banquet setting suited to ceremonies and galas", tags: ["banquet", "elegant", "ceremony", "gala"] },
+    { id: "1519671482749-fd09be7ccebf", category: "elegant fellowship/interior gatherings", description: "Refined table setting with a polished event feel", tags: ["table", "event", "polished", "fellowship"] },
+    { id: "1519671282429-b44660ead0a7", category: "elegant fellowship/interior gatherings", description: "Friendly gathering with warm interpersonal energy", tags: ["gathering", "people", "warm", "fellowship"] },
+    { id: "1540575467063-178a50c2df87", category: "elegant fellowship/interior gatherings", description: "Roundtable conversation in a welcoming indoor setting", tags: ["roundtable", "conversation", "indoor", "welcoming"] },
+    { id: "1503428593586-e225b39bddfe", category: "elegant fellowship/interior gatherings", description: "Close community conversation around a shared table", tags: ["table", "community", "conversation", "fellowship"] },
+  ],
+};
+
+const HERO_PHOTO_LIBRARY = Object.values(HERO_PHOTO_GROUPS).flat();
+
+function scoreHeroPhotoForOrg(photo: HeroPhotoLibraryItem, org: { name: string; type?: string | null; category?: string | null }): number {
+  const cues = `${org.name} ${org.type ?? ""} ${org.category ?? ""}`.toLowerCase();
+  let score = 0;
+
+  if (/(mason|masonic|lodge|temple|shrine|fraternal|order|chapter)/.test(cues)) {
+    if (photo.category === "masonic/lodge/tradition") score += 10;
+    if (photo.category === "elegant fellowship/interior gatherings") score += 5;
+  }
+  if (/(rotary|kiwanis|lions|optimist|club|fellowship)/.test(cues)) {
+    if (photo.category === "elegant fellowship/interior gatherings") score += 8;
+    if (photo.category === "volunteers/nonprofit") score += 6;
+    if (photo.category === "civic leadership/community") score += 4;
+  }
+  if (/(chamber|business|commerce|professional|merchant|downtown|main street|association)/.test(cues)) {
+    if (photo.category === "rotary/chamber networking") score += 9;
+    if (photo.category === "civic leadership/community") score += 4;
+  }
+  if (/(volunteer|nonprofit|foundation|service|charity|pta|pto|youth|arts|council)/.test(cues)) {
+    if (photo.category === "volunteers/nonprofit") score += 10;
+    if (photo.category === "outdoor town events/festivals") score += 5;
+  }
+  if (/(festival|fair|market|event|parade|community day|celebration)/.test(cues)) {
+    if (photo.category === "outdoor town events/festivals") score += 10;
+  }
+  if (/(vfw|american legion|veteran|patriot|memorial|historical|heritage)/.test(cues)) {
+    if (photo.category === "patriotic/community landmarks") score += 10;
+    if (photo.category === "masonic/lodge/tradition") score += 4;
+  }
+  if (photo.businessOnly && !/(chamber|business|commerce|professional|merchant|network|networking)/.test(cues)) {
+    score -= 8;
+  }
+
+  return score;
+}
 
 // GET /api/organizations/hero-image/suggest
 // Uses AI to rank the curated photo library for this org, then returns options.
 // No Unsplash API key required.
 router.get("/organizations/hero-image/suggest", async (req: Request, res: Response) => {
+  res.set("Cache-Control", "no-store");
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const org = await getCurrentOrgForUser(req.user.id);
@@ -553,8 +657,32 @@ router.get("/organizations/hero-image/suggest", async (req: Request, res: Respon
 
     // AI evaluates ALL photos and ranks them best-to-worst for this org.
     // All indices are returned so the UI can display every available option.
-    const libraryJson = livePhotos.map((p, i) => `${i}: ${p.description}`).join("\n");
-    const prompt = `You are picking hero background photos for a community website. The organization is "${org.name}" (type: ${org.type || "civic"})${org.category ? `, tagline: "${org.category}"` : ""}.\n\nAvailable photos (by index):\n${libraryJson}\n\nReturn ALL ${livePhotos.length} indices (0–${livePhotos.length - 1}), comma-separated, ordered best-to-worst fit. Include every index exactly once. Return ONLY numbers, e.g.: 2,0,5,3,7,1,4,8,9,11,10,6`;
+    const libraryJson = livePhotos
+      .map((p, i) => `${i}: [${p.category}] ${p.description}; tags: ${p.tags.join(", ")}`)
+      .join("\n");
+    const orgCues = [
+      `name: ${org.name}`,
+      `type: ${org.type || "unknown"}`,
+      `category: ${org.category || "unknown"}`,
+    ].join("\n");
+    const prompt = `You are selecting website hero background photos for a local organization.
+
+Organization cues:
+${orgCues}
+
+Choose images that visibly match the organization's identity:
+- Masonic, lodge, fraternal, shrine, temple, order, or chapter cues should strongly prefer tradition, historic architecture, formal interiors, or elegant fellowship.
+- Rotary, Lions, Kiwanis, service club, nonprofit, PTA/PTO, foundation, and volunteer cues should prefer community service, fellowship, civic leadership, and warm gatherings.
+- Chamber, commerce, business, professional, merchant, downtown, and Main Street cues can use networking or professional meeting photos.
+- Festivals, markets, parades, fairs, and community events should prefer outdoor town event photos.
+- Veteran, patriotic, memorial, historic, heritage, and civic-pride cues should prefer landmarks and formal civic imagery.
+- Bias AGAINST generic office meeting photos unless the org is clearly business/professional/chamber/commerce.
+- Avoid bland corporate stock imagery when a more specific community, tradition, volunteer, landmark, or fellowship image fits.
+
+Available photos (by index):
+${libraryJson}
+
+Return ALL ${livePhotos.length} indices (0-${livePhotos.length - 1}), comma-separated, ordered best-to-worst fit. Include every index exactly once. Return ONLY numbers.`;
 
     let raw = "";
     // Try Replit OpenAI integration
@@ -567,7 +695,7 @@ router.get("/organizations/hero-image/suggest", async (req: Request, res: Respon
         const completion = await openaiForSuggest.chat.completions.create({
           model: "gpt-4o-mini",
           messages: [{ role: "user", content: prompt }],
-          max_tokens: 60,
+          max_tokens: 260,
         });
         raw = completion.choices[0]?.message?.content?.trim() ?? "";
       } catch (_openaiErr) {
@@ -581,7 +709,7 @@ router.get("/organizations/hero-image/suggest", async (req: Request, res: Respon
         const anthropicForSuggest = new AnthropicSdk({ apiKey: process.env.ANTHROPIC_API_KEY });
         const msg = await anthropicForSuggest.messages.create({
           model: "claude-3-5-haiku-latest",
-          max_tokens: 60,
+          max_tokens: 260,
           messages: [{ role: "user", content: prompt }],
         });
         const tb = msg.content.find((b) => b.type === "text");
@@ -595,12 +723,18 @@ router.get("/organizations/hero-image/suggest", async (req: Request, res: Respon
       .map(s => parseInt(s.trim(), 10))
       .filter(n => !isNaN(n) && n >= 0 && n < livePhotos.length);
 
-    // Deduplicate AI ranking and append any photos the AI omitted at the end
+    const fallbackOrder = livePhotos
+      .map((_, index) => index)
+      .sort((a, b) => scoreHeroPhotoForOrg(livePhotos[b], org) - scoreHeroPhotoForOrg(livePhotos[a], org));
+
+    // Deduplicate AI ranking and append any photos the AI omitted at the end.
+    // Fallback order is semantic, not natural array order, so no-AI local dev
+    // still avoids generic office photos for service/lodge/community orgs.
     const seen = new Set<number>();
     const ordered: number[] = [];
     for (const idx of aiIndices) { if (!seen.has(idx)) { seen.add(idx); ordered.push(idx); } }
-    for (let i = 0; i < livePhotos.length; i++) {
-      if (!seen.has(i)) { seen.add(i); ordered.push(i); }
+    for (const idx of fallbackOrder) {
+      if (!seen.has(idx)) { seen.add(idx); ordered.push(idx); }
     }
 
     // Return ALL photos ranked — no artificial cap
