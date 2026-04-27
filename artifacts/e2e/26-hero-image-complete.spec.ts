@@ -2,10 +2,10 @@ import { test, expect } from "@playwright/test";
 import { loginToSteward, getSiteConfig, TEST_ORG_SLUG } from "./helpers";
 
 test.describe("Hero Image Picker Complete Flow", () => {
-  test("AI picks button opens photo grid with real photos", async ({ page }) => {
+  test("Suggested photos opens a photo grid with real photos", async ({ page }) => {
     await loginToSteward(page, { targetPath: "/dashboard/site" });
-    await page.getByRole("button", { name: /AI picks/i }).click();
-    const imgs = page.locator("img");
+    await page.getByRole("button", { name: /Browse suggested photos/i }).click();
+    const imgs = page.getByTestId("hero-photo-option-image");
     await expect(imgs.first()).toBeVisible({ timeout: 20000 });
     expect(await imgs.count()).toBeGreaterThan(0);
   });
@@ -14,8 +14,8 @@ test.describe("Hero Image Picker Complete Flow", () => {
     await loginToSteward(page, { targetPath: "/dashboard/site" });
     const before = await getSiteConfig(TEST_ORG_SLUG);
 
-    await page.getByRole("button", { name: /AI picks/i }).click();
-    const img = page.locator("img").first();
+    await page.getByRole("button", { name: /Browse suggested photos/i }).click();
+    const img = page.getByTestId("hero-photo-option-image").first();
     await expect(img).toBeVisible({ timeout: 20000 });
     await img.click();
 
@@ -32,6 +32,6 @@ test.describe("Hero Image Picker Complete Flow", () => {
 
   test("Upload photo button is visible", async ({ page }) => {
     await loginToSteward(page, { targetPath: "/dashboard/site" });
-    await expect(page.getByRole("button", { name: /Upload photo/i })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("button", { name: /Upload your own photo/i })).toBeVisible({ timeout: 15000 });
   });
 });

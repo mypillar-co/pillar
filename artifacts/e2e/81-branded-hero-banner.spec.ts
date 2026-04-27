@@ -8,18 +8,7 @@ test.describe("Branded hero banner", () => {
     const panel = page.getByTestId("hero-image-panel");
     await expect(panel).toBeVisible({ timeout: 15000 });
 
-    let brandButton = page.getByRole("button", { name: "Make branded banner" });
-
-    if (!(await brandButton.isVisible().catch(() => false))) {
-      await page.getByTestId("hero-ai-picks-button").click();
-      const firstPhoto = page.getByTestId("hero-photo-option").first();
-      await expect(firstPhoto).toBeVisible({ timeout: 30000 });
-      await firstPhoto.click();
-      await expect(panel.getByText("Banner updated!")).toBeVisible({ timeout: 30000 });
-      brandButton = page.getByRole("button", { name: "Make branded banner" });
-    }
-
-    await expect(panel.getByRole("img", { name: "Hero banner" })).toBeVisible({ timeout: 15000 });
+    const brandButton = page.getByRole("button", { name: "Create branded banner" });
     await expect(brandButton).toBeVisible({ timeout: 15000 });
 
     const brandResponse = page.waitForResponse(

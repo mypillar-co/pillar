@@ -1,16 +1,16 @@
 import { test, expect } from "@playwright/test";
 import { loginToSteward } from "./helpers";
 
-test("Uma — selected hero image creates or updates visible banner preview", async ({ page }) => {
+test("Selected hero image creates or updates visible banner preview", async ({ page }) => {
   await loginToSteward(page, { targetPath: "/dashboard/site" });
 
   const panel = page.getByTestId("hero-image-panel").first();
 
   await expect(panel).toBeVisible({ timeout: 15000 });
 
-  const aiPicks = panel.getByTestId("hero-ai-picks-button");
-  await expect(aiPicks).toBeVisible({ timeout: 15000 });
-  await aiPicks.click();
+  const suggestions = panel.getByTestId("hero-suggestion-toggle");
+  await expect(suggestions).toBeVisible({ timeout: 15000 });
+  await suggestions.click();
 
   const photoTile = panel.getByTestId("hero-photo-option").first();
   await expect(photoTile).toBeVisible({ timeout: 15000 });

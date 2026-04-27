@@ -447,7 +447,22 @@ interface SiteStatusData {
     primaryColor: string | null;
     accentColor: string | null;
     tagline: string | null;
+    siteStyle?: string | null;
   } | null;
+}
+
+const SITE_STYLE_OPTIONS = [
+  "Classic",
+  "Modern Civic",
+  "Heritage",
+  "Bold Event",
+  "Warm Community",
+] as const;
+
+type SiteStyle = (typeof SITE_STYLE_OPTIONS)[number];
+
+function normalizeSiteStyle(value: string | null | undefined): SiteStyle {
+  return SITE_STYLE_OPTIONS.find((option) => option === value) ?? "Modern Civic";
 }
 
 // ── Hero image panel ───────────────────────────────────────────────────────────
@@ -597,6 +612,12 @@ async function handleAiPick() {
   return (
     <div data-testid="hero-image-panel" className="rounded-xl bg-[#0f1a2e] border border-[#1e3a5f] p-4 space-y-3">
       <p className="text-xs text-[#7a9cbf] font-medium uppercase tracking-wide">Homepage Banner</p>
+      <div className="rounded-xl border border-[#d4a017]/20 bg-[#d4a017]/8 p-3">
+        <p className="text-sm font-semibold text-white">Create branded banner</p>
+        <p className="mt-1 text-xs leading-5 text-[#d7e2ed]">
+          Best results come from your own photo. Upload one first and we&apos;ll turn it into a polished homepage banner, or create a branded banner now with your colors, name, and initials.
+        </p>
+      </div>
 
       {/* Current image preview */}
       {url && (
@@ -678,26 +699,37 @@ async function handleAiPick() {
       {/* Action buttons */}
       {phase !== "approving" && (
         <div className="space-y-2">
-          <div>
+          <button
+            onClick={() => void makeBrandedBanner()}
+            disabled={phase === "saving" || branding}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#d4a017]/40 bg-[#d4a017] hover:bg-[#b88a14] text-sm text-black font-semibold transition-colors disabled:opacity-50"
+          >
+            {branding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+            {branding ? "Creating branded banner…" : "Create branded banner"}
+          </button>
+          <div className="grid gap-2 sm:grid-cols-[1.3fr_auto]">
             <button
               onClick={() => { setError(null); setTimeout(() => fileRef.current?.click(), 50); }}
               disabled={phase !== "idle" || branding}
               className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#1e3a5f] bg-[#0f1a2e] hover:bg-[#1e3a5f] text-sm text-[#c8d8e8] font-medium transition-colors disabled:opacity-50"
             >
               <ImagePlus className="w-3.5 h-3.5 text-[#7a9cbf]" />
-              Upload photo
+              Upload your own photo
+            </button>
+            <button
+              type="button"
+              data-testid="hero-suggestion-toggle"
+              onClick={() => void handleAiPick()}
+              disabled={phase !== "idle" || branding}
+              className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#1e3a5f] bg-transparent text-xs text-[#7a9cbf] hover:border-[#d4a017]/40 hover:text-[#d4a017] transition-colors disabled:opacity-50"
+            >
+              {phase === "picking" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              {phase === "picking" ? "Loading suggestions…" : "Browse suggested photos"}
             </button>
           </div>
-          {url && (
-            <button
-              onClick={() => void makeBrandedBanner()}
-              disabled={phase === "saving" || branding}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#d4a017]/40 bg-[#d4a017] hover:bg-[#b88a14] text-sm text-black font-semibold transition-colors disabled:opacity-50"
-            >
-              {branding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-              {branding ? "Branding banner…" : "Make branded banner"}
-            </button>
-          )}
+          <p className="text-[11px] text-[#7a9cbf]">
+            Suggested stock photos are optional and secondary. Your own image or branded banner will usually look more like your organization.
+          </p>
         </div>
       )}
 
@@ -712,6 +744,47 @@ async function handleAiPick() {
   );
 }
 
+function SiteStyleSelector({
+  value,
+  onChange,
+  saving = false,
+}: {
+  value: SiteStyle;
+  onChange: (style: SiteStyle) => void;
+  saving?: boolean;
+}) {
+  return (
+    <div className="rounded-xl bg-[#0f1a2e] border border-[#1e3a5f] p-4 space-y-3" data-testid="site-style-selector">
+      <div>
+        <p className="text-xs text-[#7a9cbf] font-medium uppercase tracking-wide">Site Style</p>
+        <p className="mt-1 text-xs text-[#c8d8e8]">
+          Choose the overall tone for your homepage layout, typography, and section treatment.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5">
+        {SITE_STYLE_OPTIONS.map((option) => {
+          const active = option === value;
+          return (
+            <button
+              key={option}
+              type="button"
+              onClick={() => onChange(option)}
+              disabled={saving}
+              className={`rounded-xl border px-3 py-3 text-left transition-colors ${
+                active
+                  ? "border-[#d4a017] bg-[#d4a017]/12 text-white"
+                  : "border-[#1e3a5f] bg-[#091426] text-[#c8d8e8] hover:border-[#d4a017]/40 hover:text-white"
+              } disabled:opacity-50`}
+            >
+              <div className="text-sm font-semibold">{option}</div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Site management view (shown on return visits after site is built) ─────────
 
 function SiteManagementView({
@@ -719,6 +792,9 @@ function SiteManagementView({
   onRestart,
   onAiEdit,
   onHeroImageChange,
+  siteStyle,
+  onSiteStyleChange,
+  siteStyleSaving,
   aiLoading,
   aiError,
 }: {
@@ -726,6 +802,9 @@ function SiteManagementView({
   onRestart: () => void;
   onAiEdit: (req: string) => void;
   onHeroImageChange: (heroImageUrl: string | null) => void;
+  siteStyle: SiteStyle;
+  onSiteStyleChange: (style: SiteStyle) => void;
+  siteStyleSaving: boolean;
   aiLoading: boolean;
   aiError: string | null;
 }) {
@@ -733,6 +812,7 @@ function SiteManagementView({
   const [copied, setCopied]   = useState(false);
   const previewIframeRef = useRef<HTMLIFrameElement>(null);
   const [previewKey, setPreviewKey] = useState(0);
+  const [previewRefreshCount, setPreviewRefreshCount] = useState(0);
 
   function copyUrl() {
     if (!status.url) return;
@@ -758,6 +838,7 @@ function SiteManagementView({
   }
 
   function reloadPreview() {
+    setPreviewRefreshCount((count) => count + 1);
     const previewWindow = previewIframeRef.current?.contentWindow;
     if (previewWindow) {
       try {
@@ -775,7 +856,11 @@ function SiteManagementView({
 
       {/* Site preview iframe */}
       {status.url && (
-        <div className="rounded-xl overflow-hidden border border-white/10 bg-[#0f1a2e]">
+        <div
+          className="rounded-xl overflow-hidden border border-white/10 bg-[#0f1a2e]"
+          data-testid="site-preview-shell"
+          data-preview-refresh-count={previewRefreshCount}
+        >
           <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
             <div className="hidden sm:flex items-center gap-1.5 flex-shrink-0">
               <div className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" />
@@ -908,6 +993,15 @@ function SiteManagementView({
         }}
       />
 
+      <SiteStyleSelector
+        value={siteStyle}
+        saving={siteStyleSaving}
+        onChange={(nextStyle) => {
+          onSiteStyleChange(nextStyle);
+          reloadPreview();
+        }}
+      />
+
       {/* Update options */}
       <div className="space-y-3">
         <p className="text-xs text-[#7a9cbf] font-medium uppercase tracking-wide">Update your site</p>
@@ -1001,6 +1095,8 @@ export default function CommunityBuilder() {
   const [editMode, setEditMode]                   = useState(false);
   const [aiEditLoading, setAiEditLoading]         = useState(false);
   const [aiEditError, setAiEditError]             = useState<string | null>(null);
+  const [siteStyle, setSiteStyle]                 = useState<SiteStyle>("Modern Civic");
+  const [siteStyleSaving, setSiteStyleSaving]     = useState(false);
 
   const chatEndRef   = useRef<HTMLDivElement>(null);
   const inputRef     = useRef<HTMLTextAreaElement>(null);
@@ -1011,6 +1107,60 @@ export default function CommunityBuilder() {
 
   function updateHeroImageStatus(heroImageUrl: string | null) {
     setSiteStatus((prev) => prev ? { ...prev, heroImageUrl } : prev);
+  }
+
+  function updateSiteStyleStatus(nextStyle: SiteStyle) {
+    setSiteStyle(nextStyle);
+    setSiteStatus((prev) => prev ? {
+      ...prev,
+      configSummary: prev.configSummary
+        ? { ...prev.configSummary, siteStyle: nextStyle }
+        : prev.configSummary,
+    } : prev);
+    setReadyPayload((prev) => {
+      if (!prev) return prev;
+      const currentFeatures =
+        prev.features && typeof prev.features === "object" && !Array.isArray(prev.features)
+          ? (prev.features as Record<string, unknown>)
+          : {};
+      const currentSiteContent =
+        prev.siteContent && typeof prev.siteContent === "object" && !Array.isArray(prev.siteContent)
+          ? (prev.siteContent as Record<string, unknown>)
+          : {};
+      return {
+        ...prev,
+        siteStyle: nextStyle,
+        features: {
+          ...currentFeatures,
+          siteStyle: nextStyle,
+        },
+        siteContent: {
+          ...currentSiteContent,
+          style_name: nextStyle,
+        },
+      };
+    });
+  }
+
+  async function saveSiteStyle(nextStyle: SiteStyle) {
+    updateSiteStyleStatus(nextStyle);
+
+    if (!siteStatus?.isProvisioned) return;
+
+    setSiteStyleSaving(true);
+    try {
+      const res = await csrfFetch("/api/community-site/style", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ siteStyle: nextStyle }),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "Style update failed");
+    } catch (err) {
+      setAiEditError(err instanceof Error ? err.message : "Style update failed");
+    } finally {
+      setSiteStyleSaving(false);
+    }
   }
 
   useEffect(() => {
@@ -1029,6 +1179,7 @@ export default function CommunityBuilder() {
       .then(r => r.json())
       .then((d: SiteStatusData) => {
         setSiteStatus(d);
+        setSiteStyle(normalizeSiteStyle(d.configSummary?.siteStyle ?? null));
         setSiteStatusLoading(false);
       })
       .catch(() => setSiteStatusLoading(false));
@@ -1174,7 +1325,7 @@ export default function CommunityBuilder() {
       const res = await csrfFetch("/api/community-site/finalize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers: finalAnswers }),
+        body: JSON.stringify({ answers: { ...finalAnswers, siteStyle } }),
       });
       if (!res.ok) throw new Error("Finalize request failed");
       const d = await res.json() as { reply: string };
@@ -1412,6 +1563,9 @@ export default function CommunityBuilder() {
             }}
             onAiEdit={req => void submitAiEdit(req)}
             onHeroImageChange={updateHeroImageStatus}
+            siteStyle={siteStyle}
+            onSiteStyleChange={(nextStyle) => void saveSiteStyle(nextStyle)}
+            siteStyleSaving={siteStyleSaving}
             aiLoading={aiEditLoading}
             aiError={aiEditError}
           />
@@ -1477,6 +1631,14 @@ export default function CommunityBuilder() {
               <HeroImagePanel initialUrl={siteStatus?.heroImageUrl} onChange={updateHeroImageStatus} />
             </div>
 
+            <div className="w-full max-w-3xl text-left">
+              <SiteStyleSelector
+                value={siteStyle}
+                saving={siteStyleSaving}
+                onChange={updateSiteStyleStatus}
+              />
+            </div>
+
           </div>
         )}
 
@@ -1537,6 +1699,13 @@ export default function CommunityBuilder() {
               <HeroImagePanel
                 initialUrl={siteStatus?.heroImageUrl}
                 onChange={updateHeroImageStatus}
+              />
+            </div>
+            <div className="w-full">
+              <SiteStyleSelector
+                value={siteStyle}
+                saving={siteStyleSaving}
+                onChange={updateSiteStyleStatus}
               />
             </div>
           </>

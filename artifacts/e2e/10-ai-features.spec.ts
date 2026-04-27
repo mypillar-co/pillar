@@ -20,8 +20,9 @@ test.describe("AI Features", () => {
 
   test("Hero image picker section is visible on site builder page", async ({ page }) => {
     await loginToSteward(page, { targetPath: "/dashboard/site" });
-    await expect(page.getByRole("button", { name: /AI picks/i })).toBeVisible({ timeout: 15000 });
-    await expect(page.getByRole("button", { name: /Upload photo/i })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("button", { name: "Create branded banner" })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("button", { name: /Upload your own photo/i })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("button", { name: /Browse suggested photos/i })).toBeVisible({ timeout: 15000 });
   });
 
   test("Site preview area or public link is present", async ({ page }) => {

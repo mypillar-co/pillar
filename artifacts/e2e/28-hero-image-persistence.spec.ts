@@ -6,9 +6,9 @@ test.describe("Hero Image — Persistence", () => {
     await loginToSteward(page, { targetPath: "/dashboard/site" });
 
     const before = await getSiteConfig(TEST_ORG_SLUG);
-    await page.getByRole("button", { name: /AI picks/i }).click();
+    await page.getByRole("button", { name: /Browse suggested photos/i }).click();
 
-    const firstPhoto = page.locator("img").first();
+    const firstPhoto = page.getByTestId("hero-photo-option-image").first();
     await expect(firstPhoto).toBeVisible({ timeout: 20000 });
     const src = await firstPhoto.getAttribute("src");
     expect(src).toBeTruthy();
