@@ -639,6 +639,119 @@ function scoreHeroPhotoForOrg(photo: HeroPhotoLibraryItem, org: { name: string; 
   return score;
 }
 
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function normalizeHexColor(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim();
+  return /^#[0-9a-f]{6}$/i.test(trimmed) ? trimmed : fallback;
+}
+
+function normalizeHeroImageSource(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("/api/storage/objects/")) return trimmed;
+  if (/^https:\/\/images\.unsplash\.com\/photo-[a-zA-Z0-9_-]+/.test(trimmed)) return trimmed;
+  if (/^data:image\/(?:png|jpeg|jpg|webp|svg\+xml);base64,[a-zA-Z0-9+/=]+$/i.test(trimmed)) return trimmed;
+  return null;
+}
+
+function initialsForOrg(name: string): string {
+  const words = name
+    .replace(/[^a-zA-Z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((word) => !["the", "of", "and", "for"].includes(word.toLowerCase()));
+  return (words.slice(0, 3).map((word) => word[0]).join("") || "P").toUpperCase();
+}
+
+function wrapSvgText(text: string, maxChars: number, maxLines: number): string[] {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (next.length > maxChars && line) {
+      lines.push(line);
+      line = word;
+      if (lines.length === maxLines - 1) break;
+    } else {
+      line = next;
+    }
+  }
+
+  if (line && lines.length < maxLines) lines.push(line);
+  return lines;
+}
+
+function buildBrandedHeroSvg(input: {
+  orgName: string;
+  tagline: string;
+  orgType: string;
+  heroImageUrl: string | null;
+  primaryColor: string;
+  accentColor: string;
+  initials: string;
+}): string {
+  const width = 1920;
+  const height = 700;
+  const titleLines = wrapSvgText(input.orgName, 24, 2);
+  const taglineLines = wrapSvgText(input.tagline, 56, 2);
+  const hasPhoto = !!input.heroImageUrl;
+
+  const titleTspans = titleLines
+    .map((line, index) => `<tspan x="170" dy="${index === 0 ? 0 : 84}">${escapeXml(line)}</tspan>`)
+    .join("");
+  const taglineTspans = taglineLines
+    .map((line, index) => `<tspan x="170" dy="${index === 0 ? 0 : 34}">${escapeXml(line)}</tspan>`)
+    .join("");
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <defs>
+    <linearGradient id="brandWash" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="${input.primaryColor}"/>
+      <stop offset="0.58" stop-color="${input.primaryColor}" stop-opacity="0.84"/>
+      <stop offset="1" stop-color="#06111f" stop-opacity="0.9"/>
+    </linearGradient>
+    <linearGradient id="photoShade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#000814" stop-opacity="0.86"/>
+      <stop offset="0.44" stop-color="#000814" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#000814" stop-opacity="0.18"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <rect width="1920" height="700" fill="${input.primaryColor}"/>
+  ${hasPhoto ? `<image href="${escapeXml(input.heroImageUrl!)}" x="0" y="0" width="1920" height="700" preserveAspectRatio="xMidYMid slice"/>` : ""}
+  <rect width="1920" height="700" fill="url(#brandWash)" opacity="${hasPhoto ? "0.76" : "1"}"/>
+  <rect width="1920" height="700" fill="url(#photoShade)"/>
+  <circle cx="1560" cy="130" r="250" fill="${input.accentColor}" opacity="0.18"/>
+  <circle cx="1740" cy="560" r="330" fill="#ffffff" opacity="0.07"/>
+  <g filter="url(#softShadow)">
+    <rect x="128" y="116" width="118" height="118" rx="30" fill="#ffffff" opacity="0.13"/>
+    <rect x="145" y="133" width="84" height="84" rx="23" fill="${input.accentColor}"/>
+    <text x="187" y="187" text-anchor="middle" dominant-baseline="middle" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="800" fill="#101827">${escapeXml(input.initials)}</text>
+  </g>
+  <rect x="170" y="278" width="160" height="8" rx="4" fill="${input.accentColor}"/>
+  <text x="170" y="250" font-family="Inter, Arial, sans-serif" font-size="${titleLines.length > 1 ? "70" : "82"}" font-weight="850" fill="#ffffff" letter-spacing="-1">${titleTspans}</text>
+  <text x="170" y="${titleLines.length > 1 ? "450" : "430"}" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="500" fill="#edf4ff" opacity="0.94">${taglineTspans}</text>
+  <g transform="translate(170 560)">
+    <rect width="390" height="52" rx="26" fill="#ffffff" opacity="0.13"/>
+    <circle cx="30" cy="26" r="8" fill="${input.accentColor}"/>
+    <text x="54" y="34" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700" fill="#ffffff">${escapeXml(input.orgType || "Community Organization")}</text>
+  </g>
+</svg>`;
+}
+
 // GET /api/organizations/hero-image/suggest
 // Uses AI to rank the curated photo library for this org, then returns options.
 // No Unsplash API key required.
@@ -856,6 +969,61 @@ router.post("/organizations/hero-image", async (req: Request, res: Response) => 
   } catch (err) {
     console.error("Hero image save error:", err);
     res.status(500).json({ error: "Failed to save hero image" });
+  }
+});
+
+// POST /api/organizations/hero-image/brand
+// Generates a branded SVG hero from the current/selected photo plus org identity.
+router.post("/organizations/hero-image/brand", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const org = await getCurrentOrgForUser(req.user.id);
+  if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
+
+  const body = req.body as { heroImageUrl?: string | null };
+
+  try {
+    const rows = await db.execute(sql`
+      SELECT o.site_config, c.hero_image_url
+      FROM organizations o
+      LEFT JOIN cs_org_configs c ON c.org_id = o.slug OR c.org_id = o.id
+      WHERE o.id = ${org.id}
+      LIMIT 1
+    `);
+    const row = rows.rows[0] as { site_config?: Record<string, unknown> | null; hero_image_url?: string | null } | undefined;
+    const config = row?.site_config ?? {};
+    const sourceHero = normalizeHeroImageSource(body.heroImageUrl) ?? normalizeHeroImageSource(row?.hero_image_url);
+
+    const orgName = typeof config.orgName === "string" && config.orgName.trim()
+      ? config.orgName.trim()
+      : org.name;
+    const tagline = typeof config.tagline === "string" && config.tagline.trim()
+      ? config.tagline.trim()
+      : typeof config.mission === "string" && config.mission.trim()
+        ? config.mission.trim()
+        : org.category ?? "Community, service, and connection";
+    const primaryColor = normalizeHexColor(config.primaryColor, "#1e3a5f");
+    const accentColor = normalizeHexColor(config.accentColor, "#d4a017");
+    const initials = typeof config.logoInitials === "string" && config.logoInitials.trim()
+      ? config.logoInitials.trim().slice(0, 3).toUpperCase()
+      : initialsForOrg(orgName);
+
+    const svg = buildBrandedHeroSvg({
+      orgName,
+      tagline,
+      orgType: org.type ?? "Community Organization",
+      heroImageUrl: sourceHero,
+      primaryColor,
+      accentColor,
+      initials,
+    });
+    const heroImageUrl = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+
+    await saveHeroImageUrl(org, heroImageUrl);
+    res.json({ heroImageUrl });
+  } catch (err) {
+    console.error("Hero image brand error:", err);
+    res.status(500).json({ error: "Failed to create branded banner" });
   }
 });
 
