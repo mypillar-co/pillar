@@ -31,7 +31,6 @@ import {
   studioOutputsTable,
   websiteSpecsTable,
   subscriptionsTable,
-  sitesTable,
 } from "@workspace/db";
 import { eq, desc, asc, isNotNull, and, sql } from "drizzle-orm";
 import { syncOrgConfigPatchToPillar } from "../lib/pillarOrgSync.js";
@@ -59,12 +58,17 @@ async function getCurrentOrgForUser(userId: string) {
 }
 
 async function saveHeroImageUrl(
-  org: { slug: string; name: string; type?: string | null },
+  org: { id?: string; slug?: string | null; name: string; type?: string | null },
   imageUrl: string | null,
 ): Promise<void> {
+  const orgConfigId = org.slug ?? org.id;
+  if (!orgConfigId) {
+    throw new Error("Organization slug or id is required to save hero image");
+  }
+
   await db.execute(sql`
     INSERT INTO cs_org_configs (org_id, org_name, org_type, hero_image_url)
-    VALUES (${org.slug}, ${org.name}, ${org.type ?? "community"}, ${imageUrl})
+    VALUES (${orgConfigId}, ${org.name}, ${org.type ?? "community"}, ${imageUrl})
     ON CONFLICT (org_id) DO UPDATE SET
       hero_image_url = EXCLUDED.hero_image_url,
       org_name = EXCLUDED.org_name,
@@ -74,6 +78,15 @@ async function saveHeroImageUrl(
 }
 
 const router: IRouter = Router();
+
+type AuthenticatedUser = {
+  id: string;
+  email?: string | null;
+};
+
+function getAuthenticatedUser(req: Request): AuthenticatedUser {
+  return req.user as AuthenticatedUser;
+}
 
 function generateSlug(name: string): string {
   return name
@@ -91,6 +104,7 @@ import { generateCleanOrgSlug } from "../lib/slugUtils";
 
 function isAdminUser(req: Request): boolean {
   if (!req.isAuthenticated()) return false;
+  const user = getAuthenticatedUser(req);
   const adminEmails = new Set(
     (process.env.ADMIN_EMAILS ?? "")
       .split(",")
@@ -104,8 +118,8 @@ function isAdminUser(req: Request): boolean {
       .filter(Boolean),
   );
   return (
-    adminEmails.has((req.user.email ?? "").toLowerCase()) ||
-    adminIds.has(req.user.id)
+    adminEmails.has((user.email ?? "").toLowerCase()) ||
+    adminIds.has(user.id)
   );
 }
 
@@ -142,7 +156,7 @@ router.get("/organizations", async (req: Request, res: Response) => {
   const [org] = await db
     .select()
     .from(organizationsTable)
-    .where(eq(organizationsTable.userId, req.user.id))
+    .where(eq(organizationsTable.userId, getAuthenticatedUser(req).id))
     .orderBy(
       desc(isNotNull(organizationsTable.tier)),
       asc(organizationsTable.createdAt),
@@ -220,7 +234,7 @@ router.post("/organizations", async (req: Request, res: Response) => {
     return;
   }
 
-  const userId = req.user.id;
+  const userId = getAuthenticatedUser(req).id;
   const [existing] = await db
     .select()
     .from(organizationsTable)
@@ -308,7 +322,7 @@ router.put("/organizations", async (req: Request, res: Response) => {
     return;
   }
 
-  const userId = req.user.id;
+  const userId = getAuthenticatedUser(req).id;
   const [existing] = await db
     .select()
     .from(organizationsTable)
@@ -408,12 +422,13 @@ router.put("/organizations", async (req: Request, res: Response) => {
         await syncOrgConfigPatchToPillar({ orgId: effectiveSlug, ...patch });
       } catch (syncErr: any) {
         console.error("[organizations] sync failed", syncErr);
-        return res
+        res
           .status(502)
           .json({
             error: "Settings saved but failed to sync to live site",
             localOnly: true,
           });
+        return;
       }
     }
   }
@@ -430,7 +445,7 @@ router.delete("/organizations", async (req: Request, res: Response) => {
     return;
   }
 
-  const userId = req.user.id;
+  const userId = getAuthenticatedUser(req).id;
   const [org] = await db
     .select()
     .from(organizationsTable)
@@ -446,7 +461,7 @@ router.delete("/organizations", async (req: Request, res: Response) => {
     .from(boardApprovalLinksTable)
     .where(eq(boardApprovalLinksTable.orgId, orgId));
 
-  await db.transaction(async (tx) => {
+  await db.transaction(async (tx: any) => {
     for (const { id: lid } of linkIds) {
       await tx
         .delete(boardApprovalVotesTable)
@@ -759,7 +774,7 @@ router.get("/organizations/hero-image/suggest", async (req: Request, res: Respon
   res.set("Cache-Control", "no-store");
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const org = await getCurrentOrgForUser(req.user.id);
+  const org = await getCurrentOrgForUser(getAuthenticatedUser(req).id);
   if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
 
   try {
@@ -880,7 +895,7 @@ router.post("/organizations/hero-image/upload", async (req: Request, res: Respon
     return;
   }
 
-  const org = await getCurrentOrgForUser(req.user.id);
+  const org = await getCurrentOrgForUser(getAuthenticatedUser(req).id);
   if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
 
   try {
@@ -931,7 +946,7 @@ router.post("/organizations/hero-image/apply-unsplash", async (req: Request, res
     return;
   }
 
-  const org = await getCurrentOrgForUser(req.user.id);
+  const org = await getCurrentOrgForUser(getAuthenticatedUser(req).id);
 
   if (!org) {
     res.status(404).json({ error: "Organization not found" });
@@ -960,7 +975,7 @@ router.post("/organizations/hero-image", async (req: Request, res: Response) => 
   const body = req.body as { heroImageUrl?: string | null; imageUrl?: string | null };
   const heroImageUrl = "heroImageUrl" in body ? body.heroImageUrl : body.imageUrl;
 
-  const org = await getCurrentOrgForUser(req.user.id);
+  const org = await getCurrentOrgForUser(getAuthenticatedUser(req).id);
   if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
 
   try {
@@ -977,7 +992,7 @@ router.post("/organizations/hero-image", async (req: Request, res: Response) => 
 router.post("/organizations/hero-image/brand", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const org = await getCurrentOrgForUser(req.user.id);
+  const org = await getCurrentOrgForUser(getAuthenticatedUser(req).id);
   if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
 
   const body = req.body as { heroImageUrl?: string | null };
