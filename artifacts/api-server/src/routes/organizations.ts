@@ -31,6 +31,7 @@ import {
   studioOutputsTable,
   websiteSpecsTable,
   subscriptionsTable,
+  sitesTable,
 } from "@workspace/db";
 import { eq, desc, asc, isNotNull, and, sql } from "drizzle-orm";
 import { syncOrgConfigPatchToPillar } from "../lib/pillarOrgSync.js";
@@ -47,6 +48,14 @@ interface UnsplashPhoto {
   user: { name: string; links: { html: string } };
 }
 
+interface OrgBrandingSnapshot {
+  primaryColor: string | null;
+  accentColor: string | null;
+  tagline: string | null;
+}
+
+type HeroLayoutMode = "background" | "split";
+
 async function getCurrentOrgForUser(userId: string) {
   const [org] = await db
     .select()
@@ -58,35 +67,175 @@ async function getCurrentOrgForUser(userId: string) {
 }
 
 async function saveHeroImageUrl(
-  org: { id?: string; slug?: string | null; name: string; type?: string | null },
-  imageUrl: string | null,
-): Promise<void> {
-  const orgConfigId = org.slug ?? org.id;
-  if (!orgConfigId) {
-    throw new Error("Organization slug or id is required to save hero image");
-  }
-
+  orgId: string,
+  heroImageUrl: string | null,
+  options?: { heroLayout?: HeroLayoutMode | null },
+) {
   await db.execute(sql`
-    INSERT INTO cs_org_configs (org_id, org_name, org_type, hero_image_url)
-    VALUES (${orgConfigId}, ${org.name}, ${org.type ?? "community"}, ${imageUrl})
+    INSERT INTO cs_org_configs (
+      org_id,
+      org_name,
+      org_type,
+      primary_color,
+      accent_color,
+      hero_image_url
+    )
+    VALUES (
+      ${orgId},
+      ${orgId},
+      'community',
+      '#c25038',
+      '#2563eb',
+      ${heroImageUrl}
+    )
     ON CONFLICT (org_id) DO UPDATE SET
       hero_image_url = EXCLUDED.hero_image_url,
-      org_name = EXCLUDED.org_name,
-      org_type = EXCLUDED.org_type,
       updated_at = NOW()
   `);
+
+  const heroImageJson = JSON.stringify(heroImageUrl);
+  const heroLayoutJson = JSON.stringify(options?.heroLayout ?? null);
+  await db.execute(sql`
+    UPDATE organizations
+    SET site_config = jsonb_set(
+      jsonb_set(
+        jsonb_set(
+          jsonb_set(
+            COALESCE(site_config, '{}'::jsonb),
+            '{heroImageUrl}',
+            ${heroImageJson}::jsonb,
+            true
+          ),
+          '{hero,imageUrl}',
+          ${heroImageJson}::jsonb,
+          true
+        ),
+        '{heroLayout}',
+        ${heroLayoutJson}::jsonb,
+        true
+      ),
+      '{features,heroLayout}',
+      ${heroLayoutJson}::jsonb,
+      true
+    )
+    WHERE slug = ${orgId} OR id = ${orgId}
+  `);
+
+  try {
+    await syncOrgConfigPatchToPillar({
+      orgId,
+      heroImageUrl,
+      features: {
+        heroLayout: options?.heroLayout ?? null,
+      },
+    });
+  } catch (syncErr) {
+    console.warn("[organizations] hero image sync failed", syncErr);
+  }
+}
+
+function escapeSvgText(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function sanitizeHexColor(value: string | null | undefined, fallback: string): string {
+  if (!value) return fallback;
+  const trimmed = value.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(trimmed) || /^#[0-9a-fA-F]{3}$/.test(trimmed)) {
+    return trimmed;
+  }
+  return fallback;
+}
+
+function getOrgInitials(name: string): string {
+  const words = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 3);
+  if (words.length === 0) return "P";
+  return words.map((word) => word[0]?.toUpperCase() ?? "").join("").slice(0, 3);
+}
+
+function buildBrandedHeroSvg(input: {
+  orgName: string;
+  tagline: string;
+  initials: string;
+  primaryColor: string;
+  accentColor: string;
+  heroImageUrl?: string | null;
+}): string {
+  const primaryColor = sanitizeHexColor(input.primaryColor, "#1e3a5f");
+  const accentColor = sanitizeHexColor(input.accentColor, "#d4a017");
+  const heroImageUrl = input.heroImageUrl ? escapeSvgText(input.heroImageUrl) : null;
+  const hasPhoto = Boolean(heroImageUrl);
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" fill="none">
+  <defs>
+    <linearGradient id="pillarHeroGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="${primaryColor}" />
+      <stop offset="100%" stop-color="${accentColor}" />
+    </linearGradient>
+    <linearGradient id="pillarOverlay" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#07111f" stop-opacity="0.20" />
+      <stop offset="100%" stop-color="#07111f" stop-opacity="0.72" />
+    </linearGradient>
+    <pattern id="pillarGrid" width="80" height="80" patternUnits="userSpaceOnUse">
+      <path d="M80 0H0V80" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>
+    </pattern>
+    <clipPath id="pillarPhotoFrame">
+      <rect x="92" y="120" width="560" height="660" rx="36" />
+    </clipPath>
+  </defs>
+  <rect width="1600" height="900" fill="url(#pillarHeroGradient)" />
+  ${hasPhoto ? `<rect x="72" y="100" width="600" height="700" rx="42" fill="rgba(7,17,31,0.38)" stroke="rgba(255,255,255,0.18)" stroke-width="2" />
+  <rect x="92" y="120" width="560" height="660" rx="36" fill="#08111f" />
+  <image
+    href="${heroImageUrl}"
+    x="92"
+    y="120"
+    width="560"
+    height="660"
+    preserveAspectRatio="xMidYMid meet"
+    clip-path="url(#pillarPhotoFrame)"
+  />` : ""}
+  <rect width="1600" height="900" fill="url(#pillarOverlay)" />
+  <rect width="1600" height="900" fill="url(#pillarGrid)" opacity="0.35" />
+  <circle cx="1380" cy="170" r="220" fill="${accentColor}" opacity="0.10" />
+  <circle cx="1260" cy="720" r="280" fill="#ffffff" opacity="0.06" />
+  <circle cx="220" cy="770" r="180" fill="${accentColor}" opacity="0.08" />
+  <rect x="${hasPhoto ? 720 : 140}" y="190" width="${hasPhoto ? 620 : 1180}" height="460" rx="36" fill="rgba(7,17,31,0.18)" />
+  <rect x="${hasPhoto ? 720 : 140}" y="190" width="180" height="4" rx="2" fill="${accentColor}" opacity="0.9" />
+  <rect x="${hasPhoto ? 720 : 140}" y="646" width="${hasPhoto ? 300 : 420}" height="4" rx="2" fill="#ffffff" opacity="0.18" />
+  <path d="M${hasPhoto ? 760 : 180} 580 C ${hasPhoto ? 980 : 540} 480, ${hasPhoto ? 1120 : 900} 520, ${hasPhoto ? 1320 : 1260} 380" stroke="rgba(255,255,255,0.10)" stroke-width="3" stroke-linecap="round" />
+  <path d="M${hasPhoto ? 820 : 260} 700 C ${hasPhoto ? 1040 : 640} 620, ${hasPhoto ? 1200 : 980} 640, ${hasPhoto ? 1380 : 1280} 540" stroke="rgba(255,255,255,0.08)" stroke-width="2" stroke-linecap="round" />
+</svg>`;
+}
+
+async function getOrgBrandingSnapshot(orgSlug: string): Promise<OrgBrandingSnapshot> {
+  const result = await db.execute(sql`
+    SELECT primary_color, accent_color, tagline
+    FROM cs_org_configs
+    WHERE org_id = ${orgSlug}
+    LIMIT 1
+  `);
+  const row = result.rows[0] as
+    | { primary_color?: string | null; accent_color?: string | null; tagline?: string | null }
+    | undefined;
+  return {
+    primaryColor: row?.primary_color ?? null,
+    accentColor: row?.accent_color ?? null,
+    tagline: row?.tagline ?? null,
+  };
 }
 
 const router: IRouter = Router();
-
-type AuthenticatedUser = {
-  id: string;
-  email?: string | null;
-};
-
-function getAuthenticatedUser(req: Request): AuthenticatedUser {
-  return req.user as AuthenticatedUser;
-}
 
 function generateSlug(name: string): string {
   return name
@@ -104,7 +253,6 @@ import { generateCleanOrgSlug } from "../lib/slugUtils";
 
 function isAdminUser(req: Request): boolean {
   if (!req.isAuthenticated()) return false;
-  const user = getAuthenticatedUser(req);
   const adminEmails = new Set(
     (process.env.ADMIN_EMAILS ?? "")
       .split(",")
@@ -118,8 +266,8 @@ function isAdminUser(req: Request): boolean {
       .filter(Boolean),
   );
   return (
-    adminEmails.has((user.email ?? "").toLowerCase()) ||
-    adminIds.has(user.id)
+    adminEmails.has((req.user.email ?? "").toLowerCase()) ||
+    adminIds.has(req.user.id)
   );
 }
 
@@ -156,7 +304,7 @@ router.get("/organizations", async (req: Request, res: Response) => {
   const [org] = await db
     .select()
     .from(organizationsTable)
-    .where(eq(organizationsTable.userId, getAuthenticatedUser(req).id))
+    .where(eq(organizationsTable.userId, req.user.id))
     .orderBy(
       desc(isNotNull(organizationsTable.tier)),
       asc(organizationsTable.createdAt),
@@ -234,7 +382,7 @@ router.post("/organizations", async (req: Request, res: Response) => {
     return;
   }
 
-  const userId = getAuthenticatedUser(req).id;
+  const userId = req.user.id;
   const [existing] = await db
     .select()
     .from(organizationsTable)
@@ -322,7 +470,7 @@ router.put("/organizations", async (req: Request, res: Response) => {
     return;
   }
 
-  const userId = getAuthenticatedUser(req).id;
+  const userId = req.user.id;
   const [existing] = await db
     .select()
     .from(organizationsTable)
@@ -422,13 +570,12 @@ router.put("/organizations", async (req: Request, res: Response) => {
         await syncOrgConfigPatchToPillar({ orgId: effectiveSlug, ...patch });
       } catch (syncErr: any) {
         console.error("[organizations] sync failed", syncErr);
-        res
+        return res
           .status(502)
           .json({
             error: "Settings saved but failed to sync to live site",
             localOnly: true,
           });
-        return;
       }
     }
   }
@@ -445,7 +592,7 @@ router.delete("/organizations", async (req: Request, res: Response) => {
     return;
   }
 
-  const userId = getAuthenticatedUser(req).id;
+  const userId = req.user.id;
   const [org] = await db
     .select()
     .from(organizationsTable)
@@ -461,7 +608,7 @@ router.delete("/organizations", async (req: Request, res: Response) => {
     .from(boardApprovalLinksTable)
     .where(eq(boardApprovalLinksTable.orgId, orgId));
 
-  await db.transaction(async (tx: any) => {
+  await db.transaction(async (tx) => {
     for (const { id: lid } of linkIds) {
       await tx
         .delete(boardApprovalVotesTable)
@@ -535,246 +682,29 @@ router.delete("/organizations", async (req: Request, res: Response) => {
 
 // ── Hero image routes ─────────────────────────────────────────────────────────
 
-type HeroPhotoCategory =
-  | "masonic/lodge/tradition"
-  | "civic leadership/community"
-  | "rotary/chamber networking"
-  | "volunteers/nonprofit"
-  | "outdoor town events/festivals"
-  | "patriotic/community landmarks"
-  | "elegant fellowship/interior gatherings";
-
-type HeroPhotoLibraryItem = {
-  id: string;
-  category: HeroPhotoCategory;
-  description: string;
-  tags: string[];
-  businessOnly?: boolean;
-};
-
-// Curated civic/community Unsplash photo IDs — pre-approved, accessible without an API key.
-// Keep metadata internal; the endpoint response shape remains unchanged.
-const HERO_PHOTO_GROUPS: Record<HeroPhotoCategory, HeroPhotoLibraryItem[]> = {
-  "masonic/lodge/tradition": [
-    { id: "1518895949257-7621c3c786d7", category: "masonic/lodge/tradition", description: "Historic stone architecture with a formal, traditional civic feel", tags: ["historic", "stone", "tradition", "lodge", "heritage"] },
-    { id: "1518005020951-eccb494ad742", category: "masonic/lodge/tradition", description: "Grand interior hall with warm light and ceremonial atmosphere", tags: ["interior", "hall", "tradition", "formal", "heritage"] },
-    { id: "1494526585095-c41746248156", category: "masonic/lodge/tradition", description: "Elegant architectural detail suggesting history and institution", tags: ["architecture", "detail", "classic", "institution"] },
-    { id: "1500530855697-b586d89ba3ee", category: "masonic/lodge/tradition", description: "Distinguished public building exterior with timeless civic presence", tags: ["building", "civic", "formal", "heritage"] },
-    { id: "1511818966892-d7d671e672a2", category: "masonic/lodge/tradition", description: "Warm wood interior suited to a lodge or long-standing fellowship", tags: ["wood", "interior", "lodge", "warm", "traditional"] },
-    { id: "1516455590571-18256e5bb9ff", category: "masonic/lodge/tradition", description: "Classic columns and formal architecture for heritage organizations", tags: ["columns", "classic", "architecture", "tradition"] },
-  ],
-  "civic leadership/community": [
-    { id: "1521791136064-7986c2920216", category: "civic leadership/community", description: "Civic leaders addressing a community audience", tags: ["leadership", "audience", "civic", "public"] },
-    { id: "1552664730-d307ca884978", category: "civic leadership/community", description: "Diverse group united around a common purpose", tags: ["community", "purpose", "people", "team"] },
-    { id: "1523240795612-9a054b0db644", category: "civic leadership/community", description: "Vibrant town square with everyday community life", tags: ["town", "square", "community", "local"] },
-    { id: "1517048676732-d65bc937f952", category: "civic leadership/community", description: "Collaborative community group in an active discussion", tags: ["discussion", "community", "collaboration"] },
-    { id: "1522202176988-66273c2fd55f", category: "civic leadership/community", description: "People gathered around a community planning table", tags: ["planning", "meeting", "community", "table"] },
-    { id: "1529156069898-49953e39b3ac", category: "civic leadership/community", description: "Speaker presenting to an engaged local audience", tags: ["speaker", "audience", "presentation", "leadership"] },
-    { id: "1517245386807-bb43f82c33c4", category: "civic leadership/community", description: "Workshop-style civic planning session with notes and discussion", tags: ["workshop", "planning", "notes", "civic"] },
-  ],
-  "rotary/chamber networking": [
-    { id: "1497366216548-37526070297c", category: "rotary/chamber networking", description: "Networking event with engaged professionals", tags: ["networking", "professionals", "chamber", "event"] },
-    { id: "1454165804606-c3d57bc86b40", category: "rotary/chamber networking", description: "Professional group discussion at a bright table", tags: ["business", "professional", "meeting", "table"], businessOnly: true },
-    { id: "1557804506-669a67965ba0", category: "rotary/chamber networking", description: "Engaged professionals in a bright office meeting", tags: ["office", "business", "professional", "meeting"], businessOnly: true },
-    { id: "1573496359142-b8d87734a5a2", category: "rotary/chamber networking", description: "Collaborative team session with whiteboards", tags: ["whiteboard", "team", "strategy", "professional"], businessOnly: true },
-    { id: "1504384308090-c894fdcc538d", category: "rotary/chamber networking", description: "Business and civic leaders gathered for a focused discussion", tags: ["business", "leaders", "discussion", "professional"], businessOnly: true },
-    { id: "1515169067865-5387ec356754", category: "rotary/chamber networking", description: "Handshake and introductions at a professional gathering", tags: ["handshake", "networking", "chamber", "professional"] },
-    { id: "1527529482837-4698179dc6ce", category: "rotary/chamber networking", description: "Close-up of people connecting in a business networking setting", tags: ["networking", "connection", "business", "people"] },
-  ],
-  "volunteers/nonprofit": [
-    { id: "1543269865-cbf427effbad", category: "volunteers/nonprofit", description: "People volunteering together in the community", tags: ["volunteer", "service", "community", "nonprofit"] },
-    { id: "1531206715517-5c0ba140b2b8", category: "volunteers/nonprofit", description: "Volunteer hands joined together around a shared mission", tags: ["volunteer", "hands", "mission", "service"] },
-    { id: "1488521787991-ed7bbaae773c", category: "volunteers/nonprofit", description: "Community service and food support in action", tags: ["service", "food", "nonprofit", "helping"] },
-    { id: "1521737604893-d14cc237f11d", category: "volunteers/nonprofit", description: "Outdoor volunteers working side by side", tags: ["volunteer", "outdoor", "service", "team"] },
-    { id: "1559027615-cd4628902d4a", category: "volunteers/nonprofit", description: "Hands-on service project with people working together", tags: ["service", "project", "hands", "community"] },
-    { id: "1469571486292-0ba58a3f068b", category: "volunteers/nonprofit", description: "Community service moment with a hopeful, human focus", tags: ["service", "human", "helping", "community"] },
-    { id: "1556761175-b413da4baf72", category: "volunteers/nonprofit", description: "Volunteers sharing supplies and support", tags: ["volunteer", "supplies", "support", "nonprofit"] },
-  ],
-  "outdoor town events/festivals": [
-    { id: "1491438590914-bc09fcaaf77a", category: "outdoor town events/festivals", description: "Energetic crowd at an outdoor community event", tags: ["festival", "crowd", "outdoor", "event"] },
-    { id: "1509099836639-18ba1795216d", category: "outdoor town events/festivals", description: "Community gathering with people connecting outdoors", tags: ["outdoor", "gathering", "community", "people"] },
-    { id: "1472653431158-6364773b2a56", category: "outdoor town events/festivals", description: "Lively street event with local neighborhood energy", tags: ["street", "event", "festival", "local"] },
-    { id: "1505373877841-8d25f7d46678", category: "outdoor town events/festivals", description: "Outdoor market or fair with a welcoming town atmosphere", tags: ["market", "fair", "outdoor", "town"] },
-    { id: "1517457373958-b7bdd4587205", category: "outdoor town events/festivals", description: "Public celebration with lights, people, and local activity", tags: ["celebration", "lights", "festival", "public"] },
-    { id: "1500534314209-a25ddb2bd429", category: "outdoor town events/festivals", description: "Community event scene with open space and public activity", tags: ["event", "public", "outdoor", "community"] },
-    { id: "1528605248644-14dd04022da1", category: "outdoor town events/festivals", description: "People enjoying an outdoor gathering in warm natural light", tags: ["outdoor", "gathering", "warm", "people"] },
-  ],
-  "patriotic/community landmarks": [
-    { id: "1523731407965-2430cd12f5e4", category: "patriotic/community landmarks", description: "Main street architecture and local landmark character", tags: ["main street", "landmark", "town", "architecture"] },
-    { id: "1505238680356-667803448bb6", category: "patriotic/community landmarks", description: "Public square and civic landmark setting", tags: ["public", "square", "landmark", "civic"] },
-    { id: "1477959858617-67f85cf4f1df", category: "patriotic/community landmarks", description: "City skyline and local pride atmosphere", tags: ["skyline", "city", "pride", "local"] },
-    { id: "1494522855154-9297ac14b55f", category: "patriotic/community landmarks", description: "Iconic building exterior for a civic-minded organization", tags: ["building", "landmark", "civic", "iconic"] },
-    { id: "1493246507139-91e8fad9978e", category: "patriotic/community landmarks", description: "Formal public interior with institutional gravitas", tags: ["formal", "interior", "institution", "public"] },
-    { id: "1519302959554-a75be0afc82a", category: "patriotic/community landmarks", description: "Historic architectural detail for legacy and tradition", tags: ["historic", "architecture", "legacy", "tradition"] },
-  ],
-  "elegant fellowship/interior gatherings": [
-    { id: "1511795409834-ef04bbd61622", category: "elegant fellowship/interior gatherings", description: "Warm dinner table atmosphere for fellowship and connection", tags: ["dinner", "fellowship", "warm", "gathering"] },
-    { id: "1414235077428-338989a2e8c0", category: "elegant fellowship/interior gatherings", description: "Elegant banquet setting suited to ceremonies and galas", tags: ["banquet", "elegant", "ceremony", "gala"] },
-    { id: "1519671482749-fd09be7ccebf", category: "elegant fellowship/interior gatherings", description: "Refined table setting with a polished event feel", tags: ["table", "event", "polished", "fellowship"] },
-    { id: "1519671282429-b44660ead0a7", category: "elegant fellowship/interior gatherings", description: "Friendly gathering with warm interpersonal energy", tags: ["gathering", "people", "warm", "fellowship"] },
-    { id: "1540575467063-178a50c2df87", category: "elegant fellowship/interior gatherings", description: "Roundtable conversation in a welcoming indoor setting", tags: ["roundtable", "conversation", "indoor", "welcoming"] },
-    { id: "1503428593586-e225b39bddfe", category: "elegant fellowship/interior gatherings", description: "Close community conversation around a shared table", tags: ["table", "community", "conversation", "fellowship"] },
-  ],
-};
-
-const HERO_PHOTO_LIBRARY = Object.values(HERO_PHOTO_GROUPS).flat();
-
-function scoreHeroPhotoForOrg(photo: HeroPhotoLibraryItem, org: { name: string; type?: string | null; category?: string | null }): number {
-  const cues = `${org.name} ${org.type ?? ""} ${org.category ?? ""}`.toLowerCase();
-  let score = 0;
-
-  if (/(mason|masonic|lodge|temple|shrine|fraternal|order|chapter)/.test(cues)) {
-    if (photo.category === "masonic/lodge/tradition") score += 10;
-    if (photo.category === "elegant fellowship/interior gatherings") score += 5;
-  }
-  if (/(rotary|kiwanis|lions|optimist|club|fellowship)/.test(cues)) {
-    if (photo.category === "elegant fellowship/interior gatherings") score += 8;
-    if (photo.category === "volunteers/nonprofit") score += 6;
-    if (photo.category === "civic leadership/community") score += 4;
-  }
-  if (/(chamber|business|commerce|professional|merchant|downtown|main street|association)/.test(cues)) {
-    if (photo.category === "rotary/chamber networking") score += 9;
-    if (photo.category === "civic leadership/community") score += 4;
-  }
-  if (/(volunteer|nonprofit|foundation|service|charity|pta|pto|youth|arts|council)/.test(cues)) {
-    if (photo.category === "volunteers/nonprofit") score += 10;
-    if (photo.category === "outdoor town events/festivals") score += 5;
-  }
-  if (/(festival|fair|market|event|parade|community day|celebration)/.test(cues)) {
-    if (photo.category === "outdoor town events/festivals") score += 10;
-  }
-  if (/(vfw|american legion|veteran|patriot|memorial|historical|heritage)/.test(cues)) {
-    if (photo.category === "patriotic/community landmarks") score += 10;
-    if (photo.category === "masonic/lodge/tradition") score += 4;
-  }
-  if (photo.businessOnly && !/(chamber|business|commerce|professional|merchant|network|networking)/.test(cues)) {
-    score -= 8;
-  }
-
-  return score;
-}
-
-function escapeXml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function normalizeHexColor(value: unknown, fallback: string): string {
-  if (typeof value !== "string") return fallback;
-  const trimmed = value.trim();
-  return /^#[0-9a-f]{6}$/i.test(trimmed) ? trimmed : fallback;
-}
-
-function normalizeHeroImageSource(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (trimmed.startsWith("/api/storage/objects/")) return trimmed;
-  if (/^https:\/\/images\.unsplash\.com\/photo-[a-zA-Z0-9_-]+/.test(trimmed)) return trimmed;
-  if (/^data:image\/(?:png|jpeg|jpg|webp|svg\+xml);base64,[a-zA-Z0-9+/=]+$/i.test(trimmed)) return trimmed;
-  return null;
-}
-
-function initialsForOrg(name: string): string {
-  const words = name
-    .replace(/[^a-zA-Z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter(Boolean)
-    .filter((word) => !["the", "of", "and", "for"].includes(word.toLowerCase()));
-  return (words.slice(0, 3).map((word) => word[0]).join("") || "P").toUpperCase();
-}
-
-function wrapSvgText(text: string, maxChars: number, maxLines: number): string[] {
-  const words = text.trim().split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
-  let line = "";
-
-  for (const word of words) {
-    const next = line ? `${line} ${word}` : word;
-    if (next.length > maxChars && line) {
-      lines.push(line);
-      line = word;
-      if (lines.length === maxLines - 1) break;
-    } else {
-      line = next;
-    }
-  }
-
-  if (line && lines.length < maxLines) lines.push(line);
-  return lines;
-}
-
-function buildBrandedHeroSvg(input: {
-  orgName: string;
-  tagline: string;
-  orgType: string;
-  heroImageUrl: string | null;
-  primaryColor: string;
-  accentColor: string;
-  initials: string;
-}): string {
-  const width = 1920;
-  const height = 700;
-  const titleLines = wrapSvgText(input.orgName, 24, 2);
-  const taglineLines = wrapSvgText(input.tagline, 56, 2);
-  const hasPhoto = !!input.heroImageUrl;
-
-  const titleTspans = titleLines
-    .map((line, index) => `<tspan x="170" dy="${index === 0 ? 0 : 84}">${escapeXml(line)}</tspan>`)
-    .join("");
-  const taglineTspans = taglineLines
-    .map((line, index) => `<tspan x="170" dy="${index === 0 ? 0 : 34}">${escapeXml(line)}</tspan>`)
-    .join("");
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-  <defs>
-    <linearGradient id="brandWash" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="${input.primaryColor}"/>
-      <stop offset="0.58" stop-color="${input.primaryColor}" stop-opacity="0.84"/>
-      <stop offset="1" stop-color="#06111f" stop-opacity="0.9"/>
-    </linearGradient>
-    <linearGradient id="photoShade" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#000814" stop-opacity="0.86"/>
-      <stop offset="0.44" stop-color="#000814" stop-opacity="0.5"/>
-      <stop offset="1" stop-color="#000814" stop-opacity="0.18"/>
-    </linearGradient>
-    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.28"/>
-    </filter>
-  </defs>
-  <rect width="1920" height="700" fill="${input.primaryColor}"/>
-  ${hasPhoto ? `<image href="${escapeXml(input.heroImageUrl!)}" x="0" y="0" width="1920" height="700" preserveAspectRatio="xMidYMid slice"/>` : ""}
-  <rect width="1920" height="700" fill="url(#brandWash)" opacity="${hasPhoto ? "0.76" : "1"}"/>
-  <rect width="1920" height="700" fill="url(#photoShade)"/>
-  <circle cx="1560" cy="130" r="250" fill="${input.accentColor}" opacity="0.18"/>
-  <circle cx="1740" cy="560" r="330" fill="#ffffff" opacity="0.07"/>
-  <g filter="url(#softShadow)">
-    <rect x="128" y="116" width="118" height="118" rx="30" fill="#ffffff" opacity="0.13"/>
-    <rect x="145" y="133" width="84" height="84" rx="23" fill="${input.accentColor}"/>
-    <text x="187" y="187" text-anchor="middle" dominant-baseline="middle" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="800" fill="#101827">${escapeXml(input.initials)}</text>
-  </g>
-  <rect x="170" y="278" width="160" height="8" rx="4" fill="${input.accentColor}"/>
-  <text x="170" y="250" font-family="Inter, Arial, sans-serif" font-size="${titleLines.length > 1 ? "70" : "82"}" font-weight="850" fill="#ffffff" letter-spacing="-1">${titleTspans}</text>
-  <text x="170" y="${titleLines.length > 1 ? "450" : "430"}" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="500" fill="#edf4ff" opacity="0.94">${taglineTspans}</text>
-  <g transform="translate(170 560)">
-    <rect width="390" height="52" rx="26" fill="#ffffff" opacity="0.13"/>
-    <circle cx="30" cy="26" r="8" fill="${input.accentColor}"/>
-    <text x="54" y="34" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700" fill="#ffffff">${escapeXml(input.orgType || "Community Organization")}</text>
-  </g>
-</svg>`;
-}
+// Curated civic/community Unsplash photo IDs — pre-approved, accessible without an API key
+const HERO_PHOTO_LIBRARY = [
+  { id: "1522202176988-66273c2fd55f", description: "People gathered around a community meeting table" },
+  { id: "1517048676732-d65bc937f952", description: "Diverse team collaborating and smiling" },
+  { id: "1454165804606-c3d57bc86b40", description: "Professional group discussion at a bright table" },
+  { id: "1557804506-669a67965ba0", description: "Engaged professionals in a bright office meeting" },
+  { id: "1491438590914-bc09fcaaf77a", description: "Energetic crowd at an outdoor community event" },
+  { id: "1497366216548-37526070297c", description: "Networking event with engaged professionals" },
+  { id: "1509099836639-18ba1795216d", description: "Community gathering — people connecting outdoors" },
+  { id: "1543269865-cbf427effbad", description: "People volunteering together in the community" },
+  { id: "1521791136064-7986c2920216", description: "Civic leaders addressing a community audience" },
+  { id: "1573496359142-b8d87734a5a2", description: "Collaborative team session with whiteboards" },
+  { id: "1552664730-d307ca884978", description: "Diverse group united around a common purpose" },
+  { id: "1523240795612-9a054b0db644", description: "Vibrant town square with community life" },
+];
 
 // GET /api/organizations/hero-image/suggest
 // Uses AI to rank the curated photo library for this org, then returns options.
 // No Unsplash API key required.
 router.get("/organizations/hero-image/suggest", async (req: Request, res: Response) => {
-  res.set("Cache-Control", "no-store");
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const org = await getCurrentOrgForUser(getAuthenticatedUser(req).id);
+  const org = await getCurrentOrgForUser(req.user.id);
   if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
 
   try {
@@ -785,32 +715,8 @@ router.get("/organizations/hero-image/suggest", async (req: Request, res: Respon
 
     // AI evaluates ALL photos and ranks them best-to-worst for this org.
     // All indices are returned so the UI can display every available option.
-    const libraryJson = livePhotos
-      .map((p, i) => `${i}: [${p.category}] ${p.description}; tags: ${p.tags.join(", ")}`)
-      .join("\n");
-    const orgCues = [
-      `name: ${org.name}`,
-      `type: ${org.type || "unknown"}`,
-      `category: ${org.category || "unknown"}`,
-    ].join("\n");
-    const prompt = `You are selecting website hero background photos for a local organization.
-
-Organization cues:
-${orgCues}
-
-Choose images that visibly match the organization's identity:
-- Masonic, lodge, fraternal, shrine, temple, order, or chapter cues should strongly prefer tradition, historic architecture, formal interiors, or elegant fellowship.
-- Rotary, Lions, Kiwanis, service club, nonprofit, PTA/PTO, foundation, and volunteer cues should prefer community service, fellowship, civic leadership, and warm gatherings.
-- Chamber, commerce, business, professional, merchant, downtown, and Main Street cues can use networking or professional meeting photos.
-- Festivals, markets, parades, fairs, and community events should prefer outdoor town event photos.
-- Veteran, patriotic, memorial, historic, heritage, and civic-pride cues should prefer landmarks and formal civic imagery.
-- Bias AGAINST generic office meeting photos unless the org is clearly business/professional/chamber/commerce.
-- Avoid bland corporate stock imagery when a more specific community, tradition, volunteer, landmark, or fellowship image fits.
-
-Available photos (by index):
-${libraryJson}
-
-Return ALL ${livePhotos.length} indices (0-${livePhotos.length - 1}), comma-separated, ordered best-to-worst fit. Include every index exactly once. Return ONLY numbers.`;
+    const libraryJson = livePhotos.map((p, i) => `${i}: ${p.description}`).join("\n");
+    const prompt = `You are picking hero background photos for a community website. The organization is "${org.name}" (type: ${org.type || "civic"})${org.category ? `, tagline: "${org.category}"` : ""}.\n\nAvailable photos (by index):\n${libraryJson}\n\nReturn ALL ${livePhotos.length} indices (0–${livePhotos.length - 1}), comma-separated, ordered best-to-worst fit. Include every index exactly once. Return ONLY numbers, e.g.: 2,0,5,3,7,1,4,8,9,11,10,6`;
 
     let raw = "";
     // Try Replit OpenAI integration
@@ -823,7 +729,7 @@ Return ALL ${livePhotos.length} indices (0-${livePhotos.length - 1}), comma-sepa
         const completion = await openaiForSuggest.chat.completions.create({
           model: "gpt-4o-mini",
           messages: [{ role: "user", content: prompt }],
-          max_tokens: 260,
+          max_tokens: 60,
         });
         raw = completion.choices[0]?.message?.content?.trim() ?? "";
       } catch (_openaiErr) {
@@ -837,7 +743,7 @@ Return ALL ${livePhotos.length} indices (0-${livePhotos.length - 1}), comma-sepa
         const anthropicForSuggest = new AnthropicSdk({ apiKey: process.env.ANTHROPIC_API_KEY });
         const msg = await anthropicForSuggest.messages.create({
           model: "claude-3-5-haiku-latest",
-          max_tokens: 260,
+          max_tokens: 60,
           messages: [{ role: "user", content: prompt }],
         });
         const tb = msg.content.find((b) => b.type === "text");
@@ -851,18 +757,12 @@ Return ALL ${livePhotos.length} indices (0-${livePhotos.length - 1}), comma-sepa
       .map(s => parseInt(s.trim(), 10))
       .filter(n => !isNaN(n) && n >= 0 && n < livePhotos.length);
 
-    const fallbackOrder = livePhotos
-      .map((_, index) => index)
-      .sort((a, b) => scoreHeroPhotoForOrg(livePhotos[b], org) - scoreHeroPhotoForOrg(livePhotos[a], org));
-
-    // Deduplicate AI ranking and append any photos the AI omitted at the end.
-    // Fallback order is semantic, not natural array order, so no-AI local dev
-    // still avoids generic office photos for service/lodge/community orgs.
+    // Deduplicate AI ranking and append any photos the AI omitted at the end
     const seen = new Set<number>();
     const ordered: number[] = [];
     for (const idx of aiIndices) { if (!seen.has(idx)) { seen.add(idx); ordered.push(idx); } }
-    for (const idx of fallbackOrder) {
-      if (!seen.has(idx)) { seen.add(idx); ordered.push(idx); }
+    for (let i = 0; i < livePhotos.length; i++) {
+      if (!seen.has(i)) { seen.add(i); ordered.push(i); }
     }
 
     // Return ALL photos ranked — no artificial cap
@@ -895,13 +795,15 @@ router.post("/organizations/hero-image/upload", async (req: Request, res: Respon
     return;
   }
 
-  const org = await getCurrentOrgForUser(getAuthenticatedUser(req).id);
+  const org = await getCurrentOrgForUser(req.user.id);
   if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
 
-  try {
-    const chunks: Buffer[] = [];
+  let imageBuffer: Buffer = Buffer.alloc(0);
+
+try {
+  const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as ArrayBuffer));
-    const imageBuffer = Buffer.concat(chunks);
+    imageBuffer = Buffer.concat(chunks);
     if (imageBuffer.length === 0) { res.status(400).json({ error: "Empty file" }); return; }
 
     const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
@@ -915,54 +817,120 @@ router.post("/organizations/hero-image/upload", async (req: Request, res: Respon
     await bucket.file(objectName).save(imageBuffer, { contentType, resumable: false });
 
     const heroImageUrl = `/api/storage/objects/uploads/${objectId}.${ext}`;
-    await saveHeroImageUrl(org, heroImageUrl);
+    await saveHeroImageUrl(org.slug, heroImageUrl, { heroLayout: "background" });
 
     res.json({ heroImageUrl });
   } catch (err) {
-    console.error("Hero image upload error:", err);
+  console.error("Hero image upload error:", err);
+
+  try {
+    const fallbackUrl = `data:${contentType};base64,${imageBuffer.toString("base64")}`;
+    await saveHeroImageUrl(org.slug, fallbackUrl, { heroLayout: "background" });
+    res.json({ heroImageUrl: fallbackUrl });
+    return;
+  } catch (fallbackErr) {
+    console.error("Hero image upload fallback error:", fallbackErr);
     res.status(500).json({ error: "Failed to upload image" });
   }
+}
 });
 
 // POST /api/organizations/hero-image/apply-unsplash
 // Downloads chosen photo into object storage and saves the URL to cs_org_configs.
 // Accepts: { photoUrl, credit } — photoUrl is the full-resolution image URL.
 router.post("/organizations/hero-image/apply-unsplash", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const { photoUrl, previewUrl } = req.body as {
-    photoUrl?: string;
-    previewUrl?: string;
-    credit?: string;
-  };
-
+  // Accept both old (previewUrl) and new (photoUrl) key names for compatibility
+  const { photoUrl, previewUrl } = req.body as { photoUrl?: string; previewUrl?: string; credit?: string };
   const imageSourceUrl = photoUrl ?? previewUrl;
+  if (!imageSourceUrl) { res.status(400).json({ error: "photoUrl is required" }); return; }
 
-  if (!imageSourceUrl) {
-    res.status(400).json({ error: "photoUrl is required" });
-    return;
-  }
-
-  const org = await getCurrentOrgForUser(getAuthenticatedUser(req).id);
-
-  if (!org) {
-    res.status(404).json({ error: "Organization not found" });
-    return;
-  }
+  const org = await getCurrentOrgForUser(req.user.id);
+  if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
 
   try {
-    // For AI-picked Unsplash images, save the external URL directly.
-    // This avoids local object-storage failures and makes the manual UI reliable.
-    await saveHeroImageUrl(org, imageSourceUrl);
+    // Download the image with a browser-like User-Agent (some CDNs require it)
+    const imageRes = await fetch(imageSourceUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; Pillar/1.0)" },
+      signal: AbortSignal.timeout(15000),
+    });
 
-    res.json({ heroImageUrl: imageSourceUrl });
-    return;
+    if (!imageRes.ok) {
+      // If download fails, persist the external URL directly as a fallback
+      console.warn(`Hero image download returned ${imageRes.status} — saving URL directly`);
+      await saveHeroImageUrl(org.slug, imageSourceUrl, { heroLayout: "background" });
+      res.json({ heroImageUrl: imageSourceUrl });
+      return;
+    }
+
+    const imageBuffer = Buffer.from(await imageRes.arrayBuffer());
+    const contentType = imageRes.headers.get("content-type") || "image/jpeg";
+    const ext = contentType.includes("png") ? "png" : "jpg";
+
+    // Upload to object storage
+    const privateDir = objectStorageService.getPrivateObjectDir().replace(/\/$/, "");
+    const objectId = randomUUID();
+    const objectPath = `${privateDir}/uploads/${objectId}.${ext}`;
+    const parts = objectPath.startsWith("/") ? objectPath.slice(1).split("/") : objectPath.split("/");
+    const bucketName = parts[0];
+    const objectName = parts.slice(1).join("/");
+    const bucket = objectStorageClient.bucket(bucketName);
+    await bucket.file(objectName).save(imageBuffer, { contentType, resumable: false });
+
+    const heroImageUrl = `/api/storage/objects/uploads/${objectId}.${ext}`;
+    await saveHeroImageUrl(org.slug, heroImageUrl, { heroLayout: "background" });
+
+    res.json({ heroImageUrl });
   } catch (err) {
-    console.error("Hero image direct save error:", err);
-    res.status(500).json({ error: "Failed to save hero image" });
+    console.error("Hero image apply error:", err);
+    // Last-resort fallback: save the URL directly so the user isn't blocked
+    try {
+      await saveHeroImageUrl(org.slug, imageSourceUrl, { heroLayout: "background" });
+      res.json({ heroImageUrl: imageSourceUrl });
+    } catch {
+      res.status(500).json({ error: "Failed to save hero image" });
+    }
+  }
+});
+
+// POST /api/organizations/hero-image/brand
+// Creates a branded SVG banner and persists it through the same heroImageUrl path.
+router.post("/organizations/hero-image/brand", async (req: Request, res: Response) => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const org = await getCurrentOrgForUser(req.user.id);
+  if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
+
+  try {
+    const body = req.body as { heroImageUrl?: string | null };
+    const branding = await getOrgBrandingSnapshot(org.slug);
+    const primaryColor = sanitizeHexColor(branding.primaryColor, "#1e3a5f");
+    const accentColor = sanitizeHexColor(branding.accentColor, "#d4a017");
+    const tagline = (branding.tagline ?? org.category ?? org.type ?? "Serving the community with purpose").trim();
+    const initials = getOrgInitials(org.name);
+    const sourceHeroImageUrl = body.heroImageUrl ?? null;
+
+    if (sourceHeroImageUrl) {
+      await saveHeroImageUrl(org.slug, sourceHeroImageUrl, { heroLayout: "split" });
+      res.json({ heroImageUrl: sourceHeroImageUrl });
+      return;
+    }
+
+    const svg = buildBrandedHeroSvg({
+      orgName: org.name,
+      tagline,
+      initials,
+      primaryColor,
+      accentColor,
+      heroImageUrl: null,
+    });
+    const heroImageUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    await saveHeroImageUrl(org.slug, heroImageUrl, { heroLayout: "background" });
+    res.json({ heroImageUrl });
+  } catch (err) {
+    console.error("Hero image branding error:", err);
+    res.status(500).json({ error: "Failed to create branded banner" });
   }
 });
 
@@ -975,70 +943,26 @@ router.post("/organizations/hero-image", async (req: Request, res: Response) => 
   const body = req.body as { heroImageUrl?: string | null; imageUrl?: string | null };
   const heroImageUrl = "heroImageUrl" in body ? body.heroImageUrl : body.imageUrl;
 
-  const org = await getCurrentOrgForUser(getAuthenticatedUser(req).id);
+  const org = await getCurrentOrgForUser(req.user.id);
   if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
 
   try {
-    await saveHeroImageUrl(org, heroImageUrl ?? null);
+    await saveHeroImageUrl(org.slug, heroImageUrl ?? null, {
+      heroLayout: heroImageUrl ? "background" : null,
+    });
+    res.json({ heroImageUrl: heroImageUrl ?? null });
+    return;
+
+    // Save null as empty string to clear; the DB stores it and CP treats "" as no image
+    await db.execute(sql`
+      INSERT INTO cs_org_configs (org_id, hero_image_url)
+      VALUES (${org.slug}, ${heroImageUrl ?? null})
+      ON CONFLICT (org_id) DO UPDATE SET hero_image_url = EXCLUDED.hero_image_url
+    `);
     res.json({ heroImageUrl: heroImageUrl ?? null });
   } catch (err) {
     console.error("Hero image save error:", err);
     res.status(500).json({ error: "Failed to save hero image" });
-  }
-});
-
-// POST /api/organizations/hero-image/brand
-// Generates a branded SVG hero from the current/selected photo plus org identity.
-router.post("/organizations/hero-image/brand", async (req: Request, res: Response) => {
-  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
-
-  const org = await getCurrentOrgForUser(getAuthenticatedUser(req).id);
-  if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
-
-  const body = req.body as { heroImageUrl?: string | null };
-
-  try {
-    const rows = await db.execute(sql`
-      SELECT o.site_config, c.hero_image_url
-      FROM organizations o
-      LEFT JOIN cs_org_configs c ON c.org_id = o.slug OR c.org_id = o.id
-      WHERE o.id = ${org.id}
-      LIMIT 1
-    `);
-    const row = rows.rows[0] as { site_config?: Record<string, unknown> | null; hero_image_url?: string | null } | undefined;
-    const config = row?.site_config ?? {};
-    const sourceHero = normalizeHeroImageSource(body.heroImageUrl) ?? normalizeHeroImageSource(row?.hero_image_url);
-
-    const orgName = typeof config.orgName === "string" && config.orgName.trim()
-      ? config.orgName.trim()
-      : org.name;
-    const tagline = typeof config.tagline === "string" && config.tagline.trim()
-      ? config.tagline.trim()
-      : typeof config.mission === "string" && config.mission.trim()
-        ? config.mission.trim()
-        : org.category ?? "Community, service, and connection";
-    const primaryColor = normalizeHexColor(config.primaryColor, "#1e3a5f");
-    const accentColor = normalizeHexColor(config.accentColor, "#d4a017");
-    const initials = typeof config.logoInitials === "string" && config.logoInitials.trim()
-      ? config.logoInitials.trim().slice(0, 3).toUpperCase()
-      : initialsForOrg(orgName);
-
-    const svg = buildBrandedHeroSvg({
-      orgName,
-      tagline,
-      orgType: org.type ?? "Community Organization",
-      heroImageUrl: sourceHero,
-      primaryColor,
-      accentColor,
-      initials,
-    });
-    const heroImageUrl = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
-
-    await saveHeroImageUrl(org, heroImageUrl);
-    res.json({ heroImageUrl });
-  } catch (err) {
-    console.error("Hero image brand error:", err);
-    res.status(500).json({ error: "Failed to create branded banner" });
   }
 });
 

@@ -9,6 +9,7 @@ export type OrgConfigPatch = {
   tagline?: string;
   mission?: string;
   logoUrl?: string;
+  heroImageUrl?: string | null;
   contactEmail?: string;
   contactPhone?: string;
   contactAddress?: string;

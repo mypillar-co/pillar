@@ -622,7 +622,7 @@ async function handleAiPick() {
       {/* Current image preview */}
       {url && (
         <div className="relative w-full h-28 rounded-lg overflow-hidden">
-          <img src={url} alt="Hero banner" className="w-full h-full object-cover" />
+          <img src={url} alt="Hero banner" className="w-full h-full object-contain bg-slate-950" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/30" />
           <button
             onClick={removeBanner}
@@ -671,7 +671,7 @@ async function handleAiPick() {
                   src={photoThumb(photo)}
                   alt={photo.description || "Hero image option"}
                   data-testid="hero-photo-option-image"
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                  className="w-full h-full object-contain bg-slate-950 group-hover:scale-105 transition-transform duration-200"
                 />
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
                   <span className="opacity-0 group-hover:opacity-100 text-white text-xs font-semibold">Select</span>
@@ -696,50 +696,56 @@ async function handleAiPick() {
       )}
       {savedMessage && <p className="text-xs text-green-400">{savedMessage}</p>}
 
-      {/* Action buttons */}
-      {phase !== "approving" && (
-        <div className="space-y-2">
-          <button
-            onClick={() => void makeBrandedBanner()}
-            disabled={phase === "saving" || branding}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#d4a017]/40 bg-[#d4a017] hover:bg-[#b88a14] text-sm text-black font-semibold transition-colors disabled:opacity-50"
-          >
-            {branding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-            {branding ? "Creating branded banner…" : "Create branded banner"}
-          </button>
-          <div className="grid gap-2 sm:grid-cols-[1.3fr_auto]">
-            <button
-              onClick={() => { setError(null); setTimeout(() => fileRef.current?.click(), 50); }}
-              disabled={phase !== "idle" || branding}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#1e3a5f] bg-[#0f1a2e] hover:bg-[#1e3a5f] text-sm text-[#c8d8e8] font-medium transition-colors disabled:opacity-50"
-            >
-              <ImagePlus className="w-3.5 h-3.5 text-[#7a9cbf]" />
-              Upload your own photo
-            </button>
-            <button
-              type="button"
-              data-testid="hero-suggestion-toggle"
-              onClick={() => void handleAiPick()}
-              disabled={phase !== "idle" || branding}
-              className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#1e3a5f] bg-transparent text-xs text-[#7a9cbf] hover:border-[#d4a017]/40 hover:text-[#d4a017] transition-colors disabled:opacity-50"
-            >
-              {phase === "picking" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-              {phase === "picking" ? "Loading suggestions…" : "Browse suggested photos"}
-            </button>
-          </div>
-          <p className="text-[11px] text-[#7a9cbf]">
-            Suggested stock photos are optional and secondary. Your own image or branded banner will usually look more like your organization.
-          </p>
-        </div>
-      )}
+     {/* Action buttons */}
+<div className="space-y-2">
+  <button
+    type="button"
+    onClick={() => void makeBrandedBanner()}
+    disabled={phase === "saving" || phase === "picking" || branding}
+    className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#d4a017]/40 bg-[#d4a017] hover:bg-[#b88a14] text-sm text-black font-semibold transition-colors disabled:opacity-50"
+  >
+    {branding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+    {branding ? "Creating branded banner…" : "Create branded banner"}
+  </button>
 
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={e => void handleFileChange(e)}
-      />
+  <div className="grid gap-2 sm:grid-cols-[1.3fr_auto]">
+    <button
+      type="button"
+      onClick={() => {
+        setError(null);
+        fileRef.current?.click();
+      }}
+      disabled={phase === "saving" || phase === "picking" || branding}
+      className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#1e3a5f] bg-[#0f1a2e] hover:bg-[#1e3a5f] text-sm text-[#c8d8e8] font-medium transition-colors disabled:opacity-50"
+    >
+      <ImagePlus className="w-3.5 h-3.5 text-[#7a9cbf]" />
+      Upload your own photo
+    </button>
+
+    <button
+      type="button"
+      data-testid="hero-suggestion-toggle"
+      onClick={() => void handleAiPick()}
+      disabled={phase === "saving" || phase === "picking" || branding}
+      className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#1e3a5f] bg-transparent text-xs text-[#7a9cbf] hover:border-[#d4a017]/40 hover:text-[#d4a017] transition-colors disabled:opacity-50"
+    >
+      {phase === "picking" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+      {phase === "picking" ? "Loading suggestions…" : phase === "approving" ? "Try different photos" : "Browse suggested photos"}
+    </button>
+  </div>
+
+  <p className="text-[11px] text-[#7a9cbf]">
+    Suggested stock photos are optional and secondary. Your own image or branded banner will usually look more like your organization.
+  </p>
+</div>
+
+<input
+  ref={fileRef}
+  type="file"
+  accept="image/*"
+  className="hidden"
+  onChange={(e) => void handleFileChange(e)}
+/>
     </div>
   );
 }
@@ -903,18 +909,12 @@ function SiteManagementView({
               <ExternalLink className="w-3.5 h-3.5" />
             </a>
           </div>
-          <div className="relative w-full" style={{ paddingBottom: "75%" }}>
+          <div className="relative w-full min-h-[28rem] bg-[#08111f] md:min-h-[36rem] lg:min-h-[42rem]">
             <iframe
               key={previewKey}
               ref={previewIframeRef}
               src={status.url}
               className="absolute inset-0 w-full h-full border-0"
-              style={{
-                transform: "scale(0.8)",
-                transformOrigin: "top left",
-                width: "125%",
-                height: "125%",
-              }}
               title="Site preview"
               sandbox="allow-scripts allow-same-origin"
             />

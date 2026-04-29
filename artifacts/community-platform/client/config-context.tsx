@@ -40,6 +40,7 @@ export interface OrgConfig {
     ticketedEvents?: boolean;
     members?: boolean;
     siteStyle?: string;
+    heroLayout?: string | null;
   };
   _empty?: boolean;
 }

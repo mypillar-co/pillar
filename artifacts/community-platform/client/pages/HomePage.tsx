@@ -24,6 +24,7 @@ type SiteStyle =
   | "Warm Community";
 
 type OrgFamily = "heritage" | "civic" | "business" | "event" | "nonprofit" | "community";
+type HeroLayout = "background" | "split";
 
 function normalizeSiteStyle(value: string | undefined): SiteStyle {
   if (
@@ -50,6 +51,11 @@ function detectOrgFamily(orgType: string | null | undefined, hasEvents: boolean)
 
 function toStyleSlug(style: SiteStyle): string {
   return style.toLowerCase().replace(/\s+/g, "-");
+}
+
+function normalizeHeroLayout(value: string | null | undefined, heroImage: string | null | undefined): HeroLayout {
+  if (value === "split") return "split";
+  return heroImage ? "background" : "background";
 }
 
 function buildFallbackHeadline(
@@ -154,6 +160,10 @@ export default function HomePage() {
   const get = (key: string, fallback = "") => siteContent?.[key] || fallback;
   const featuredEvents = events?.filter((e) => e.featured).slice(0, 3) || events?.slice(0, 3) || [];
   const heroImage = config.heroImageUrl || get("image_home_hero");
+  const heroLayout = normalizeHeroLayout(
+    (config.features?.heroLayout as string | undefined) || get("hero_layout"),
+    heroImage,
+  );
   const style = normalizeSiteStyle(
     (config.features?.siteStyle as string | undefined) || get("style_name"),
   );
@@ -191,9 +201,16 @@ const headline =
   const statsEyebrow = family === "heritage" ? "Tradition in motion" : family === "event" ? "Momentum you can feel" : "Trust and impact";
 
   return (
-    <div className="cp-home" data-style={toStyleSlug(style)} data-family={family}>
+    <div
+      className="cp-home"
+      data-style={toStyleSlug(style)}
+      data-family={family}
+      data-hero-layout={heroLayout}
+    >
       <section className="cp-hero">
-        {heroImage && <img src={heroImage} alt="Homepage banner" className="cp-hero-image" />}
+        {heroImage && heroLayout === "full_bleed" || heroLayout === "background" && (
+          <img src={heroImage} alt="Homepage banner" className="cp-hero-image" />
+        )}
         <div className="cp-hero-overlay" />
         <div className="cp-hero-pattern" />
         <div className="cp-hero-inner">
@@ -209,17 +226,25 @@ const headline =
               <ActionButton href={ctas.secondaryHref} label={ctas.secondaryLabel} variant="secondary" />
             </div>
           </div>
-          <div className="cp-hero-stats">
-            <p className="cp-stat-eyebrow">{statsEyebrow}</p>
-            <div className="cp-stat-grid">
-              {stats.slice(0, 3).map((stat) => (
-                <div key={stat.label} className="cp-stat-card">
-                  <div className="cp-stat-value">{stat.value}</div>
-                  <div className="cp-stat-label">{stat.label}</div>
-                </div>
-              ))}
+          {(heroLayout === "split_framed" || heroLayout === "split") && heroImage ? (
+            <div className="cp-hero-media">
+              <div className="cp-hero-media-card">
+                <img src={heroImage} alt={`${config.orgName} featured`} className="cp-hero-media-image" />
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="cp-hero-stats">
+              <p className="cp-stat-eyebrow">{statsEyebrow}</p>
+              <div className="cp-stat-grid">
+                {stats.slice(0, 3).map((stat) => (
+                  <div key={stat.label} className="cp-stat-card">
+                    <div className="cp-stat-value">{stat.value}</div>
+                    <div className="cp-stat-label">{stat.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </section>
 

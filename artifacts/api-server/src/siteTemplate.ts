@@ -124,7 +124,7 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
       color: white;
       letter-spacing: -0.01em;
     }
-    .nav-logo img { height: 44px; width: auto; object-fit: contain; }
+    .nav-logo img { height: 44px; width: auto; object-fit: cover; }
     .nav-links { display: flex; gap: 32px; }
     .nav-links a {
       color: rgba(255,255,255,0.78);
@@ -197,7 +197,7 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
       position: relative;
       height: 100vh;
       min-height: 600px;
-      max-height: 900px;
+      max-height: none;
       display: flex;
       align-items: center;
       overflow: hidden;
@@ -211,6 +211,10 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
     }
     /* Photo hero — real photographic image */
     .hero--photo .hero-bg { background: var(--bg-dark); }
+    .hero {
+      position: relative;
+      isolation: isolate;
+    }
     /* Org logo shown as emblem in hero content — never as background */
     .hero-logo-badge {
       margin-bottom: 20px;
@@ -219,7 +223,7 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
       height: 64px;
       width: auto;
       max-width: 180px;
-      object-fit: contain;
+      object-fit: cover;
       filter: drop-shadow(0 4px 16px rgba(0,0,0,0.5)) brightness(1.05);
     }
     .hero-bg {
@@ -230,20 +234,29 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
     .hero-img {
       width: 100%; height: 100%;
       object-fit: cover;
-      object-position: center 30%;
-      transform: scale(1.04);
-      transition: transform 20s ease-out;
+      object-position: center 45%;
+      transform: none;
+      transition: none;
       position: absolute; inset: 0;
+      z-index: 0;
+      image-rendering: auto;
     }
-    .hero-img.loaded { transform: scale(1); }
+    .hero-img.hero-img--artwork {
+      object-fit: contain;
+      object-position: center center;
+      padding: clamp(24px, 4vw, 56px) clamp(24px, 5vw, 72px);
+    }
+    .hero-img.loaded { transform: none; }
     .hero-overlay {
       position: absolute; inset: 0;
+      z-index: 1;
       background:
         radial-gradient(ellipse at 20% 60%, rgba(var(--primary-rgb), 0.18) 0%, transparent 55%),
         linear-gradient(130deg, rgba(0,0,0,0.80) 0%, rgba(0,0,0,0.28) 50%, rgba(0,0,0,0.72) 100%);
     }
     .hero-orbs {
       position: absolute; inset: 0;
+      z-index: 2;
       pointer-events: none; overflow: hidden;
     }
     .hero-orb {
@@ -256,11 +269,11 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
     .hero-orb:nth-child(3) { width: 18vw; height: 18vw; top: 28%; right: -3%; animation-delay: -10s; }
     .hero-content {
       position: relative;
-      z-index: 1;
+      z-index: 3;
       width: 100%;
       max-width: var(--max-w);
       margin: 0 auto;
-      padding: 80px var(--gutter) 0;
+      padding: 120px var(--gutter) 80px;
     }
     .eyebrow {
       display: inline-flex;
@@ -755,7 +768,7 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
       color: white;
       margin-bottom: 10px;
     }
-    .footer-brand-name img { height: 36px; width: auto; object-fit: contain; }
+    .footer-brand-name img { height: 36px; width: auto; object-fit: cover; }
     .footer-tagline {
       color: rgba(255,255,255,0.38);
       font-size: 0.84rem;
@@ -947,7 +960,7 @@ export const SITE_TEMPLATE = `<!DOCTYPE html>
       filter: grayscale(1);
     }
     .sponsor-logo-item:hover { opacity: 0.85; filter: grayscale(0); }
-    .sponsor-logo-item img { height: 40px; width: auto; max-width: 120px; object-fit: contain; }
+    .sponsor-logo-item img { height: 40px; width: auto; max-width: 120px; object-fit: cover; }
     .sponsor-name {
       font-size: var(--t-small);
       font-weight: 600;
@@ -1439,6 +1452,11 @@ export type SiteContent = {
 
 export function buildSiteFromTemplate(content: SiteContent): string {
   let html = SITE_TEMPLATE;
+  const heroImageClass = content.heroImageUrl &&
+    (content.heroImageUrl.startsWith("data:image/svg+xml") ||
+      /\.svg(?:[?#]|$)/i.test(content.heroImageUrl))
+    ? "hero-img hero-img--artwork"
+    : "hero-img";
   const replacements: Record<string, string> = {
     ORG_NAME: content.orgName,
     ORG_TAGLINE: content.orgTagline,
@@ -1451,7 +1469,7 @@ export function buildSiteFromTemplate(content: SiteContent): string {
     HERO_PRIMARY_CTA: content.heroPrimaryCta,
     HERO_SECONDARY_CTA: content.heroSecondaryCta,
     HERO_IMG_TAG: content.heroImageUrl
-      ? `<img id="heroImg" class="hero-img" src="${content.heroImageUrl}" alt="${content.orgName}" loading="eager" onerror="this.style.display='none'">`
+      ? `<img id="heroImg" class="${heroImageClass}" src="${content.heroImageUrl}" alt="${content.orgName}" loading="eager" onerror="this.style.display='none'">`
       : "",
     ABOUT_MEDIA_BLOCK: content.aboutImageUrl
       ? `<div class="about-media"><div class="about-img-wrap reveal-right"><img src="${content.aboutImageUrl}" alt="${content.orgName}" onerror="this.closest('.about-media').style.display='none'"></div></div>`

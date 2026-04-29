@@ -6,6 +6,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+{import.meta.env.DEV && (
+  <div className="mb-4">
+    <button
+      onClick={() => {
+        window.location.href = "http://localhost:8080/api/auth/dev-login?email=andrewpaluch01@gmail.com";
+      }}
+      className="w-full rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold py-3"
+    >
+      DEV LOGIN AS ANDREW
+    </button>
+  </div>
+)}
+
+
 
 function GoogleIcon() {
   return (
@@ -86,8 +100,9 @@ export default function Login() {
   };
 
   const devLogin = () => {
-    window.location.href = `${BASE}/api/auth/dev-login?email=andrewpaluch01@gmail.com`;
-  };
+  window.location.href =
+    "http://localhost:8080/api/auth/dev-login?email=andrewpaluch01@gmail.com&returnTo=http://localhost:5173/dashboard/site";
+};
 
   const hasSocialProviders = providers.google || providers.apple;
 
