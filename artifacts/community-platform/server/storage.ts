@@ -7,9 +7,28 @@ import {
   csNewsletterSubscribers, csBlogPosts, csTicketPurchases,
 } from "./schema.js";
 
+const HERO_DEBUG = process.env.PILLAR_DEBUG_HERO === "1";
+
 export async function getOrgConfig(orgId: string) {
   const rows = await db.select().from(csOrgConfigs).where(eq(csOrgConfigs.orgId, orgId)).limit(1);
-  return rows[0] || null;
+  const config = rows[0] || null;
+  if (HERO_DEBUG) {
+    console.log("[hero-debug][community-platform] storage.getOrgConfig", {
+      orgId,
+      found: Boolean(config),
+      heroImageUrl: config?.heroImageUrl ?? null,
+      heroLayout:
+        config?.features && typeof config.features === "object"
+          ? (config.features as Record<string, unknown>).heroLayout
+          : undefined,
+      heroVisualType:
+        config?.features && typeof config.features === "object"
+          ? (config.features as Record<string, unknown>).heroVisualType
+          : undefined,
+      features: config?.features ?? null,
+    });
+  }
+  return config;
 }
 
 export async function upsertOrgConfig(orgId: string, data: Partial<typeof csOrgConfigs.$inferInsert>) {
@@ -26,12 +45,54 @@ export async function patchOrgConfig(
   orgId: string,
   data: Partial<typeof csOrgConfigs.$inferInsert>,
 ) {
+  if (HERO_DEBUG) {
+    console.log("[hero-debug][community-platform] storage.patchOrgConfig input", {
+      orgId,
+      heroImageUrl: data.heroImageUrl ?? null,
+      heroLayout:
+        data.features && typeof data.features === "object"
+          ? (data.features as Record<string, unknown>).heroLayout
+          : undefined,
+      heroVisualType:
+        data.features && typeof data.features === "object"
+          ? (data.features as Record<string, unknown>).heroVisualType
+          : undefined,
+      features: data.features ?? null,
+    });
+  }
+  const existing = await getOrgConfig(orgId);
+  const mergedData =
+    data.features && typeof data.features === "object"
+      ? {
+          ...data,
+          features: {
+            ...((existing?.features ?? {}) as Record<string, unknown>),
+            ...(data.features as Record<string, unknown>),
+          },
+        }
+      : data;
   const rows = await db
     .update(csOrgConfigs)
-    .set({ ...data, updatedAt: new Date() })
+    .set({ ...mergedData, updatedAt: new Date() })
     .where(eq(csOrgConfigs.orgId, orgId))
     .returning();
-  return rows[0] || null;
+  const updated = rows[0] || null;
+  if (HERO_DEBUG) {
+    console.log("[hero-debug][community-platform] storage.patchOrgConfig output", {
+      orgId,
+      heroImageUrl: updated?.heroImageUrl ?? null,
+      heroLayout:
+        updated?.features && typeof updated.features === "object"
+          ? (updated.features as Record<string, unknown>).heroLayout
+          : undefined,
+      heroVisualType:
+        updated?.features && typeof updated.features === "object"
+          ? (updated.features as Record<string, unknown>).heroVisualType
+          : undefined,
+      features: updated?.features ?? null,
+    });
+  }
+  return updated;
 }
 
 export async function getAdminUser(orgId: string, username: string) {

@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import type { HeroVisualType } from "./lib/heroVisual";
 
 export interface OrgConfig {
   orgId: string;
@@ -13,6 +14,8 @@ export interface OrgConfig {
   accentColor: string;
   logoUrl?: string | null;
   heroImageUrl?: string | null;
+  heroVisualType?: HeroVisualType | null;
+  heroLayout?: "split_framed" | "full_bleed" | "split" | "background" | null;
   contactEmail?: string | null;
   contactPhone?: string | null;
   contactAddress?: string | null;
@@ -39,8 +42,8 @@ export interface OrgConfig {
     businessDirectory?: boolean;
     ticketedEvents?: boolean;
     members?: boolean;
-    siteStyle?: string;
-    heroLayout?: string | null;
+    heroVisualType?: HeroVisualType | null;
+    heroLayout?: "split_framed" | "full_bleed" | "split" | "background" | null;
   };
   _empty?: boolean;
 }

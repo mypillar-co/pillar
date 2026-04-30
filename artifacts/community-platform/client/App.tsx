@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Router, Switch, Route } from "wouter";
 import { ConfigProvider, useConfig } from "./config-context";
 import { MemberAuthProvider } from "./lib/memberAuth";
 import Navigation from "./components/Navigation";
@@ -83,11 +83,17 @@ function AppContent() {
 }
 
 export default function App() {
+  const base = typeof window !== "undefined"
+    ? (window.location.pathname.match(/^\/sites\/[^/]+/)?.[0] ?? "")
+    : "";
+
   return (
-    <ConfigProvider>
-      <MemberAuthProvider>
-        <AppContent />
-      </MemberAuthProvider>
-    </ConfigProvider>
+    <Router base={base}>
+      <ConfigProvider>
+        <MemberAuthProvider>
+          <AppContent />
+        </MemberAuthProvider>
+      </ConfigProvider>
+    </Router>
   );
 }

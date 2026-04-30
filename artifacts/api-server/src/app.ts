@@ -95,6 +95,7 @@ function pipeToCommunityPlatform(
   req: Request,
   res: Response,
   orgSlug: string,
+  assetBasePath = "/",
 ): void {
   // express.json() / express.urlencoded() run before this middleware and
   // consume the request body stream. If req.body was parsed, we must
@@ -150,14 +151,38 @@ function pipeToCommunityPlatform(
     method: req.method,
     headers: headers as httpModule.OutgoingHttpHeaders,
   };
+  const requestPath = req.url.split("?")[0] || "/";
+  const requestLooksLikeFile = path.extname(requestPath) !== "";
   const proxyReq = httpModule.request(options, (proxyRes) => {
     const contentType = (proxyRes.headers["content-type"] ?? "") as string;
     if (contentType.includes("text/html")) {
+      if (requestLooksLikeFile) {
+        res.writeHead(404, {
+          "content-type": "text/plain; charset=utf-8",
+          "x-content-type-options": "nosniff",
+        });
+        res.end("Asset not found");
+        proxyRes.resume();
+        return;
+      }
       const chunks: Buffer[] = [];
       proxyRes.on("data", (chunk: Buffer) => chunks.push(chunk));
       proxyRes.on("end", () => {
         const html = Buffer.concat(chunks).toString("utf8");
-        const swapped = html.replace(/\/sites\/placeholder\//g, "/");
+        const normalizedAssetBase = assetBasePath.endsWith("/")
+          ? assetBasePath
+          : `${assetBasePath}/`;
+        const swapped = html.replace(
+          /\/sites\/placeholder\//g,
+          normalizedAssetBase,
+        )
+          .replace(/(src|href)="\/assets\//g, `$1="${normalizedAssetBase}assets/`)
+          .replace(/(src|href)='\/assets\//g, `$1='${normalizedAssetBase}assets/`)
+          .replace(/(src|href)="\/client\//g, `$1="${normalizedAssetBase}client/`)
+          .replace(/(src|href)='\/client\//g, `$1='${normalizedAssetBase}client/`)
+          .replace(/(src|href)="\/@vite\//g, `$1="${normalizedAssetBase}@vite/`)
+          .replace(/(src|href)='\/@vite\//g, `$1='${normalizedAssetBase}@vite/`)
+          .replace(/(["'])\/@react-refresh/g, `$1${normalizedAssetBase}@react-refresh`);
         const outHeaders: Record<string, string | string[]> = {};
         for (const [k, v] of Object.entries(proxyRes.headers)) {
           if (v === undefined) continue;
@@ -378,9 +403,7 @@ async function patchHomepageWithFeaturedEvents(
       registrationClosed: e.registrationClosed ?? null,
       imageUrl: e.imageUrl ?? null,
       featured: e.featured ?? null,
-ticketSaleOpen: ((e as Record<string, unknown>).ticketSaleOpen as string | null) ?? null,
-ticketSaleClose: ((e as Record<string, unknown>).ticketSaleClose as string | null) ?? null,
-}));
+    }));
 
     const featured = selectFeaturedEvents(allEvents);
     return buildDynamicHomepage(storedHtml, featured, primary, accent);
@@ -502,9 +525,22 @@ function resolveSiteFromHost(
   return { orgSlug: sub, isPreview: false };
 }
 
+// Vite dev serves transformed modules with absolute imports like /@vite/client
+// and /node_modules/.vite/..., even when the app HTML is mounted at /sites/:slug.
+// Proxy those dev-only assets so path-based local previews can hydrate.
+app.use(
+  ["/@vite", "/@react-refresh", "/@fs", "/node_modules", "/client"],
+  (req, res) => {
+    req.url = req.originalUrl;
+    pipeToCommunityPlatform(req, res, "local-dev");
+  },
+);
+
 // ── Main site routing middleware ──────────────────────────────────────────────
-// Handles tenant site requests: /sites/:slug/*, <slug>.mypillar.co,
-// and local E2E/header-based CP requests.
+// Handles all tenant site requests — both path-based (/sites/:slug/*)
+// and host-based (<slug>.mypillar.co). CP org API calls are proxied to
+// port 5001; non-CP API calls are passed through to the Pillar router.
+// NOTE: does NOT skip /api paths at the top — CP orgs need /api/* proxied.
 app.use(async (req, res, next) => {
   let orgSlug: string | null = null;
   let isPreview = false;
@@ -512,33 +548,25 @@ app.use(async (req, res, next) => {
   let host = "";
   let isPathBased = false;
 
-  const headerOrg = (req.headers["x-org-id"] || req.headers["x-org-slug"]) as
-    | string
-    | undefined;
-
+  // ── Pattern 1: Path-based routing /sites/:slug[/*] ────────────────────────
   const pathBasedMatch = req.path.match(
     /^\/sites\/([a-z0-9][a-z0-9-]{0,62})(\/.*)?$/,
   );
-
   if (pathBasedMatch) {
     if (pathBasedMatch[1].startsWith("_")) return next();
-
     orgSlug = pathBasedMatch[1];
     subPath = pathBasedMatch[2] || "/";
     isPathBased = true;
-  } else if (headerOrg) {
-    orgSlug = String(headerOrg).toLowerCase();
-    subPath = req.path || "/";
   } else {
+    // ── Pattern 2: Host-based routing (<slug>.mypillar.co or custom domain) ─
+    // Skip plain /api/* paths that aren't under a tenant slug
     if (req.path.startsWith("/api")) return next();
 
     const rawHost = (req.headers["x-forwarded-host"] ??
       req.headers.host ??
       "") as string;
-
     host = rawHost.split(":")[0].toLowerCase();
     if (!host) return next();
-
     const resolved = resolveSiteFromHost(host);
     if (resolved) {
       orgSlug = resolved.orgSlug;
@@ -554,7 +582,6 @@ app.use(async (req, res, next) => {
                     OR community_site_url LIKE ${"%" + orgSlug + ".mypillar.co%"}
                  LIMIT 1`,
     );
-
     const cfgRow = cfgCheck.rows[0] as Record<string, unknown> | undefined;
     const hasReactSite = Boolean(cfgRow?.has_react_site);
     const communitySiteUrl =
@@ -562,10 +589,13 @@ app.use(async (req, res, next) => {
     const isCpSite = !!communitySiteUrl?.includes(".mypillar.co");
     const cpOrgSlug = (cfgRow?.slug as string | null) ?? orgSlug;
 
+    // ── Community platform orgs: pipe ALL requests to the CP server ───────────
+    // Covers host-based CP sites (community_site_url set) AND any path-based
+    // request from the Cloudflare Worker that isn't a React-template org.
+    // API calls for non-CP path-based orgs are passed through to the Pillar router.
     const routeToCp =
       !isPreview &&
       (isCpSite ||
-        Boolean(headerOrg) ||
         (!hasReactSite &&
           isPathBased &&
           !(subPath.startsWith("/api/") || subPath === "/api")));
@@ -574,10 +604,17 @@ app.use(async (req, res, next) => {
       req.url =
         subPath +
         (req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "");
-      pipeToCommunityPlatform(req, res, cpOrgSlug);
+      pipeToCommunityPlatform(
+        req,
+        res,
+        cpOrgSlug,
+        isPathBased ? `/sites/${orgSlug}/` : "/",
+      );
       return;
     }
 
+    // ── API early-return for path-based non-CP orgs ────────────────────────────
+    // Strip /sites/:slug prefix so Pillar API route handlers receive the request.
     if (isPathBased && (subPath.startsWith("/api/") || subPath === "/api")) {
       req.url =
         subPath +
@@ -692,9 +729,7 @@ app.use(async (req, res, next) => {
         registrationClosed: e.registrationClosed ?? null,
         imageUrl: e.imageUrl ?? null,
         featured: e.featured ?? null,
-ticketSaleOpen: ((e as Record<string, unknown>).ticketSaleOpen as string | null) ?? null,
-ticketSaleClose: ((e as Record<string, unknown>).ticketSaleClose as string | null) ?? null,
-}));
+      }));
 
       const html = buildEventsListingPage({ events, org, siteHtml });
       res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -1009,28 +1044,27 @@ ticketSaleClose: ((e as Record<string, unknown>).ticketSaleClose as string | nul
       }
 
       const event: PublicEvent = {
-  id: eventRow.id,
-  name: eventRow.name,
-  slug: eventRow.slug,
-  description: eventRow.description ?? null,
-  eventType: eventRow.eventType ?? null,
-  startDate: eventRow.startDate ?? null,
-  endDate: eventRow.endDate ?? null,
-  startTime: eventRow.startTime ?? null,
-  endTime: eventRow.endTime ?? null,
-  location: eventRow.location ?? null,
-  isTicketed: eventRow.isTicketed ?? null,
-  ticketPrice: eventRow.ticketPrice ?? null,
-  ticketCapacity: eventRow.ticketCapacity ?? null,
-  hasRegistration: eventRow.hasRegistration ?? null,
-  hasSponsorSection:
-    ((eventRow as Record<string, unknown>).hasSponsorSection as boolean) ?? null,
-  registrationClosed: eventRow.registrationClosed ?? null,
-  imageUrl: eventRow.imageUrl ?? null,
-  featured: eventRow.featured ?? null,
-  ticketSaleOpen: (((eventRow as Record<string, unknown>).ticketSaleOpen) as string | null) ?? null,
-  ticketSaleClose: (((eventRow as Record<string, unknown>).ticketSaleClose) as string | null) ?? null,
-};
+        id: eventRow.id,
+        name: eventRow.name,
+        slug: eventRow.slug,
+        description: eventRow.description ?? null,
+        eventType: eventRow.eventType ?? null,
+        startDate: eventRow.startDate ?? null,
+        endDate: eventRow.endDate ?? null,
+        startTime: eventRow.startTime ?? null,
+        endTime: eventRow.endTime ?? null,
+        location: eventRow.location ?? null,
+        isTicketed: eventRow.isTicketed ?? null,
+        ticketPrice: eventRow.ticketPrice ?? null,
+        ticketCapacity: eventRow.ticketCapacity ?? null,
+        hasRegistration: eventRow.hasRegistration ?? null,
+        hasSponsorSection:
+          ((eventRow as Record<string, unknown>)
+            .hasSponsorSection as boolean) ?? null,
+        registrationClosed: eventRow.registrationClosed ?? null,
+        imageUrl: eventRow.imageUrl ?? null,
+        featured: eventRow.featured ?? null,
+      };
 
       let html: string;
       if (formType === "vendor-apply") {

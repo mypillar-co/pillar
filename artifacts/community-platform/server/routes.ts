@@ -121,6 +121,7 @@ function hexToHsl(hex: string): string {
 }
 
 export function registerRoutes(app: Express) {
+  const HERO_DEBUG = process.env.PILLAR_DEBUG_HERO === "1";
   app.get("/api/org-config", async (req, res) => {
     const orgId = getOrgId(req);
     const config = await storage.getOrgConfig(orgId);
@@ -135,6 +136,17 @@ export function registerRoutes(app: Express) {
       memberCount = 0;
     }
     if (!config) return res.json({ _empty: true, orgId, memberCount });
+    if (HERO_DEBUG) {
+      console.log("[hero-debug][community-platform] GET /api/org-config response", {
+        orgId,
+        heroImageUrl: config.heroImageUrl ?? null,
+        heroLayout:
+          config.features && typeof config.features === "object"
+            ? (config.features as Record<string, unknown>).heroLayout
+            : undefined,
+        features: config.features ?? null,
+      });
+    }
     res.json({ ...config, memberCount });
   });
 
@@ -947,11 +959,32 @@ export function registerRoutes(app: Express) {
       if (!orgId) {
         return res.status(400).json({ ok: false, error: "orgId is required" });
       }
+      if (HERO_DEBUG) {
+        console.log("[hero-debug][community-platform] PATCH /api/internal/org-config request", {
+          orgId,
+          heroImageUrl: patch.heroImageUrl ?? null,
+          heroLayout:
+            patch.features && typeof patch.features === "object"
+              ? (patch.features as Record<string, unknown>).heroLayout
+              : undefined,
+          patch,
+        });
+      }
       const updated = await storage.patchOrgConfig(orgId, patch);
       if (!updated) {
         return res.status(404).json({ ok: false, error: "Org config not found — site may not be provisioned yet" });
       }
-      console.log(`[internal-org-config] patched org=${orgId}`);
+      if (HERO_DEBUG) {
+        console.log("[hero-debug][community-platform] PATCH /api/internal/org-config updated", {
+          orgId,
+          heroImageUrl: updated.heroImageUrl ?? null,
+          heroLayout:
+            updated.features && typeof updated.features === "object"
+              ? (updated.features as Record<string, unknown>).heroLayout
+              : undefined,
+          features: updated.features ?? null,
+        });
+      }
       return res.json({ ok: true, config: updated });
     } catch (error: any) {
       console.error("[internal-org-config] patch failed", error);

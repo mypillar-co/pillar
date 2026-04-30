@@ -59,6 +59,55 @@ function getSafeReturnTo(value: unknown): string {
   return value;
 }
 
+function getLocalDevAppOrigin(req: Request): string {
+  const explicit =
+    process.env.STEWARD_DEV_URL ||
+    process.env.APP_URL ||
+    process.env.PUBLIC_APP_URL;
+
+  if (explicit) {
+    return explicit.replace(/\/$/, "");
+  }
+
+  const forwardedOrigin = req.get("origin");
+  if (
+    forwardedOrigin &&
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(forwardedOrigin)
+  ) {
+    return forwardedOrigin.replace(/\/$/, "");
+  }
+
+  const referer = req.get("referer");
+  if (referer) {
+    try {
+      const url = new URL(referer);
+      if (/^(localhost|127\.0\.0\.1)$/i.test(url.hostname)) {
+        return `${url.protocol}//${url.host}`;
+      }
+    } catch {
+      // Ignore malformed referer headers and fall back to the default dev origin.
+    }
+  }
+
+  return "http://localhost:5173";
+}
+
+function getDevLoginRedirect(req: Request): string {
+  const redirect = req.query.redirect;
+  const appOrigin = getLocalDevAppOrigin(req);
+
+  if (typeof redirect === "string") {
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i.test(redirect)) {
+      return redirect;
+    }
+    if (redirect.startsWith("/") && !redirect.startsWith("//")) {
+      return `${appOrigin}${redirect}`;
+    }
+  }
+
+  return `${appOrigin}/dashboard`;
+}
+
 function getAdminEmails(): Set<string> {
   const raw = process.env.ADMIN_EMAILS ?? "";
   return new Set(raw.split(",").map(s => s.trim().toLowerCase()).filter(Boolean));
@@ -548,7 +597,7 @@ router.get("/dev-login", async (req: Request, res: Response) => {
     path: "/",
     maxAge: SESSION_TTL,
   });
-  const redirectTo = getSafeReturnTo(req.query.redirect as string | undefined);
+  const redirectTo = getDevLoginRedirect(req);
   res.redirect(redirectTo);
 });
 

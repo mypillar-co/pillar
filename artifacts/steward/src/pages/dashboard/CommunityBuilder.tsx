@@ -2,8 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import {
   Send, Bot, User, Loader2, AlertCircle, CheckCircle2,
   Globe, Rocket, ExternalLink, ChevronDown, ChevronUp,
-  ImagePlus, X, RefreshCw, Wand2, RotateCcw, Copy,
-  ArrowLeft, ArrowRight,
+  ImagePlus, X, RefreshCw, Wand2, RotateCcw, Copy, ArrowLeft, ArrowRight,
 } from "lucide-react";
 import { Link } from "wouter";
 import { useGetOrganization } from "@workspace/api-client-react";
@@ -28,6 +27,7 @@ function csrfFetch(input: string, init?: RequestInit): Promise<Response> {
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type QuestionType = "text" | "textarea" | "select" | "boolean";
+type HeroVisualType = "banner_background" | "feature_photo" | "none";
 
 interface IntakeQuestion {
   id: string;
@@ -155,6 +155,7 @@ const INTAKE_QUESTIONS: IntakeQuestion[] = [
     text: "For your homepage hero section, would you like a background photo or your brand colors?",
     type: "select",
     options: [
+      "AI picks a community photo",
       "I'll upload my own photo",
       "Brand colors only (no photo)",
     ],
@@ -439,51 +440,69 @@ function photoFull(p: UnsplashPhoto)  { return p.full  ?? p.previewUrl ?? ""; }
 
 interface SiteStatusData {
   url: string | null;
+  slug?: string | null;
+  localPreviewUrl?: string | null;
   isProvisioned: boolean;
   heroImageUrl?: string | null;
+  heroVisualType?: HeroVisualType | null;
   configSummary: {
     orgName: string | null;
     location: string | null;
     primaryColor: string | null;
     accentColor: string | null;
     tagline: string | null;
-    siteStyle?: string | null;
   } | null;
-}
-
-const SITE_STYLE_OPTIONS = [
-  "Classic",
-  "Modern Civic",
-  "Heritage",
-  "Bold Event",
-  "Warm Community",
-] as const;
-
-type SiteStyle = (typeof SITE_STYLE_OPTIONS)[number];
-
-function normalizeSiteStyle(value: string | null | undefined): SiteStyle {
-  return SITE_STYLE_OPTIONS.find((option) => option === value) ?? "Modern Civic";
 }
 
 // ── Hero image panel ───────────────────────────────────────────────────────────
 
-type HeroPhase = "idle" | "picking" | "saving" | "approving" | "selected";
+type HeroPhase = "idle" | "picking" | "saving" | "approving";
+
+function isLocalDashboardHost(): boolean {
+  if (typeof window === "undefined") return false;
+  return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+}
+
+function resolvePreviewUrl(url: string | null | undefined): string {
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  if (isLocalDashboardHost()) {
+    return `${window.location.protocol}//${window.location.hostname}:8080${url}`;
+  }
+  return url;
+}
 
 function HeroImagePanel({
   initialUrl,
-  onChange,
+  initialVisualType,
+  autoTriggerAi,
+  onHeroChanged,
 }: {
   initialUrl: string | null | undefined;
-  onChange?: (heroImageUrl: string | null) => void;
+  initialVisualType?: HeroVisualType | null;
+  autoTriggerAi?: boolean;
+  onHeroChanged?: () => void;
 }) {
   const [url, setUrl] = useState<string | null>(initialUrl ?? null);
-const [phase, setPhase] = useState<HeroPhase>(initialUrl ? "selected" : "idle");
+  const [visualType, setVisualType] = useState<HeroVisualType>(
+    initialUrl ? (initialVisualType ?? "banner_background") : "none",
+  );
+  const [phase, setPhase] = useState<HeroPhase>("idle");
   const [photos, setPhotos] = useState<UnsplashPhoto[]>([]);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [savedMessage, setSavedMessage] = useState<string | null>(null);
-  const [branding, setBranding] = useState(false);
+  const [saved, setSaved] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const autoTriggered = useRef(false);
+
+  // Auto-trigger the AI pick if the org chose "AI picks" during the interview
+  useEffect(() => {
+    if (autoTriggerAi && !url && !autoTriggered.current) {
+      autoTriggered.current = true;
+      void handleAiPick();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoTriggerAi]);
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -498,12 +517,13 @@ const [phase, setPhase] = useState<HeroPhase>(initialUrl ? "selected" : "idle");
         credentials: "include",
         body: file,
       });
-      const d = await res.json() as { heroImageUrl?: string; error?: string };
+      const d = await res.json() as { heroImageUrl?: string; heroVisualType?: HeroVisualType; error?: string };
       if (!res.ok || !d.heroImageUrl) throw new Error(d.error ?? "Save failed");
       setUrl(d.heroImageUrl);
-      onChange?.(d.heroImageUrl);
-      setSavedMessage("Banner updated!");
-      setTimeout(() => setSavedMessage(null), 3000);
+      setVisualType(d.heroVisualType ?? "feature_photo");
+      onHeroChanged?.();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
     } catch {
       setError("Upload failed. Please try again.");
     } finally {
@@ -512,62 +532,45 @@ const [phase, setPhase] = useState<HeroPhase>(initialUrl ? "selected" : "idle");
     }
   }
 
-async function handleAiPick() {
-  setError(null);
-  setSavedMessage(null);
-  setPhase("picking");
-
-  try {
-    const res = await fetch("/api/organizations/hero-image/suggest");
-    if (!res.ok) throw new Error("Failed to fetch photos");
-
-    const data = await res.json();
-
-    setPhotos(data.photos || []);
-    setQuery(data.query || "");
-    setPhase("approving");
-  } catch (err: any) {
-    setError(err.message || "Failed to load photos");
-    setPhase("idle");
+  async function handleAiPick() {
+    setPhase("picking");
+    setError(null);
+    try {
+      const res = await csrfFetch("/api/organizations/hero-image/suggest");
+      const d = await res.json() as { photos?: UnsplashPhoto[]; query?: string; error?: string };
+      if (!res.ok || !d.photos?.length) throw new Error(d.error ?? "No photos found");
+      setPhotos(d.photos);
+      setQuery(d.query ?? "");
+      setPhase("approving");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load photos");
+      setPhase("idle");
+    }
   }
-}
 
   async function applyPhoto(photo: UnsplashPhoto) {
-  const optimisticUrl = photoFull(photo);
-
-  setPhase("saving");
-  setError(null);
-  setUrl(optimisticUrl);
-  setPhotos([]);
-  setSavedMessage(null);
-
-  try {
-    const res = await csrfFetch("/api/organizations/hero-image/apply-unsplash", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        photoId: photo.id,
-        photoUrl: optimisticUrl,
-        credit: photo.credit ?? photo.description,
-      }),
-    });
-
-    const d = (await res.json()) as { heroImageUrl?: string; error?: string };
-
-    if (!res.ok || !d.heroImageUrl) {
-      throw new Error(d.error ?? "Save failed");
+    setPhase("saving");
+    setError(null);
+    try {
+      const res = await csrfFetch("/api/organizations/hero-image/apply-unsplash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photoId: photo.id, photoUrl: photoFull(photo), credit: photo.credit ?? photo.description }),
+      });
+      const d = await res.json() as { heroImageUrl?: string; heroVisualType?: HeroVisualType; error?: string };
+      if (!res.ok || !d.heroImageUrl) throw new Error(d.error ?? "Save failed");
+      setUrl(d.heroImageUrl);
+      setVisualType(d.heroVisualType ?? "banner_background");
+      onHeroChanged?.();
+      setPhotos([]);
+      setPhase("idle");
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to apply photo");
+      setPhase("idle");
     }
-
-    setUrl(d.heroImageUrl);
-    onChange?.(d.heroImageUrl);
-    setSavedMessage("Banner updated!");
-    setPhase("selected");
-    setTimeout(() => setSavedMessage(null), 3000);
-  } catch (e) {
-    setError(e instanceof Error ? e.message : "Failed to apply photo");
-    setPhase("selected");
   }
-}
 
   async function removeBanner() {
     setPhase("saving");
@@ -579,50 +582,55 @@ async function handleAiPick() {
         body: JSON.stringify({ heroImageUrl: null }),
       });
       setUrl(null);
-      onChange?.(null);
+      setVisualType("none");
+      onHeroChanged?.();
     } finally {
       setPhase("idle");
     }
   }
 
-  async function makeBrandedBanner() {
-    setBranding(true);
+  async function createBrandedBanner() {
+    setPhase("saving");
     setError(null);
-    setSavedMessage(null);
     try {
       const res = await csrfFetch("/api/organizations/hero-image/brand", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ heroImageUrl: url }),
+        body: JSON.stringify({}),
       });
-      const d = await res.json() as { heroImageUrl?: string; error?: string };
-      if (!res.ok || !d.heroImageUrl) throw new Error(d.error ?? "Branding failed");
-      setUrl(d.heroImageUrl);
-      onChange?.(d.heroImageUrl);
-      setSavedMessage("Branded banner created!");
-      setPhase("selected");
-      setTimeout(() => setSavedMessage(null), 3000);
+      const data = await res.json() as { heroImageUrl?: string; heroVisualType?: HeroVisualType; error?: string };
+      if (!res.ok || !data.heroImageUrl) {
+        throw new Error(data.error ?? "Failed to create branded banner");
+      }
+      setUrl(data.heroImageUrl);
+      setVisualType(data.heroVisualType ?? "banner_background");
+      onHeroChanged?.();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create branded banner");
     } finally {
-      setBranding(false);
+      setPhase("idle");
     }
   }
 
   return (
-    <div data-testid="hero-image-panel" className="rounded-xl bg-[#0f1a2e] border border-[#1e3a5f] p-4 space-y-3">
-      <p className="text-xs text-[#7a9cbf] font-medium uppercase tracking-wide">Homepage Banner</p>
-      <div className="rounded-xl border border-[#d4a017]/20 bg-[#d4a017]/8 p-3">
-        <p className="text-sm font-semibold text-white">Create branded banner</p>
-        <p className="mt-1 text-xs leading-5 text-[#d7e2ed]">
-          Best results come from your own photo. Upload one first and we&apos;ll turn it into a polished homepage banner, or create a branded banner now with your colors, name, and initials.
+    <div className="rounded-xl bg-[#0f1a2e] border border-[#1e3a5f] p-4 space-y-3">
+      <div className="space-y-1">
+        <p className="text-xs text-[#7a9cbf] font-medium uppercase tracking-wide">Hero visual</p>
+        <p className="text-xs text-[#7a9cbf]">
+          Choose whether your homepage uses a polished background banner or a real photo shown beside your headline.
         </p>
       </div>
 
       {/* Current image preview */}
       {url && (
-        <div className="relative w-full h-28 rounded-lg overflow-hidden">
-          <img src={url} alt="Hero banner" className="w-full h-full object-contain bg-slate-950" />
+        <div className="relative w-full h-28 rounded-lg overflow-hidden bg-[#08111f]">
+          <img
+            src={url}
+            alt="Hero visual"
+            className={`w-full h-full ${visualType === "feature_photo" ? "object-contain" : "object-cover"}`}
+          />
           <div className="absolute inset-0 bg-gradient-to-t from-black/30" />
           <button
             onClick={removeBanner}
@@ -653,25 +661,17 @@ async function handleAiPick() {
               Refresh
             </button>
           </div>
-          {photos.length === 0 && (
-            <p className="text-xs text-[#7a9cbf]">No photo suggestions loaded yet. Try Refresh.</p>
-          )}
           <div className="grid grid-cols-3 gap-1.5">
             {photos.map(photo => (
               <button
                 key={photo.id}
-                type="button"
-                aria-label={`Apply photo: ${photo.description || photo.id}`}
-                data-testid="hero-photo-option"
-                data-photo-id={photo.id}
                 onClick={() => void applyPhoto(photo)}
                 className="relative aspect-video rounded-md overflow-hidden group focus:outline-none focus:ring-2 focus:ring-[#d4a017]"
               >
                 <img
                   src={photoThumb(photo)}
-                  alt={photo.description || "Hero image option"}
-                  data-testid="hero-photo-option-image"
-                  className="w-full h-full object-contain bg-slate-950 group-hover:scale-105 transition-transform duration-200"
+                  alt={photo.description}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                 />
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
                   <span className="opacity-0 group-hover:opacity-100 text-white text-xs font-semibold">Select</span>
@@ -694,99 +694,60 @@ async function handleAiPick() {
           <AlertCircle className="w-3 h-3 flex-shrink-0" />{error}
         </p>
       )}
-      {savedMessage && <p className="text-xs text-green-400">{savedMessage}</p>}
+      {saved && <p className="text-xs text-green-400">Banner updated!</p>}
 
-     {/* Action buttons */}
-<div className="space-y-2">
-  <button
-    type="button"
-    onClick={() => void makeBrandedBanner()}
-    disabled={phase === "saving" || phase === "picking" || branding}
-    className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#d4a017]/40 bg-[#d4a017] hover:bg-[#b88a14] text-sm text-black font-semibold transition-colors disabled:opacity-50"
-  >
-    {branding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-    {branding ? "Creating branded banner…" : "Create branded banner"}
-  </button>
+      {/* Action buttons */}
+      {phase !== "approving" && (
+        <div className="grid gap-2">
+          <button
+            onClick={() => { setError(null); setTimeout(() => fileRef.current?.click(), 50); }}
+            disabled={phase !== "idle"}
+            className="flex flex-col items-center justify-center gap-1 px-3 py-3 rounded-xl border border-[#1e3a5f] bg-[#0f1a2e] hover:bg-[#1e3a5f] text-sm text-[#c8d8e8] font-medium transition-colors disabled:opacity-50"
+          >
+            <span className="inline-flex items-center gap-2">
+              <ImagePlus className="w-3.5 h-3.5 text-[#7a9cbf]" />
+              Upload feature photo
+            </span>
+            <span className="text-[11px] text-[#7a9cbf] font-normal">Best for real people, buildings, and events.</span>
+          </button>
+          <button
+            onClick={() => void createBrandedBanner()}
+            disabled={phase !== "idle"}
+            className="flex flex-col items-center justify-center gap-1 px-3 py-3 rounded-xl border border-[#d4a017]/40 bg-[#d4a017]/12 hover:bg-[#d4a017]/18 text-sm text-[#f2d27a] font-medium transition-colors disabled:opacity-50"
+          >
+            <span className="inline-flex items-center gap-2">
+              {phase === "saving"
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <Wand2 className="w-3.5 h-3.5" />
+              }
+              Generate branded banner
+            </span>
+            <span className="text-[11px] text-[#c9aa55] font-normal">Best for a polished homepage background.</span>
+          </button>
+          <button
+            onClick={() => void handleAiPick()}
+            disabled={phase !== "idle"}
+            className="flex flex-col items-center justify-center gap-1 px-3 py-3 rounded-xl border border-[#1e3a5f] bg-[#0d1526] hover:bg-[#12203a] text-sm text-[#8aa0bf] font-medium transition-colors disabled:opacity-50"
+          >
+            <span className="inline-flex items-center gap-2">
+              {phase === "picking"
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <Wand2 className="w-3.5 h-3.5" />
+              }
+              {phase === "picking" ? "Searching..." : "Choose stock background"}
+            </span>
+            <span className="text-[11px] text-[#6f83a3] font-normal">Best for scenic or atmospheric backgrounds.</span>
+          </button>
+        </div>
+      )}
 
-  <div className="grid gap-2 sm:grid-cols-[1.3fr_auto]">
-    <button
-      type="button"
-      onClick={() => {
-        setError(null);
-        fileRef.current?.click();
-      }}
-      disabled={phase === "saving" || phase === "picking" || branding}
-      className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#1e3a5f] bg-[#0f1a2e] hover:bg-[#1e3a5f] text-sm text-[#c8d8e8] font-medium transition-colors disabled:opacity-50"
-    >
-      <ImagePlus className="w-3.5 h-3.5 text-[#7a9cbf]" />
-      Upload your own photo
-    </button>
-
-    <button
-      type="button"
-      data-testid="hero-suggestion-toggle"
-      onClick={() => void handleAiPick()}
-      disabled={phase === "saving" || phase === "picking" || branding}
-      className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#1e3a5f] bg-transparent text-xs text-[#7a9cbf] hover:border-[#d4a017]/40 hover:text-[#d4a017] transition-colors disabled:opacity-50"
-    >
-      {phase === "picking" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-      {phase === "picking" ? "Loading suggestions…" : phase === "approving" ? "Try different photos" : "Browse suggested photos"}
-    </button>
-  </div>
-
-  <p className="text-[11px] text-[#7a9cbf]">
-    Suggested stock photos are optional and secondary. Your own image or branded banner will usually look more like your organization.
-  </p>
-</div>
-
-<input
-  ref={fileRef}
-  type="file"
-  accept="image/*"
-  className="hidden"
-  onChange={(e) => void handleFileChange(e)}
-/>
-    </div>
-  );
-}
-
-function SiteStyleSelector({
-  value,
-  onChange,
-  saving = false,
-}: {
-  value: SiteStyle;
-  onChange: (style: SiteStyle) => void;
-  saving?: boolean;
-}) {
-  return (
-    <div className="rounded-xl bg-[#0f1a2e] border border-[#1e3a5f] p-4 space-y-3" data-testid="site-style-selector">
-      <div>
-        <p className="text-xs text-[#7a9cbf] font-medium uppercase tracking-wide">Site Style</p>
-        <p className="mt-1 text-xs text-[#c8d8e8]">
-          Choose the overall tone for your homepage layout, typography, and section treatment.
-        </p>
-      </div>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5">
-        {SITE_STYLE_OPTIONS.map((option) => {
-          const active = option === value;
-          return (
-            <button
-              key={option}
-              type="button"
-              onClick={() => onChange(option)}
-              disabled={saving}
-              className={`rounded-xl border px-3 py-3 text-left transition-colors ${
-                active
-                  ? "border-[#d4a017] bg-[#d4a017]/12 text-white"
-                  : "border-[#1e3a5f] bg-[#091426] text-[#c8d8e8] hover:border-[#d4a017]/40 hover:text-white"
-              } disabled:opacity-50`}
-            >
-              <div className="text-sm font-semibold">{option}</div>
-            </button>
-          );
-        })}
-      </div>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={e => void handleFileChange(e)}
+      />
     </div>
   );
 }
@@ -797,123 +758,116 @@ function SiteManagementView({
   status,
   onRestart,
   onAiEdit,
-  onHeroImageChange,
-  siteStyle,
-  onSiteStyleChange,
-  siteStyleSaving,
   aiLoading,
   aiError,
 }: {
   status: SiteStatusData;
   onRestart: () => void;
   onAiEdit: (req: string) => void;
-  onHeroImageChange: (heroImageUrl: string | null) => void;
-  siteStyle: SiteStyle;
-  onSiteStyleChange: (style: SiteStyle) => void;
-  siteStyleSaving: boolean;
   aiLoading: boolean;
   aiError: string | null;
 }) {
   const [aiInput, setAiInput] = useState("");
   const [copied, setCopied]   = useState(false);
-  const previewIframeRef = useRef<HTMLIFrameElement>(null);
+  const previewUrl =
+    isLocalDashboardHost() && status.localPreviewUrl
+      ? resolvePreviewUrl(status.localPreviewUrl)
+      : status.url ?? "";
+  const publicUrl = status.url ?? previewUrl;
   const [previewKey, setPreviewKey] = useState(0);
-  const [previewRefreshCount, setPreviewRefreshCount] = useState(0);
+  const [previewSrc, setPreviewSrc] = useState(previewUrl);
+  const [previewHistory, setPreviewHistory] = useState<string[]>(previewUrl ? [previewUrl] : []);
+  const [previewIndex, setPreviewIndex] = useState(previewUrl ? 0 : -1);
+
+  useEffect(() => {
+    if (!previewUrl) {
+      setPreviewSrc("");
+      setPreviewHistory([]);
+      setPreviewIndex(-1);
+      return;
+    }
+    setPreviewSrc(previewUrl);
+    setPreviewHistory([previewUrl]);
+    setPreviewIndex(0);
+  }, [previewUrl]);
 
   function copyUrl() {
-    if (!status.url) return;
-    void navigator.clipboard.writeText(status.url);
+    if (!publicUrl) return;
+    void navigator.clipboard.writeText(publicUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
 
+  function refreshPreview() {
+    setPreviewKey((current) => current + 1);
+    setPreviewSrc((current) => current || previewUrl || "");
+  }
+
   function goPreviewBack() {
-    try {
-      previewIframeRef.current?.contentWindow?.history.back();
-    } catch {
-      // The preview can be cross-origin in production; keep the control harmless.
-    }
+    if (previewIndex <= 0) return;
+    const nextIndex = previewIndex - 1;
+    setPreviewIndex(nextIndex);
+    setPreviewSrc(previewHistory[nextIndex] ?? previewUrl ?? "");
+    setPreviewKey((current) => current + 1);
   }
 
   function goPreviewForward() {
-    try {
-      previewIframeRef.current?.contentWindow?.history.forward();
-    } catch {
-      // The preview can be cross-origin in production; keep the control harmless.
-    }
-  }
-
-  function reloadPreview() {
-    setPreviewRefreshCount((count) => count + 1);
-    const previewWindow = previewIframeRef.current?.contentWindow;
-    if (previewWindow) {
-      try {
-        previewWindow.location.reload();
-        return;
-      } catch {
-        // If browser sandboxing blocks direct reload access, remount the frame.
-      }
-    }
-    setPreviewKey((key) => key + 1);
+    if (previewIndex < 0 || previewIndex >= previewHistory.length - 1) return;
+    const nextIndex = previewIndex + 1;
+    setPreviewIndex(nextIndex);
+    setPreviewSrc(previewHistory[nextIndex] ?? previewUrl ?? "");
+    setPreviewKey((current) => current + 1);
   }
 
   return (
     <div className="flex flex-col gap-5 py-6">
 
       {/* Site preview iframe */}
-      {status.url && (
-        <div
-          className="rounded-xl overflow-hidden border border-white/10 bg-[#0f1a2e]"
-          data-testid="site-preview-shell"
-          data-preview-refresh-count={previewRefreshCount}
-        >
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
-            <div className="hidden sm:flex items-center gap-1.5 flex-shrink-0">
-              <div className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" />
-              <div className="w-2.5 h-2.5 rounded-full bg-[#febc2e]" />
-              <div className="w-2.5 h-2.5 rounded-full bg-[#28c840]" />
-            </div>
-            <div className="flex items-center gap-1 flex-shrink-0">
+      {previewUrl && (
+        <div className="rounded-xl overflow-hidden border border-white/10 bg-[#0f1a2e]">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
+            <span className="text-xs text-slate-400 font-medium">Site Preview</span>
+            <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={goPreviewBack}
+                disabled={previewIndex <= 0}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-slate-300 hover:bg-white/5 hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-300"
                 title="Back"
-                className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
               </button>
               <button
+                type="button"
                 onClick={goPreviewForward}
+                disabled={previewIndex < 0 || previewIndex >= previewHistory.length - 1}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-slate-300 hover:bg-white/5 hover:text-white transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-300"
                 title="Forward"
-                className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
               >
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
               <button
-                onClick={reloadPreview}
+                type="button"
+                onClick={refreshPreview}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-slate-300 hover:bg-white/5 hover:text-white transition-colors"
                 title="Refresh"
-                className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
               </button>
+              <a
+                href={publicUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-[#d4a017] hover:text-[#b88a14] flex items-center gap-1"
+              >
+                Open full site <ExternalLink className="w-3 h-3" />
+              </a>
             </div>
-            <div className="flex-1 min-w-0 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5">
-              <p className="truncate text-[11px] text-slate-300">{status.url}</p>
-            </div>
-            <a
-              href={status.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Open full site"
-              className="p-1.5 rounded-md text-[#d4a017] hover:text-[#b88a14] hover:bg-[#d4a017]/10 transition-colors flex-shrink-0"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
           </div>
-          <div className="relative w-full min-h-[28rem] bg-[#08111f] md:min-h-[36rem] lg:min-h-[42rem]">
+          <div className="relative w-full" style={{ paddingBottom: "75%" }}>
             <iframe
               key={previewKey}
-              ref={previewIframeRef}
-              src={status.url}
+              src={previewSrc}
               className="absolute inset-0 w-full h-full border-0"
               title="Site preview"
               sandbox="allow-scripts allow-same-origin"
@@ -928,17 +882,17 @@ function SiteManagementView({
           <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0" />
           <span className="text-sm font-semibold text-green-300">Your site is live</span>
         </div>
-        {status.url && (
+        {publicUrl && (
           <div className="flex items-center gap-2 min-w-0">
             <a
-              href={status.url}
+              href={publicUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="text-sm text-green-400 hover:text-green-300 underline underline-offset-2 truncate flex-1"
             >
-              {status.url}
+              {publicUrl}
             </a>
-            <a href={status.url} target="_blank" rel="noopener noreferrer" className="flex-shrink-0 text-green-400 hover:text-green-300">
+            <a href={publicUrl} target="_blank" rel="noopener noreferrer" className="flex-shrink-0 text-green-400 hover:text-green-300">
               <ExternalLink className="w-3.5 h-3.5" />
             </a>
             <button onClick={copyUrl} className="flex-shrink-0 text-green-400/60 hover:text-green-300 transition-colors" title="Copy URL">
@@ -987,19 +941,8 @@ function SiteManagementView({
       {/* Homepage banner */}
       <HeroImagePanel
         initialUrl={status.heroImageUrl}
-        onChange={(heroImageUrl) => {
-          onHeroImageChange(heroImageUrl);
-          reloadPreview();
-        }}
-      />
-
-      <SiteStyleSelector
-        value={siteStyle}
-        saving={siteStyleSaving}
-        onChange={(nextStyle) => {
-          onSiteStyleChange(nextStyle);
-          reloadPreview();
-        }}
+        initialVisualType={status.heroVisualType}
+        onHeroChanged={refreshPreview}
       />
 
       {/* Update options */}
@@ -1095,8 +1038,6 @@ export default function CommunityBuilder() {
   const [editMode, setEditMode]                   = useState(false);
   const [aiEditLoading, setAiEditLoading]         = useState(false);
   const [aiEditError, setAiEditError]             = useState<string | null>(null);
-  const [siteStyle, setSiteStyle]                 = useState<SiteStyle>("Modern Civic");
-  const [siteStyleSaving, setSiteStyleSaving]     = useState(false);
 
   const chatEndRef   = useRef<HTMLDivElement>(null);
   const inputRef     = useRef<HTMLTextAreaElement>(null);
@@ -1104,64 +1045,6 @@ export default function CommunityBuilder() {
 
   const isInterviewDone = stepIndex >= totalSteps;
   const currentQuestion = !isInterviewDone ? filteredQuestions[stepIndex] : null;
-
-  function updateHeroImageStatus(heroImageUrl: string | null) {
-    setSiteStatus((prev) => prev ? { ...prev, heroImageUrl } : prev);
-  }
-
-  function updateSiteStyleStatus(nextStyle: SiteStyle) {
-    setSiteStyle(nextStyle);
-    setSiteStatus((prev) => prev ? {
-      ...prev,
-      configSummary: prev.configSummary
-        ? { ...prev.configSummary, siteStyle: nextStyle }
-        : prev.configSummary,
-    } : prev);
-    setReadyPayload((prev) => {
-      if (!prev) return prev;
-      const currentFeatures =
-        prev.features && typeof prev.features === "object" && !Array.isArray(prev.features)
-          ? (prev.features as Record<string, unknown>)
-          : {};
-      const currentSiteContent =
-        prev.siteContent && typeof prev.siteContent === "object" && !Array.isArray(prev.siteContent)
-          ? (prev.siteContent as Record<string, unknown>)
-          : {};
-      return {
-        ...prev,
-        siteStyle: nextStyle,
-        features: {
-          ...currentFeatures,
-          siteStyle: nextStyle,
-        },
-        siteContent: {
-          ...currentSiteContent,
-          style_name: nextStyle,
-        },
-      };
-    });
-  }
-
-  async function saveSiteStyle(nextStyle: SiteStyle) {
-    updateSiteStyleStatus(nextStyle);
-
-    if (!siteStatus?.isProvisioned) return;
-
-    setSiteStyleSaving(true);
-    try {
-      const res = await csrfFetch("/api/community-site/style", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ siteStyle: nextStyle }),
-      });
-      const data = await res.json() as { ok?: boolean; error?: string };
-      if (!res.ok || !data.ok) throw new Error(data.error ?? "Style update failed");
-    } catch (err) {
-      setAiEditError(err instanceof Error ? err.message : "Style update failed");
-    } finally {
-      setSiteStyleSaving(false);
-    }
-  }
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1179,7 +1062,6 @@ export default function CommunityBuilder() {
       .then(r => r.json())
       .then((d: SiteStatusData) => {
         setSiteStatus(d);
-        setSiteStyle(normalizeSiteStyle(d.configSummary?.siteStyle ?? null));
         setSiteStatusLoading(false);
       })
       .catch(() => setSiteStatusLoading(false));
@@ -1325,7 +1207,7 @@ export default function CommunityBuilder() {
       const res = await csrfFetch("/api/community-site/finalize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers: { ...finalAnswers, siteStyle } }),
+        body: JSON.stringify({ answers: finalAnswers }),
       });
       if (!res.ok) throw new Error("Finalize request failed");
       const d = await res.json() as { reply: string };
@@ -1562,10 +1444,6 @@ export default function CommunityBuilder() {
               setStarted(true);
             }}
             onAiEdit={req => void submitAiEdit(req)}
-            onHeroImageChange={updateHeroImageStatus}
-            siteStyle={siteStyle}
-            onSiteStyleChange={(nextStyle) => void saveSiteStyle(nextStyle)}
-            siteStyleSaving={siteStyleSaving}
             aiLoading={aiEditLoading}
             aiError={aiEditError}
           />
@@ -1628,14 +1506,9 @@ export default function CommunityBuilder() {
 
             {/* Homepage banner picker — shown before interview so it's always reachable */}
             <div className="w-full max-w-md text-left">
-              <HeroImagePanel initialUrl={siteStatus?.heroImageUrl} onChange={updateHeroImageStatus} />
-            </div>
-
-            <div className="w-full max-w-3xl text-left">
-              <SiteStyleSelector
-                value={siteStyle}
-                saving={siteStyleSaving}
-                onChange={updateSiteStyleStatus}
+              <HeroImagePanel
+                initialUrl={siteStatus?.heroImageUrl}
+                initialVisualType={siteStatus?.heroVisualType}
               />
             </div>
 
@@ -1694,20 +1567,16 @@ export default function CommunityBuilder() {
               I have everything I need! Review your configuration below, then click <strong>Launch Site</strong> to go live.
             </BotBubble>
 
-            {/* Hero image picker — shown inline after interview */}
-            <div className="w-full">
-              <HeroImagePanel
-                initialUrl={siteStatus?.heroImageUrl}
-                onChange={updateHeroImageStatus}
-              />
-            </div>
-            <div className="w-full">
-              <SiteStyleSelector
-                value={siteStyle}
-                saving={siteStyleSaving}
-                onChange={updateSiteStyleStatus}
-              />
-            </div>
+            {/* Hero image picker — shown inline after interview if org chose a photo background */}
+            {answers.heroBackground !== "Brand colors only (no photo)" && (
+              <div className="w-full">
+                <HeroImagePanel
+                  initialUrl={siteStatus?.heroImageUrl}
+                  initialVisualType={siteStatus?.heroVisualType}
+                  autoTriggerAi={answers.heroBackground === "AI picks a community photo"}
+                />
+              </div>
+            )}
           </>
         )}
 

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useConfig } from "../config-context";
 import { apiFetch } from "../lib/api";
+import { normalizeHeroVisualType } from "../lib/heroVisual";
 
 interface Event {
   id: number;
@@ -16,140 +17,6 @@ interface Event {
   featured: boolean | null;
 }
 
-type SiteStyle =
-  | "Classic"
-  | "Modern Civic"
-  | "Heritage"
-  | "Bold Event"
-  | "Warm Community";
-
-type OrgFamily = "heritage" | "civic" | "business" | "event" | "nonprofit" | "community";
-type HeroLayout = "background" | "split";
-
-function normalizeSiteStyle(value: string | undefined): SiteStyle {
-  if (
-    value === "Classic" ||
-    value === "Modern Civic" ||
-    value === "Heritage" ||
-    value === "Bold Event" ||
-    value === "Warm Community"
-  ) {
-    return value;
-  }
-  return "Modern Civic";
-}
-
-function detectOrgFamily(orgType: string | null | undefined, hasEvents: boolean): OrgFamily {
-  if (orgType === "fraternal" || orgType === "vfw") return "heritage";
-  if (orgType === "rotary" || orgType === "lions") return "civic";
-  if (orgType === "chamber") return "business";
-  if (orgType === "foundation" || orgType === "pta") return "nonprofit";
-  if (hasEvents && orgType === "arts") return "event";
-  if (orgType === "civic" || orgType === "neighborhood") return "community";
-  return hasEvents ? "event" : "community";
-}
-
-function toStyleSlug(style: SiteStyle): string {
-  return style.toLowerCase().replace(/\s+/g, "-");
-}
-
-function normalizeHeroLayout(value: string | null | undefined, heroImage: string | null | undefined): HeroLayout {
-  if (value === "split") return "split";
-  return heroImage ? "background" : "background";
-}
-
-function buildFallbackHeadline(
-  orgName: string,
-  family: OrgFamily,
-  location: string | null | undefined,
-): string {
-  const place = location || "your community";
-  if (family === "heritage") return `${orgName} keeps tradition active in ${place}`;
-  if (family === "civic") return `${orgName} turns local service into visible impact`;
-  if (family === "business") return `${orgName} helps local business show up stronger`;
-  if (family === "event") return `${orgName} makes the next big gathering easy to join`;
-  if (family === "nonprofit") return `${orgName} makes community support feel tangible`;
-  return `${orgName} keeps ${place} connected`;
-}
-
-function buildFallbackCtas(
-  family: OrgFamily,
-  hasEvents: boolean,
-): {
-  primaryLabel: string;
-  primaryHref: string;
-  secondaryLabel: string;
-  secondaryHref: string;
-} {
-  if (family === "heritage") {
-    return {
-      primaryLabel: hasEvents ? "See Upcoming Gatherings" : "Plan Your Visit",
-      primaryHref: hasEvents ? "/events" : "/contact",
-      secondaryLabel: "Learn Our Story",
-      secondaryHref: "/about",
-    };
-  }
-  if (family === "business") {
-    return {
-      primaryLabel: hasEvents ? "See Networking Events" : "Connect With the Chamber",
-      primaryHref: hasEvents ? "/events" : "/contact",
-      secondaryLabel: "Meet Local Leaders",
-      secondaryHref: "/about",
-    };
-  }
-  if (family === "event") {
-    return {
-      primaryLabel: "Get Event Details",
-      primaryHref: "/events",
-      secondaryLabel: "Become a Sponsor",
-      secondaryHref: "/contact",
-    };
-  }
-  if (family === "nonprofit") {
-    return {
-      primaryLabel: "Support the Mission",
-      primaryHref: "/contact",
-      secondaryLabel: "See Community Impact",
-      secondaryHref: "/about",
-    };
-  }
-  return {
-    primaryLabel: hasEvents ? "See Upcoming Events" : "Get Involved",
-    primaryHref: hasEvents ? "/events" : "/contact",
-    secondaryLabel: "Learn More",
-    secondaryHref: "/about",
-  };
-}
-
-function ActionButton({
-  href,
-  label,
-  variant,
-}: {
-  href: string;
-  label: string;
-  variant: "primary" | "secondary";
-}) {
-  const className =
-    variant === "primary"
-      ? "cp-btn cp-btn-primary"
-      : "cp-btn cp-btn-secondary";
-
-  if (href.startsWith("#")) {
-    return (
-      <a href={href} className={className}>
-        {label}
-      </a>
-    );
-  }
-
-  return (
-    <Link href={href}>
-      <button className={className}>{label}</button>
-    </Link>
-  );
-}
-
 export default function HomePage() {
   const config = useConfig();
   const { data: events } = useQuery<Event[]>({ queryKey: ["/api/events"] });
@@ -157,138 +24,120 @@ export default function HomePage() {
 
   if (!config) return null;
 
+  const featuredEvents = events?.filter(e => e.featured).slice(0, 3) || events?.slice(0, 3) || [];
   const get = (key: string, fallback = "") => siteContent?.[key] || fallback;
-  const featuredEvents = events?.filter((e) => e.featured).slice(0, 3) || events?.slice(0, 3) || [];
   const heroImage = config.heroImageUrl || get("image_home_hero");
-  const heroLayout = normalizeHeroLayout(
-    (config.features?.heroLayout as string | undefined) || get("hero_layout"),
-    heroImage,
+  const heroVisualType = normalizeHeroVisualType(
+    config.features?.heroVisualType ?? config.heroVisualType,
+    config.features?.heroLayout ?? config.heroLayout,
   );
-  const style = normalizeSiteStyle(
-    (config.features?.siteStyle as string | undefined) || get("style_name"),
-  );
-  const family = detectOrgFamily(config.orgType, featuredEvents.length > 0);
-  const rawHeadline = get("home_headline");
-const headline =
-  rawHeadline && rawHeadline.trim().length > 12 && rawHeadline.trim() !== config.shortName
-    ? rawHeadline
-    : buildFallbackHeadline(config.orgName, family, config.location);
-  const subheadline =
-    get("home_subheadline") ||
-    get("home_intro") ||
-    config.tagline ||
-    config.mission ||
-    "";
-  const ctas = {
-    ...buildFallbackCtas(family, featuredEvents.length > 0),
-    primaryLabel: get("home_primary_cta_label") || buildFallbackCtas(family, featuredEvents.length > 0).primaryLabel,
-    primaryHref: get("home_primary_cta_href") || buildFallbackCtas(family, featuredEvents.length > 0).primaryHref,
-    secondaryLabel: get("home_secondary_cta_label") || buildFallbackCtas(family, featuredEvents.length > 0).secondaryLabel,
-    secondaryHref: get("home_secondary_cta_href") || buildFallbackCtas(family, featuredEvents.length > 0).secondaryHref,
-  };
+  const showBannerBackground = Boolean(heroImage) && heroVisualType === "banner_background";
+  const showFeaturePhoto = Boolean(heroImage) && heroVisualType === "feature_photo";
 
-  const stats = config.stats && config.stats.length > 0 ? config.stats.slice(0, 4) : [
-    { value: "12+", label: "Annual Events" },
+  const stats = config.stats && config.stats.length > 0 ? config.stats : [
+    { value: "10+", label: "Annual Events" },
     { value: "500+", label: "Community Members" },
     { value: "5+", label: "Years Active" },
     { value: "100%", label: "Volunteer Driven" },
   ];
 
-  const eventsHeading = get("events_heading") || (family === "business" ? "Business Events & Gatherings" : family === "heritage" ? "Lodge Calendar" : "Upcoming Events");
-  const eventsIntro = get("events_intro") || (config.location ? `What is happening around ${config.location}.` : "See what is coming up next.");
-  const partnersHeading = get("partners_heading") || (family === "business" ? "Business & Civic Partners" : "Community Partners");
-  const newsletterHeading = get("newsletter_heading") || "Stay connected";
-  const statsEyebrow = family === "heritage" ? "Tradition in motion" : family === "event" ? "Momentum you can feel" : "Trust and impact";
-
   return (
-    <div
-      className="cp-home"
-      data-style={toStyleSlug(style)}
-      data-family={family}
-      data-hero-layout={heroLayout}
-    >
-      <section className="cp-hero">
-        {heroImage && heroLayout === "full_bleed" || heroLayout === "background" && (
-          <img src={heroImage} alt="Homepage banner" className="cp-hero-image" />
+    <div>
+      {/* Hero */}
+      <section className={`relative overflow-hidden flex items-center ${showFeaturePhoto ? "cp-hero-split min-h-[560px]" : "min-h-[500px]"}`}>
+        {showBannerBackground && (
+          <img src={heroImage} alt="" className="cp-hero-image absolute inset-0 w-full h-full" />
         )}
-        <div className="cp-hero-overlay" />
-        <div className="cp-hero-pattern" />
-        <div className="cp-hero-inner">
-          <div className="cp-hero-copy">
-            <span className="cp-kicker">{get("home_section_eyebrow") || config.orgType || "Community Organization"}</span>
-            <h1>{headline}</h1>
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              showFeaturePhoto
+                ? `linear-gradient(135deg, var(--primary-hex) 0%, #10192d 100%)`
+                : heroImage
+                  ? "linear-gradient(to right, rgba(0,0,0,0.75), rgba(0,0,0,0.4))"
+                  : `linear-gradient(135deg, var(--primary-hex) 0%, var(--accent-hex) 100%)`,
+          }}
+        />
+        <div className={`relative max-w-7xl mx-auto px-4 py-24 md:py-36 ${showFeaturePhoto ? "w-full grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(340px,560px)] items-center" : ""}`}>
+          <div className={showFeaturePhoto ? "max-w-xl" : "max-w-2xl"}>
+            <span className="inline-flex items-center mb-4 px-3 py-1 rounded-full text-xs bg-white/20 text-white border border-white/30">
+              {config.orgType || "Community Organization"}
+            </span>
+            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-3 font-serif leading-tight">
+              {config.orgName}
+            </h1>
             {(get("home_tagline") || config.tagline) && (
-              <p className="cp-tagline">{get("home_tagline") || config.tagline}</p>
+              <p className="text-lg md:text-xl text-white/90 mb-4 font-medium italic">
+                {get("home_tagline") || config.tagline}
+              </p>
             )}
-            {subheadline && <p className="cp-subheadline">{subheadline}</p>}
-            <div className="cp-cta-row">
-              <ActionButton href={ctas.primaryHref} label={ctas.primaryLabel} variant="primary" />
-              <ActionButton href={ctas.secondaryHref} label={ctas.secondaryLabel} variant="secondary" />
+            {get("home_intro") && (
+              <p className="text-base text-white/70 mb-8 leading-relaxed max-w-lg">
+                {get("home_intro")}
+              </p>
+            )}
+            <div className="flex flex-wrap gap-3">
+              <Link href="/events">
+                <button className="px-6 py-3 text-white rounded-md font-medium" style={{ backgroundColor: "var(--primary-hex)" }}>
+                  View Events
+                </button>
+              </Link>
+              <Link href="/about">
+                <button className="px-6 py-3 bg-white/10 text-white border border-white/20 rounded-md backdrop-blur-sm">
+                  Learn More
+                </button>
+              </Link>
             </div>
           </div>
-          {(heroLayout === "split_framed" || heroLayout === "split") && heroImage ? (
-            <div className="cp-hero-media">
-              <div className="cp-hero-media-card">
-                <img src={heroImage} alt={`${config.orgName} featured`} className="cp-hero-media-image" />
-              </div>
+          {showFeaturePhoto ? (
+            <div className="cp-hero-media cp-hero-media-card">
+              <img src={heroImage} alt={`${config.orgName} hero`} className="cp-hero-media-image" />
             </div>
-          ) : (
-            <div className="cp-hero-stats">
-              <p className="cp-stat-eyebrow">{statsEyebrow}</p>
-              <div className="cp-stat-grid">
-                {stats.slice(0, 3).map((stat) => (
-                  <div key={stat.label} className="cp-stat-card">
-                    <div className="cp-stat-value">{stat.value}</div>
-                    <div className="cp-stat-label">{stat.label}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          ) : null}
         </div>
       </section>
 
-      <section className="cp-stats-band">
-        <div className="cp-container">
-          <div className="cp-section-lead">
-            <span className="cp-section-kicker">{statsEyebrow}</span>
-            <h2>{config.orgName} in motion</h2>
-          </div>
-          <div className="cp-metric-row">
-            {stats.map((stat) => (
-              <div key={stat.label} className="cp-metric">
-                <p className="cp-metric-value">{stat.value}</p>
-                <p className="cp-metric-label">{stat.label}</p>
-              </div>
-            ))}
-          </div>
+      {/* Stats */}
+      <section className="max-w-7xl mx-auto px-4 py-16">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {stats.map((stat) => (
+            <div key={stat.label} className="p-6 text-center border border-gray-200 rounded-lg bg-white shadow-sm">
+              <p className="text-2xl md:text-3xl font-bold mb-1" style={{ color: "var(--primary-hex)" }}>{stat.value}</p>
+              <p className="text-xs text-gray-500 uppercase tracking-wide">{stat.label}</p>
+            </div>
+          ))}
         </div>
       </section>
 
+      {/* Upcoming Events */}
       {featuredEvents.length > 0 && (
-        <section className="cp-section cp-section-alt" id="events">
-          <div className="cp-container">
-            <div className="cp-section-head">
+        <section className="bg-gray-50 py-16">
+          <div className="max-w-7xl mx-auto px-4">
+            <div className="flex items-center justify-between mb-8">
               <div>
-                <span className="cp-section-kicker">Next action</span>
-                <h2>{eventsHeading}</h2>
-                <p>{eventsIntro}</p>
+                <h2 className="text-2xl md:text-3xl font-bold font-serif">Upcoming Events</h2>
+                <p className="text-gray-500 text-sm mt-1">Don't miss what's happening in {config.location || "our community"}</p>
               </div>
-              <ActionButton href="/events" label="View all events" variant="secondary" />
+              <Link href="/events">
+                <button className="text-sm font-medium px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-100 transition-colors">
+                  All Events →
+                </button>
+              </Link>
             </div>
-            <div className="cp-event-grid">
-              {featuredEvents.map((event) => (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {featuredEvents.map(event => (
                 <Link key={event.id} href={event.slug ? `/events/${event.slug}` : "/events"}>
-                  <div className="cp-event-card">
-                    {event.imageUrl && <img src={event.imageUrl} alt={event.title} className="cp-event-image" />}
-                    <div className="cp-event-body">
-                      <span className="cp-event-category">{event.category}</span>
-                      <h3>{event.title}</h3>
-                      <p>{event.description}</p>
-                      <div className="cp-event-meta">
-                        <span>{event.date}</span>
-                        <span>{event.time}</span>
-                        <span>{event.location}</span>
+                  <div className="border border-gray-200 rounded-lg overflow-hidden bg-white cursor-pointer hover:shadow-md transition-shadow">
+                    {event.imageUrl && <img src={event.imageUrl} alt={event.title} className="w-full h-48 object-cover" />}
+                    <div className="p-5">
+                      <span className="inline-block px-2 py-1 text-xs rounded-full mb-3 text-white" style={{ backgroundColor: "var(--accent-hex)" }}>{event.category}</span>
+                      <h3 className="font-semibold text-lg mb-2">{event.title}</h3>
+                      <p className="text-sm text-gray-500 mb-4 line-clamp-2">{event.description}</p>
+                      <div className="flex flex-col gap-1 text-xs text-gray-400">
+                        <span>📅 {event.date}</span>
+                        <span>🕐 {event.time}</span>
+                        <span>📍 {event.location}</span>
                       </div>
                     </div>
                   </div>
@@ -299,57 +148,37 @@ const headline =
         </section>
       )}
 
+      {/* Partners */}
       {config.partners && config.partners.length > 0 && (
-        <section className="cp-section">
-          <div className="cp-container">
-            <div className="cp-section-head">
-              <div>
-                <span className="cp-section-kicker">Trusted relationships</span>
-                <h2>{partnersHeading}</h2>
+        <section className="max-w-7xl mx-auto px-4 py-16">
+          <h2 className="text-2xl font-bold font-serif text-center mb-8">Community Partners</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {config.partners.map((partner) => (
+              <div key={partner.name} className="p-4 border border-gray-200 rounded-lg text-center">
+                <p className="font-semibold text-sm">{partner.name}</p>
+                {partner.description && <p className="text-xs text-gray-500 mt-1">{partner.description}</p>}
               </div>
-            </div>
-            <div className="cp-partner-grid">
-              {config.partners.map((partner) => (
-                <div key={partner.name} className="cp-partner-card">
-                  <p className="cp-partner-name">{partner.name}</p>
-                  {partner.description && <p className="cp-partner-description">{partner.description}</p>}
-                </div>
-              ))}
-            </div>
+            ))}
           </div>
         </section>
       )}
 
+      {/* Newsletter */}
       {config.features?.newsletter && (
-        <NewsletterSection
-          heading={newsletterHeading}
-          orgName={config.orgName}
-          location={config.location}
-        />
+        <NewsletterSection orgName={config.orgName} location={config.location} />
       )}
     </div>
   );
 }
 
-function NewsletterSection({
-  heading,
-  orgName,
-  location,
-}: {
-  heading: string;
-  orgName: string;
-  location?: string | null;
-}) {
+function NewsletterSection({ orgName, location }: { orgName: string; location?: string | null }) {
   return (
-    <section className="cp-newsletter" id="newsletter">
-      <div className="cp-container cp-newsletter-inner">
-        <div>
-          <span className="cp-section-kicker">Updates that matter</span>
-          <h2>{heading}</h2>
-          <p>
-            Get the latest news about {location || orgName}, upcoming events, and the work happening across the organization.
-          </p>
-        </div>
+    <section className="border-y border-gray-200 bg-white py-16">
+      <div className="max-w-7xl mx-auto px-4 text-center">
+        <h2 className="text-2xl md:text-3xl font-bold font-serif mb-2">Stay Connected</h2>
+        <p className="text-sm text-gray-500 mb-6 max-w-md mx-auto">
+          Get the latest news about {location || orgName} events and community updates.
+        </p>
         <form
           onSubmit={async (e) => {
             e.preventDefault();
@@ -363,10 +192,10 @@ function NewsletterSection({
             });
             form.reset();
           }}
-          className="cp-newsletter-form"
+          className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto"
         >
-          <input type="email" name="email" placeholder="Your email address" required />
-          <button type="submit">Subscribe</button>
+          <input type="email" name="email" placeholder="Your email address" required className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm" />
+          <button type="submit" className="px-5 py-2 text-white rounded-md text-sm font-medium" style={{ backgroundColor: "var(--primary-hex)" }}>Subscribe</button>
         </form>
       </div>
     </section>

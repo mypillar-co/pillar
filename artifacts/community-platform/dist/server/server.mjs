@@ -80614,9 +80614,21 @@ var csTicketPurchases = pgTable("cs_ticket_purchases", {
 });
 
 // server/storage.ts
+var HERO_DEBUG = process.env.PILLAR_DEBUG_HERO === "1";
 async function getOrgConfig(orgId) {
   const rows = await db.select().from(csOrgConfigs).where(eq(csOrgConfigs.orgId, orgId)).limit(1);
-  return rows[0] || null;
+  const config3 = rows[0] || null;
+  if (HERO_DEBUG) {
+    console.log("[hero-debug][community-platform] storage.getOrgConfig", {
+      orgId,
+      found: Boolean(config3),
+      heroImageUrl: config3?.heroImageUrl ?? null,
+      heroLayout: config3?.features && typeof config3.features === "object" ? config3.features.heroLayout : void 0,
+      heroVisualType: config3?.features && typeof config3.features === "object" ? config3.features.heroVisualType : void 0,
+      features: config3?.features ?? null
+    });
+  }
+  return config3;
 }
 async function upsertOrgConfig(orgId, data) {
   const existing = await getOrgConfig(orgId);
@@ -80628,8 +80640,35 @@ async function upsertOrgConfig(orgId, data) {
   return getOrgConfig(orgId);
 }
 async function patchOrgConfig(orgId, data) {
-  const rows = await db.update(csOrgConfigs).set({ ...data, updatedAt: /* @__PURE__ */ new Date() }).where(eq(csOrgConfigs.orgId, orgId)).returning();
-  return rows[0] || null;
+  if (HERO_DEBUG) {
+    console.log("[hero-debug][community-platform] storage.patchOrgConfig input", {
+      orgId,
+      heroImageUrl: data.heroImageUrl ?? null,
+      heroLayout: data.features && typeof data.features === "object" ? data.features.heroLayout : void 0,
+      heroVisualType: data.features && typeof data.features === "object" ? data.features.heroVisualType : void 0,
+      features: data.features ?? null
+    });
+  }
+  const existing = await getOrgConfig(orgId);
+  const mergedData = data.features && typeof data.features === "object" ? {
+    ...data,
+    features: {
+      ...existing?.features ?? {},
+      ...data.features
+    }
+  } : data;
+  const rows = await db.update(csOrgConfigs).set({ ...mergedData, updatedAt: /* @__PURE__ */ new Date() }).where(eq(csOrgConfigs.orgId, orgId)).returning();
+  const updated = rows[0] || null;
+  if (HERO_DEBUG) {
+    console.log("[hero-debug][community-platform] storage.patchOrgConfig output", {
+      orgId,
+      heroImageUrl: updated?.heroImageUrl ?? null,
+      heroLayout: updated?.features && typeof updated.features === "object" ? updated.features.heroLayout : void 0,
+      heroVisualType: updated?.features && typeof updated.features === "object" ? updated.features.heroVisualType : void 0,
+      features: updated?.features ?? null
+    });
+  }
+  return updated;
 }
 async function getAdminUser(orgId, username) {
   const rows = await db.select().from(csAdminUsers).where(and(eq(csAdminUsers.orgId, orgId), eq(csAdminUsers.username, username))).limit(1);
@@ -81091,6 +81130,7 @@ async function getOrgIdCandidates(req) {
   return uuid && uuid !== slug ? [slug, uuid] : [slug];
 }
 function registerRoutes(app2) {
+  const HERO_DEBUG2 = process.env.PILLAR_DEBUG_HERO === "1";
   app2.get("/api/org-config", async (req, res) => {
     const orgId = getOrgId(req);
     const config3 = await getOrgConfig(orgId);
@@ -81105,6 +81145,14 @@ function registerRoutes(app2) {
       memberCount = 0;
     }
     if (!config3) return res.json({ _empty: true, orgId, memberCount });
+    if (HERO_DEBUG2) {
+      console.log("[hero-debug][community-platform] GET /api/org-config response", {
+        orgId,
+        heroImageUrl: config3.heroImageUrl ?? null,
+        heroLayout: config3.features && typeof config3.features === "object" ? config3.features.heroLayout : void 0,
+        features: config3.features ?? null
+      });
+    }
     res.json({ ...config3, memberCount });
   });
   async function getPillarEvents(orgSlug) {
@@ -81898,11 +81946,26 @@ function registerRoutes(app2) {
       if (!orgId) {
         return res.status(400).json({ ok: false, error: "orgId is required" });
       }
+      if (HERO_DEBUG2) {
+        console.log("[hero-debug][community-platform] PATCH /api/internal/org-config request", {
+          orgId,
+          heroImageUrl: patch.heroImageUrl ?? null,
+          heroLayout: patch.features && typeof patch.features === "object" ? patch.features.heroLayout : void 0,
+          patch
+        });
+      }
       const updated = await patchOrgConfig(orgId, patch);
       if (!updated) {
         return res.status(404).json({ ok: false, error: "Org config not found \u2014 site may not be provisioned yet" });
       }
-      console.log(`[internal-org-config] patched org=${orgId}`);
+      if (HERO_DEBUG2) {
+        console.log("[hero-debug][community-platform] PATCH /api/internal/org-config updated", {
+          orgId,
+          heroImageUrl: updated.heroImageUrl ?? null,
+          heroLayout: updated.features && typeof updated.features === "object" ? updated.features.heroLayout : void 0,
+          features: updated.features ?? null
+        });
+      }
       return res.json({ ok: true, config: updated });
     } catch (error3) {
       console.error("[internal-org-config] patch failed", error3);
@@ -82486,8 +82549,12 @@ async function startServer() {
     const staticPath = path.join(__dirname, "../public");
     const indexHtmlPath = path.join(staticPath, "index.html");
     app.use(import_express4.default.static(staticPath));
-    app.get("*", (_req, res) => {
+    app.get("*", (req, res) => {
       try {
+        if (path.extname(req.path)) {
+          res.status(404).type("text/plain").send("Static asset not found");
+          return;
+        }
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         res.setHeader("Cache-Control", "no-cache, no-store");
         res.sendFile(indexHtmlPath);
@@ -82496,6 +82563,13 @@ async function startServer() {
       }
     });
   } else {
+    app.get("/assets/*", (req, res, next) => {
+      if (!path.extname(req.path)) {
+        next();
+        return;
+      }
+      res.status(404).type("text/plain").send("Static asset not found");
+    });
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       root: path.join(__dirname, ".."),

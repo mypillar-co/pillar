@@ -316,8 +316,15 @@ async function startServer() {
     app.use(express.static(staticPath));
 
     // Catch-all: serve index.html for all SPA routes
-    app.get("*", (_req, res) => {
+    app.get("*", (req, res) => {
       try {
+        if (path.extname(req.path)) {
+          res
+            .status(404)
+            .type("text/plain")
+            .send("Static asset not found");
+          return;
+        }
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         res.setHeader("Cache-Control", "no-cache, no-store");
         res.sendFile(indexHtmlPath);
@@ -326,6 +333,14 @@ async function startServer() {
       }
     });
   } else {
+    app.get("/assets/*", (req, res, next) => {
+      if (!path.extname(req.path)) {
+        next();
+        return;
+      }
+      res.status(404).type("text/plain").send("Static asset not found");
+    });
+
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       root: path.join(__dirname, ".."),

@@ -4,7 +4,6 @@ import { eq, sql } from "drizzle-orm";
 import { resolveFullOrg } from "../lib/resolveOrg";
 import { getSectionRegistryPrompt, validateSection } from "../lib/sectionRegistry";
 import OpenAI from "openai";
-import Anthropic from "@anthropic-ai/sdk";
 import { load as cheerioLoad } from "cheerio";
 
 const SIDECAR = "http://127.0.0.1:1106";
@@ -36,128 +35,28 @@ const CONTEXT_TURNS = 12;
 const MAX_INTERVIEW_TOKENS = 750;
 const MAX_PAYLOAD_TOKENS = 2200;
 
-type OpenAIProvider = {
-  client: OpenAI;
-  model: string;
-};
-
-function getOpenAIProviders(): OpenAIProvider[] {
-  const providers: OpenAIProvider[] = [];
-
-  if (process.env.OPENAI_API_KEY) {
-    providers.push({
-      client: new OpenAI({
-        apiKey: process.env.OPENAI_API_KEY,
-        baseURL: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
-        timeout: 60_000,
-      }),
-      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-    });
+function getOpenAIClient() {
+  if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || !process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
+    throw new Error("AI integration not configured.");
   }
-
-  if (process.env.AI_INTEGRATIONS_OPENAI_BASE_URL && process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
-    providers.push({
-      client: new OpenAI({
-        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-        timeout: 60_000,
-      }),
-      model: "gpt-4o-mini",
-    });
-  }
-
-  return providers;
+  return new OpenAI({
+    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+    timeout: 60_000,
+  });
 }
 
-// callAI: tries standard OpenAI first, then the Replit OpenAI integration,
-// then falls back to ANTHROPIC_API_KEY.
 async function callAI(
   messages: OpenAI.ChatCompletionMessageParam[],
   maxTokens: number,
 ): Promise<string> {
-  // Attempt 1: OpenAI-compatible providers
-  for (const provider of getOpenAIProviders()) {
-    try {
-      const response = await provider.client.chat.completions.create({
-        model: provider.model,
-        max_tokens: maxTokens,
-        messages,
-      });
-      const content = response.choices[0]?.message?.content ?? "";
-      if (content) return content;
-    } catch (_openaiErr) {
-      // Try the next provider, then Anthropic.
-    }
-  }
-
-  // Attempt 2: Anthropic SDK fallback
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  if (!anthropicKey) throw new Error("AI service not configured (no ANTHROPIC_API_KEY)");
-
-  const anthropic = new Anthropic({ apiKey: anthropicKey });
-  const systemParts = messages
-    .filter((m) => m.role === "system")
-    .map((m) => (typeof m.content === "string" ? m.content : ""))
-    .join("\n");
-  const userAssistantMsgs = messages
-    .filter((m) => m.role !== "system")
-    .map((m) => ({
-      role: m.role as "user" | "assistant",
-      content: typeof m.content === "string" ? m.content : "",
-    }));
-
-  // Anthropic requires at least one message; add a stub if all were system messages
-  const anthropicMessages: { role: "user" | "assistant"; content: string }[] =
-    userAssistantMsgs.length > 0
-      ? userAssistantMsgs
-      : [{ role: "user", content: systemParts || "Hello" }];
-
-  const msg = await anthropic.messages.create({
-    model: "claude-haiku-4-5",
-    max_tokens: Math.min(maxTokens, 8192),
-    ...(systemParts && userAssistantMsgs.length > 0 ? { system: systemParts } : {}),
-    messages: anthropicMessages,
+  const client = getOpenAIClient();
+  const response = await (client.chat.completions.create as (p: Record<string, unknown>) => Promise<OpenAI.ChatCompletion>)({
+    model: "gpt-5-mini",
+    max_completion_tokens: maxTokens,
+    messages,
   });
-
-  const textBlock = msg.content.find((b) => b.type === "text");
-  return textBlock?.type === "text" ? textBlock.text : "";
-}
-
-// Deterministic regex-based fallback for simple field-update prompts.
-// Used when all AI services are unavailable. Returns a partial site_config update
-// or null if the pattern is not recognised.
-function parseDirectEditFallback(changeRequest: string): Record<string, string> | null {
-  const lower = changeRequest.toLowerCase().trim();
-  // Match "change our X [back] to[:]  Y" or "set X to Y" or "update X to Y"
-  const m = changeRequest.match(
-    /(?:change (?:our\s+)?[\s\S]*?\s+(?:back\s+)?to\s*:?\s*|set [\s\S]*?\s+to\s*:?\s*|update [\s\S]*?\s+to\s*:?\s*)(.+)$/i,
-  );
-  if (!m) return null;
-  const newValue = m[1].trim();
-  if (!newValue) return null;
-
-  if (lower.includes("tagline"))                                          return { tagline: newValue };
-  if (lower.includes("mission"))                                          return { mission: newValue };
-  if (lower.includes("primary color") || lower.includes("primary colour")) {
-    const hex = newValue.match(/#[0-9a-fA-F]{3,6}/)?.[0];
-    return hex ? { primaryColor: hex } : null;
-  }
-  if (lower.includes("accent color") || lower.includes("accent colour")) {
-    const hex = newValue.match(/#[0-9a-fA-F]{3,6}/)?.[0];
-    return hex ? { accentColor: hex } : null;
-  }
-  if (lower.includes("contact email") || (lower.includes("email") && !lower.includes("newsletter"))) {
-    return { contactEmail: newValue };
-  }
-  if (lower.includes("contact phone") || lower.includes("phone number")) {
-    return { contactPhone: newValue };
-  }
-  if (lower.includes("meeting time"))                                     return { meetingTime: newValue };
-  if (lower.includes("meeting day"))                                      return { meetingDay: newValue };
-  if (lower.includes("meeting location"))                                 return { meetingLocation: newValue };
-  if (lower.includes("address"))                                          return { contactAddress: newValue };
-  if (lower.includes("footer"))                                           return { footerText: newValue };
-  return null;
+  return response.choices[0]?.message?.content ?? "";
 }
 
 // Wraps callAI with up to 2 automatic retries on thrown exception (transient API errors).
@@ -281,135 +180,6 @@ const ORG_TYPE_SUBTITLE_MAP: Record<string, string> = {
   "Other":                              "Community Organization",
 };
 
-const SITE_STYLE_OPTIONS = [
-  "Classic",
-  "Modern Civic",
-  "Heritage",
-  "Bold Event",
-  "Warm Community",
-] as const;
-
-type SiteStyle = (typeof SITE_STYLE_OPTIONS)[number];
-
-function normalizeSiteStyle(value: unknown, orgType: string): SiteStyle {
-  if (typeof value === "string") {
-    const match = SITE_STYLE_OPTIONS.find((option) => option === value.trim());
-    if (match) return match;
-  }
-  if (orgType === "Fraternal Organization" || orgType === "VFW / American Legion") return "Heritage";
-  if (orgType === "Rotary Club" || orgType === "Lions Club") return "Modern Civic";
-  if (orgType === "Chamber of Commerce") return "Classic";
-  if (orgType === "Main Street / Downtown Association") return "Warm Community";
-  return "Modern Civic";
-}
-
-function deriveHeroHeadline(
-  orgType: string,
-  orgName: string,
-  location: string,
-  tagline: string,
-): string {
-  const place = location || "your community";
-  if (orgType === "Fraternal Organization") return `${orgName} keeps tradition visible in ${place}`;
-  if (orgType === "Rotary Club" || orgType === "Lions Club") return `See how ${orgName} serves ${place}`;
-  if (orgType === "Chamber of Commerce") return `${orgName} helps local business move together`;
-  if (orgType === "Main Street / Downtown Association") return `${orgName} brings more life to ${place}`;
-  if (orgType === "Community Foundation") return `${orgName} turns local generosity into visible impact`;
-  if (orgType === "Arts Council") return `${orgName} puts arts and culture at the center of ${place}`;
-  if (orgType === "PTA / PTO") return `${orgName} keeps families informed and involved`;
-  if (orgType === "VFW / American Legion") return `${orgName} honors service and strengthens ${place}`;
-  if (/festival|fair|parade|market/i.test(tagline)) return `${orgName} makes it easy to join the next big day in ${place}`;
-  return `${orgName} is building momentum in ${place}`;
-}
-
-function deriveHeroSubheadline(
-  orgType: string,
-  tagline: string,
-  meeting: { meetingDay: string | null; meetingTime: string | null; meetingLocation: string | null },
-  annualEvents: string | null | undefined,
-  membersOrBusinesses: string | null | undefined,
-): string {
-  const scheduleBits = [meeting.meetingDay, meeting.meetingTime, meeting.meetingLocation]
-    .filter(Boolean)
-    .join(" • ");
-  if (scheduleBits) {
-    return `${tagline}${tagline ? " " : ""}${scheduleBits ? `Meet with us ${scheduleBits}.` : ""}`.trim();
-  }
-  if (orgType === "Chamber of Commerce" && membersOrBusinesses) {
-    return `${tagline} Supporting ${membersOrBusinesses} local businesses with stronger visibility, better connections, and a more active downtown presence.`;
-  }
-  if ((orgType === "Rotary Club" || orgType === "Lions Club") && annualEvents) {
-    return `${tagline} Join neighbors, volunteers, and partners behind ${annualEvents} moments of service, fundraising, and community connection each year.`;
-  }
-  return tagline || "Built around real community activity, clear next steps, and a stronger public presence.";
-}
-
-function deriveHomepageCtas(
-  orgType: string,
-  hasNewsletter: boolean,
-  hasEvents: boolean,
-): {
-  primaryLabel: string;
-  primaryHref: string;
-  secondaryLabel: string;
-  secondaryHref: string;
-} {
-  if (orgType === "Fraternal Organization") {
-    return {
-      primaryLabel: "Plan Your Visit",
-      primaryHref: "/contact",
-      secondaryLabel: hasEvents ? "View Lodge Events" : "Learn Our History",
-      secondaryHref: hasEvents ? "/events" : "/about",
-    };
-  }
-  if (orgType === "Chamber of Commerce") {
-    return {
-      primaryLabel: "Connect With Local Business",
-      primaryHref: "/contact",
-      secondaryLabel: hasEvents ? "See Networking Events" : "Meet the Chamber",
-      secondaryHref: hasEvents ? "/events" : "/about",
-    };
-  }
-  if (orgType === "Main Street / Downtown Association") {
-    return {
-      primaryLabel: hasEvents ? "See What's Happening Downtown" : "Get Involved Downtown",
-      primaryHref: hasEvents ? "/events" : "/contact",
-      secondaryLabel: hasNewsletter ? "Get Community Updates" : "Learn About the District",
-      secondaryHref: hasNewsletter ? "#newsletter" : "/about",
-    };
-  }
-  if (orgType === "Community Foundation") {
-    return {
-      primaryLabel: "Support the Mission",
-      primaryHref: "/contact",
-      secondaryLabel: "See Community Impact",
-      secondaryHref: "/about",
-    };
-  }
-  if (orgType === "VFW / American Legion") {
-    return {
-      primaryLabel: "Join the Next Gathering",
-      primaryHref: hasEvents ? "/events" : "/contact",
-      secondaryLabel: "Support Veterans",
-      secondaryHref: "/about",
-    };
-  }
-  if (hasEvents) {
-    return {
-      primaryLabel: "See Upcoming Events",
-      primaryHref: "/events",
-      secondaryLabel: "Get Involved",
-      secondaryHref: "/contact",
-    };
-  }
-  return {
-    primaryLabel: "Get Involved",
-    primaryHref: "/contact",
-    secondaryLabel: "Learn More",
-    secondaryHref: "/about",
-  };
-}
-
 function parseMeetingSchedule(text: string | null | undefined): {
   meetingDay: string | null;
   meetingTime: string | null;
@@ -474,38 +244,13 @@ function buildFallbackPayload(
   const meeting      = parseMeetingSchedule(answers.meetingSchedule as string | null);
   const contactEmail = (answers.contactEmail as string | null) ?? "";
   const eventsEmail  = (answers.eventsEmail  as string | null) ?? null;
-  const siteStyle    = normalizeSiteStyle(answers.siteStyle, orgType);
 
   const boolVal = (v: unknown) => v === true || v === "Yes";
-  const hasBlog = tier === "tier1a" ? true : tier === "tier2" || tier === "tier3" ? boolVal(answers.hasBlog) : false;
-  const hasNewsletter = tier === "tier1a" ? true : tier === "tier2" || tier === "tier3" ? boolVal(answers.hasNewsletter) : false;
-  const hasEvents = true;
-  const ctas = deriveHomepageCtas(orgType, hasNewsletter, hasEvents);
-  const heroHeadline = deriveHeroHeadline(orgType, orgName, location, tagline);
-  const heroSubheadline = deriveHeroSubheadline(
-    orgType,
-    tagline,
-    meeting,
-    answers.annualEvents as string | null | undefined,
-    answers.membersOrBusinesses as string | null | undefined,
-  );
 
   const siteContent: Record<string, string> = {
     home_tagline:          tagline,
     home_intro:            tagline,
-    home_headline:         heroHeadline,
-    home_subheadline:      heroSubheadline,
-    home_primary_cta_label: ctas.primaryLabel,
-    home_primary_cta_href:  ctas.primaryHref,
-    home_secondary_cta_label: ctas.secondaryLabel,
-    home_secondary_cta_href:  ctas.secondaryHref,
-    home_section_eyebrow:  homeSubtitle,
     home_subtitle:         homeSubtitle,
-    events_heading:        orgType === "Main Street / Downtown Association" ? "Downtown Events" : orgType === "Chamber of Commerce" ? "Business Events & Gatherings" : orgType === "Fraternal Organization" ? "Lodge Calendar" : "Upcoming Events",
-    events_intro:          location ? `See what is coming up in ${location}.` : "See what is coming up next.",
-    partners_heading:      orgType === "Chamber of Commerce" ? "Business & Civic Partners" : "Community Partners",
-    newsletter_heading:    orgType === "Community Foundation" ? "Get mission updates" : "Stay connected",
-    style_name:            siteStyle,
     contact_address:       (answers.contactAddress as string | null) ?? "",
     contact_phone:         (answers.contactPhone   as string | null) ?? "",
     contact_email:         contactEmail,
@@ -522,8 +267,8 @@ function buildFallbackPayload(
     siteContent.has_newsletter   = "true";
     siteContent.pillarWebhookUrl = "__PILLAR_WEBHOOK_URL__";
   } else if (tier === "tier2" || tier === "tier3") {
-    siteContent.has_blog         = String(hasBlog);
-    siteContent.has_newsletter   = String(hasNewsletter);
+    siteContent.has_blog         = String(boolVal(answers.hasBlog));
+    siteContent.has_newsletter   = String(boolVal(answers.hasNewsletter));
     siteContent.pillarWebhookUrl = "__PILLAR_WEBHOOK_URL__";
     siteContent.event_categories = (answers.eventCategories as string | null) ?? "Community, Fundraiser, Social";
   } else {
@@ -564,17 +309,6 @@ function buildFallbackPayload(
       { value: "100%", label: "Volunteer Run" },
     ],
     partners,
-    features: {
-      blog: hasBlog,
-      newsletter: hasNewsletter,
-      vendors: tier === "tier2" || tier === "tier3" ? boolVal(answers.hasVendors) : false,
-      sponsors: tier === "tier2" || tier === "tier3" ? boolVal(answers.hasSponsors) : false,
-      businessDirectory: businessFocused,
-      ticketedEvents: tier === "tier2" || tier === "tier3" ? boolVal(answers.hasTicketedEvents) : false,
-      members: !businessFocused,
-      siteStyle,
-    },
-    siteStyle,
     siteContent,
   };
 
@@ -943,7 +677,7 @@ router.get("/target", async (req: Request, res: Response) => {
   try {
     const row = await db.execute(sql`
       SELECT o.community_site_url, o.community_site_key, o.site_config,
-             c.org_id AS cs_org_id, c.hero_image_url
+             c.org_id AS cs_org_id, c.hero_image_url, c.features
       FROM organizations o
       LEFT JOIN cs_org_configs c ON c.org_id = o.slug OR c.org_id = o.id
       WHERE o.id = ${org.id}
@@ -951,6 +685,8 @@ router.get("/target", async (req: Request, res: Response) => {
     `);
     const r = row.rows[0] as Record<string, unknown> | undefined;
     const config = r?.site_config as Record<string, unknown> | null | undefined;
+    const configFeatures = config?.features as Record<string, unknown> | null | undefined;
+    const csFeatures = r?.features as Record<string, unknown> | null | undefined;
 
     // Return a lightweight summary for the management view
     const configSummary = config ? {
@@ -959,92 +695,26 @@ router.get("/target", async (req: Request, res: Response) => {
       primaryColor: (config.primaryColor as string | undefined) ?? null,
       accentColor:  (config.accentColor  as string | undefined) ?? null,
       tagline:      (config.tagline      as string | undefined) ?? null,
-      siteStyle:    (config.siteStyle as string | undefined)
-        ?? ((config.features as Record<string, unknown> | undefined)?.siteStyle as string | undefined)
-        ?? null,
     } : null;
 
     res.json({
       url:          (r?.community_site_url as string | null) ?? null,
+      slug:         org.slug ?? null,
+      localPreviewUrl: org.slug ? `/sites/${org.slug}` : null,
       hasKey:       !!(r?.community_site_key),
       tier:         (org as { tier?: string | null }).tier ?? null,
       isProvisioned: !!config || !!(r?.community_site_url) || !!(r?.cs_org_id),
       configSummary,
       heroImageUrl: (r?.hero_image_url as string | null) ?? null,
+      heroVisualType:
+        (csFeatures?.heroVisualType as string | undefined) ??
+        (configFeatures?.heroVisualType as string | undefined) ??
+        (config?.heroVisualType as string | undefined) ??
+        null,
     });
   } catch {
     res.json({ url: null, hasKey: false, tier: null, isProvisioned: false, configSummary: null });
   }
-});
-
-router.post("/style", async (req: Request, res: Response) => {
-  const org = await resolveFullOrg(req, res);
-  if (!org) return;
-
-  const requestedStyle = (req.body as { siteStyle?: unknown } | undefined)?.siteStyle;
-  const siteStyle = normalizeSiteStyle(requestedStyle, (org.type as string | null) ?? "Other");
-
-  const row = await db.execute(sql`
-    SELECT site_config, slug FROM organizations WHERE id = ${org.id} LIMIT 1
-  `);
-  const current = row.rows[0] as { site_config?: Record<string, unknown> | null; slug?: string | null } | undefined;
-  const currentConfig = (current?.site_config ?? {}) as Record<string, unknown>;
-  const currentFeatures =
-    currentConfig.features && typeof currentConfig.features === "object" && !Array.isArray(currentConfig.features)
-      ? (currentConfig.features as Record<string, unknown>)
-      : {};
-  const currentSiteContent =
-    currentConfig.siteContent && typeof currentConfig.siteContent === "object" && !Array.isArray(currentConfig.siteContent)
-      ? (currentConfig.siteContent as Record<string, unknown>)
-      : {};
-
-  const nextConfig = {
-    ...currentConfig,
-    siteStyle,
-    features: {
-      ...currentFeatures,
-      siteStyle,
-    },
-    siteContent: {
-      ...currentSiteContent,
-      style_name: siteStyle,
-    },
-  };
-
-  await db.execute(sql`
-    UPDATE organizations
-    SET site_config = ${JSON.stringify(nextConfig)}::jsonb
-    WHERE id = ${org.id}
-  `);
-
-  const orgSlug = current?.slug ?? (org as { slug?: string | null }).slug;
-  if (orgSlug) {
-    const cpBaseUrl = process.env.COMMUNITY_PLATFORM_URL || "http://localhost:5001";
-    const cpKey = process.env.PILLAR_SERVICE_KEY;
-    if (cpKey) {
-      try {
-        await fetch(`${cpBaseUrl.replace(/\/$/, "")}/api/internal/org-config`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            "x-pillar-service-key": cpKey,
-          },
-          body: JSON.stringify({
-            orgId: orgSlug,
-            features: {
-              ...currentFeatures,
-              siteStyle,
-            },
-          }),
-          signal: AbortSignal.timeout(15_000),
-        });
-      } catch (err) {
-        console.warn("[community-site/style] community-platform patch failed", err);
-      }
-    }
-  }
-
-  res.json({ ok: true, siteStyle });
 });
 
 // ── PUT /api/community-site/target ──────────────────────────────────────────
@@ -1145,28 +815,10 @@ Return only the JSON object, no markdown, no explanation.`;
     req.setTimeout(90_000);
     res.setTimeout(90_000);
 
-    let aiRaw: string;
-    try {
-      aiRaw = await Promise.race<string>([
-        callAI([{ role: "user", content: prompt }], 1800),
-        new Promise<string>((_, reject) => setTimeout(() => reject(new Error("timeout")), 45_000)),
-      ]);
-    } catch (_aiErr) {
-      // Both AI services unavailable — try deterministic regex-based fallback
-      const fallbackFields = parseDirectEditFallback(changeRequest);
-      if (fallbackFields !== null) {
-        const updatedPayload: Record<string, unknown> = { ...(currentConfig as Record<string, unknown>) };
-        for (const [k, v] of Object.entries(fallbackFields)) {
-          updatedPayload[k] = v;
-        }
-        await db.update(organizationsTable)
-          .set({ aiMessagesUsed: sql`${organizationsTable.aiMessagesUsed} + 1` })
-          .where(eq(organizationsTable.id, org.id));
-        res.json({ ok: true, payload: updatedPayload });
-        return;
-      }
-      throw _aiErr;
-    }
+    const aiRaw = await Promise.race<string>([
+      callAI([{ role: "user", content: prompt }], 1800),
+      new Promise<string>((_, reject) => setTimeout(() => reject(new Error("timeout")), 45_000)),
+    ]);
 
     const jsonStart = aiRaw.indexOf("{");
     const jsonEnd   = aiRaw.lastIndexOf("}");

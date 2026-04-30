@@ -1,5 +1,7 @@
 import { pillarRequest } from "./pillarSync.js";
 
+const HERO_DEBUG = process.env.PILLAR_DEBUG_HERO === "1";
+
 export type OrgConfigPatch = {
   orgId: string;
   orgName?: string;
@@ -20,6 +22,20 @@ export type OrgConfigPatch = {
 };
 
 export async function syncOrgConfigPatchToPillar(payload: OrgConfigPatch) {
-  console.log(`[pillar-sync] org-config patch org=${payload.orgId}`);
+  if (HERO_DEBUG) {
+    console.log("[hero-debug][api-server] pillar sync payload", {
+      orgId: payload.orgId,
+      heroImageUrl: payload.heroImageUrl,
+      heroLayout:
+        payload.features && typeof payload.features === "object"
+          ? (payload.features as Record<string, unknown>).heroLayout
+          : undefined,
+      heroVisualType:
+        payload.features && typeof payload.features === "object"
+          ? (payload.features as Record<string, unknown>).heroVisualType
+          : undefined,
+      features: payload.features,
+    });
+  }
   return pillarRequest("/api/internal/org-config", "PATCH", payload);
 }

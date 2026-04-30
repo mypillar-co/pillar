@@ -6,20 +6,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-{import.meta.env.DEV && (
-  <div className="mb-4">
-    <button
-      onClick={() => {
-        window.location.href = "http://localhost:8080/api/auth/dev-login?email=andrewpaluch01@gmail.com";
-      }}
-      className="w-full rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold py-3"
-    >
-      DEV LOGIN AS ANDREW
-    </button>
-  </div>
-)}
+const DEV_LOGIN_EMAIL =
+  (import.meta.env.VITE_DEV_LOGIN_EMAIL as string | undefined) ??
+  "andrewpaluch01@gmail.com";
 
+function isLocalDashboardHost(): boolean {
+  if (typeof window === "undefined") return false;
+  return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+}
 
+function apiBase(): string {
+  if (isLocalDashboardHost()) {
+    return `${window.location.protocol}//${window.location.hostname}:8080`;
+  }
+  return BASE;
+}
 
 function GoogleIcon() {
   return (
@@ -100,11 +101,14 @@ export default function Login() {
   };
 
   const devLogin = () => {
-  window.location.href =
-    "http://localhost:8080/api/auth/dev-login?email=andrewpaluch01@gmail.com&returnTo=http://localhost:5173/dashboard/site";
-};
+    const email = form.email.trim() || DEV_LOGIN_EMAIL;
+    const redirect = new URL("/dashboard", window.location.origin).toString();
+    const params = new URLSearchParams({ email, redirect });
+    window.location.href = `${apiBase()}/api/auth/dev-login?${params.toString()}`;
+  };
 
   const hasSocialProviders = providers.google || providers.apple;
+  const showDevLogin = import.meta.env.DEV || isLocalDashboardHost();
 
   return (
     <div className="min-h-screen bg-[hsl(224,40%,8%)] flex flex-col">
@@ -159,6 +163,7 @@ export default function Login() {
             )}
 
             <form onSubmit={submit} className="space-y-4">
+              {/* Bot honeypot — hidden from humans, filled by bots */}
               <div aria-hidden="true" style={{ position: "absolute", left: "-9999px", width: "1px", height: "1px", overflow: "hidden", opacity: 0 }}>
                 <label htmlFor="website">Website</label>
                 <input id="website" name="website" type="text" tabIndex={-1} autoComplete="off" value={honeypot} onChange={e => setHoneypot(e.target.value)} />
@@ -213,15 +218,6 @@ export default function Login() {
               </div>
 
               <Button
-                type="button"
-                variant="outline"
-                className="w-full border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 font-medium"
-                onClick={devLogin}
-              >
-                DEV LOGIN (Andrew)
-              </Button>
-
-              <Button
                 type="submit"
                 className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium"
                 disabled={loading}
@@ -230,6 +226,16 @@ export default function Login() {
                 Sign in
               </Button>
             </form>
+
+            {showDevLogin && (
+              <Button
+                type="button"
+                onClick={devLogin}
+                className="w-full bg-green-600 hover:bg-green-500 text-white font-medium"
+              >
+                Dev login
+              </Button>
+            )}
 
             <p className="text-center text-sm text-slate-500">
               Don't have an account?{" "}
