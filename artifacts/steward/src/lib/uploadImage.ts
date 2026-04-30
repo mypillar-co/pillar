@@ -7,13 +7,28 @@ export async function uploadImage(file: File): Promise<string> {
   const csrfToken = getCsrfToken();
   const csrfHeader: Record<string, string> = csrfToken ? { "x-csrf-token": csrfToken } : {};
 
+  async function uploadInline(): Promise<string> {
+    const directRes = await fetch("/api/storage/uploads/data-url", {
+      method: "POST",
+      headers: { "Content-Type": file.type, ...csrfHeader },
+      credentials: "include",
+      body: file,
+    });
+    if (!directRes.ok) {
+      const data = await directRes.json().catch(() => null) as { error?: string } | null;
+      throw new Error(data?.error ?? "Failed to upload image");
+    }
+    const { objectPath } = await directRes.json() as { objectPath: string };
+    return objectPath;
+  }
+
   const metaRes = await fetch("/api/storage/uploads/request-url", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...csrfHeader },
     credentials: "include",
     body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
   });
-  if (!metaRes.ok) throw new Error("Failed to get upload URL");
+  if (!metaRes.ok) return uploadInline();
   const { uploadURL, objectPath } = await metaRes.json() as { uploadURL: string; objectPath: string };
 
   const uploadRes = await fetch(uploadURL, {
@@ -27,7 +42,7 @@ export async function uploadImage(file: File): Promise<string> {
     method: "POST",
     headers: { "Content-Type": "application/json", ...csrfHeader },
     credentials: "include",
-    body: JSON.stringify({ size: file.size }),
+    body: JSON.stringify({ objectPath, size: file.size }),
   }).catch(() => {});
 
   return `/api/storage${objectPath}`;

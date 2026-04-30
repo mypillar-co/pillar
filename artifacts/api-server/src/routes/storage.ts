@@ -1,4 +1,4 @@
-import { Router, type IRouter, type Request, type Response } from "express";
+import express, { Router, type IRouter, type Request, type Response } from "express";
 import { Readable } from "stream";
 import { z } from "zod";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
@@ -108,6 +108,80 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
     res.status(500).json({ error: "Failed to generate upload URL" });
   }
 });
+
+// ─── Local/Replit fallback upload ─────────────────────────────────────────────
+// When Replit Object Storage is not configured, dashboard image flows still need
+// to work. Store a data URL directly in app data so galleries/sponsor logos can
+// render immediately and persist with the DB record that references them.
+router.post(
+  "/storage/uploads/data-url",
+  express.raw({ type: "image/*", limit: "10mb" }),
+  async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const contentType = (req.headers["content-type"] ?? "").toString();
+    if (!contentType.startsWith("image/")) {
+      res.status(400).json({ error: "Only image uploads are supported" });
+      return;
+    }
+
+    const body = req.body;
+    if (!Buffer.isBuffer(body) || body.length === 0) {
+      res.status(400).json({ error: "Image body is required" });
+      return;
+    }
+
+    const orgId = await getOrgIdForUser(req.user!.id);
+    if (!orgId) {
+      res.status(404).json({ error: "Organization not found" });
+      return;
+    }
+
+    const [org] = await db
+      .select({
+        id: organizationsTable.id,
+        tier: organizationsTable.tier,
+        storageUsedBytes: organizationsTable.storageUsedBytes,
+      })
+      .from(organizationsTable)
+      .where(eq(organizationsTable.id, orgId));
+
+    if (!org) {
+      res.status(404).json({ error: "Organization not found" });
+      return;
+    }
+
+    const limit = storageLimitForTier(org.tier);
+    const used = org.storageUsedBytes ?? 0;
+    if (used + body.length > limit) {
+      res.status(413).json({
+        error: `Storage limit reached. Your plan includes ${formatBytes(limit)} and you have used ${formatBytes(used)}. Please upgrade your plan or remove unused files.`,
+        storageUsed: used,
+        storageLimit: limit,
+      });
+      return;
+    }
+
+    await db
+      .update(organizationsTable)
+      .set({ storageUsedBytes: sql`${organizationsTable.storageUsedBytes} + ${body.length}` })
+      .where(eq(organizationsTable.id, orgId));
+
+    const objectPath = `data:${contentType};base64,${body.toString("base64")}`;
+    res.json({
+      uploadURL: null,
+      objectPath,
+      metadata: {
+        name: "inline-image",
+        size: body.length,
+        contentType,
+      },
+    });
+  },
+);
 
 // ─── Confirm successful upload and increment quota ─────────────────────────────
 router.post("/storage/uploads/confirm", async (req: Request, res: Response) => {

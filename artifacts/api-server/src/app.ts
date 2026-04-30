@@ -283,7 +283,8 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
     const ct = (req.headers["content-type"] ?? "").toLowerCase();
     if (
       !ct.startsWith("multipart/") &&
-      !ct.startsWith("application/octet-stream")
+      !ct.startsWith("application/octet-stream") &&
+      !ct.startsWith("image/")
     ) {
       req.body = {};
     }

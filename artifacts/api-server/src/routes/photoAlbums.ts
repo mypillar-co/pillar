@@ -143,8 +143,8 @@ router.post("/:albumId/photos", async (req: Request, res: Response) => {
 
   // Mirror to community-platform tables so uploaded photos appear on the public site.
   void (async () => {
-    const csAlbumId = await ensurePillarAlbum(orgId, album.title, album.description ?? null);
-    if (csAlbumId) await mirrorPhotosToPillar(orgId, csAlbumId, photos);
+    const mirror = await ensurePillarAlbum(orgId, album.title, album.description ?? null);
+    if (mirror) await mirrorPhotosToPillar(mirror.orgSlug, mirror.csAlbumId, photos);
   })();
 
   scheduleSiteAutoUpdate(orgId).catch(() => {});
