@@ -312,8 +312,11 @@ async function startServer() {
     const indexHtmlPath = path.join(staticPath, "index.html");
 
     // Serve static assets (JS/CSS/images) — Vite builds them at /assets/...
-    // The API server strips /sites/{slug} before proxying, so these arrive as /assets/...
-    app.use(express.static(staticPath));
+    // In production the public site can be reached either directly at /assets/*
+    // or through tenant-prefixed paths like /sites/{slug}/assets/* depending on
+    // the edge/proxy path. Both must return the real asset, not index.html.
+    app.use("/sites/:slug", express.static(staticPath, { index: false }));
+    app.use(express.static(staticPath, { index: false }));
 
     // Catch-all: serve index.html for all SPA routes
     app.get("*", (req, res) => {

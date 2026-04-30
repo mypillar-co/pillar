@@ -82566,7 +82566,8 @@ async function startServer() {
   if (process.env.NODE_ENV === "production") {
     const staticPath = path.join(__dirname, "../public");
     const indexHtmlPath = path.join(staticPath, "index.html");
-    app.use(import_express4.default.static(staticPath));
+    app.use("/sites/:slug", import_express4.default.static(staticPath, { index: false }));
+    app.use(import_express4.default.static(staticPath, { index: false }));
     app.get("*", (req, res) => {
       try {
         if (path.extname(req.path)) {

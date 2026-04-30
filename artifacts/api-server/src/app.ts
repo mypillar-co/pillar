@@ -557,6 +557,18 @@ app.use(async (req, res, next) => {
     orgSlug = pathBasedMatch[1];
     subPath = pathBasedMatch[2] || "/";
     isPathBased = true;
+
+    // Some edge/proxy paths arrive already prefixed for the tenant and then
+    // request tenant-prefixed assets from the browser, producing paths like
+    // /sites/acme/sites/acme/assets/app.js. Normalize that back to the real
+    // upstream community-platform path before proxying.
+    const repeatedSitePrefix = `/sites/${orgSlug}`;
+    if (
+      subPath === repeatedSitePrefix ||
+      subPath.startsWith(`${repeatedSitePrefix}/`)
+    ) {
+      subPath = subPath.slice(repeatedSitePrefix.length) || "/";
+    }
   } else {
     // ── Pattern 2: Host-based routing (<slug>.mypillar.co or custom domain) ─
     // Skip plain /api/* paths that aren't under a tenant slug
