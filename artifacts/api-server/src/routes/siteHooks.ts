@@ -32,19 +32,14 @@ import {
 import { eq, and, sql } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import OpenAI from "openai";
+import { createOpenAIClient } from "../lib/openaiClient";
 
 const router = Router();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getOpenAIClient() {
-  if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || !process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
-    throw new Error("AI integration not configured");
-  }
-  return new OpenAI({
-    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  });
+  return createOpenAIClient();
 }
 
 function tierAllowsSocial(tier: string | null | undefined): boolean {

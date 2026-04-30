@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { resolveFullOrg } from "../lib/resolveOrg";
@@ -15,6 +15,7 @@ import {
   type MembersPortalConfig,
   type PortalSection,
 } from "../lib/membersPortalDefaults";
+import { AI_UNAVAILABLE_MESSAGE, createOpenAIClient } from "../lib/openaiClient";
 
 const router = Router();
 
@@ -131,20 +132,21 @@ router.patch("/", async (req: Request, res: Response) => {
   res.json({ sections: portal.sections, provisionedAt: portal.provisionedAt });
 });
 
-// POST /api/members-portal/ai-suggest — ask Claude for additional sections
+// POST /api/members-portal/ai-suggest — ask AI for additional sections
 router.post("/ai-suggest", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return res.status(503).json({ error: "AI suggestions unavailable (ANTHROPIC_API_KEY not set)" });
-  }
   const row = await loadOrgRow(org.id);
   if (!row) return res.status(404).json({ error: "Org not found" });
   const current = getCurrentPortal(row);
   const currentTypes = new Set(current.sections.map((s) => s.type));
 
-  const client = new Anthropic({ apiKey });
+  let client: OpenAI;
+  try {
+    client = createOpenAIClient();
+  } catch {
+    return res.status(503).json({ error: AI_UNAVAILABLE_MESSAGE });
+  }
   const registryPrompt = getPortalSectionRegistryPrompt();
 
   const userPrompt = `Organization: ${row.name ?? "Unknown"} (type: ${row.type ?? "unknown"}).
@@ -162,14 +164,15 @@ Return ONLY a JSON object of the form:
 No commentary, no markdown fences.`;
 
   try {
-    const message = await client.messages.create({
-      model: "claude-3-5-sonnet-latest",
+    const message = await client.chat.completions.create({
+      model: "gpt-4o-mini",
       max_tokens: 1500,
-      system: registryPrompt,
-      messages: [{ role: "user", content: userPrompt }],
+      messages: [
+        { role: "system", content: registryPrompt },
+        { role: "user", content: userPrompt },
+      ],
     });
-    const textBlock = message.content.find((c) => c.type === "text");
-    const raw = textBlock && "text" in textBlock ? textBlock.text : "";
+    const raw = message.choices[0]?.message?.content ?? "";
     const jsonStart = raw.indexOf("{");
     const jsonEnd = raw.lastIndexOf("}");
     if (jsonStart < 0 || jsonEnd < jsonStart) {
@@ -189,7 +192,7 @@ No commentary, no markdown fences.`;
     res.json({ suggestions });
   } catch (err: any) {
     logger.warn({ err, orgId: row.id }, "[members-portal] AI suggest failed");
-    res.status(502).json({ error: err?.message ?? "AI suggestion failed" });
+    res.status(502).json({ error: AI_UNAVAILABLE_MESSAGE });
   }
 });
 

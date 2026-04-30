@@ -1,8 +1,9 @@
 import { Router, type Request, type Response } from "express";
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { db, supportTicketsTable, organizationsTable, usersTable } from "@workspace/db";
 import { eq, desc, and, isNotNull, asc } from "drizzle-orm";
 import { getFullOrgForUser } from "../lib/resolveOrg";
+import { AI_UNAVAILABLE_MESSAGE, createOpenAIClient } from "../lib/openaiClient";
 
 const router = Router();
 
@@ -57,13 +58,13 @@ router.post("/chat", async (req: Request, res: Response) => {
     return;
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    res.status(500).json({ error: "AI support is not configured" });
+  let openai: OpenAI;
+  try {
+    openai = createOpenAIClient();
+  } catch {
+    res.status(503).json({ error: AI_UNAVAILABLE_MESSAGE });
     return;
   }
-
-  const anthropic = new Anthropic({ apiKey });
 
   const chatMessages: { role: "user" | "assistant"; content: string }[] = [
     ...(history ?? []).slice(-6),
@@ -71,19 +72,19 @@ router.post("/chat", async (req: Request, res: Response) => {
   ];
 
   try {
-    const response = await anthropic.messages.create({
-      model: "claude-haiku-4-5",
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
       max_tokens: 512,
-      system: PILLAR_SYSTEM_PROMPT,
-      messages: chatMessages,
+      messages: [
+        { role: "system", content: PILLAR_SYSTEM_PROMPT },
+        ...chatMessages,
+      ],
     });
 
-    const block = response.content[0];
-    const reply = block.type === "text" ? block.text : "Sorry, I couldn't process that.";
+    const reply = response.choices[0]?.message?.content ?? "Sorry, I couldn't process that.";
     res.json({ reply });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: `AI error: ${msg}` });
+    res.status(500).json({ error: AI_UNAVAILABLE_MESSAGE });
   }
 });
 

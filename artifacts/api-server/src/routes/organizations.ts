@@ -37,6 +37,7 @@ import { syncOrgConfigPatchToPillar } from "../lib/pillarOrgSync.js";
 import { randomUUID } from "crypto";
 import OpenAI from "openai";
 import { objectStorageClient, ObjectStorageService } from "../lib/objectStorage.js";
+import { AI_UNAVAILABLE_MESSAGE, createOpenAIClient } from "../lib/openaiClient";
 
 const objectStorageService = new ObjectStorageService();
 
@@ -850,13 +851,7 @@ router.get("/organizations/hero-image/suggest", async (req: Request, res: Respon
   if (!org) { res.status(404).json({ error: "Organization not found" }); return; }
 
   try {
-    if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY || !process.env.AI_INTEGRATIONS_OPENAI_BASE_URL) {
-      throw new Error("AI service not configured");
-    }
-    const openai = new OpenAI({
-      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-    });
+    const openai = createOpenAIClient();
 
     // Library photos are hardcoded, curated Unsplash CDN URLs — no runtime
     // verification needed. Outbound HEAD checks were unreliable in this
@@ -900,7 +895,7 @@ router.get("/organizations/hero-image/suggest", async (req: Request, res: Respon
     res.json({ query: `${org.type || "community"} background`, photos });
   } catch (err) {
     console.error("Hero image suggest error:", err);
-    res.status(500).json({ error: "Failed to generate image suggestions" });
+    res.status(500).json({ error: AI_UNAVAILABLE_MESSAGE });
   }
 });
 

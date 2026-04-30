@@ -17,7 +17,7 @@ export default function Navigation() {
     { href: "/gallery", label: "Gallery" },
     ...(config.features?.blog ? [{ href: "/blog", label: "News" }] : []),
     ...(config.features?.businessDirectory ? [{ href: "/businesses", label: "Directory" }] : []),
-    ...(config.features?.members && (config.memberCount ?? 0) > 0 ? [{ href: "/members", label: "Members" }] : []),
+    ...((config.memberCount ?? 0) > 0 ? [{ href: "/members", label: "Members" }] : []),
   ];
 
   const shortName = config.shortName || config.orgName.split(" ").map(w => w[0]).join("").slice(0, 3);

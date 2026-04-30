@@ -3,6 +3,7 @@ import { db, organizationsTable, sitesTable, siteUpdateSchedulesTable, websiteSp
 import { eq, sql, and, asc } from "drizzle-orm";
 import { resolveFullOrg } from "../lib/resolveOrg";
 import OpenAI from "openai";
+import { AI_UNAVAILABLE_MESSAGE, createOpenAIClient } from "../lib/openaiClient";
 import { buildSiteFromTemplate, SITE_SCRIPT_BLOCK, type SiteContent } from "../siteTemplate";
 import { sanitizeAiSiteHtml } from "../lib/sanitizeHtml";
 import {
@@ -123,13 +124,7 @@ function tierAllowsSchedule(tier: string | null | undefined): boolean {
 }
 
 function getOpenAIClient() {
-  if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || !process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
-    throw new Error("Replit AI integration not configured. Run setupReplitAIIntegrations.");
-  }
-  return new OpenAI({
-    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  });
+  return createOpenAIClient();
 }
 
 function isNewMonth(resetAt: Date): boolean {
@@ -297,7 +292,7 @@ Keep every response under 65 words. Stay conversational. Never suggest edits —
 
     res.json({ reply, used: newUsed, limit: monthlyLimit, remaining: monthlyLimit - newUsed });
   } catch {
-    res.status(500).json({ error: "AI service unavailable. Please try again." });
+    res.status(500).json({ error: AI_UNAVAILABLE_MESSAGE });
   }
 });
 

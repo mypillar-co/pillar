@@ -89,19 +89,23 @@ export async function ensureMembersFeatureEnabled(orgId: string): Promise<Featur
   // result so route handlers can surface failures explicitly. Defense-in-depth:
   // every WHERE clause filters by the orgId argument, never by client input.
   try {
+    const orgRow = await db.execute(sql`
+      SELECT slug FROM organizations WHERE id = ${orgId} LIMIT 1
+    `);
+    const cpOrgId = ((orgRow.rows[0] as { slug?: string | null } | undefined)?.slug ?? orgId);
     const row = await db.execute(sql`
-      SELECT features FROM cs_org_configs WHERE org_id = ${orgId} LIMIT 1
+      SELECT features FROM cs_org_configs WHERE org_id = ${cpOrgId} LIMIT 1
     `);
     const current = (row.rows[0]?.features ?? {}) as Record<string, unknown>;
     if (current.members === true) return { ok: true, alreadyEnabled: true };
 
     await syncOrgConfigPatchToPillar({
-      orgId,
+      orgId: cpOrgId,
       // syncOrgConfigPatchToPillar's typed payload doesn't include features by name,
       // but the underlying CP /api/internal/org-config patch handler does a Partial spread.
       ...(({ features: { ...current, members: true } } as unknown) as Record<string, never>),
     });
-    logger.info({ orgId }, "[members] enabled members feature on community site");
+    logger.info({ orgId, cpOrgId }, "[members] enabled members feature on community site");
     return { ok: true };
   } catch (err) {
     logger.warn({ err, orgId }, "[members] could not enable members feature on CP — site may not be provisioned yet");

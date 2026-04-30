@@ -104,7 +104,15 @@ async function main() {
   envCheck("INFRASTRUCTURE", "Stripe configured", "STRIPE_SECRET_KEY", true);
   envCheck("INFRASTRUCTURE", "Service key configured", "SERVICE_API_KEY", true);
   envCheck("INFRASTRUCTURE", "Pillar service key configured", "PILLAR_SERVICE_KEY", true);
-  envCheck("INFRASTRUCTURE", "OpenAI configured", "AI_INTEGRATIONS_OPENAI_API_KEY", false);
+  if (
+    process.env.OPENAI_API_KEY ||
+    process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
+    process.env.AI_INTEGRATIONS_OPENAI_KEY
+  ) {
+    add("INFRASTRUCTURE", "OpenAI configured", "GO", "OpenAI API key present");
+  } else {
+    add("INFRASTRUCTURE", "OpenAI configured", "WARN", "OPENAI_API_KEY not set");
+  }
 
   // ── ORGANIZATIONS ──
   try {
@@ -252,7 +260,7 @@ async function main() {
 
   // ── CONTENT AND AI ──
   {
-    const aiBase = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL ?? "https://api.openai.com";
+    const aiBase = process.env.OPENAI_BASE_URL ?? process.env.AI_INTEGRATIONS_OPENAI_BASE_URL ?? "https://api.openai.com";
     try {
       const u = new URL(aiBase);
       const req = await new Promise<{ status: number; error?: string }>((resolve) => {

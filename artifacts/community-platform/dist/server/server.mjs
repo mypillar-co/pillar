@@ -81981,7 +81981,20 @@ function registerRoutes(app2) {
       }
       const cfg = await getOrgConfig(orgId);
       const features = cfg?.features ?? {};
-      const portal = features.membersPortal ?? { sections: [] };
+      let portal = features.membersPortal ?? { sections: [] };
+      if (!Array.isArray(portal.sections) || portal.sections.length === 0) {
+        const orgIds = await getOrgIdCandidates(req);
+        const fallback = await db.execute(neonSql`
+          SELECT site_config -> 'membersPortal' AS portal
+          FROM organizations
+          WHERE id = ANY(${orgIds}) OR slug = ANY(${orgIds})
+          LIMIT 1
+        `);
+        const fallbackPortal = fallback.rows[0]?.portal;
+        if (fallbackPortal && Array.isArray(fallbackPortal.sections)) {
+          portal = fallbackPortal;
+        }
+      }
       const sections = Array.isArray(portal.sections) ? portal.sections : [];
       res.json({
         sections,

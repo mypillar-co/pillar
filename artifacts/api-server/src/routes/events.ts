@@ -16,6 +16,7 @@ import OpenAI from "openai";
 import { refreshSiteEventsSection } from "./sites";
 import { resolveFullOrg, getFullOrgForUser } from "../lib/resolveOrg";
 import { scheduleSiteAutoUpdate } from "../lib/scheduleSiteAutoUpdate";
+import { createOpenAIClient } from "../lib/openaiClient";
 import {
   syncCreateEventToPillar,
   syncUpdateEventToPillar,
@@ -25,13 +26,7 @@ import {
 const router = Router();
 
 function getOpenAIClient() {
-  if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || !process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
-    throw new Error("Replit AI integration not configured.");
-  }
-  return new OpenAI({
-    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  });
+  return createOpenAIClient();
 }
 
 function tierAllowsEvents(tier: string | null | undefined): boolean {

@@ -56,7 +56,7 @@ import {
 import { ensureMembersPortalProvisioned } from "../lib/membersPortalProvision";
 import { SECTION_REGISTRY, validateSection } from "../lib/sectionRegistry";
 import { sendOrgEmail } from "../mailer";
-import Anthropic from "@anthropic-ai/sdk";
+import { createOpenAIClient } from "../lib/openaiClient";
 
 // Canonical site_config keys that update_site_config / get_site_config
 // are allowed to read and write. These match the top-level fields produced
@@ -92,10 +92,11 @@ const router = Router();
 // ─── OpenAI client ─────────────────────────────────────────────────────────
 
 function getOpenAIClient(): OpenAI | null {
-  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
-  const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
-  if (!apiKey || !baseURL) return null;
-  return new OpenAI({ apiKey, baseURL });
+  try {
+    return createOpenAIClient();
+  } catch {
+    return null;
+  }
 }
 
 // ─── Slug helpers ───────────────────────────────────────────────────────────
@@ -3011,38 +3012,7 @@ Always end with the site URL and events URL.`;
     }
   }
   } catch (_openaiErr) {
-    logger.warn({ err: _openaiErr }, "OpenAI chat failed; falling back to Anthropic");
-  }
-
-  // Anthropic fallback — used when Replit OpenAI integration returns 401 or is unavailable
-  try {
-    const anthropicKey = process.env.ANTHROPIC_API_KEY;
-    if (anthropicKey) {
-      const anthropic = new Anthropic({ apiKey: anthropicKey });
-      const systemContent =
-        (messages.find((m) => m.role === "system")?.content as string | undefined) ?? "";
-      const userAssistantMsgs = messages
-        .filter((m) => m.role === "user" || m.role === "assistant")
-        .map((m) => ({
-          role: m.role as "user" | "assistant",
-          content: typeof m.content === "string" ? m.content : "",
-        }));
-      if (userAssistantMsgs.length === 0) userAssistantMsgs.push({ role: "user", content: message });
-      const anthropicResp = await anthropic.messages.create({
-        model: "claude-3-5-haiku-latest",
-        max_tokens: 1024,
-        ...(systemContent ? { system: systemContent } : {}),
-        messages: userAssistantMsgs,
-      });
-      const tb = anthropicResp.content.find((b) => b.type === "text");
-      const reply = tb?.type === "text" ? tb.text : "";
-      if (reply) {
-        res.json({ reply });
-        return;
-      }
-    }
-  } catch (_anthropicErr) {
-    logger.warn({ err: _anthropicErr }, "Anthropic management fallback also failed");
+    logger.warn({ err: _openaiErr }, "OpenAI management chat failed; using deterministic fallback");
   }
 
   // Final fallback: deterministic DB-backed responses when all AI is unavailable

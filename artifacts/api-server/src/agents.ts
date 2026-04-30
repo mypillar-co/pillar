@@ -24,9 +24,9 @@ import {
 import {
   eq, and, gte, lte, lt, isNull, isNotNull, sql, ne, desc,
 } from "drizzle-orm";
-import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { logger } from "./lib/logger";
+import { createOpenAIClient } from "./lib/openaiClient";
 import {
   sendWelcomeEmail,
   sendWebsiteNudge,
@@ -42,19 +42,8 @@ import {
 const FOUNDER_EMAIL = process.env.FOUNDER_EMAIL ?? "steward.ai.app@gmail.com";
 const DAILY_OUTREACH_LIMIT = 40;
 
-// ─── AI clients ───────────────────────────────────────────────────────────────
-
-function getAnthropicClient(): Anthropic {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
-  return new Anthropic({ apiKey });
-}
-
 function getOpenAIClient(): OpenAI {
-  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
-  const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
-  if (!apiKey || !baseURL) throw new Error("OpenAI AI integration not configured");
-  return new OpenAI({ apiKey, baseURL });
+  return createOpenAIClient();
 }
 
 // ─── Logging helper ───────────────────────────────────────────────────────────
@@ -243,17 +232,20 @@ export async function runCustomerSuccessAgent() {
     .limit(5);
 
   if (openTickets.length > 0) {
-    let claude: Anthropic;
-    try { claude = getAnthropicClient(); } catch { claude = null as unknown as Anthropic; }
+    let openai: OpenAI | null = null;
+    try { openai = getOpenAIClient(); } catch { openai = null; }
 
     for (const ticket of openTickets) {
-      if (!claude || await alreadyDid("customerSuccess", "support_response", ticket.id)) continue;
+      if (!openai || await alreadyDid("customerSuccess", "support_response", ticket.id)) continue;
 
       try {
-        const message = await claude.messages.create({
-          model: "claude-haiku-4-5",
+        const message = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
           max_tokens: 600,
-          system: `You are a helpful support agent for Pillar — a SaaS platform that helps civic organizations (HOAs, Masonic lodges, VFW posts, Rotary clubs, nonprofits, PTAs) manage their website, events, social media, board approvals, and contacts automatically.
+          messages: [
+            {
+              role: "system",
+              content: `You are a helpful support agent for Pillar — a SaaS platform that helps civic organizations (HOAs, Masonic lodges, VFW posts, Rotary clubs, nonprofits, PTAs) manage their website, events, social media, board approvals, and contacts automatically.
 
 Your job is to write a short, genuine, helpful email response to a support ticket. 
 Rules:
@@ -264,13 +256,15 @@ Rules:
 - Keep it under 150 words
 - Do NOT include a greeting (we add that separately) or sign-off
 - Return only the body text, no subject line`,
-          messages: [{
-            role: "user",
-            content: `Support ticket subject: "${ticket.subject}"\n\nTicket description:\n${ticket.description}`,
-          }],
+            },
+            {
+              role: "user",
+              content: `Support ticket subject: "${ticket.subject}"\n\nTicket description:\n${ticket.description}`,
+            },
+          ],
         });
 
-        const responseText = message.content[0]?.type === "text" ? message.content[0].text : "";
+        const responseText = message.choices[0]?.message?.content?.trim() ?? "";
         if (!responseText) continue;
 
         await db.update(supportTicketsTable)

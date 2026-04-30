@@ -5,6 +5,7 @@ import { resolveFullOrg } from "../lib/resolveOrg";
 import { getSectionRegistryPrompt, validateSection } from "../lib/sectionRegistry";
 import OpenAI from "openai";
 import { load as cheerioLoad } from "cheerio";
+import { AI_UNAVAILABLE_MESSAGE, createOpenAIClient } from "../lib/openaiClient";
 
 const SIDECAR = "http://127.0.0.1:1106";
 
@@ -36,14 +37,7 @@ const MAX_INTERVIEW_TOKENS = 750;
 const MAX_PAYLOAD_TOKENS = 2200;
 
 function getOpenAIClient() {
-  if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || !process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
-    throw new Error("AI integration not configured.");
-  }
-  return new OpenAI({
-    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-    timeout: 60_000,
-  });
+  return createOpenAIClient({ timeout: 60_000 });
 }
 
 async function callAI(
@@ -1262,7 +1256,7 @@ router.post("/interview", async (req: Request, res: Response) => {
     res.json({ reply, tier });
   } catch (normalErr) {
     console.error("[interview normal-path error]", normalErr);
-    res.status(500).json({ error: "AI service unavailable" });
+    res.status(500).json({ error: AI_UNAVAILABLE_MESSAGE });
   }
 });
 

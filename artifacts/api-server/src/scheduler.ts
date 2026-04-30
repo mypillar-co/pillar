@@ -28,6 +28,7 @@ import { withSchedulerLock } from "./lib/schedulerLock";
 import sanitizeHtml from "sanitize-html";
 import OpenAI from "openai";
 import { getUncachableStripeClient } from "./stripeClient";
+import { createOpenAIClient } from "./lib/openaiClient";
 
 const SITE_HTML_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: sanitizeHtml.defaults.allowedTags.concat([
@@ -51,14 +52,7 @@ const SITE_HTML_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
 const MAX_CHANGE_TOKENS = 6000;
 
 function getOpenAIClient() {
-  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
-  const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
-  if (!apiKey || !baseURL) {
-    throw new Error(
-      "Replit AI integration not configured: AI_INTEGRATIONS_OPENAI_BASE_URL and AI_INTEGRATIONS_OPENAI_API_KEY must be set"
-    );
-  }
-  return new OpenAI({ apiKey, baseURL });
+  return createOpenAIClient();
 }
 
 async function callOpenAI(

@@ -4,17 +4,12 @@ import { eq, sql, desc, and } from "drizzle-orm";
 import OpenAI from "openai";
 import { getSessionId } from "../lib/auth";
 import { resolveFullOrg } from "../lib/resolveOrg";
+import { createOpenAIClient } from "../lib/openaiClient";
 
 const router = Router();
 
 function getOpenAIClient() {
-  if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || !process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
-    throw new Error("AI integration not configured");
-  }
-  return new OpenAI({
-    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  });
+  return createOpenAIClient();
 }
 
 function isNewMonth(lastReset: Date): boolean {

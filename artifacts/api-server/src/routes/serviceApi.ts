@@ -14,6 +14,7 @@ import { eq, sql } from "drizzle-orm";
 import OpenAI from "openai";
 import { logger } from "../lib/logger";
 import { createSession, SESSION_COOKIE } from "../lib/auth";
+import { createOpenAIClient } from "../lib/openaiClient";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -120,13 +121,7 @@ async function getOrgBySlug(slug: string) {
 }
 
 function getOpenAIClient() {
-  if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || !process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
-    throw new Error("Replit AI integration not configured");
-  }
-  return new OpenAI({
-    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  });
+  return createOpenAIClient();
 }
 
 // ─── GET /api/service/health ──────────────────────────────────────────────────

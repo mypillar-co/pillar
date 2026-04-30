@@ -16,6 +16,7 @@ export interface OrgConfig {
   heroImageUrl?: string | null;
   heroVisualType?: HeroVisualType | null;
   heroLayout?: "split_framed" | "full_bleed" | "split" | "background" | null;
+  memberCount?: number;
   contactEmail?: string | null;
   contactPhone?: string | null;
   contactAddress?: string | null;

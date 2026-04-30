@@ -1004,9 +1004,24 @@ export function registerRoutes(app: Express) {
       }
       const cfg = await storage.getOrgConfig(orgId);
       const features = ((cfg?.features ?? {}) as Record<string, unknown>);
-      const portal = (features.membersPortal as
+      let portal = (features.membersPortal as
         | { sections?: unknown[]; provisionedAt?: string }
         | undefined) ?? { sections: [] };
+      if (!Array.isArray(portal.sections) || portal.sections.length === 0) {
+        const orgIds = await getOrgIdCandidates(req);
+        const fallback = await db.execute(neonSql`
+          SELECT site_config -> 'membersPortal' AS portal
+          FROM organizations
+          WHERE id = ANY(${orgIds}) OR slug = ANY(${orgIds})
+          LIMIT 1
+        `);
+        const fallbackPortal = (fallback.rows[0] as Record<string, unknown> | undefined)?.portal as
+          | { sections?: unknown[]; provisionedAt?: string }
+          | undefined;
+        if (fallbackPortal && Array.isArray(fallbackPortal.sections)) {
+          portal = fallbackPortal;
+        }
+      }
       const sections = Array.isArray(portal.sections) ? portal.sections : [];
       res.json({
         sections,
