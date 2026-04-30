@@ -84,7 +84,8 @@ export interface FeatureEnableResult {
 }
 
 export async function ensureMembersFeatureEnabled(orgId: string): Promise<FeatureEnableResult> {
-  // Flip features.members = true on cs_org_configs so the Members nav link appears.
+  // Flip features.members = true on both the dashboard-side org config and
+  // cs_org_configs so the public Members nav link appears deterministically.
   // Best-effort by default (we still log + swallow), but we now return a structured
   // result so route handlers can surface failures explicitly. Defense-in-depth:
   // every WHERE clause filters by the orgId argument, never by client input.
@@ -93,6 +94,17 @@ export async function ensureMembersFeatureEnabled(orgId: string): Promise<Featur
       SELECT slug FROM organizations WHERE id = ${orgId} LIMIT 1
     `);
     const cpOrgId = ((orgRow.rows[0] as { slug?: string | null } | undefined)?.slug ?? orgId);
+
+    await db.execute(sql`
+      UPDATE organizations
+      SET site_config = COALESCE(site_config, '{}'::jsonb) ||
+        jsonb_build_object(
+          'features',
+          COALESCE(site_config -> 'features', '{}'::jsonb) || '{"members": true}'::jsonb
+        )
+      WHERE id = ${orgId}
+    `);
+
     const row = await db.execute(sql`
       SELECT features FROM cs_org_configs WHERE org_id = ${cpOrgId} LIMIT 1
     `);

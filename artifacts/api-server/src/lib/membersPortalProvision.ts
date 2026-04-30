@@ -16,20 +16,17 @@ interface OrgRowForProvisioning {
   site_config: Record<string, unknown> | null;
 }
 
-/**
- * Returns true if `siteConfig.membersPortal.sections` is a non-empty array,
- * meaning the portal has already been provisioned for this org.
- */
-function portalAlreadyProvisioned(
+function getExistingPortal(
   siteConfig: Record<string, unknown> | null | undefined,
-): boolean {
-  if (!siteConfig || typeof siteConfig !== "object") return false;
+): MembersPortalConfig | null {
+  if (!siteConfig || typeof siteConfig !== "object") return null;
   const portal = siteConfig.membersPortal as
-    | { sections?: unknown }
+    | MembersPortalConfig
     | null
     | undefined;
-  if (!portal || typeof portal !== "object") return false;
-  return Array.isArray(portal.sections) && portal.sections.length > 0;
+  if (!portal || typeof portal !== "object") return null;
+  if (!Array.isArray(portal.sections) || portal.sections.length === 0) return null;
+  return portal;
 }
 
 /**
@@ -49,12 +46,61 @@ function applyAboutMissionToWelcome(
   });
 }
 
+async function persistPortalToOrg(orgId: string, portal: MembersPortalConfig): Promise<void> {
+  const portalJson = JSON.stringify(portal);
+  await db.execute(sql`
+    UPDATE organizations
+    SET site_config = jsonb_set(
+      COALESCE(site_config, '{}'::jsonb) ||
+      jsonb_build_object(
+        'features',
+        COALESCE(site_config -> 'features', '{}'::jsonb) || '{"members": true}'::jsonb
+      ),
+      '{membersPortal}',
+      ${portalJson}::jsonb,
+      true
+    )
+    WHERE id = ${orgId}
+  `);
+}
+
+async function mirrorPortalToCommunityPlatform(
+  org: OrgRowForProvisioning,
+  portal: MembersPortalConfig,
+): Promise<string | undefined> {
+  const cpOrgId = org.slug ?? org.id;
+  try {
+    const featuresRow = await db.execute(sql`
+      SELECT features FROM cs_org_configs WHERE org_id = ${cpOrgId} LIMIT 1
+    `);
+    const currentFeatures = (featuresRow.rows[0]?.features ?? {}) as Record<string, unknown>;
+
+    await syncOrgConfigPatchToPillar({
+      orgId: cpOrgId,
+      // syncOrgConfigPatchToPillar's typed payload only declares known fields;
+      // the underlying CP /api/internal/org-config patch handler accepts any
+      // column on cs_org_configs and merges the existing JSONB `features`.
+      ...(({
+        features: { ...currentFeatures, members: true, membersPortal: portal },
+      } as unknown) as Record<string, never>),
+    });
+    return undefined;
+  } catch (cpErr) {
+    const cpMirrorError = cpErr instanceof Error ? cpErr.message : String(cpErr);
+    logger.warn(
+      { err: cpErr, orgId: org.id, cpOrgId },
+      "[members-portal] could not mirror portal config to CP — site may not be provisioned yet",
+    );
+    return cpMirrorError;
+  }
+}
+
 /**
  * Provision the members portal for an org if it doesn't have one yet.
  *
  * Best-effort and idempotent:
- *   - If the portal config already exists with at least one section, returns
- *     immediately without writing anything.
+ *   - If the portal config already exists with at least one section, mirrors it
+ *     back to the public site and turns on the members nav flag.
  *   - If anything fails (DB error, CP sync 404 because the site hasn't been
  *     generated yet, etc.) we log a warning and return — never throw.
  *     Member creation must succeed regardless of portal provisioning.
@@ -84,71 +130,38 @@ export async function ensureMembersPortalProvisioned(orgId: string): Promise<Pro
       return { ok: false, error: "org not found" };
     }
 
-    if (portalAlreadyProvisioned(org.site_config)) {
-      return { ok: true, alreadyProvisioned: true };
-    }
+    const existingPortal = getExistingPortal(org.site_config);
+    const alreadyProvisioned = Boolean(existingPortal);
 
     const orgName = org.name ?? "your organization";
-    const starter: MembersPortalConfig = buildStarterPortalConfig(org.type, orgName);
-
-    const aboutMission =
-      (org.site_config as Record<string, unknown> | null | undefined)?.about_mission as
-        | string
-        | null
-        | undefined;
-    starter.sections = applyAboutMissionToWelcome(starter.sections, aboutMission);
-
-    // Merge into existing site_config so we don't clobber other fields.
-    // jsonb_set with create_missing=true builds the path if needed.
-    const portalJson = JSON.stringify(starter);
-    await db.execute(sql`
-      UPDATE organizations
-      SET site_config = jsonb_set(
-        COALESCE(site_config, '{}'::jsonb),
-        '{membersPortal}',
-        ${portalJson}::jsonb,
-        true
-      )
-      WHERE id = ${orgId}
-    `);
-
-    // Mirror to the community-platform side. Stored under features.membersPortal
-    // to avoid a schema change on cs_org_configs — features is already JSONB
-    // and ensureMembersFeatureEnabled patches it through the same path.
-    const cpOrgId = org.slug ?? orgId;
-    try {
-      const featuresRow = await db.execute(sql`
-        SELECT features FROM cs_org_configs WHERE org_id = ${cpOrgId} LIMIT 1
-      `);
-      const currentFeatures = (featuresRow.rows[0]?.features ?? {}) as Record<string, unknown>;
-
-      await syncOrgConfigPatchToPillar({
-        orgId: cpOrgId,
-        // syncOrgConfigPatchToPillar's typed payload only declares known
-        // fields; the underlying CP /api/internal/org-config patch handler
-        // accepts any column on cs_org_configs and we're patching the
-        // existing JSONB `features` column with a merged object.
-        ...(({
-          features: { ...currentFeatures, membersPortal: starter, members: true },
-        } as unknown) as Record<string, never>),
-      });
-    } catch (cpErr) {
-      // Site may not be provisioned on CP yet — that's OK. The portal config
-      // is already in organizations.site_config and will be pushed the next
-      // time the site is published. Surface the partial-failure to the caller
-      // so route handlers can include it in their response/log line.
-      cpMirrorError = cpErr instanceof Error ? cpErr.message : String(cpErr);
-      logger.warn(
-        { err: cpErr, orgId, cpOrgId },
-        "[members-portal] could not mirror portal config to CP — site may not be provisioned yet",
-      );
+    let portal: MembersPortalConfig;
+    if (existingPortal) {
+      portal = existingPortal;
+    } else {
+      portal = buildStarterPortalConfig(org.type, orgName);
+      const aboutMission =
+        (org.site_config as Record<string, unknown> | null | undefined)?.about_mission as
+          | string
+          | null
+          | undefined;
+      portal.sections = applyAboutMissionToWelcome(portal.sections, aboutMission);
     }
 
+    // Merge into existing site_config so we don't clobber other fields, and keep
+    // the source-of-truth org config aligned with the public-site feature flag.
+    await persistPortalToOrg(orgId, portal);
+
+    // Mirror to the community-platform side. Stored under features.membersPortal
+    // to avoid a schema change on cs_org_configs — features is already JSONB.
+    cpMirrorError = await mirrorPortalToCommunityPlatform(org, portal);
+
     logger.info(
-      { orgId, orgType: org.type, sectionCount: starter.sections.length, cpMirrorError },
-      "[members-portal] provisioned starter portal sections",
+      { orgId, orgType: org.type, sectionCount: portal.sections.length, alreadyProvisioned, cpMirrorError },
+      alreadyProvisioned
+        ? "[members-portal] mirrored existing portal sections"
+        : "[members-portal] provisioned starter portal sections",
     );
-    return { ok: true, cpMirrorError };
+    return { ok: true, cpMirrorError, alreadyProvisioned };
   } catch (err) {
     logger.warn(
       { err, orgId },

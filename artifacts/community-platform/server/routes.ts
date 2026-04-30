@@ -995,11 +995,16 @@ export function registerRoutes(app: Express) {
   // GET /api/members-portal/config — returns the portal sections + welcome
   // blurb stored on cs_org_configs.features.membersPortal. Login-gated because
   // notices/dues/etc are members-only by definition.
+  async function requestMatchesMemberOrg(req: Request, memberOrgId: string): Promise<boolean> {
+    const orgIds = await getOrgIdCandidates(req);
+    return orgIds.includes(memberOrgId);
+  }
+
   app.get("/api/members-portal/config", async (req, res) => {
     try {
       const m = getMember(req);
       const orgId = getOrgId(req);
-      if (!m || m.orgId !== orgId) {
+      if (!m || !(await requestMatchesMemberOrg(req, m.orgId))) {
         return res.status(401).json({ error: "Not signed in" });
       }
       const cfg = await storage.getOrgConfig(orgId);
@@ -1048,19 +1053,22 @@ export function registerRoutes(app: Express) {
     return { memberId, orgId };
   }
 
-  function requireMember(req: Request, res: Response, next: NextFunction) {
-    const m = getMember(req);
-    const currentOrg = getOrgId(req);
-    if (!m || m.orgId !== currentOrg) {
-      return res.status(401).json({ error: "Not signed in" });
+  async function requireMember(req: Request, res: Response, next: NextFunction) {
+    try {
+      const m = getMember(req);
+      if (!m || !(await requestMatchesMemberOrg(req, m.orgId))) {
+        return res.status(401).json({ error: "Not signed in" });
+      }
+      next();
+    } catch (err) {
+      console.error("[members/requireMember] failed", err);
+      return res.status(500).json({ error: "Internal server error" });
     }
-    next();
   }
 
   // POST /api/members/register — exchange invite token for password, log member in.
   app.post("/api/members/register", async (req, res) => {
     try {
-      const orgId = getOrgId(req);
       const orgIds = await getOrgIdCandidates(req);
       const { token, password } = req.body as { token?: string; password?: string };
       if (!token || !password) {
@@ -1095,7 +1103,7 @@ export function registerRoutes(app: Express) {
         WHERE id = ${row.id as string}
       `);
       (req.session as any).memberId = row.id as string;
-      (req.session as any).memberOrgId = orgId;
+      (req.session as any).memberOrgId = String(row.org_id);
       // Extend session lifetime for member portal (default is 30min).
       // Skip if an admin is also signed in here — keep the shorter admin session window.
       if (req.session.cookie && !(req.session as any).adminId) {
@@ -1111,14 +1119,13 @@ export function registerRoutes(app: Express) {
   // POST /api/members/login
   app.post("/api/members/login", async (req, res) => {
     try {
-      const orgId = getOrgId(req);
       const orgIds = await getOrgIdCandidates(req);
       const { email, password } = req.body as { email?: string; password?: string };
       if (!email || !password) return res.status(400).json({ error: "Email and password required." });
       const rows = await db.execute(neonSql`
-        SELECT id, password_hash, registered_at FROM members
+        SELECT id, org_id, password_hash, registered_at FROM members
         WHERE org_id IN (${neonSql.join(orgIds.map((id) => neonSql`${id}`), neonSql`, `)})
-          AND email = ${email.trim().toLowerCase()}
+          AND lower(email) = ${email.trim().toLowerCase()}
         LIMIT 1
       `);
       const row = (rows.rows[0] as Record<string, unknown> | undefined) || null;
@@ -1128,7 +1135,7 @@ export function registerRoutes(app: Express) {
       const valid = await bcrypt.compare(password, row.password_hash as string);
       if (!valid) return res.status(401).json({ error: "Invalid email or password." });
       (req.session as any).memberId = row.id as string;
-      (req.session as any).memberOrgId = orgId;
+      (req.session as any).memberOrgId = String(row.org_id);
       if (req.session.cookie && !(req.session as any).adminId) {
         req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000;
       }
@@ -1247,7 +1254,6 @@ export function registerRoutes(app: Express) {
   // POST /api/members/reset-password — exchange token for a new password & log in
   app.post("/api/members/reset-password", async (req, res) => {
     try {
-      const orgId = getOrgId(req);
       const orgIds = await getOrgIdCandidates(req);
       const { token, password } = (req.body ?? {}) as { token?: string; password?: string };
       if (!token || !password) return res.status(400).json({ error: "Token and password required." });
@@ -1271,7 +1277,7 @@ export function registerRoutes(app: Express) {
         WHERE id = ${row.id as string}
       `);
       (req.session as any).memberId = row.id as string;
-      (req.session as any).memberOrgId = orgId;
+      (req.session as any).memberOrgId = String(row.org_id);
       if (req.session.cookie && !(req.session as any).adminId) {
         req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000;
       }

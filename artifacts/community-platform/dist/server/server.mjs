@@ -81972,11 +81972,15 @@ function registerRoutes(app2) {
       return res.status(500).json({ ok: false, error: error3?.message ?? "Unknown error" });
     }
   });
+  async function requestMatchesMemberOrg(req, memberOrgId) {
+    const orgIds = await getOrgIdCandidates(req);
+    return orgIds.includes(memberOrgId);
+  }
   app2.get("/api/members-portal/config", async (req, res) => {
     try {
       const m2 = getMember(req);
       const orgId = getOrgId(req);
-      if (!m2 || m2.orgId !== orgId) {
+      if (!m2 || !await requestMatchesMemberOrg(req, m2.orgId)) {
         return res.status(401).json({ error: "Not signed in" });
       }
       const cfg = await getOrgConfig(orgId);
@@ -82012,17 +82016,20 @@ function registerRoutes(app2) {
     if (!memberId || !orgId) return null;
     return { memberId, orgId };
   }
-  function requireMember(req, res, next) {
-    const m2 = getMember(req);
-    const currentOrg = getOrgId(req);
-    if (!m2 || m2.orgId !== currentOrg) {
-      return res.status(401).json({ error: "Not signed in" });
+  async function requireMember(req, res, next) {
+    try {
+      const m2 = getMember(req);
+      if (!m2 || !await requestMatchesMemberOrg(req, m2.orgId)) {
+        return res.status(401).json({ error: "Not signed in" });
+      }
+      next();
+    } catch (err) {
+      console.error("[members/requireMember] failed", err);
+      return res.status(500).json({ error: "Internal server error" });
     }
-    next();
   }
   app2.post("/api/members/register", async (req, res) => {
     try {
-      const orgId = getOrgId(req);
       const orgIds = await getOrgIdCandidates(req);
       const { token, password } = req.body;
       if (!token || !password) {
@@ -82057,7 +82064,7 @@ function registerRoutes(app2) {
         WHERE id = ${row.id}
       `);
       req.session.memberId = row.id;
-      req.session.memberOrgId = orgId;
+      req.session.memberOrgId = String(row.org_id);
       if (req.session.cookie && !req.session.adminId) {
         req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1e3;
       }
@@ -82069,14 +82076,13 @@ function registerRoutes(app2) {
   });
   app2.post("/api/members/login", async (req, res) => {
     try {
-      const orgId = getOrgId(req);
       const orgIds = await getOrgIdCandidates(req);
       const { email, password } = req.body;
       if (!email || !password) return res.status(400).json({ error: "Email and password required." });
       const rows = await db.execute(neonSql`
-        SELECT id, password_hash, registered_at FROM members
+        SELECT id, org_id, password_hash, registered_at FROM members
         WHERE org_id IN (${neonSql.join(orgIds.map((id) => neonSql`${id}`), neonSql`, `)})
-          AND email = ${email.trim().toLowerCase()}
+          AND lower(email) = ${email.trim().toLowerCase()}
         LIMIT 1
       `);
       const row = rows.rows[0] || null;
@@ -82086,7 +82092,7 @@ function registerRoutes(app2) {
       const valid = await bcrypt.compare(password, row.password_hash);
       if (!valid) return res.status(401).json({ error: "Invalid email or password." });
       req.session.memberId = row.id;
-      req.session.memberOrgId = orgId;
+      req.session.memberOrgId = String(row.org_id);
       if (req.session.cookie && !req.session.adminId) {
         req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1e3;
       }
@@ -82191,7 +82197,6 @@ function registerRoutes(app2) {
   });
   app2.post("/api/members/reset-password", async (req, res) => {
     try {
-      const orgId = getOrgId(req);
       const orgIds = await getOrgIdCandidates(req);
       const { token, password } = req.body ?? {};
       if (!token || !password) return res.status(400).json({ error: "Token and password required." });
@@ -82215,7 +82220,7 @@ function registerRoutes(app2) {
         WHERE id = ${row.id}
       `);
       req.session.memberId = row.id;
-      req.session.memberOrgId = orgId;
+      req.session.memberOrgId = String(row.org_id);
       if (req.session.cookie && !req.session.adminId) {
         req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1e3;
       }

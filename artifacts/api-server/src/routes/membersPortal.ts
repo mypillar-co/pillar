@@ -52,7 +52,11 @@ async function persistPortal(
   await db.execute(sql`
     UPDATE organizations
     SET site_config = jsonb_set(
-      COALESCE(site_config, '{}'::jsonb),
+      COALESCE(site_config, '{}'::jsonb) ||
+      jsonb_build_object(
+        'features',
+        COALESCE(site_config -> 'features', '{}'::jsonb) || '{"members": true}'::jsonb
+      ),
       '{membersPortal}',
       ${json}::jsonb,
       true
@@ -70,7 +74,7 @@ async function persistPortal(
     await syncOrgConfigPatchToPillar({
       orgId: cpOrgId,
       ...(({
-        features: { ...currentFeatures, membersPortal: portal },
+        features: { ...currentFeatures, members: true, membersPortal: portal },
       } as unknown) as Record<string, never>),
     });
   } catch (cpErr) {

@@ -1038,6 +1038,7 @@ export default function CommunityBuilder() {
   const [editMode, setEditMode]                   = useState(false);
   const [aiEditLoading, setAiEditLoading]         = useState(false);
   const [aiEditError, setAiEditError]             = useState<string | null>(null);
+  const [aiEditSuccessMessage, setAiEditSuccessMessage] = useState<string | null>(null);
 
   const chatEndRef   = useRef<HTMLDivElement>(null);
   const inputRef     = useRef<HTMLTextAreaElement>(null);
@@ -1070,20 +1071,42 @@ export default function CommunityBuilder() {
   async function submitAiEdit(changeRequest: string) {
     setAiEditLoading(true);
     setAiEditError(null);
+    setAiEditSuccessMessage(null);
     try {
       const res = await csrfFetch("/api/community-site/ai-edit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ changeRequest }),
       });
-      const d = await res.json() as { ok?: boolean; payload?: Record<string, unknown>; error?: string };
-      if (!res.ok || !d.ok || !d.payload) {
+      const d = await res.json() as {
+        ok?: boolean;
+        status?: "completed" | "prepared";
+        payload?: Record<string, unknown>;
+        message?: string;
+        error?: string;
+      };
+      if (!res.ok || !d.ok) {
         setAiEditError(d.error ?? "Something went wrong. Please try again.");
-      } else {
-        // Load the updated payload for review — PayloadPreview + Launch button appear automatically
+      } else if (d.status === "completed") {
+        setReadyPayload(null);
+        setProvisionResult(null);
+        setEditMode(false);
+        setAiEditSuccessMessage(d.message ?? "Update completed.");
+        try {
+          const statusRes = await csrfFetch("/api/community-site/target");
+          if (statusRes.ok) {
+            setSiteStatus(await statusRes.json() as SiteStatusData);
+          }
+        } catch {
+          // Non-fatal. The saved update has already been verified server-side.
+        }
+      } else if (d.payload) {
+        // Load the updated payload for review — PayloadPreview + Launch button appear automatically.
         setReadyPayload(d.payload);
         setProvisionResult(null);
         setEditMode(false);
+      } else {
+        setAiEditError("Something went wrong. Please try again.");
       }
     } catch {
       setAiEditError("Something went wrong. Please try again.");
@@ -1518,7 +1541,13 @@ export default function CommunityBuilder() {
         {/* Not started + readyPayload (from AI edit) — show review prompt */}
         {!started && readyPayload && !provisioning && (
           <BotBubble>
-            Done! Your site configuration has been updated. Review the changes below, then click <strong>Launch Site</strong> to apply them.
+            I prepared that site update as a draft. Review the changes below, then click <strong>Launch Site</strong> to apply them.
+          </BotBubble>
+        )}
+
+        {!started && aiEditSuccessMessage && !readyPayload && !provisioning && (
+          <BotBubble>
+            {aiEditSuccessMessage}
           </BotBubble>
         )}
 

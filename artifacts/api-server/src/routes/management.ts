@@ -57,28 +57,12 @@ import { ensureMembersPortalProvisioned } from "../lib/membersPortalProvision";
 import { SECTION_REGISTRY, validateSection } from "../lib/sectionRegistry";
 import { sendOrgEmail } from "../mailer";
 import { createOpenAIClient } from "../lib/openaiClient";
-
-// Canonical site_config keys that update_site_config / get_site_config
-// are allowed to read and write. These match the top-level fields produced
-// by buildFallbackPayload in communitySite.ts and consumed by the React
-// site template.
-const CANONICAL_SITE_CONFIG_KEYS = [
-  "primaryColor",
-  "accentColor",
-  "tagline",
-  "mission",
-  "contactEmail",
-  "contactPhone",
-  "contactAddress",
-  "meetingDay",
-  "meetingTime",
-  "meetingLocation",
-  "socialFacebook",
-  "socialInstagram",
-  "footerText",
-] as const;
-type CanonicalSiteConfigKey = (typeof CANONICAL_SITE_CONFIG_KEYS)[number];
-const CANONICAL_SITE_CONFIG_KEY_SET: ReadonlySet<string> = new Set(CANONICAL_SITE_CONFIG_KEYS);
+import {
+  CANONICAL_SITE_CONFIG_KEYS,
+  CANONICAL_SITE_CONFIG_KEY_SET,
+  TOGGLEABLE_SITE_FEATURES,
+  saveSiteConfigPatch,
+} from "../lib/siteConfigPersistence";
 
 // Section types from the registry that are allowed on the public site.
 function getPublicSectionTypes(): string[] {
@@ -88,6 +72,39 @@ function getPublicSectionTypes(): string[] {
 }
 
 const router = Router();
+const RISKY_TOOL_NAMES = new Set([
+  "delete_event",
+  "decide_sponsor",
+  "delete_album",
+  "send_newsletter",
+  "reply_to_message",
+  "post_announcement",
+  "delete_announcement",
+  "remove_sponsor",
+  "delete_business",
+  "delete_photo",
+  "invite_member",
+  "remove_member",
+]);
+
+function hasServerConfirmation(args: Record<string, unknown>, latestUserMessage: string): boolean {
+  const modelMarkedConfirmed = args.confirm === true || args.confirmed === true;
+  const userConfirmed =
+    /\b(confirm|confirmed|yes|approve|send it|publish it|delete it|remove it|go ahead|do it)\b/i
+      .test(latestUserMessage);
+  return modelMarkedConfirmed && userConfirmed;
+}
+
+function pendingConfirmation(toolName: string, args: Record<string, unknown>): string {
+  return JSON.stringify({
+    ok: false,
+    status: "pending_confirmation",
+    requiresConfirmation: true,
+    tool: toolName,
+    args,
+    message: "Please confirm this action before I make the change.",
+  });
+}
 
 // ─── OpenAI client ─────────────────────────────────────────────────────────
 
@@ -215,6 +232,8 @@ router.post("/chat", async (req: Request, res: Response) => {
             ticketSaleClose: { type: "string", description: "Date ticket sales close, ISO format YYYY-MM-DD. Null = no close date." },
             hasRegistration: { type: "boolean", description: "True if vendors/attendees register" },
             hasSponsorSection: { type: "boolean" },
+            status: { type: "string", enum: ["draft", "published"], description: "Defaults to draft. Use published only after the user explicitly confirms publishing." },
+            confirm: { type: "boolean", description: "Must be true only after the user explicitly confirms a risky action." },
           },
         },
       },
@@ -871,6 +890,19 @@ router.post("/chat", async (req: Request, res: Response) => {
   },
   ];
 
+  for (const tool of tools) {
+    if (!RISKY_TOOL_NAMES.has(tool.function.name)) continue;
+    const params = tool.function.parameters as { properties?: Record<string, unknown> } | undefined;
+    if (!params) continue;
+    params.properties = {
+      ...(params.properties ?? {}),
+      confirm: {
+        type: "boolean",
+        description: "Must be true only after the user explicitly confirms this risky action.",
+      },
+    };
+  }
+
   // ── Tool execution functions ────────────────────────────────────────────
 
   async function execListEvents(args: Record<string, unknown>): Promise<string> {
@@ -928,6 +960,7 @@ router.post("/chat", async (req: Request, res: Response) => {
       endTime = parts[1]?.trim() ?? null;
     }
 
+    const publishConfirmed = args.status === "published" && args.confirm === true;
     const [event] = await db
       .insert(eventsTable)
       .values({
@@ -949,9 +982,9 @@ router.post("/chat", async (req: Request, res: Response) => {
         ...(args.ticketSaleClose != null ? { ticketSaleClose: String(args.ticketSaleClose) } : {}),
         hasRegistration: args.hasRegistration === true,
         hasSponsorSection: args.hasSponsorSection === true,
-        status: "published",
-        isActive: true,
-        showOnPublicSite: true,
+        status: publishConfirmed ? "published" : "draft",
+        isActive: publishConfirmed,
+        showOnPublicSite: publishConfirmed,
       })
       .returning();
 
@@ -968,8 +1001,16 @@ router.post("/chat", async (req: Request, res: Response) => {
 
     forceSiteRecompile(org.id).catch(() => {});
 
-    const publicUrl = `https://${org.slug}.mypillar.co/events/${uniqueSlug}`;
-    return JSON.stringify({ ok: true, slug: uniqueSlug, publicUrl });
+    const publicUrl = publishConfirmed ? `https://${org.slug}.mypillar.co/events/${uniqueSlug}` : null;
+    return JSON.stringify({
+      ok: true,
+      slug: uniqueSlug,
+      status: publishConfirmed ? "published" : "draft",
+      publicUrl,
+      message: publishConfirmed
+        ? "Event created and published."
+        : "Event created as a draft. Confirm publishing before it appears on the public site.",
+    });
   }
 
   async function execUpdateEvent(args: Record<string, unknown>): Promise<string> {
@@ -1835,8 +1876,8 @@ router.post("/chat", async (req: Request, res: Response) => {
       invite = { sent: result.sent, simulated: result.simulated, url };
     }
 
-    void ensureMembersFeatureEnabled(org.id);
-    void ensureMembersPortalProvisioned(org.id);
+    await ensureMembersFeatureEnabled(org.id);
+    await ensureMembersPortalProvisioned(org.id);
 
     return JSON.stringify({
       ok: true,
@@ -2006,6 +2047,14 @@ router.post("/chat", async (req: Request, res: Response) => {
           });
         }
         updates[k] = str;
+      } else if (k === "contactEmail") {
+        if (str && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str)) {
+          return JSON.stringify({
+            error: "contactEmail must be a valid email address",
+            got: str,
+          });
+        }
+        updates[k] = str.toLowerCase();
       } else {
         updates[k] = str;
       }
@@ -2019,20 +2068,70 @@ router.post("/chat", async (req: Request, res: Response) => {
       });
     }
 
-    // Merge with the existing JSONB so we never clobber other top-level fields
-    // (orgName, sections[], stats[], siteContent{}, membersPortal{}, etc.).
-    await db.execute(sql`
-      UPDATE organizations
-         SET site_config = COALESCE(site_config, '{}'::jsonb) || ${JSON.stringify(updates)}::jsonb
-       WHERE id = ${org.id}
-    `);
+    const saved = await saveSiteConfigPatch(org.id, updates);
+    const readBack: Record<string, unknown> = {};
+    for (const key of Object.keys(updates)) {
+      readBack[key] = saved.config[key] ?? null;
+    }
 
     forceSiteRecompile(org.id).catch(() => {});
 
     return JSON.stringify({
       ok: true,
       updated: updates,
+      readBack,
+      publicConfigUpdated: true,
       ...(rejectedKeys.length ? { rejectedKeys, allowedKeys: [...CANONICAL_SITE_CONFIG_KEYS] } : {}),
+    });
+  }
+
+  async function execListSections(): Promise<string> {
+    const config = await readSiteConfig();
+    const features =
+      config.features && typeof config.features === "object" && !Array.isArray(config.features)
+        ? (config.features as Record<string, unknown>)
+        : {};
+    const sections = Array.isArray(config.sections) ? (config.sections as unknown[]) : [];
+
+    return JSON.stringify({
+      toggleable: TOGGLEABLE_SITE_FEATURES.map((section) => ({
+        section,
+        enabled: features[section] === true,
+      })),
+      sections: sections.map((s) => {
+        const obj = s && typeof s === "object" ? (s as Record<string, unknown>) : {};
+        return {
+          type: typeof obj.type === "string" ? obj.type : null,
+          title: typeof obj.title === "string" ? obj.title : null,
+        };
+      }),
+    });
+  }
+
+  async function execToggleSection(args: Record<string, unknown>): Promise<string> {
+    const section = String(args.section ?? "");
+    if (!TOGGLEABLE_SITE_FEATURES.includes(section as (typeof TOGGLEABLE_SITE_FEATURES)[number])) {
+      return JSON.stringify({
+        error: `Unknown section: ${section}`,
+        allowedSections: [...TOGGLEABLE_SITE_FEATURES],
+      });
+    }
+
+    if (typeof args.enabled !== "boolean") {
+      return JSON.stringify({ error: "enabled must be true or false" });
+    }
+
+    const saved = await saveSiteConfigPatch(org.id, {
+      features: { [section]: args.enabled },
+    });
+    forceSiteRecompile(org.id).catch(() => {});
+
+    return JSON.stringify({
+      ok: true,
+      section,
+      enabled: args.enabled,
+      features: saved.config.features ?? {},
+      publicConfigUpdated: true,
     });
   }
 
@@ -2734,9 +2833,11 @@ You help the organization's administrator manage their website and members throu
 1. When the user asks you to do something, check your available tools for a match. Consider synonyms and related phrasings — "change colors", "update brand", "make it blue" are all the same intent. "Email the members", "send an announcement", "post to the portal" all involve different tools depending on context.
 2. If multiple tools could apply, ASK a clarifying question before acting. Example: if the user says "remove the board section", ask whether they mean the public site section or the members portal section. Do not guess.
 3. If no tool matches, say so clearly. Tell the user what you can do and suggest they use the dashboard for what you cannot. Do not apologize excessively or invent capabilities.
-4. For destructive actions (delete, remove, cancel), confirm with the user before executing unless they explicitly said "yes delete it" or similar. A casual "can we clean up the old album" is a conversation, not a confirmation.
-5. After taking an action, tell the user exactly what changed in plain language. Not just "done" — say "I renamed the album to Gala 2024" or "I cancelled the spring fundraiser".
-6. If a tool fails, tell the user the error in plain language and suggest next steps. Do not hide failures.
+	4. For destructive actions (delete, remove, cancel), confirm with the user before executing unless they explicitly said "yes delete it" or similar. A casual "can we clean up the old album" is a conversation, not a confirmation.
+	5. Tools that send, publish, delete, approve, invite, or charge require server-side confirmation. If a tool returns status="pending_confirmation", ask the user to confirm the exact action; do not claim it happened.
+	6. New events are drafts by default. Only request status="published" with confirm=true after the user explicitly confirms publishing.
+	7. After taking an action, tell the user exactly what changed in plain language. Not just "done" — say "I renamed the album to Gala 2024" or "I cancelled the spring fundraiser".
+	8. If a tool fails, tell the user the error in plain language and suggest next steps. Do not hide failures.
 
 === CORE BEHAVIORS ===
 - ALWAYS call list_events before updating or deleting (need the correct slug).
@@ -2957,22 +3058,29 @@ Always end with the site URL and events URL.`;
       return;
     }
 
-    for (const call of choice.message.tool_calls) {
-      let result = "";
-      try {
-        const args = JSON.parse(call.function.arguments ?? "{}") as Record<string, unknown>;
-        switch (call.function.name) {
-          case "list_events":           result = await execListEvents(args); break;
-          case "create_event":          result = await execCreateEvent(args); break;
-          case "update_event":          result = await execUpdateEvent(args); break;
-          case "delete_event":          result = await execDeleteEvent(args); break;
-          case "get_ticket_sales":      result = await execGetTicketSales(args); break;
-          case "list_pending_sponsors": result = await execListPendingSponsors(); break;
-          case "decide_sponsor":        result = await execDecideSponsor(args); break;
-          case "add_sponsor":           result = await execAddSponsor(args); break;
-          case "list_content":          result = await execListContent(); break;
-          case "set_content":           result = await execSetContent(args); break;
-          case "list_businesses":       result = await execListBusinesses(); break;
+	    for (const call of choice.message.tool_calls) {
+	      let result = "";
+	      try {
+	        const args = JSON.parse(call.function.arguments ?? "{}") as Record<string, unknown>;
+	        if (RISKY_TOOL_NAMES.has(call.function.name) && !hasServerConfirmation(args, message)) {
+	          result = pendingConfirmation(call.function.name, args);
+	          messages.push({ role: "tool", tool_call_id: call.id, content: result });
+	          continue;
+	        }
+	        switch (call.function.name) {
+	          case "list_events":           result = await execListEvents(args); break;
+	          case "create_event":          result = await execCreateEvent(args); break;
+	          case "update_event":          result = await execUpdateEvent(args); break;
+	          case "delete_event":          result = await execDeleteEvent(args); break;
+	          case "get_ticket_sales":      result = await execGetTicketSales(args); break;
+	          case "list_pending_sponsors": result = await execListPendingSponsors(); break;
+	          case "decide_sponsor":        result = await execDecideSponsor(args); break;
+	          case "add_sponsor":           result = await execAddSponsor(args); break;
+	          case "list_content":          result = await execListContent(); break;
+	          case "set_content":           result = await execSetContent(args); break;
+	          case "list_sections":         result = await execListSections(); break;
+	          case "toggle_section":        result = await execToggleSection(args); break;
+	          case "list_businesses":       result = await execListBusinesses(); break;
           case "add_business":          result = await execAddBusiness(args); break;
           case "list_albums":           result = await execListAlbums(); break;
           case "create_album":          result = await execCreateAlbum(args); break;

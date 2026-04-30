@@ -190,7 +190,7 @@ router.post("/ai-manage", async (req: Request, res: Response) => {
       type: "function",
       function: {
         name: "create_event",
-        description: "Create a new event and publish it immediately to the public site. Auto-generates a unique slug from the name.",
+        description: "Create a new event as a draft by default. Auto-generates a unique slug from the name. Only publish immediately when the user explicitly confirms publishing.",
         parameters: {
           type: "object",
           required: ["name"],
@@ -206,6 +206,8 @@ router.post("/ai-manage", async (req: Request, res: Response) => {
             isTicketed: { type: "boolean", description: "True if the event sells tickets" },
             hasRegistration: { type: "boolean", description: "True if there is vendor/attendee registration" },
             maxCapacity: { type: "number", description: "Overall event capacity (not per-ticket)" },
+            status: { type: "string", enum: ["draft", "published"], description: "Defaults to draft. Use published only after explicit user confirmation." },
+            confirm: { type: "boolean", description: "Must be true only after the user explicitly confirms publishing." },
             tickets: {
               type: "array",
               description: "Ticket types to create. Only provide if isTicketed is true.",
@@ -276,7 +278,8 @@ You help manage events through conversation. When given a command like "add a fa
 - Always infer the current year for dates unless told otherwise.
 - When creating a ticketed event, always create at least one ticket type (default: "General Admission" if no name is specified).
 - When creating events, set isTicketed: true if any ticket price is mentioned.
-- Confirm what was done clearly and include the public event URL in your reply.
+- New events are drafts by default. Only publish immediately when the user explicitly confirms publishing; otherwise tell them the draft is ready.
+- Confirm what was done clearly. Include a public event URL only for published events.
 - For check_ticket_sales, first call list_events to find the event ID if you only have the name.`;
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
@@ -291,6 +294,7 @@ You help manage events through conversation. When given a command like "add a fa
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
     const uniqueSlug = `${slug}-${Date.now().toString(36)}`;
 
+    const publishConfirmed = args.status === "published" && args.confirm === true;
     const [event] = await db
       .insert(eventsTable)
       .values({
@@ -307,9 +311,9 @@ You help manage events through conversation. When given a command like "add a fa
         maxCapacity: args.maxCapacity ? Number(args.maxCapacity) : undefined,
         isTicketed: args.isTicketed === true,
         hasRegistration: args.hasRegistration === true,
-        status: "published",
-        isActive: true,
-        showOnPublicSite: true,
+        status: publishConfirmed ? "published" : "draft",
+        isActive: publishConfirmed,
+        showOnPublicSite: publishConfirmed,
       })
       .returning();
 
@@ -327,13 +331,17 @@ You help manage events through conversation. When given a command like "add a fa
 
     scheduleSiteAutoUpdate(org.id).catch(() => {});
 
-    const publicUrl = `https://${org.slug}.mypillar.co/events/${uniqueSlug}/tickets`;
+    const publicUrl = publishConfirmed ? `https://${org.slug}.mypillar.co/events/${uniqueSlug}/tickets` : null;
     return JSON.stringify({
       ok: true,
       eventId: event.id,
       slug: uniqueSlug,
+      status: publishConfirmed ? "published" : "draft",
       publicUrl,
       ticketTypesCreated: tickets.length,
+      message: publishConfirmed
+        ? "Event created and published."
+        : "Event created as a draft. Confirm publishing before it appears on the public site.",
     });
   }
 

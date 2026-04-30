@@ -6,6 +6,7 @@ import { getSectionRegistryPrompt, validateSection } from "../lib/sectionRegistr
 import OpenAI from "openai";
 import { load as cheerioLoad } from "cheerio";
 import { AI_UNAVAILABLE_MESSAGE, createOpenAIClient } from "../lib/openaiClient";
+import { saveSiteConfigPatch } from "../lib/siteConfigPersistence";
 
 const SIDECAR = "http://127.0.0.1:1106";
 
@@ -31,6 +32,8 @@ async function signStorageUrl(fullPath: string, method: "GET" | "PUT", ttlSec: n
 }
 
 const router = Router();
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_IN_TEXT_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 
 const CONTEXT_TURNS = 12;
 const MAX_INTERVIEW_TOKENS = 750;
@@ -753,6 +756,39 @@ router.post("/ai-edit", async (req: Request, res: Response) => {
   }
 
   try {
+    const normalizedRequest = changeRequest.trim();
+    const lowerRequest = normalizedRequest.toLowerCase();
+    const wantsContactEmail =
+      /\b(contact\s+)?e-?mail\b/.test(lowerRequest) ||
+      lowerRequest.includes("email address");
+    const requestedEmail = normalizedRequest.match(EMAIL_IN_TEXT_RE)?.[0]?.toLowerCase() ?? null;
+
+    if (wantsContactEmail) {
+      if (!requestedEmail || !EMAIL_RE.test(requestedEmail)) {
+        res.status(400).json({ error: "Please include a valid contact email address." });
+        return;
+      }
+
+      const saved = await saveSiteConfigPatch(org.id, { contactEmail: requestedEmail });
+      const readBack = typeof saved.config.contactEmail === "string"
+        ? saved.config.contactEmail.toLowerCase()
+        : null;
+
+      if (readBack !== requestedEmail) {
+        res.status(500).json({ error: "Contact email could not be verified after saving." });
+        return;
+      }
+
+      res.json({
+        ok: true,
+        status: "completed",
+        action: "update_contact_email",
+        message: `Contact email updated to ${requestedEmail}.`,
+        saved: { contactEmail: saved.config.contactEmail },
+      });
+      return;
+    }
+
     const row = await db.execute(sql`
       SELECT site_config FROM organizations WHERE id = ${org.id} LIMIT 1
     `);

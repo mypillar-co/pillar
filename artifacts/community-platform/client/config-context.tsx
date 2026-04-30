@@ -43,6 +43,7 @@ export interface OrgConfig {
     businessDirectory?: boolean;
     ticketedEvents?: boolean;
     members?: boolean;
+    membersPortal?: unknown;
     heroVisualType?: HeroVisualType | null;
     heroLayout?: "split_framed" | "full_bleed" | "split" | "background" | null;
   };

@@ -85,6 +85,199 @@ interface DecisionsData {
   totalDecisions: number;
 }
 
+interface BriefingItem {
+  label: string;
+  detail: string;
+  href?: string;
+  tone?: string;
+  priority?: "high" | "medium" | "low" | string;
+  date?: string | null;
+}
+
+interface DashboardBriefing {
+  org: {
+    id: string;
+    name: string;
+    slug?: string | null;
+    tier?: string | null;
+  };
+  metrics: {
+    upcomingEvents: number;
+    pendingRegistrations: number;
+    pendingSponsors: number;
+    unpaidItems: number;
+    newContacts: number;
+    newMembers: number;
+  };
+  activity: BriefingItem[];
+  needsAttention: BriefingItem[];
+  upcoming: BriefingItem[];
+}
+
+function greetingForNow() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+function EmptyBriefing({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-slate-800/80 bg-slate-950/45 px-4 py-5 text-sm text-slate-400">
+      {children}
+    </div>
+  );
+}
+
+function BriefingList({ items, empty, attention = false }: {
+  items: BriefingItem[];
+  empty: string;
+  attention?: boolean;
+}) {
+  if (!items.length) return <EmptyBriefing>{empty}</EmptyBriefing>;
+  return (
+    <div className="space-y-3">
+      {items.map((item, index) => {
+        const content = (
+          <div className="rounded-lg border border-slate-800/80 bg-slate-950/55 p-4 transition-colors hover:border-slate-700">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-semibold text-slate-100">{item.label}</p>
+                <p className="mt-1 text-sm leading-5 text-slate-400">{item.detail}</p>
+                {item.date && <p className="mt-2 text-xs font-medium text-slate-500">{item.date}</p>}
+              </div>
+              {attention && (
+                <Badge className={cn(
+                  "shrink-0 border",
+                  item.priority === "high"
+                    ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                    : "border-sky-500/40 bg-sky-500/10 text-sky-200",
+                )}>
+                  {item.priority ?? "review"}
+                </Badge>
+              )}
+            </div>
+          </div>
+        );
+        return item.href ? (
+          <Link key={`${item.label}-${index}`} href={item.href}>
+            {content}
+          </Link>
+        ) : (
+          <div key={`${item.label}-${index}`}>{content}</div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CommandCenterOverview({ briefing, loading, orgName }: {
+  briefing?: DashboardBriefing | null;
+  loading: boolean;
+  orgName: string;
+}) {
+  const metrics = briefing?.metrics;
+  const metricCards = [
+    { label: "Upcoming events", value: metrics?.upcomingEvents ?? 0, icon: Calendar, href: "/dashboard/events" },
+    { label: "Pending registrations", value: metrics?.pendingRegistrations ?? 0, icon: UserCheck, href: "/dashboard/registrations" },
+    { label: "Pending sponsors", value: metrics?.pendingSponsors ?? 0, icon: Star, href: "/dashboard/sponsors" },
+    { label: "Open revenue items", value: metrics?.unpaidItems ?? 0, icon: DollarSign, href: "/dashboard/payments" },
+    { label: "New contacts", value: metrics?.newContacts ?? 0, icon: MessageSquare, href: "/dashboard/communications" },
+    { label: "New members", value: metrics?.newMembers ?? 0, icon: Users, href: "/dashboard/members" },
+  ];
+
+  return (
+    <div className="p-6 pb-10 space-y-6 max-w-7xl mx-auto">
+      <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+        <div className="flex flex-col gap-2">
+          <Badge className="w-fit border border-blue-400/30 bg-blue-500/10 text-blue-200">Command Center</Badge>
+          <h1 className="text-2xl sm:text-3xl font-bold text-white">
+            {greetingForNow()}, {briefing?.org.name ?? orgName}
+          </h1>
+          <p className="text-sm text-slate-400">Here&apos;s what Pillar has been tracking for you.</p>
+        </div>
+      </motion.div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        {metricCards.map((metric) => {
+          const Icon = metric.icon;
+          return (
+            <Link key={metric.label} href={metric.href}>
+              <Card className="border-slate-800 bg-slate-950/60 hover:border-slate-700 transition-colors">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <Icon className="h-4 w-4 text-slate-500" />
+                    <span className="text-2xl font-bold text-white">{metric.value}</span>
+                  </div>
+                  <p className="mt-3 text-xs font-medium uppercase tracking-wide text-slate-500">{metric.label}</p>
+                </CardContent>
+              </Card>
+            </Link>
+          );
+        })}
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-3">
+        <Card className="border-slate-800 bg-slate-950/70">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base text-white">
+              <Sparkles className="h-4 w-4 text-blue-300" />
+              This Week Pillar Did
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading
+              ? <EmptyBriefing>Loading this week&apos;s activity...</EmptyBriefing>
+              : <BriefingList items={briefing?.activity ?? []} empty="No new operational activity this week yet." />}
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-800 bg-slate-950/70">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base text-white">
+              <AlertTriangle className="h-4 w-4 text-amber-300" />
+              Needs Your Attention
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading
+              ? <EmptyBriefing>Checking for anything that needs review...</EmptyBriefing>
+              : <BriefingList attention items={briefing?.needsAttention ?? []} empty="Nothing urgent right now. You&apos;re clear." />}
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-800 bg-slate-950/70">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base text-white">
+              <Clock className="h-4 w-4 text-emerald-300" />
+              Coming Soon
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loading
+              ? <EmptyBriefing>Loading upcoming work...</EmptyBriefing>
+              : <BriefingList items={briefing?.upcoming ?? []} empty="No upcoming events are on the calendar yet." />}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="border-slate-800 bg-gradient-to-r from-slate-950 to-slate-900">
+        <CardContent className="p-4">
+          <Link href="/dashboard/autopilot">
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-slate-800 bg-slate-950/70 px-4 py-3 text-slate-400 hover:border-blue-500/50 hover:text-slate-200 transition-colors">
+              <div className="flex items-center gap-3">
+                <MessageSquare className="h-4 w-4 text-blue-300" />
+                <span className="text-sm">Ask Pillar what needs attention next...</span>
+              </div>
+              <ArrowRight className="h-4 w-4" />
+            </div>
+          </Link>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function Overview() {
   const { data: orgData } = useGetOrganization();
   const org = orgData?.organization;
@@ -120,6 +313,12 @@ export default function Overview() {
   });
 
   const currentTierId = (subscription?.tierId || org?.tier) || null;
+  const hasCommandCenter = currentTierId === "tier2" || currentTierId === "tier3";
+  const { data: briefing, isLoading: briefingLoading } = useQuery<DashboardBriefing | null>({
+    queryKey: ["dashboard-briefing"],
+    enabled: hasCommandCenter,
+    queryFn: () => fetch("/api/dashboard/briefing", { credentials: "include" }).then(r => r.ok ? r.json() : null),
+  });
   const hasPlan = !!currentTierId;
   const hasEvents = currentTierId ? TIER_INCLUDES_EVENTS.has(currentTierId) : false;
   const hasSocial = currentTierId ? TIER_INCLUDES_SOCIAL.has(currentTierId) : false;
@@ -203,6 +402,16 @@ export default function Overview() {
       onError: () => toast.error("Failed to open billing portal."),
     });
   };
+
+  if (hasCommandCenter) {
+    return (
+      <CommandCenterOverview
+        briefing={briefing}
+        loading={briefingLoading}
+        orgName={org?.name ?? "your organization"}
+      />
+    );
+  }
 
   return (
     <div className="p-6 pb-10 space-y-6 max-w-6xl mx-auto">
