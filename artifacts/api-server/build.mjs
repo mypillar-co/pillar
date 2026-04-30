@@ -18,7 +18,7 @@ async function buildAll() {
   // their own Vite dev servers, so we skip the build to keep restarts fast.
   if (process.env.CI === "true" || process.env.NODE_ENV === "production") {
     console.log("CI detected — building frontend apps...");
-    const frontends = ["norwin-rotary", "steward"];
+    const frontends = ["norwin-rotary", "community-platform", "steward"];
     for (const app of frontends) {
       console.log(`  Building artifacts/${app}...`);
       execSync(`pnpm --filter @workspace/${app} run build`, {
