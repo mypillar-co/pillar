@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "NODE_ENV=development DISABLE_SCHEDULER=1 node --env-file=../../.env ./build.mjs && NODE_ENV=development DISABLE_SCHEDULER=1 node --env-file=../../.env ./dist/index.mjs",
+    "dev": "ENV_FILE=../../.env; ENV_ARGS=; if [ -f \"$ENV_FILE\" ]; then ENV_ARGS=\"--env-file=$ENV_FILE\"; fi; NODE_ENV=development DISABLE_SCHEDULER=1 node $ENV_ARGS ./build.mjs && NODE_ENV=development DISABLE_SCHEDULER=1 node $ENV_ARGS ./dist/index.mjs",
     "build": "node ./build.mjs",
     "build:all": "pnpm --filter @workspace/norwin-rotary run build && pnpm --filter @workspace/steward run build && node ./build.mjs",
-    "start": "lsof -ti:8080 | xargs kill -9 2>/dev/null || true; sleep 0.3; node --enable-source-maps ./dist/index.mjs",
+    "start": "PORT_TO_KILL=${PORT:-8080}; command -v lsof >/dev/null && lsof -ti:$PORT_TO_KILL | xargs kill -9 2>/dev/null || true; sleep 0.3; ENV_FILE=../../.env; ENV_ARGS=; if [ -f \"$ENV_FILE\" ]; then ENV_ARGS=\"--env-file=$ENV_FILE\"; fi; node $ENV_ARGS --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
