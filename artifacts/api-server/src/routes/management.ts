@@ -3062,6 +3062,15 @@ Always end with the site URL and events URL.`;
 	      let result = "";
 	      try {
 	        const args = JSON.parse(call.function.arguments ?? "{}") as Record<string, unknown>;
+	        const createsPublishedEvent =
+	          call.function.name === "create_event" && args.status === "published";
+	        const publishesExistingEvent =
+	          call.function.name === "update_event" && args.status === "published";
+	        if ((createsPublishedEvent || publishesExistingEvent) && !hasServerConfirmation(args, message)) {
+	          result = pendingConfirmation(call.function.name, args);
+	          messages.push({ role: "tool", tool_call_id: call.id, content: result });
+	          continue;
+	        }
 	        if (RISKY_TOOL_NAMES.has(call.function.name) && !hasServerConfirmation(args, message)) {
 	          result = pendingConfirmation(call.function.name, args);
 	          messages.push({ role: "tool", tool_call_id: call.id, content: result });

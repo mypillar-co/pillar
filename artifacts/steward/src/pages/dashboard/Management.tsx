@@ -38,73 +38,50 @@ interface PhotoAlbum {
 
 const SUGGESTION_GROUPS: { title: string; icon: React.ElementType; color: string; suggestions: Suggestion[] }[] = [
   {
-    title: "Events",
+    title: "Event operations",
     icon: Calendar,
     color: "text-blue-400",
     suggestions: [
-      { icon: Calendar, label: "What's coming up?", prompt: "What events do I have coming up?", color: "text-blue-400" },
-      { icon: Calendar, label: "Add new event", prompt: "I want to add a new event. Can you help me?", color: "text-blue-400" },
+      { icon: Calendar, label: "Upcoming events", prompt: "Show me upcoming events.", color: "text-blue-400" },
       { icon: Calendar, label: "Ticket sales", prompt: "Give me a summary of all ticket sales.", color: "text-blue-400" },
+      { icon: Calendar, label: "Needs attention", prompt: "What needs attention this week?", color: "text-blue-400" },
     ],
   },
   {
-    title: "Sponsors",
+    title: "Follow-up queues",
     icon: Trophy,
     color: "text-amber-400",
     suggestions: [
-      { icon: Trophy, label: "Pending applications", prompt: "Any new sponsor applications waiting for approval?", color: "text-amber-400" },
+      { icon: Trophy, label: "Pending sponsors", prompt: "Show me pending sponsor applications.", color: "text-amber-400" },
+      { icon: Trophy, label: "Unpaid vendors", prompt: "Show me unpaid vendors.", color: "text-amber-400" },
     ],
   },
   {
-    title: "Content",
-    icon: FileText,
+    title: "Draft communications",
+    icon: Mail,
     color: "text-green-400",
     suggestions: [
-      { icon: FileText, label: "View site content", prompt: "What text can I change on my site?", color: "text-green-400" },
-      { icon: FileText, label: "Update tagline", prompt: "I want to update my homepage tagline.", color: "text-green-400" },
+      { icon: Mail, label: "Vendor reminder", prompt: "Draft a reminder for unpaid vendors.", color: "text-green-400" },
+      { icon: Mail, label: "Sponsor thank-you", prompt: "Draft a thank-you note for sponsors.", color: "text-green-400" },
+      { icon: Mail, label: "Event announcement", prompt: "Draft an event announcement.", color: "text-green-400" },
     ],
   },
   {
-    title: "Analytics",
+    title: "Reports",
     icon: BarChart2,
     color: "text-purple-400",
     suggestions: [
-      { icon: BarChart2, label: "Site overview", prompt: "Give me an overview of how the site is doing.", color: "text-purple-400" },
+      { icon: BarChart2, label: "Board report", prompt: "Generate a board report summary.", color: "text-purple-400" },
+      { icon: BarChart2, label: "Autopilot status", prompt: "Which autopilot items are active or available?", color: "text-purple-400" },
     ],
   },
   {
-    title: "Newsletter",
-    icon: Mail,
+    title: "Members",
+    icon: Bot,
     color: "text-rose-400",
     suggestions: [
-      { icon: Mail, label: "Subscriber count", prompt: "How many newsletter subscribers do I have?", color: "text-rose-400" },
-      { icon: Mail, label: "Send newsletter", prompt: "I want to send a newsletter about upcoming events.", color: "text-rose-400" },
-    ],
-  },
-  {
-    title: "Messages",
-    icon: MessageSquare,
-    color: "text-sky-400",
-    suggestions: [
-      { icon: MessageSquare, label: "New messages", prompt: "Do I have any new contact form messages?", color: "text-sky-400" },
-    ],
-  },
-  {
-    title: "Directory",
-    icon: Building2,
-    color: "text-orange-400",
-    suggestions: [
-      { icon: Building2, label: "Add a business", prompt: "I want to add a business to the directory.", color: "text-orange-400" },
-      { icon: Building2, label: "View directory", prompt: "Show me the businesses in my directory.", color: "text-orange-400" },
-    ],
-  },
-  {
-    title: "Gallery",
-    icon: Image,
-    color: "text-teal-400",
-    suggestions: [
-      { icon: Image, label: "Create album", prompt: "Create a new photo album.", color: "text-teal-400" },
-      { icon: Image, label: "View albums", prompt: "Show me my photo albums.", color: "text-teal-400" },
+      { icon: Bot, label: "Member stats", prompt: "How many members do we have?", color: "text-rose-400" },
+      { icon: Bot, label: "Renewals", prompt: "Which member renewals are coming up?", color: "text-rose-400" },
     ],
   },
 ];
@@ -577,7 +554,7 @@ export default function Management() {
           </div>
           <div>
             <h1 className="text-lg font-semibold text-white">Autopilot</h1>
-            <p className="text-xs text-muted-foreground">Manage your entire organization with plain English</p>
+            <p className="text-xs text-muted-foreground">Automation status, operational drafts, and safe follow-up queues</p>
           </div>
         </div>
         {messages.length > 0 && (
@@ -602,82 +579,11 @@ export default function Management() {
               </div>
               <h2 className="text-xl font-semibold text-white mb-1">What would you like to manage?</h2>
               <p className="text-sm text-muted-foreground">
-                Ask me anything — I can create events, check ticket sales, approve sponsors, send newsletters, and more.
+                Ask for summaries and drafts. Sending, publishing, deleting, and approvals require explicit confirmation.
               </p>
             </div>
 
-            {/* Quick upload actions */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Gallery upload card */}
-              <div className="rounded-xl border border-white/8 bg-white/3 overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/6">
-                  <div className="flex items-center gap-2">
-                    <Image className="w-3.5 h-3.5 text-teal-400" />
-                    <span className="text-xs font-medium text-slate-300">Photo Gallery</span>
-                  </div>
-                  <button
-                    onClick={() => setGalleryOpen(o => !o)}
-                    className="flex items-center gap-1 text-xs text-teal-400 hover:text-teal-300 px-2 py-0.5 rounded border border-teal-500/20 hover:bg-teal-500/10 transition-colors"
-                  >
-                    <ImagePlus className="w-3 h-3" />
-                    {galleryOpen ? "Close" : "Upload photos"}
-                  </button>
-                </div>
-                {galleryOpen
-                  ? <GalleryUploadPanel onDone={() => setTimeout(() => setGalleryOpen(false), 2000)} />
-                  : (
-                    <div className="p-2 space-y-1">
-                      {SUGGESTION_GROUPS.find(g => g.title === "Gallery")?.suggestions.map(s => (
-                        <button
-                          key={s.prompt}
-                          onClick={() => handleSuggestion(s.prompt)}
-                          className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-sm text-slate-300 hover:bg-white/6 hover:text-white transition-colors group"
-                        >
-                          <span>{s.label}</span>
-                          <ChevronRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-60 transition-opacity" />
-                        </button>
-                      ))}
-                    </div>
-                  )
-                }
-              </div>
-
-              {/* Sponsor logo card */}
-              <div className="rounded-xl border border-white/8 bg-white/3 overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/6">
-                  <div className="flex items-center gap-2">
-                    <Trophy className="w-3.5 h-3.5 text-amber-400" />
-                    <span className="text-xs font-medium text-slate-300">Sponsors</span>
-                  </div>
-                  <button
-                    onClick={() => setSponsorOpen(o => !o)}
-                    className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 px-2 py-0.5 rounded border border-amber-500/20 hover:bg-amber-500/10 transition-colors"
-                  >
-                    <Plus className="w-3 h-3" />
-                    {sponsorOpen ? "Close" : "Add sponsor"}
-                  </button>
-                </div>
-                {sponsorOpen
-                  ? <SponsorLogoPanel onDone={() => setTimeout(() => setSponsorOpen(false), 2000)} />
-                  : (
-                    <div className="p-2 space-y-1">
-                      {SUGGESTION_GROUPS.find(g => g.title === "Sponsors")?.suggestions.map(s => (
-                        <button
-                          key={s.prompt}
-                          onClick={() => handleSuggestion(s.prompt)}
-                          className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-sm text-slate-300 hover:bg-white/6 hover:text-white transition-colors group"
-                        >
-                          <span>{s.label}</span>
-                          <ChevronRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-60 transition-opacity" />
-                        </button>
-                      ))}
-                    </div>
-                  )
-                }
-              </div>
-            </div>
-
-            {/* Remaining suggestion grid */}
+            {/* Operational suggestion grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {SUGGESTION_GROUPS.map((group) => (
                 <div
@@ -759,7 +665,7 @@ export default function Management() {
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder='Try: "How many tickets sold for the chili cookoff?" or "Add a spring gala on April 20"'
+            placeholder='Try: "show unpaid vendors" or "draft a sponsor thank-you"'
             className="flex-1 bg-transparent text-sm text-white placeholder:text-slate-500 outline-none"
             disabled={loading}
           />
@@ -775,7 +681,7 @@ export default function Management() {
           </button>
         </form>
         <p className="text-center text-xs text-muted-foreground mt-2">
-          Autopilot can create, update, and delete records — always confirm before destructive actions.
+          Draft and summary actions are safe. Sending, publishing, deleting, approvals, invites, and payments require server-side confirmation.
         </p>
       </div>
     </div>

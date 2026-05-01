@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Star, Search, Mail, Globe, Loader2 } from "lucide-react";
+import { Plus, Star, Search, Mail, Globe, Loader2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,22 +9,49 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { api, type Sponsor } from "@/lib/api";
+import { uploadImage, isImageFile } from "@/lib/uploadImage";
 
 function AddSponsorDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
-  const [form, setForm] = useState({ name: "", email: "", phone: "", website: "", notes: "" });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", website: "", notes: "", eventId: "", tier: "" });
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const { data: events = [] } = useQuery({ queryKey: ["events"], queryFn: api.events.list });
   const mutation = useMutation({
-    mutationFn: () => api.sponsors.create(form),
+    mutationFn: async () => {
+      let logoUrl: string | undefined;
+      if (logoFile) logoUrl = await uploadImage(logoFile);
+      return api.sponsors.create({
+        ...form,
+        eventId: form.eventId || undefined,
+        tier: form.tier || undefined,
+        logoUrl,
+      });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sponsors"] });
       qc.invalidateQueries({ queryKey: ["stats"] });
+      qc.invalidateQueries({ queryKey: ["events"] });
       toast.success("Sponsor added");
       onClose();
-      setForm({ name: "", email: "", phone: "", website: "", notes: "" });
+      setForm({ name: "", email: "", phone: "", website: "", notes: "", eventId: "", tier: "" });
+      if (logoPreview) URL.revokeObjectURL(logoPreview);
+      setLogoPreview(null);
+      setLogoFile(null);
     },
     onError: (e: Error) => toast.error(e.message),
   });
   const set = (k: string) => (v: string) => setForm(p => ({ ...p, [k]: v }));
+  function handleLogo(file: File | undefined) {
+    if (!file) return;
+    if (!isImageFile(file)) {
+      toast.error("Please choose an image file.");
+      return;
+    }
+    if (logoPreview) URL.revokeObjectURL(logoPreview);
+    setLogoFile(file);
+    setLogoPreview(URL.createObjectURL(file));
+  }
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="bg-[hsl(224,30%,14%)] border-white/10 text-white max-w-md">
@@ -34,6 +61,16 @@ function AddSponsorDialog({ open, onClose }: { open: boolean; onClose: () => voi
             <Label className="text-slate-300">Sponsor Name *</Label>
             <Input value={form.name} onChange={e => set("name")(e.target.value)} placeholder="Acme Corp" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
           </div>
+          <div className="space-y-1.5">
+            <Label className="text-slate-300">Logo image (optional)</Label>
+            <label className="flex items-center gap-3 rounded-lg border border-dashed border-white/15 bg-white/5 p-3 cursor-pointer hover:border-amber-500/40">
+              <div className="h-12 w-12 rounded-lg bg-white/5 flex items-center justify-center overflow-hidden">
+                {logoPreview ? <img src={logoPreview} alt="" className="h-full w-full object-contain" /> : <Upload className="h-4 w-4 text-slate-400" />}
+              </div>
+              <span className="text-sm text-slate-300">{logoFile ? logoFile.name : "Upload sponsor logo"}</span>
+              <input type="file" accept="image/*" className="hidden" onChange={e => handleLogo(e.target.files?.[0])} />
+            </label>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-slate-300">Email</Label>
@@ -42,6 +79,23 @@ function AddSponsorDialog({ open, onClose }: { open: boolean; onClose: () => voi
             <div className="space-y-1.5">
               <Label className="text-slate-300">Website</Label>
               <Input value={form.website} onChange={e => set("website")(e.target.value)} placeholder="https://acme.com" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-slate-300">Event (optional)</Label>
+              <select
+                value={form.eventId}
+                onChange={e => set("eventId")(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm text-white"
+              >
+                <option value="">Organization sponsor</option>
+                {events.map(event => <option key={event.id} value={event.id}>{event.name}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-slate-300">Tier (optional)</Label>
+              <Input value={form.tier} onChange={e => set("tier")(e.target.value)} placeholder="Gold" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
             </div>
           </div>
           <div className="space-y-1.5">

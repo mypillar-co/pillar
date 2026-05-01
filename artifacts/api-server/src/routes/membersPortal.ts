@@ -44,6 +44,31 @@ function getCurrentPortal(org: OrgRow): MembersPortalConfig {
   return { sections: [] };
 }
 
+function cloneSection(section: Record<string, unknown>): PortalSection {
+  return JSON.parse(JSON.stringify(section)) as PortalSection;
+}
+
+function deterministicPortalSuggestions(
+  org: OrgRow,
+  currentTypes: Set<string>,
+): PortalSection[] {
+  const starter = buildStarterPortalConfig(org.type, org.name ?? "your organization").sections;
+  const suggestions: PortalSection[] = [];
+  for (const section of starter) {
+    if (!currentTypes.has(section.type)) suggestions.push(cloneSection(section));
+    if (suggestions.length >= 3) return suggestions;
+  }
+
+  for (const def of Object.values(SECTION_REGISTRY)) {
+    if (!def.surfaces.portal) continue;
+    if (currentTypes.has(def.type)) continue;
+    if (suggestions.some((section) => section.type === def.type)) continue;
+    suggestions.push(cloneSection(def.example));
+    if (suggestions.length >= 3) break;
+  }
+  return suggestions;
+}
+
 async function persistPortal(
   org: OrgRow,
   portal: MembersPortalConfig,
@@ -149,7 +174,10 @@ router.post("/ai-suggest", async (req: Request, res: Response) => {
   try {
     client = createOpenAIClient();
   } catch {
-    return res.status(503).json({ error: AI_UNAVAILABLE_MESSAGE });
+    return res.json({
+      suggestions: deterministicPortalSuggestions(row, currentTypes),
+      source: "template",
+    });
   }
   const registryPrompt = getPortalSectionRegistryPrompt();
 
@@ -196,7 +224,11 @@ No commentary, no markdown fences.`;
     res.json({ suggestions });
   } catch (err: any) {
     logger.warn({ err, orgId: row.id }, "[members-portal] AI suggest failed");
-    res.status(502).json({ error: AI_UNAVAILABLE_MESSAGE });
+    res.json({
+      suggestions: deterministicPortalSuggestions(row, currentTypes),
+      source: "template",
+      warning: AI_UNAVAILABLE_MESSAGE,
+    });
   }
 });
 

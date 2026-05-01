@@ -65,6 +65,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Events & Content",
     items: [
       { label: "Events", href: "/dashboard/events", icon: Calendar, tourId: "events" },
+      { label: "Sponsors", href: "/dashboard/sponsors", icon: Star },
       { label: "Communications", href: "/dashboard/social", icon: Share2, tourId: "social" },
       { label: "Announcements", href: "/dashboard/announcements", icon: Megaphone },
       { label: "Content Studio", href: "/dashboard/studio", icon: Sparkles },
@@ -76,7 +77,6 @@ const NAV_SECTIONS: NavSection[] = [
       { label: "Contacts", href: "/dashboard/contacts", icon: Contact2 },
       { label: "Members", href: "/dashboard/members", icon: Users },
       { label: "Members Portal", href: "/dashboard/members-portal", icon: Users },
-      { label: "Sponsors", href: "/dashboard/sponsors", icon: Star },
       { label: "Vendors", href: "/dashboard/vendors", icon: ShoppingBag },
     ],
   },

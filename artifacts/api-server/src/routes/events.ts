@@ -10,6 +10,8 @@ import {
   eventCommunicationsTable,
   eventWaitlistTable,
   recurringEventTemplatesTable,
+  eventSponsorsTable,
+  sponsorsTable,
 } from "@workspace/db";
 import { eq, and, asc, desc, gte, sum, sql } from "drizzle-orm";
 import OpenAI from "openai";
@@ -863,16 +865,41 @@ router.get("/:id", async (req: Request, res: Response) => {
     res.status(404).json({ error: "Event not found" });
     return;
   }
-  const [ticketTypes, sales, approvals, communications] = await Promise.all([
+  const [ticketTypes, sales, approvals, communications, sponsors] = await Promise.all([
     db.select().from(ticketTypesTable).where(and(eq(ticketTypesTable.eventId, eventId), eq(ticketTypesTable.orgId, org.id))).orderBy(asc(ticketTypesTable.createdAt)),
     db.select().from(ticketSalesTable).where(and(eq(ticketSalesTable.eventId, eventId), eq(ticketSalesTable.orgId, org.id))).orderBy(desc(ticketSalesTable.createdAt)),
     db.select().from(eventApprovalsTable).where(and(eq(eventApprovalsTable.eventId, eventId), eq(eventApprovalsTable.orgId, org.id))).orderBy(desc(eventApprovalsTable.createdAt)),
     db.select().from(eventCommunicationsTable).where(and(eq(eventCommunicationsTable.eventId, eventId), eq(eventCommunicationsTable.orgId, org.id))).orderBy(desc(eventCommunicationsTable.sentAt)),
+    db
+      .select({
+        id: eventSponsorsTable.id,
+        eventId: eventSponsorsTable.eventId,
+        sponsorId: eventSponsorsTable.sponsorId,
+        orgId: eventSponsorsTable.orgId,
+        tier: eventSponsorsTable.tier,
+        amountPledged: eventSponsorsTable.amountPledged,
+        amountReceived: eventSponsorsTable.amountReceived,
+        status: eventSponsorsTable.status,
+        notes: eventSponsorsTable.notes,
+        createdAt: eventSponsorsTable.createdAt,
+        updatedAt: eventSponsorsTable.updatedAt,
+        name: sponsorsTable.name,
+        email: sponsorsTable.email,
+        phone: sponsorsTable.phone,
+        website: sponsorsTable.website,
+        logoUrl: sponsorsTable.logoUrl,
+        sponsorStatus: sponsorsTable.status,
+        siteVisible: sponsorsTable.siteVisible,
+      })
+      .from(eventSponsorsTable)
+      .innerJoin(sponsorsTable, eq(eventSponsorsTable.sponsorId, sponsorsTable.id))
+      .where(and(eq(eventSponsorsTable.eventId, eventId), eq(eventSponsorsTable.orgId, org.id)))
+      .orderBy(asc(sponsorsTable.tierRank), asc(sponsorsTable.siteDisplayPriority), asc(sponsorsTable.name)),
   ]);
   const totalRevenue = sales.reduce((s, r) => s + r.amountPaid, 0);
   const totalSold = sales.reduce((s, r) => s + r.quantity, 0);
   const totalPlatformFees = Math.round(sales.reduce((s, r) => s + (r.platformFee ?? 0), 0) * 100) / 100;
-  res.json({ event, ticketTypes, sales, approvals, communications, totalRevenue, totalSold, totalPlatformFees });
+  res.json({ event, ticketTypes, sales, approvals, communications, sponsors, totalRevenue, totalSold, totalPlatformFees });
 });
 
 // POST /api/events

@@ -11,6 +11,7 @@ import {
 } from "@workspace/db";
 import { and, count, desc, eq, gte, lte, ne, or } from "drizzle-orm";
 import { resolveFullOrg } from "../lib/resolveOrg";
+import { requireOperationsTier } from "../lib/operationsTier";
 
 const router = Router();
 
@@ -21,6 +22,7 @@ function numberValue(value: unknown): number {
 router.get("/briefing", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
+  if (!requireOperationsTier(org, res)) return;
 
   const today = new Date().toISOString().split("T")[0];
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);

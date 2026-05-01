@@ -155,7 +155,7 @@ export default function MembersPortal() {
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => aiSuggest.mutate()} disabled={aiSuggest.isPending}>
             <Sparkles className="w-4 h-4 mr-1.5" />
-            {aiSuggest.isPending ? "Thinking…" : "AI suggest more"}
+            {aiSuggest.isPending ? "Finding sections…" : "Suggest sections"}
           </Button>
           <Button onClick={() => save.mutate(draft)} disabled={!dirty || save.isPending}>
             <Save className="w-4 h-4 mr-1.5" />
@@ -173,7 +173,7 @@ export default function MembersPortal() {
       <div className="space-y-4">
         {draft.length === 0 && (
           <Card className="p-12 text-center text-sm text-slate-500">
-            No portal sections yet. Add one below or click "AI suggest more".
+            No portal sections yet. Add one below or click "Suggest sections".
           </Card>
         )}
         {draft.map((section, idx) => (

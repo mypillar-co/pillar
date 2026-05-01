@@ -31,7 +31,10 @@ import { useGetOrganization, useGetSubscription, useCreateCheckoutSession, useCr
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { api, type EventItem } from "@/lib/api";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { api, csrfHeaders, type EventItem } from "@/lib/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -114,6 +117,34 @@ interface DashboardBriefing {
   upcoming: BriefingItem[];
 }
 
+interface BoardReportResponse {
+  generatedAt: string;
+  period: { month: string };
+  metrics: Record<string, number>;
+  sections: {
+    executiveSummary: string[];
+    needsAttention: Array<{ label: string; detail: string }>;
+  };
+  html: string;
+}
+
+interface EmailDraftResponse {
+  subject: string;
+  body: string;
+  recipientsPreview: string;
+  recipientCount: number;
+  status: "draft";
+  intent: string;
+}
+
+const EMAIL_DRAFT_ACTIONS: Array<{ label: string; intent: string }> = [
+  { label: "Remind unpaid vendors", intent: "unpaid_vendor_reminder" },
+  { label: "Sponsor thank-you", intent: "sponsor_thank_you" },
+  { label: "Volunteer reminder", intent: "volunteer_reminder" },
+  { label: "Member renewal reminder", intent: "member_renewal" },
+  { label: "Event announcement", intent: "event_announcement" },
+];
+
 function greetingForNow() {
   const hour = new Date().getHours();
   if (hour < 12) return "Good morning";
@@ -176,6 +207,15 @@ function CommandCenterOverview({ briefing, loading, orgName }: {
   loading: boolean;
   orgName: string;
 }) {
+  const [askText, setAskText] = React.useState("");
+  const [askNotice, setAskNotice] = React.useState<string | null>(null);
+  const [reportOpen, setReportOpen] = React.useState(false);
+  const [reportLoading, setReportLoading] = React.useState(false);
+  const [report, setReport] = React.useState<BoardReportResponse | null>(null);
+  const [draftOpen, setDraftOpen] = React.useState(false);
+  const [draftLoading, setDraftLoading] = React.useState<string | null>(null);
+  const [draft, setDraft] = React.useState<EmailDraftResponse | null>(null);
+
   const metrics = briefing?.metrics;
   const metricCards = [
     { label: "Upcoming events", value: metrics?.upcomingEvents ?? 0, icon: Calendar, href: "/dashboard/events" },
@@ -185,6 +225,77 @@ function CommandCenterOverview({ briefing, loading, orgName }: {
     { label: "New contacts", value: metrics?.newContacts ?? 0, icon: MessageSquare, href: "/dashboard/communications" },
     { label: "New members", value: metrics?.newMembers ?? 0, icon: Users, href: "/dashboard/members" },
   ];
+
+  async function loadBoardReport() {
+    setReportLoading(true);
+    try {
+      const res = await fetch("/api/reports/board-monthly", { credentials: "include" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Failed to generate board report");
+      setReport(body as BoardReportResponse);
+      setReportOpen(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to generate board report");
+    } finally {
+      setReportLoading(false);
+    }
+  }
+
+  async function createEmailDraft(intent: string) {
+    setDraftLoading(intent);
+    try {
+      const res = await fetch("/api/operations/email-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...csrfHeaders("POST") },
+        credentials: "include",
+        body: JSON.stringify({ intent }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Failed to prepare draft");
+      setDraft(body as EmailDraftResponse);
+      setDraftOpen(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to prepare draft");
+    } finally {
+      setDraftLoading(null);
+    }
+  }
+
+  function handleAskPillar() {
+    const text = askText.trim().toLowerCase();
+    setAskNotice(null);
+    if (!text) return;
+    if (text.includes("unpaid") && text.includes("vendor")) {
+      window.location.href = "/dashboard/registrations";
+      return;
+    }
+    if (text.includes("pending") && text.includes("sponsor")) {
+      window.location.href = "/dashboard/sponsors";
+      return;
+    }
+    if (text.includes("upcoming") && text.includes("event")) {
+      window.location.href = "/dashboard/events";
+      return;
+    }
+    if (text.includes("draft") && text.includes("vendor")) {
+      void createEmailDraft("unpaid_vendor_reminder");
+      return;
+    }
+    if (text.includes("board") && text.includes("report")) {
+      void loadBoardReport();
+      return;
+    }
+    setAskNotice("Ask Pillar actions are coming soon. Try: show unpaid vendors, pending sponsors, upcoming events, draft vendor reminder, or generate board report.");
+  }
+
+  function copyDraft() {
+    if (!draft) return;
+    const text = `Subject: ${draft.subject}\n\n${draft.body}`;
+    navigator.clipboard?.writeText(text).then(
+      () => toast.success("Draft copied"),
+      () => toast.error("Could not copy draft"),
+    );
+  }
 
   return (
     <div className="p-6 pb-10 space-y-6 max-w-7xl mx-auto">
@@ -261,19 +372,147 @@ function CommandCenterOverview({ briefing, loading, orgName }: {
         </Card>
       </div>
 
-      <Card className="border-slate-800 bg-gradient-to-r from-slate-950 to-slate-900">
-        <CardContent className="p-4">
-          <Link href="/dashboard/autopilot">
-            <div className="flex items-center justify-between gap-4 rounded-lg border border-slate-800 bg-slate-950/70 px-4 py-3 text-slate-400 hover:border-blue-500/50 hover:text-slate-200 transition-colors">
-              <div className="flex items-center gap-3">
-                <MessageSquare className="h-4 w-4 text-blue-300" />
-                <span className="text-sm">Ask Pillar what needs attention next...</span>
+      <div className="grid gap-5 lg:grid-cols-3">
+        <Card className="border-slate-800 bg-slate-950/70">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base text-white">
+              <FileText className="h-4 w-4 text-indigo-300" />
+              Board Report
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm leading-5 text-slate-400">
+              Generate a printable monthly summary for board meetings, revenue review, and operational follow-up.
+            </p>
+            <Button onClick={() => void loadBoardReport()} disabled={reportLoading} className="w-full">
+              {reportLoading ? "Generating…" : "Generate Board Report"}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-800 bg-slate-950/70">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base text-white">
+              <Send className="h-4 w-4 text-emerald-300" />
+              Operational Drafts
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-2">
+            {EMAIL_DRAFT_ACTIONS.map((action) => (
+              <Button
+                key={action.intent}
+                variant="outline"
+                onClick={() => void createEmailDraft(action.intent)}
+                disabled={draftLoading === action.intent}
+                className="justify-between border-slate-800 bg-slate-950/40 text-slate-200 hover:bg-slate-900"
+              >
+                {action.label}
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            ))}
+            <p className="text-xs text-slate-500">Drafts only. Nothing sends from this panel.</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-800 bg-slate-950/70">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base text-white">
+              <Sparkles className="h-4 w-4 text-blue-300" />
+              Pillar Autopilot
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {[
+              ["Vendor reminders", (metrics?.unpaidItems ?? 0) > 0 ? "Draft available" : "Available to configure"],
+              ["Sponsor follow-up", (metrics?.pendingSponsors ?? 0) > 0 ? "Needs review" : "Available to configure"],
+              ["Board report generation", "Ready"],
+              ["Member renewals", (metrics?.newMembers ?? 0) > 0 ? "Roster monitored" : "Available to configure"],
+              ["Event promotion drafts", (metrics?.upcomingEvents ?? 0) > 0 ? "Draft available" : "Waiting for events"],
+            ].map(([label, status]) => (
+              <div key={label} className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2">
+                <span className="text-sm text-slate-300">{label}</span>
+                <Badge className="border border-slate-700 bg-slate-900 text-slate-300">{status}</Badge>
               </div>
-              <ArrowRight className="h-4 w-4" />
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="border-slate-800 bg-gradient-to-r from-slate-950 to-slate-900">
+        <CardContent className="p-4 space-y-3">
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="flex flex-1 items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/70 px-4 py-3">
+              <MessageSquare className="h-4 w-4 shrink-0 text-blue-300" />
+              <Input
+                value={askText}
+                onChange={(event) => setAskText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") handleAskPillar();
+                }}
+                placeholder="Ask Pillar: show unpaid vendors, pending sponsors, upcoming events..."
+                className="border-0 bg-transparent p-0 text-sm text-slate-200 placeholder:text-slate-500 focus-visible:ring-0"
+              />
             </div>
-          </Link>
+            <Button onClick={handleAskPillar} className="sm:w-32">Go</Button>
+          </div>
+          {askNotice && <p className="text-sm text-slate-400">{askNotice}</p>}
         </CardContent>
       </Card>
+
+      <Dialog open={reportOpen} onOpenChange={setReportOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto bg-slate-950 text-white border-slate-800">
+          <DialogHeader>
+            <DialogTitle>Board Report{report ? ` · ${report.period.month}` : ""}</DialogTitle>
+          </DialogHeader>
+          {report && (
+            <div className="space-y-5">
+              <div className="grid gap-3 sm:grid-cols-3">
+                {Object.entries(report.metrics).slice(0, 6).map(([key, value]) => (
+                  <div key={key} className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">{key.replace(/([A-Z])/g, " $1")}</p>
+                    <p className="mt-1 text-xl font-bold text-white">{value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="rounded-lg border border-slate-800 bg-white p-5 text-slate-900">
+                <div dangerouslySetInnerHTML={{ __html: report.html }} />
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={draftOpen} onOpenChange={setDraftOpen}>
+        <DialogContent className="max-w-2xl bg-slate-950 text-white border-slate-800">
+          <DialogHeader>
+            <DialogTitle>Email Draft</DialogTitle>
+          </DialogHeader>
+          {draft && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-sm text-slate-300">
+                {draft.recipientsPreview} · {draft.recipientCount} recipient{draft.recipientCount === 1 ? "" : "s"} · {draft.status}
+              </div>
+              <Input
+                value={draft.subject}
+                onChange={(event) => setDraft({ ...draft, subject: event.target.value })}
+                className="bg-slate-900 border-slate-800 text-white"
+              />
+              <Textarea
+                value={draft.body}
+                onChange={(event) => setDraft({ ...draft, body: event.target.value })}
+                rows={10}
+                className="bg-slate-900 border-slate-800 text-white"
+              />
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setDraftOpen(false)} className="border-slate-800 text-slate-200">
+                  Close
+                </Button>
+                <Button onClick={copyDraft}>Copy Draft</Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -5,7 +5,8 @@ import {
   ArrowLeft, Calendar, MapPin, Edit2, Save, X, Loader2, Trash2,
   Ticket, DollarSign, Users, Send, CheckCircle, XCircle, Plus,
   MessageSquare, RefreshCw, Sparkles, ClipboardList, Mail,
-  ExternalLink, Copy, ChevronDown, ChevronUp, Clock,
+  ExternalLink, Copy, ChevronDown, ChevronUp, Clock, Star,
+  Upload, Globe,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -17,7 +18,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { api, type EventItem, type EventDetail, type TicketType, type TicketSale } from "@/lib/api";
+import { api, type EventItem, type EventDetail, type TicketType, type TicketSale, type EventSponsor } from "@/lib/api";
+import { uploadImage, isImageFile } from "@/lib/uploadImage";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -39,7 +41,7 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
-type Tab = "overview" | "registrations" | "attendees" | "communication" | "waitlist";
+type Tab = "overview" | "sponsors" | "registrations" | "attendees" | "communication" | "waitlist";
 
 type WaitlistEntry = {
   id: string;
@@ -67,6 +69,105 @@ type Registration = {
   stripePaymentStatus?: string | null;
   createdAt: string;
 };
+
+function AddEventSponsorDialog({ open, onClose, eventId, eventName }: {
+  open: boolean;
+  onClose: () => void;
+  eventId: string;
+  eventName: string;
+}) {
+  const qc = useQueryClient();
+  const [form, setForm] = useState({ name: "", email: "", website: "", tier: "", notes: "" });
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const mutation = useMutation({
+    mutationFn: async () => {
+      let logoUrl: string | undefined;
+      if (logoFile) logoUrl = await uploadImage(logoFile);
+      return api.sponsors.create({
+        name: form.name,
+        email: form.email || undefined,
+        website: form.website || undefined,
+        notes: form.notes || undefined,
+        tier: form.tier || undefined,
+        eventId,
+        logoUrl,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["event", eventId] });
+      qc.invalidateQueries({ queryKey: ["sponsors"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-briefing"] });
+      toast.success("Sponsor linked to event");
+      onClose();
+      setForm({ name: "", email: "", website: "", tier: "", notes: "" });
+      if (logoPreview) URL.revokeObjectURL(logoPreview);
+      setLogoPreview(null);
+      setLogoFile(null);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const set = (key: keyof typeof form) => (value: string) => setForm(prev => ({ ...prev, [key]: value }));
+  function handleLogo(file: File | undefined) {
+    if (!file) return;
+    if (!isImageFile(file)) {
+      toast.error("Please choose an image file.");
+      return;
+    }
+    if (logoPreview) URL.revokeObjectURL(logoPreview);
+    setLogoFile(file);
+    setLogoPreview(URL.createObjectURL(file));
+  }
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="bg-[hsl(224,30%,14%)] border-white/10 text-white max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add Sponsor to {eventName}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-1.5">
+            <Label className="text-slate-300">Sponsor Name *</Label>
+            <Input value={form.name} onChange={e => set("name")(e.target.value)} placeholder="Acme Corp" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-slate-300">Logo image (optional)</Label>
+            <label className="flex items-center gap-3 rounded-lg border border-dashed border-white/15 bg-white/5 p-3 cursor-pointer hover:border-amber-500/40">
+              <div className="h-12 w-12 rounded-lg bg-white/5 flex items-center justify-center overflow-hidden">
+                {logoPreview ? <img src={logoPreview} alt="" className="h-full w-full object-contain" /> : <Upload className="h-4 w-4 text-slate-400" />}
+              </div>
+              <span className="text-sm text-slate-300">{logoFile ? logoFile.name : "Upload sponsor logo"}</span>
+              <input type="file" accept="image/*" className="hidden" onChange={e => handleLogo(e.target.files?.[0])} />
+            </label>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-slate-300">Website</Label>
+              <Input value={form.website} onChange={e => set("website")(e.target.value)} placeholder="https://acme.com" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-slate-300">Tier</Label>
+              <Input value={form.tier} onChange={e => set("tier")(e.target.value)} placeholder="Gold" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-slate-300">Email</Label>
+            <Input type="email" value={form.email} onChange={e => set("email")(e.target.value)} placeholder="sponsor@example.com" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-slate-300">Notes</Label>
+            <Textarea value={form.notes} onChange={e => set("notes")(e.target.value)} rows={2} className="bg-white/5 border-white/10 text-white resize-none" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} className="border-white/10 text-slate-300">Cancel</Button>
+          <Button onClick={() => mutation.mutate()} disabled={!form.name || mutation.isPending}>
+            {mutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Add Sponsor
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function AddSaleDialog({ open, onClose, eventId, ticketTypes }: {
   open: boolean; onClose: () => void; eventId: string; ticketTypes: TicketType[];
@@ -234,6 +335,7 @@ export default function EventDetailPage() {
   const [form, setForm] = useState<Partial<EventItem>>({});
   const [addingSale, setAddingSale] = useState(false);
   const [addingTicketType, setAddingTicketType] = useState(false);
+  const [addingSponsor, setAddingSponsor] = useState(false);
   const [commSubject, setCommSubject] = useState("");
   const [commBody, setCommBody] = useState("");
   const [approvalComment, setApprovalComment] = useState("");
@@ -297,6 +399,7 @@ export default function EventDetailPage() {
 
   const detail = data as EventDetail | undefined;
   const event = detail?.event;
+  const eventSponsors = detail?.sponsors ?? [];
 
   const updateMutation = useMutation({
     mutationFn: () => api.events.update(id, form),
@@ -456,6 +559,7 @@ export default function EventDetailPage() {
     : null;
   const TABS: { key: Tab; label: string; icon: React.ElementType; count?: number }[] = [
     { key: "overview", label: "Overview", icon: Calendar },
+    { key: "sponsors", label: "Sponsors", icon: Star, count: eventSponsors.length || undefined },
     { key: "registrations", label: "Registrations", icon: ClipboardList, count: pendingRegs.length || undefined },
     { key: "attendees", label: "Attendees", icon: Users, count: detail?.totalSold || undefined },
     { key: "communication", label: "Communication", icon: Mail },
@@ -751,6 +855,39 @@ export default function EventDetailPage() {
             </CardContent>
           </Card>
 
+          {/* Event Sponsors */}
+          <Card className="border-white/10 bg-card/60">
+            <CardHeader className="pb-3 flex flex-row items-center justify-between">
+              <CardTitle className="text-base font-semibold text-white flex items-center gap-2">
+                <Star className="w-4 h-4 text-amber-400" /> Event Sponsors
+              </CardTitle>
+              <Button size="sm" variant="outline" onClick={() => setAddingSponsor(true)} className="border-white/10 text-slate-300 h-7 text-xs">
+                <Plus className="w-3 h-3 mr-1" /> Add Sponsor
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {eventSponsors.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-white/10 p-4 text-sm text-muted-foreground">
+                  No sponsors are linked to this event yet. Add the businesses or partners supporting this event here.
+                </div>
+              ) : (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {eventSponsors.slice(0, 4).map((sponsor: EventSponsor) => (
+                    <div key={sponsor.id} className="flex items-center gap-3 rounded-lg border border-white/8 bg-white/5 p-3">
+                      <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center overflow-hidden">
+                        {sponsor.logoUrl ? <img src={sponsor.logoUrl} alt={sponsor.name} className="h-8 w-8 object-contain" /> : <Star className="h-4 w-4 text-amber-400" />}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-white truncate">{sponsor.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">{sponsor.tier || "Event sponsor"}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Ticket Types */}
           <Card className="border-white/10 bg-card/60">
             <CardHeader className="pb-3 flex flex-row items-center justify-between">
@@ -806,6 +943,60 @@ export default function EventDetailPage() {
           )}
 
           <p className="text-xs text-muted-foreground text-right">Created {new Date(event.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</p>
+        </div>
+      )}
+
+      {/* ── SPONSORS TAB ── */}
+      {tab === "sponsors" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">{eventSponsors.length} sponsor{eventSponsors.length !== 1 ? "s" : ""} linked to this event</p>
+              <p className="text-xs text-muted-foreground/70 mt-0.5">Sponsors added here are served with this event on the public event page.</p>
+            </div>
+            <Button size="sm" onClick={() => setAddingSponsor(true)}>
+              <Plus className="w-4 h-4 mr-2" /> Add Sponsor
+            </Button>
+          </div>
+          {eventSponsors.length === 0 ? (
+            <div className="text-center py-16 border border-dashed border-white/10 rounded-xl">
+              <Star className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-muted-foreground">No sponsors linked to this event</p>
+              <p className="text-xs text-muted-foreground/60 mt-1">Add sponsor names, websites, and optional logos for this specific event.</p>
+              <Button size="sm" className="mt-4" onClick={() => setAddingSponsor(true)}>
+                <Plus className="w-4 h-4 mr-2" /> Add Event Sponsor
+              </Button>
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {eventSponsors.map((sponsor: EventSponsor) => (
+                <Card key={sponsor.id} className="border-white/10 bg-card/60">
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="h-14 w-14 rounded-xl bg-amber-500/10 flex items-center justify-center overflow-hidden shrink-0">
+                        {sponsor.logoUrl ? <img src={sponsor.logoUrl} alt={sponsor.name} className="h-11 w-11 object-contain" /> : <Star className="h-5 w-5 text-amber-400" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-white truncate">{sponsor.name}</p>
+                          <Badge variant="outline" className="text-[10px] border-amber-500/30 text-amber-400 capitalize">
+                            {sponsor.tier || "Sponsor"}
+                          </Badge>
+                        </div>
+                        {sponsor.website && (
+                          <a href={sponsor.website.startsWith("http") ? sponsor.website : `https://${sponsor.website}`} target="_blank" rel="noopener noreferrer" className="mt-1 flex items-center gap-1 text-xs text-primary hover:text-primary/80">
+                            <Globe className="h-3 w-3" /> {sponsor.website.replace(/^https?:\/\//, "")}
+                          </a>
+                        )}
+                        {sponsor.email && <p className="mt-1 text-xs text-muted-foreground">{sponsor.email}</p>}
+                        {sponsor.notes && <p className="mt-2 text-xs text-slate-300 line-clamp-2">{sponsor.notes}</p>}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -1033,6 +1224,7 @@ export default function EventDetailPage() {
 
       <AddSaleDialog open={addingSale} onClose={() => setAddingSale(false)} eventId={id} ticketTypes={detail?.ticketTypes ?? []} />
       <AddTicketTypeDialog open={addingTicketType} onClose={() => setAddingTicketType(false)} eventId={id} />
+      <AddEventSponsorDialog open={addingSponsor} onClose={() => setAddingSponsor(false)} eventId={id} eventName={event.name} />
       <RejectDialog
         open={!!rejectingId}
         onClose={() => setRejectingId(null)}

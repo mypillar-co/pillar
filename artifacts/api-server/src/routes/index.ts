@@ -38,6 +38,8 @@ import membersPortalRouter from "./membersPortal";
 import announcementsRouter from "./announcements";
 import internalMembersRouter from "./internalMembers";
 import newsletterRouter from "./newsletter";
+import reportsRouter from "./reports";
+import operationsRouter from "./operations";
 
 const router: IRouter = Router();
 
@@ -81,5 +83,7 @@ router.use("/members-portal", membersPortalRouter);
 router.use("/announcements", announcementsRouter);
 router.use("/internal", internalMembersRouter);
 router.use("/newsletter", newsletterRouter);
+router.use("/reports", reportsRouter);
+router.use("/operations", operationsRouter);
 
 export default router;

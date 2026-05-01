@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Pencil, Trash2, Download, Plus, Users, Mail, CheckCircle2 } from "lucide-react";
+import { Pencil, Trash2, Download, Plus, Users, Mail, CheckCircle2, Upload } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +22,7 @@ import {
   SelectItem,
   SelectValue,
 } from "@/components/ui/select";
-import { api, type Member } from "@/lib/api";
+import { api, type Member, type MemberImportRow } from "@/lib/api";
 
 const TYPE_OPTIONS = ["general", "board", "honorary", "staff", "volunteer"] as const;
 const STATUS_OPTIONS = ["active", "inactive", "pending"] as const;
@@ -50,6 +50,81 @@ const EMPTY_FORM: FormState = {
   renewalDate: "",
   notes: "",
 };
+
+const IMPORT_HEADER_MAP: Record<string, keyof MemberImportRow> = {
+  firstname: "firstName",
+  first_name: "firstName",
+  "first name": "firstName",
+  lastname: "lastName",
+  last_name: "lastName",
+  "last name": "lastName",
+  name: "name",
+  fullname: "name",
+  full_name: "name",
+  "full name": "name",
+  email: "email",
+  "email address": "email",
+  phone: "phone",
+  telephone: "phone",
+  type: "memberType",
+  membertype: "memberType",
+  member_type: "memberType",
+  "member type": "memberType",
+  status: "status",
+  joindate: "joinDate",
+  join_date: "joinDate",
+  "join date": "joinDate",
+  renewaldate: "renewalDate",
+  renewal_date: "renewalDate",
+  "renewal date": "renewalDate",
+  title: "title",
+  notes: "notes",
+};
+
+function parseCsvLine(line: string): string[] {
+  const cells: string[] = [];
+  let current = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (quoted && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (ch === "," && !quoted) {
+      cells.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function parseMemberImport(text: string): MemberImportRow[] {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = parseCsvLine(lines[0]).map((header) =>
+    IMPORT_HEADER_MAP[header.trim().toLowerCase()] ?? null,
+  );
+  return lines.slice(1).map((line) => {
+    const cells = parseCsvLine(line);
+    const row: MemberImportRow = {};
+    headers.forEach((key, index) => {
+      if (!key) return;
+      const value = cells[index]?.trim();
+      if (value) row[key] = value;
+    });
+    return row;
+  }).filter((row) => row.firstName || row.name || row.email);
+}
 
 function memberToForm(m: Member): FormState {
   return {
@@ -198,6 +273,9 @@ export default function Members() {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Member | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [sendImportInvites, setSendImportInvites] = useState(true);
   const [addForm, setAddForm] = useState<FormState>(EMPTY_FORM);
   const [editForm, setEditForm] = useState<FormState>(EMPTY_FORM);
 
@@ -230,6 +308,27 @@ export default function Members() {
       setAddForm(EMPTY_FORM);
     },
     onError: (e: Error) => toast.error(e.message || "Failed to add member"),
+  });
+
+  const bulkImportMutation = useMutation({
+    mutationFn: () => {
+      const rows = parseMemberImport(importText);
+      if (!rows.length) throw new Error("Paste or upload a CSV with at least one member row.");
+      return api.members.bulkImport({ rows, sendInvites: sendImportInvites });
+    },
+    onSuccess: (result) => {
+      invalidateAll();
+      setImportOpen(false);
+      setImportText("");
+      toast.success(`Imported ${result.createdCount} member${result.createdCount === 1 ? "" : "s"}`);
+      if (result.skippedCount > 0) {
+        toast.warning(`${result.skippedCount} row${result.skippedCount === 1 ? "" : "s"} skipped. Check duplicates or required names.`);
+      }
+      if (result.invitedCount > 0) {
+        toast.success(`${result.invitedCount} invite${result.invitedCount === 1 ? "" : "s"} prepared or sent.`);
+      }
+    },
+    onError: (e: Error) => toast.error(e.message || "Import failed"),
   });
 
   const updateMutation = useMutation({
@@ -309,6 +408,15 @@ export default function Members() {
     }
   };
 
+  const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setImportText(await file.text());
+    event.target.value = "";
+  };
+
+  const importRows = importText.trim() ? parseMemberImport(importText) : [];
+
   const fmtDate = (d?: string | null) => {
     if (!d) return "—";
     return d.length >= 10 ? d.slice(0, 10) : d;
@@ -325,6 +433,13 @@ export default function Members() {
             className="border-white/10 text-slate-200"
           >
             <Download className="w-4 h-4 mr-2" /> Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setImportOpen(true)}
+            className="border-white/10 text-slate-200"
+          >
+            <Upload className="w-4 h-4 mr-2" /> Import CSV
           </Button>
           <Button onClick={() => setAdding(true)}>
             <Plus className="w-4 h-4 mr-2" /> Add Member
@@ -514,6 +629,64 @@ export default function Members() {
             </Button>
             <Button onClick={handleAddSubmit} disabled={createMutation.isPending}>
               {createMutation.isPending ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Import Members Dialog */}
+      <Dialog
+        open={importOpen}
+        onOpenChange={(o) => {
+          setImportOpen(o);
+          if (!o) setImportText("");
+        }}
+      >
+        <DialogContent className="bg-[hsl(224,30%,14%)] border-white/10 text-white max-w-2xl max-h-[90vh] overflow-y-auto w-[calc(100%-1rem)] sm:w-full">
+          <DialogHeader>
+            <DialogTitle>Import Members</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-slate-300">
+              Upload or paste CSV columns like <code>First Name, Last Name, Email, Phone, Type, Status, Join Date, Renewal Date, Notes</code>.
+              A <code>Name</code> column also works if you do not split first and last names.
+            </div>
+            <Input
+              type="file"
+              accept=".csv,text/csv,text/plain"
+              onChange={handleImportFile}
+              className="bg-white/5 border-white/10 text-white"
+            />
+            <Textarea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              rows={8}
+              placeholder={"First Name,Last Name,Email,Phone,Type,Status\nJane,Smith,jane@example.com,555-0100,general,active"}
+              className="bg-white/5 border-white/10 text-white font-mono text-xs"
+            />
+            <label className="flex items-center gap-2 text-sm text-slate-300">
+              <input
+                type="checkbox"
+                checked={sendImportInvites}
+                onChange={(e) => setSendImportInvites(e.target.checked)}
+                className="h-4 w-4 rounded border-white/20 bg-white/5"
+              />
+              Send portal invite emails for imported rows with email addresses
+            </label>
+            <p className="text-xs text-slate-400">
+              Preview: {importRows.length} row{importRows.length === 1 ? "" : "s"} ready to import.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setImportOpen(false)}
+              className="border-white/10 text-slate-300"
+            >
+              Cancel
+            </Button>
+            <Button onClick={() => bulkImportMutation.mutate()} disabled={!importRows.length || bulkImportMutation.isPending}>
+              {bulkImportMutation.isPending ? "Importing…" : "Import Members"}
             </Button>
           </DialogFooter>
         </DialogContent>

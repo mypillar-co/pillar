@@ -33,6 +33,40 @@ function cleanOptionalEmail(value: unknown): string | null {
   return trimmed.length ? trimmed : null;
 }
 
+function cleanText(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
+function normalizeMemberType(value: unknown): string {
+  const v = cleanText(value).toLowerCase();
+  return VALID_TYPES.has(v) ? v : "general";
+}
+
+function normalizeStatus(value: unknown): string {
+  const v = cleanText(value).toLowerCase();
+  return VALID_STATUSES.has(v) ? v : "active";
+}
+
+function splitName(value: unknown): { firstName: string; lastName: string | null } {
+  const name = cleanText(value);
+  if (!name) return { firstName: "", lastName: null };
+  const parts = name.split(/\s+/);
+  return {
+    firstName: parts[0] ?? "",
+    lastName: parts.length > 1 ? parts.slice(1).join(" ") : null,
+  };
+}
+
+function dateOrNull(value: unknown): string | null {
+  const v = cleanText(value);
+  if (!v) return null;
+  const iso = v.match(/^\d{4}-\d{2}-\d{2}$/);
+  if (iso) return v;
+  const parsed = new Date(v);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10);
+}
+
 export async function sendInviteEmail(opts: {
   to: string;
   firstName: string;
@@ -237,6 +271,116 @@ router.post("/", async (req: Request, res: Response) => {
     .from(membersTable)
     .where(eq(membersTable.id, memberId));
   res.status(201).json({ ...member, invite });
+});
+
+router.post("/bulk-import", async (req: Request, res: Response) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows as Record<string, unknown>[] : [];
+  const sendInvites = req.body?.sendInvites !== false;
+  if (!rows.length) {
+    res.status(400).json({ error: "rows are required" });
+    return;
+  }
+  if (rows.length > 500) {
+    res.status(400).json({ error: "Import up to 500 members at a time." });
+    return;
+  }
+
+  const existingEmailsResult = await db.execute(sql`
+    SELECT lower(email) AS email
+    FROM members
+    WHERE org_id = ${org.id} AND email IS NOT NULL AND email <> ''
+  `);
+  const existingEmails = new Set(
+    existingEmailsResult.rows
+      .map((row) => String((row as { email?: unknown }).email ?? "").toLowerCase())
+      .filter(Boolean),
+  );
+
+  const created: Array<{ id: string; firstName: string; lastName: string | null; email: string | null }> = [];
+  const skipped: Array<{ row: number; reason: string }> = [];
+  const invites: Array<{ email: string; sent: boolean; simulated?: boolean; url?: string }> = [];
+  const orgSlug = (org as { slug?: string }).slug ?? org.id;
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i] ?? {};
+    const fromName = splitName(row.name ?? row.fullName ?? row["Full Name"]);
+    const firstName = cleanText(row.firstName ?? row.first_name ?? row["First Name"] ?? fromName.firstName);
+    const lastName = cleanText(row.lastName ?? row.last_name ?? row["Last Name"] ?? fromName.lastName) || null;
+    const email = cleanOptionalEmail(row.email ?? row["Email"]);
+    const lowerEmail = email?.toLowerCase() ?? null;
+
+    if (!firstName) {
+      skipped.push({ row: i + 1, reason: "Missing first name" });
+      continue;
+    }
+    if (email && !isValidEmail(email)) {
+      skipped.push({ row: i + 1, reason: `Invalid email: ${email}` });
+      continue;
+    }
+    if (lowerEmail && existingEmails.has(lowerEmail)) {
+      skipped.push({ row: i + 1, reason: `Duplicate email: ${email}` });
+      continue;
+    }
+
+    const token = sendInvites && email ? generateToken() : null;
+    const tokenExpires = token ? new Date(Date.now() + TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000) : null;
+    const memberId = crypto.randomUUID();
+    const memberType = normalizeMemberType(row.memberType ?? row.member_type ?? row.type ?? row["Type"]);
+    const status = normalizeStatus(row.status ?? row["Status"]);
+
+    await db.execute(sql`
+      INSERT INTO members (
+        id, org_id, first_name, last_name, email, phone, member_type, status,
+        join_date, renewal_date, notes, title, registration_token, token_expires_at
+      ) VALUES (
+        ${memberId}, ${org.id}, ${firstName}, ${lastName}, ${email},
+        ${cleanText(row.phone ?? row["Phone"]) || null}, ${memberType}, ${status},
+        ${dateOrNull(row.joinDate ?? row.join_date ?? row["Join Date"])},
+        ${dateOrNull(row.renewalDate ?? row.renewal_date ?? row["Renewal Date"])},
+        ${cleanText(row.notes ?? row["Notes"]) || null},
+        ${cleanText(row.title ?? row["Title"]) || null},
+        ${token}, ${tokenExpires}
+      )
+    `);
+
+    created.push({ id: memberId, firstName, lastName, email });
+    if (lowerEmail) existingEmails.add(lowerEmail);
+
+    if (email && token) {
+      const url = inviteUrl(orgSlug, token);
+      const result = await sendInviteEmail({
+        to: email,
+        firstName,
+        orgName: org.name ?? orgSlug,
+        url,
+      });
+      invites.push({ email, sent: result.sent, simulated: result.simulated, url });
+    }
+  }
+
+  if (created.length > 0) {
+    const featureResult = await ensureMembersFeatureEnabled(org.id);
+    const portalResult = await ensureMembersPortalProvisioned(org.id);
+    if (!featureResult.ok || !portalResult.ok) {
+      logger.error(
+        { orgId: org.id, featureResult, portalResult },
+        "[members] bulk import created members but provisioning needs attention",
+      );
+    }
+  }
+
+  res.status(201).json({
+    ok: true,
+    createdCount: created.length,
+    skippedCount: skipped.length,
+    invitedCount: invites.filter((invite) => invite.sent || invite.simulated).length,
+    created,
+    skipped,
+    invites,
+  });
 });
 
 router.put("/:id", async (req: Request, res: Response) => {
