@@ -29,14 +29,28 @@ export async function uploadImage(file: File): Promise<string> {
     body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
   });
   if (!metaRes.ok) return uploadInline();
-  const { uploadURL, objectPath } = await metaRes.json() as { uploadURL: string; objectPath: string };
 
-  const uploadRes = await fetch(uploadURL, {
-    method: "PUT",
-    headers: { "Content-Type": file.type },
-    body: file,
-  });
-  if (!uploadRes.ok) throw new Error("Failed to upload image");
+  let uploadURL = "";
+  let objectPath = "";
+  try {
+    const meta = await metaRes.json() as { uploadURL?: string; objectPath?: string };
+    uploadURL = meta.uploadURL ?? "";
+    objectPath = meta.objectPath ?? "";
+  } catch {
+    return uploadInline();
+  }
+  if (!uploadURL || !objectPath) return uploadInline();
+
+  try {
+    const uploadRes = await fetch(uploadURL, {
+      method: "PUT",
+      headers: { "Content-Type": file.type },
+      body: file,
+    });
+    if (!uploadRes.ok) return uploadInline();
+  } catch {
+    return uploadInline();
+  }
 
   await fetch("/api/storage/uploads/confirm", {
     method: "POST",

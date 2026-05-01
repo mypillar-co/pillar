@@ -1,10 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   Sparkles, Send, Loader2, Bot, User, RefreshCw,
-  Calendar, Trophy, FileText, BarChart2, Mail,
-  MessageSquare, Building2, Image, ChevronRight, Lock,
-  ImagePlus, Plus, X, CheckCircle2, FolderOpen, AlertCircle,
-  Upload,
+  Calendar, Trophy, BarChart2, Mail,
+  ChevronRight, Lock,
 } from "lucide-react";
 import { Link } from "wouter";
 import { toast } from "sonner";
@@ -12,7 +10,6 @@ import { csrfHeaders } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { useGetSubscription } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
-import { uploadImage, isImageFile } from "@/lib/uploadImage";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -26,12 +23,6 @@ interface Suggestion {
   label: string;
   prompt: string;
   color: string;
-}
-
-interface PhotoAlbum {
-  id: string;
-  title: string;
-  description: string | null;
 }
 
 // ── Suggestion prompts ────────────────────────────────────────────────────────
@@ -101,349 +92,163 @@ function csrfFetch(input: string, init?: RequestInit): Promise<Response> {
   });
 }
 
-// ── Gallery Upload Panel ───────────────────────────────────────────────────────
+type BriefingItem = { label: string; detail: string; date?: string; href?: string };
+type DashboardBriefing = {
+  metrics: {
+    upcomingEvents: number;
+    pendingRegistrations: number;
+    pendingSponsors: number;
+    unpaidItems: number;
+    newContacts: number;
+    newMembers: number;
+  };
+  needsAttention: BriefingItem[];
+  upcoming: BriefingItem[];
+};
+type BoardReport = {
+  period: { month: string };
+  sections: {
+    executiveSummary: string[];
+    needsAttention: BriefingItem[];
+    events: BriefingItem[];
+    revenue: BriefingItem[];
+    members: BriefingItem[];
+    communications: BriefingItem[];
+  };
+};
+type EmailDraft = {
+  subject: string;
+  body: string;
+  recipientsPreview: string;
+  recipientCount: number;
+  status: "draft";
+};
 
-function GalleryUploadPanel({ onDone }: { onDone?: () => void }) {
-  const [albums, setAlbums] = useState<PhotoAlbum[]>([]);
-  const [albumsLoading, setAlbumsLoading] = useState(true);
-  const [selectedAlbumId, setSelectedAlbumId] = useState<string>("");
-  const [creatingAlbum, setCreatingAlbum] = useState(false);
-  const [newAlbumTitle, setNewAlbumTitle] = useState("");
-  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
-  const [previews, setPreviews] = useState<string[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [uploadCount, setUploadCount] = useState(0);
-  const [done, setDone] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    csrfFetch("/api/photo-albums")
-      .then(r => r.json())
-      .then((data: PhotoAlbum[]) => {
-        setAlbums(data);
-        if (data.length > 0) setSelectedAlbumId(data[0].id);
-        else setCreatingAlbum(true);
-      })
-      .catch(() => setError("Could not load albums"))
-      .finally(() => setAlbumsLoading(false));
-  }, []);
-
-  function handleFilesChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []).filter(isImageFile);
-    if (!files.length) return;
-    setPendingFiles(prev => [...prev, ...files]);
-    const newPreviews = files.map(f => URL.createObjectURL(f));
-    setPreviews(prev => [...prev, ...newPreviews]);
-    if (fileRef.current) fileRef.current.value = "";
+async function parseJsonResponse<T>(res: Response): Promise<T> {
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? `Request failed: ${res.status}`);
   }
-
-  function removeFile(idx: number) {
-    URL.revokeObjectURL(previews[idx]);
-    setPendingFiles(p => p.filter((_, i) => i !== idx));
-    setPreviews(p => p.filter((_, i) => i !== idx));
-  }
-
-  async function handleUpload() {
-    setError(null);
-    if (!pendingFiles.length) { setError("Select at least one photo."); return; }
-    let albumId = selectedAlbumId;
-
-    setUploading(true);
-    try {
-      // Create album if needed
-      if (creatingAlbum) {
-        if (!newAlbumTitle.trim()) { setError("Enter an album name."); setUploading(false); return; }
-        const res = await csrfFetch("/api/photo-albums", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: newAlbumTitle.trim() }),
-        });
-        if (!res.ok) throw new Error("Failed to create album");
-        const album = await res.json() as PhotoAlbum;
-        albumId = album.id;
-      }
-
-      // Upload photos one by one
-      const uploaded: { url: string }[] = [];
-      for (let i = 0; i < pendingFiles.length; i++) {
-        const url = await uploadImage(pendingFiles[i]);
-        uploaded.push({ url });
-        setUploadCount(i + 1);
-      }
-
-      // Save to album
-      const res = await csrfFetch(`/api/photo-albums/${albumId}/photos`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ photos: uploaded }),
-      });
-      if (!res.ok) throw new Error("Failed to save photos");
-
-      setDone(true);
-      previews.forEach(p => URL.revokeObjectURL(p));
-      onDone?.();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed");
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  if (done) {
-    return (
-      <div className="px-4 pb-4 pt-2 flex items-center gap-2 text-sm text-green-400">
-        <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-        Photos added to album!
-      </div>
-    );
-  }
-
-  if (albumsLoading) {
-    return (
-      <div className="px-4 pb-4 pt-2 flex items-center gap-2 text-xs text-slate-400">
-        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading albums…
-      </div>
-    );
-  }
-
-  return (
-    <div className="px-4 pb-4 pt-1 space-y-3">
-      {/* Album selector */}
-      {!creatingAlbum && albums.length > 0 ? (
-        <div className="space-y-1.5">
-          <label className="text-xs text-slate-400">Album</label>
-          <div className="flex gap-2">
-            <select
-              value={selectedAlbumId}
-              onChange={e => setSelectedAlbumId(e.target.value)}
-              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-teal-500/50 transition-colors"
-            >
-              {albums.map(a => (
-                <option key={a.id} value={a.id}>{a.title}</option>
-              ))}
-            </select>
-            <button
-              onClick={() => { setCreatingAlbum(true); setSelectedAlbumId(""); }}
-              className="flex items-center gap-1 text-xs text-teal-400 hover:text-teal-300 px-2 py-1.5 rounded-lg border border-teal-500/20 hover:bg-teal-500/10 transition-colors whitespace-nowrap"
-            >
-              <Plus className="w-3 h-3" />
-              New
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-1.5">
-          <label className="text-xs text-slate-400">New album name</label>
-          <div className="flex gap-2">
-            <input
-              value={newAlbumTitle}
-              onChange={e => setNewAlbumTitle(e.target.value)}
-              placeholder="e.g. Spring Gala 2025"
-              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-teal-500/50 transition-colors"
-            />
-            {albums.length > 0 && (
-              <button
-                onClick={() => { setCreatingAlbum(false); setSelectedAlbumId(albums[0].id); }}
-                className="text-xs text-slate-400 hover:text-white px-2 transition-colors"
-              >
-                <FolderOpen className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Photo previews */}
-      {previews.length > 0 && (
-        <div className="grid grid-cols-4 gap-1.5">
-          {previews.map((src, i) => (
-            <div key={i} className="relative aspect-square rounded-md overflow-hidden group">
-              <img src={src} alt="" className="w-full h-full object-cover" />
-              <button
-                onClick={() => removeFile(i)}
-                disabled={uploading}
-                className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/70 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <X className="w-3 h-3 text-white" />
-              </button>
-            </div>
-          ))}
-          <button
-            onClick={() => fileRef.current?.click()}
-            disabled={uploading}
-            className="aspect-square rounded-md border-2 border-dashed border-white/15 flex items-center justify-center hover:border-teal-500/40 hover:bg-teal-500/5 transition-colors"
-          >
-            <Plus className="w-4 h-4 text-slate-500" />
-          </button>
-        </div>
-      )}
-
-      {/* Error */}
-      {error && (
-        <p className="text-xs text-red-400 flex items-center gap-1">
-          <AlertCircle className="w-3 h-3 flex-shrink-0" />{error}
-        </p>
-      )}
-
-      {/* Actions */}
-      <div className="flex gap-2">
-        <button
-          onClick={() => fileRef.current?.click()}
-          disabled={uploading}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/8 text-xs text-slate-300 font-medium transition-colors disabled:opacity-50"
-        >
-          <ImagePlus className="w-3.5 h-3.5" />
-          {previews.length > 0 ? "Add more" : "Select photos"}
-        </button>
-        {pendingFiles.length > 0 && (
-          <button
-            onClick={() => void handleUpload()}
-            disabled={uploading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-500/15 border border-teal-500/30 hover:bg-teal-500/25 text-xs text-teal-300 font-semibold transition-colors disabled:opacity-60"
-          >
-            {uploading
-              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {uploadCount}/{pendingFiles.length}</>
-              : <><Upload className="w-3.5 h-3.5" /> Upload {pendingFiles.length} photo{pendingFiles.length !== 1 ? "s" : ""}</>
-            }
-          </button>
-        )}
-      </div>
-
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        multiple
-        className="hidden"
-        onChange={handleFilesChange}
-      />
-    </div>
-  );
+  return data as T;
 }
 
-// ── Sponsor Logo Panel ─────────────────────────────────────────────────────────
+function bullets(items: BriefingItem[], empty: string): string {
+  if (!items.length) return `  • ${empty}`;
+  return items
+    .slice(0, 6)
+    .map((item) => `  • ${item.label}${item.date ? ` — ${item.date}` : ""}${item.detail ? `\n    ${item.detail}` : ""}`)
+    .join("\n");
+}
 
-function SponsorLogoPanel({ onDone }: { onDone?: () => void }) {
-  const [name, setName] = useState("");
-  const [website, setWebsite] = useState("");
-  const [logoFile, setLogoFile] = useState<File | null>(null);
-  const [logoPreview, setLogoPreview] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [done, setDone] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+function formatEmailDraft(intentLabel: string, draft: EmailDraft): string {
+  return [
+    `${intentLabel} draft prepared. Nothing has been sent.`,
+    "",
+    `Recipients: ${draft.recipientsPreview} (${draft.recipientCount})`,
+    `Subject: ${draft.subject}`,
+    "",
+    draft.body,
+  ].join("\n");
+}
 
-  function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!isImageFile(file)) { setError("Please select an image file."); return; }
-    setLogoFile(file);
-    setLogoPreview(URL.createObjectURL(file));
-    setError(null);
-    if (fileRef.current) fileRef.current.value = "";
+function detectDraftIntent(lower: string): { intent: string; label: string } | null {
+  if ((lower.includes("vendor") || lower.includes("unpaid")) && (lower.includes("draft") || lower.includes("remind") || lower.includes("reminder"))) {
+    return { intent: "unpaid_vendor_reminder", label: "Vendor reminder" };
+  }
+  if (lower.includes("sponsor") && (lower.includes("thank") || lower.includes("draft"))) {
+    return { intent: "sponsor_thank_you", label: "Sponsor thank-you" };
+  }
+  if (lower.includes("volunteer") && (lower.includes("draft") || lower.includes("remind") || lower.includes("reminder"))) {
+    return { intent: "volunteer_reminder", label: "Volunteer reminder" };
+  }
+  if (lower.includes("renewal") && (lower.includes("member") || lower.includes("membership"))) {
+    return { intent: "member_renewal", label: "Member renewal reminder" };
+  }
+  if (lower.includes("announcement") && lower.includes("event")) {
+    return { intent: "event_announcement", label: "Event announcement" };
+  }
+  return null;
+}
+
+async function runDeterministicAutopilotIntent(message: string): Promise<string | null> {
+  const lower = message.toLowerCase();
+  const draftIntent = detectDraftIntent(lower);
+  if (draftIntent) {
+    const res = await csrfFetch("/api/operations/email-draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ intent: draftIntent.intent }),
+    });
+    const draft = await parseJsonResponse<EmailDraft>(res);
+    return formatEmailDraft(draftIntent.label, draft);
   }
 
-  async function handleSave() {
-    setError(null);
-    if (!name.trim()) { setError("Sponsor name is required."); return; }
-    setSaving(true);
-    try {
-      let logoUrl: string | undefined;
-      if (logoFile) {
-        logoUrl = await uploadImage(logoFile);
-      }
-      const res = await csrfFetch("/api/sponsors", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          website: website.trim() || undefined,
-          logoUrl,
-        }),
-      });
-      if (!res.ok) throw new Error("Failed to save sponsor");
-      if (logoPreview) URL.revokeObjectURL(logoPreview);
-      setDone(true);
-      onDone?.();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Save failed");
-    } finally {
-      setSaving(false);
+  if (lower.includes("board report") || lower.includes("board summary")) {
+    const res = await csrfFetch("/api/reports/board-monthly");
+    const report = await parseJsonResponse<BoardReport>(res);
+    return [
+      `Board report generated for ${report.period.month}.`,
+      "",
+      "Executive Summary:",
+      ...report.sections.executiveSummary.map((line) => `  • ${line}`),
+      "",
+      "Needs Attention:",
+      bullets(report.sections.needsAttention, "No urgent items for this period."),
+      "",
+      "Upcoming:",
+      bullets(report.sections.events, "No upcoming events listed."),
+    ].join("\n");
+  }
+
+  if (
+    lower.includes("pending sponsor") ||
+    lower.includes("unpaid vendor") ||
+    lower.includes("upcoming event") ||
+    lower.includes("needs attention") ||
+    lower.includes("autopilot status")
+  ) {
+    const res = await csrfFetch("/api/dashboard/briefing");
+    const briefing = await parseJsonResponse<DashboardBriefing>(res);
+
+    if (lower.includes("pending sponsor")) {
+      return `Pending sponsors: ${briefing.metrics.pendingSponsors}\n\n${bullets(
+        briefing.needsAttention.filter((item) => item.label.toLowerCase().includes("sponsor")),
+        "No sponsor applications need attention right now.",
+      )}`;
     }
+
+    if (lower.includes("unpaid vendor")) {
+      return `Open revenue items: ${briefing.metrics.unpaidItems}\n\n${bullets(
+        briefing.needsAttention.filter((item) => item.label.toLowerCase().includes("revenue") || item.detail.toLowerCase().includes("payment")),
+        "No unpaid vendor or payment items are waiting right now.",
+      )}`;
+    }
+
+    if (lower.includes("upcoming event")) {
+      return `Upcoming events: ${briefing.metrics.upcomingEvents}\n\n${bullets(
+        briefing.upcoming,
+        "No upcoming events are currently scheduled.",
+      )}`;
+    }
+
+    if (lower.includes("needs attention")) {
+      return `Needs your attention:\n${bullets(briefing.needsAttention, "Nothing urgent is waiting right now.")}`;
+    }
+
+    return [
+      "Pillar Autopilot status:",
+      `  • Upcoming events tracked: ${briefing.metrics.upcomingEvents}`,
+      `  • Pending registrations: ${briefing.metrics.pendingRegistrations}`,
+      `  • Pending sponsors: ${briefing.metrics.pendingSponsors}`,
+      `  • Open revenue items: ${briefing.metrics.unpaidItems}`,
+      `  • New contacts this week: ${briefing.metrics.newContacts}`,
+      `  • New members this week: ${briefing.metrics.newMembers}`,
+      "",
+      "Automation remains in safe mode: drafts and summaries are available; sending, publishing, deleting, approvals, invites, and payments require confirmation.",
+    ].join("\n");
   }
 
-  if (done) {
-    return (
-      <div className="px-4 pb-4 pt-2 flex items-center gap-2 text-sm text-green-400">
-        <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-        Sponsor added!
-      </div>
-    );
-  }
-
-  return (
-    <div className="px-4 pb-4 pt-1 space-y-3">
-      {/* Logo upload */}
-      <div className="flex items-center gap-3">
-        <div
-          onClick={() => fileRef.current?.click()}
-          className="w-16 h-16 rounded-xl border-2 border-dashed border-white/15 hover:border-amber-500/40 hover:bg-amber-500/5 flex items-center justify-center cursor-pointer transition-colors flex-shrink-0 overflow-hidden"
-        >
-          {logoPreview
-            ? <img src={logoPreview} alt="Logo" className="w-full h-full object-contain" />
-            : <ImagePlus className="w-5 h-5 text-slate-500" />
-          }
-        </div>
-        <div className="flex-1 space-y-2">
-          <input
-            value={name}
-            onChange={e => setName(e.target.value)}
-            placeholder="Sponsor name *"
-            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-500/50 transition-colors"
-          />
-          <input
-            value={website}
-            onChange={e => setWebsite(e.target.value)}
-            placeholder="Website URL (optional)"
-            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-500/50 transition-colors"
-          />
-        </div>
-      </div>
-
-      {logoPreview && (
-        <button
-          onClick={() => fileRef.current?.click()}
-          className="text-xs text-slate-400 hover:text-amber-400 transition-colors"
-        >
-          Change logo image
-        </button>
-      )}
-
-      {error && (
-        <p className="text-xs text-red-400 flex items-center gap-1">
-          <AlertCircle className="w-3 h-3 flex-shrink-0" />{error}
-        </p>
-      )}
-
-      <button
-        onClick={() => void handleSave()}
-        disabled={saving || !name.trim()}
-        className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 hover:bg-amber-500/25 text-xs text-amber-300 font-semibold transition-colors disabled:opacity-50"
-      >
-        {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-        {saving ? "Saving…" : "Add sponsor"}
-      </button>
-
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={handleLogoChange}
-      />
-    </div>
-  );
+  return null;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -458,8 +263,6 @@ export default function Management() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [galleryOpen, setGalleryOpen] = useState(false);
-  const [sponsorOpen, setSponsorOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
@@ -478,6 +281,13 @@ export default function Management() {
     setLoading(true);
 
     try {
+      const deterministicReply = await runDeterministicAutopilotIntent(msg);
+      if (deterministicReply) {
+        setMessages([...newMessages, { role: "assistant", content: deterministicReply }]);
+        void qc.invalidateQueries({ queryKey: ["dashboard-briefing"] });
+        return;
+      }
+
       const res = await csrfFetch("/api/management/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

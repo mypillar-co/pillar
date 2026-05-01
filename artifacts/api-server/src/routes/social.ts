@@ -153,7 +153,7 @@ function tierAllowsStrategy(tier: string | null | undefined): boolean {
   return tier === "tier3";
 }
 
-const ZERNIO_BASE = process.env.ZERNIO_API_BASE_URL ?? "https://zernio.com/api/v1";
+const ZERNIO_BASE = process.env.ZERNIO_API_BASE_URL ?? process.env.ZERNIO_BASE_URL ?? "https://zernio.com/api/v1";
 const ZERNIO_PROFILE_PLATFORM = "zernio_profile";
 
 function requireZernioConfigured(res: Response): boolean {

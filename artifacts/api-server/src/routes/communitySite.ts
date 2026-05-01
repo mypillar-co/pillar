@@ -6,7 +6,7 @@ import { getSectionRegistryPrompt, validateSection } from "../lib/sectionRegistr
 import OpenAI from "openai";
 import { load as cheerioLoad } from "cheerio";
 import { AI_UNAVAILABLE_MESSAGE, createOpenAIClient } from "../lib/openaiClient";
-import { saveSiteConfigPatch } from "../lib/siteConfigPersistence";
+import { applyDeterministicSiteEdit } from "../lib/siteEditIntents";
 
 const SIDECAR = "http://127.0.0.1:1106";
 
@@ -32,8 +32,6 @@ async function signStorageUrl(fullPath: string, method: "GET" | "PUT", ttlSec: n
 }
 
 const router = Router();
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const EMAIL_IN_TEXT_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 
 const CONTEXT_TURNS = 12;
 const MAX_INTERVIEW_TOKENS = 750;
@@ -757,34 +755,21 @@ router.post("/ai-edit", async (req: Request, res: Response) => {
 
   try {
     const normalizedRequest = changeRequest.trim();
-    const lowerRequest = normalizedRequest.toLowerCase();
-    const wantsContactEmail =
-      /\b(contact\s+)?e-?mail\b/.test(lowerRequest) ||
-      lowerRequest.includes("email address");
-    const requestedEmail = normalizedRequest.match(EMAIL_IN_TEXT_RE)?.[0]?.toLowerCase() ?? null;
-
-    if (wantsContactEmail) {
-      if (!requestedEmail || !EMAIL_RE.test(requestedEmail)) {
-        res.status(400).json({ error: "Please include a valid contact email address." });
+    const deterministicEdit = await applyDeterministicSiteEdit(org.id, normalizedRequest);
+    if (deterministicEdit) {
+      if (deterministicEdit.status === "error") {
+        res.status(deterministicEdit.httpStatus ?? 400).json({ error: deterministicEdit.message });
         return;
       }
-
-      const saved = await saveSiteConfigPatch(org.id, { contactEmail: requestedEmail });
-      const readBack = typeof saved.config.contactEmail === "string"
-        ? saved.config.contactEmail.toLowerCase()
-        : null;
-
-      if (readBack !== requestedEmail) {
-        res.status(500).json({ error: "Contact email could not be verified after saving." });
-        return;
-      }
-
       res.json({
         ok: true,
         status: "completed",
-        action: "update_contact_email",
-        message: `Contact email updated to ${requestedEmail}.`,
-        saved: { contactEmail: saved.config.contactEmail },
+        action: deterministicEdit.intent,
+        message: deterministicEdit.message,
+        saved: {
+          ...(deterministicEdit.data ?? {}),
+          ...(deterministicEdit.publicOrgId ? { publicOrgId: deterministicEdit.publicOrgId } : {}),
+        },
       });
       return;
     }
@@ -1329,9 +1314,19 @@ router.post("/provision", async (req: Request, res: Response) => {
 
     let finalPayload = injectWebhookUrl(payload, pillarWebhookUrl);
 
-    // Resolve logoPath → signed download URL (valid 24 h)
+    // Resolve logoPath → public URL. Local uploads may already be a renderable
+    // data URL or app storage URL when Replit Object Storage is unavailable.
     const logoPath = payload.logoPath as string | undefined;
-    if (logoPath && process.env.PRIVATE_OBJECT_DIR) {
+    if (logoPath && (
+      logoPath.startsWith("data:image/") ||
+      logoPath.startsWith("/api/storage/") ||
+      logoPath.startsWith("http://") ||
+      logoPath.startsWith("https://")
+    )) {
+      const { logoPath: _drop, ...rest } = finalPayload as Record<string, unknown>;
+      void _drop;
+      finalPayload = { ...rest, logoUrl: logoPath };
+    } else if (logoPath && process.env.PRIVATE_OBJECT_DIR) {
       try {
         const entityId = logoPath.replace(/^\/objects\//, "");
         const fullPath = `${process.env.PRIVATE_OBJECT_DIR}/${entityId}`;

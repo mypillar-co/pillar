@@ -12,6 +12,8 @@ export const CANONICAL_SITE_CONFIG_KEYS = [
   "meetingDay",
   "meetingTime",
   "meetingLocation",
+  "ctaLabel",
+  "ctaHref",
   "socialFacebook",
   "socialInstagram",
   "footerText",

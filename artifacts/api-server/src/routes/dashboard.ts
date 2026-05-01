@@ -9,7 +9,7 @@ import {
   orgContactSubmissionsTable,
   newsletterSubscribersTable,
 } from "@workspace/db";
-import { and, count, desc, eq, gte, lte, ne, or } from "drizzle-orm";
+import { and, count, desc, eq, gte, ne, or } from "drizzle-orm";
 import { resolveFullOrg } from "../lib/resolveOrg";
 import { requireOperationsTier } from "../lib/operationsTier";
 
@@ -19,17 +19,60 @@ function numberValue(value: unknown): number {
   return Number(value ?? 0) || 0;
 }
 
+type DashboardEventRow = {
+  id: string;
+  name: string;
+  startDate: string | null;
+  startTime: string | null;
+  location: string | null;
+  isTicketed: boolean | null;
+  hasRegistration: boolean | null;
+};
+
+function parseEventDate(value: string | null | undefined): number | null {
+  const raw = value?.trim();
+  if (!raw) return null;
+  const isoDate = raw.match(/^(\d{4}-\d{2}-\d{2})/)?.[1];
+  const parsed = isoDate ? new Date(`${isoDate}T00:00:00`) : new Date(raw);
+  const time = parsed.getTime();
+  return Number.isNaN(time) ? null : time;
+}
+
+async function loadUpcomingEvents(orgId: string): Promise<DashboardEventRow[]> {
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const eventRows = await db.select({
+    id: eventsTable.id,
+    name: eventsTable.name,
+    startDate: eventsTable.startDate,
+    startTime: eventsTable.startTime,
+    location: eventsTable.location,
+    isTicketed: eventsTable.isTicketed,
+    hasRegistration: eventsTable.hasRegistration,
+  }).from(eventsTable).where(and(
+    eq(eventsTable.orgId, orgId),
+    eq(eventsTable.isActive, true),
+  )).limit(100);
+
+  return eventRows
+    .map((event) => ({ event, time: parseEventDate(event.startDate) }))
+    .filter((entry): entry is { event: DashboardEventRow; time: number } =>
+      entry.time !== null && entry.time >= todayStart.getTime(),
+    )
+    .sort((a, b) => a.time - b.time)
+    .slice(0, 5)
+    .map(({ event }) => event);
+}
+
 router.get("/briefing", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
   if (!requireOperationsTier(org, res)) return;
 
-  const today = new Date().toISOString().split("T")[0];
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const sixtyDaysOut = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
   const [
-    [upcomingEventsRow],
     [pendingRegistrationsRow],
     [pendingSponsorsRow],
     [unpaidRegistrationRow],
@@ -40,12 +83,6 @@ router.get("/briefing", async (req: Request, res: Response) => {
     upcomingEvents,
     recentRegistrations,
   ] = await Promise.all([
-    db.select({ n: count() }).from(eventsTable).where(and(
-      eq(eventsTable.orgId, org.id),
-      eq(eventsTable.isActive, true),
-      gte(eventsTable.startDate, today),
-      lte(eventsTable.startDate, sixtyDaysOut),
-    )),
     db.select({ n: count() }).from(registrationsTable).where(and(
       eq(registrationsTable.orgId, org.id),
       or(eq(registrationsTable.status, "pending_approval"), eq(registrationsTable.status, "pending_payment")),
@@ -75,19 +112,7 @@ router.get("/briefing", async (req: Request, res: Response) => {
       eq(membersTable.orgId, org.id),
       gte(membersTable.createdAt, weekAgo),
     )),
-    db.select({
-      id: eventsTable.id,
-      name: eventsTable.name,
-      startDate: eventsTable.startDate,
-      startTime: eventsTable.startTime,
-      location: eventsTable.location,
-      isTicketed: eventsTable.isTicketed,
-      hasRegistration: eventsTable.hasRegistration,
-    }).from(eventsTable).where(and(
-      eq(eventsTable.orgId, org.id),
-      eq(eventsTable.isActive, true),
-      gte(eventsTable.startDate, today),
-    )).orderBy(eventsTable.startDate).limit(5),
+    loadUpcomingEvents(org.id),
     db.select({
       id: registrationsTable.id,
       name: registrationsTable.name,
@@ -100,7 +125,7 @@ router.get("/briefing", async (req: Request, res: Response) => {
   ]);
 
   const metrics = {
-    upcomingEvents: numberValue(upcomingEventsRow?.n),
+    upcomingEvents: upcomingEvents.length,
     pendingRegistrations: numberValue(pendingRegistrationsRow?.n),
     pendingSponsors: numberValue(pendingSponsorsRow?.n),
     unpaidItems: numberValue(unpaidRegistrationRow?.n) + numberValue(unpaidTicketRow?.n),

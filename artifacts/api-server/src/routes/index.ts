@@ -40,6 +40,7 @@ import internalMembersRouter from "./internalMembers";
 import newsletterRouter from "./newsletter";
 import reportsRouter from "./reports";
 import operationsRouter from "./operations";
+import aiOperationsRouter from "./aiOperations";
 
 const router: IRouter = Router();
 
@@ -85,5 +86,6 @@ router.use("/internal", internalMembersRouter);
 router.use("/newsletter", newsletterRouter);
 router.use("/reports", reportsRouter);
 router.use("/operations", operationsRouter);
+router.use("/ai", aiOperationsRouter);
 
 export default router;

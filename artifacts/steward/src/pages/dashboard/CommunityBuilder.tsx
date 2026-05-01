@@ -9,7 +9,7 @@ import { useGetOrganization } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { csrfHeaders } from "@/lib/api";
-import { isImageFile } from "@/lib/uploadImage";
+import { isImageFile, uploadImage } from "@/lib/uploadImage";
 
 function csrfFetch(input: string, init?: RequestInit): Promise<Response> {
   const method = (init?.method ?? "GET").toUpperCase();
@@ -1249,20 +1249,7 @@ export default function CommunityBuilder() {
     if (logoUploading) return;
     setLogoUploading(true);
     try {
-      const ext = (file.name.split(".").pop() ?? "png").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5) || "png";
-      const urlRes = await csrfFetch("/api/community-site/logo-upload-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ext }),
-      });
-      if (!urlRes.ok) throw new Error("Could not get upload URL");
-      const { uploadUrl, logoPath: newLogoPath } = await urlRes.json() as { uploadUrl: string; logoPath: string };
-      const putRes = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type || "image/png" },
-        body: file,
-      });
-      if (!putRes.ok) throw new Error("Upload failed");
+      const newLogoPath = await uploadImage(file);
       setLogoPath(newLogoPath);
       setLogoPreview(URL.createObjectURL(file));
     } catch {

@@ -97,7 +97,7 @@ spawn_detached \
   pnpm --filter @workspace/steward run dev -- --port 5173
 
 wait_for_http "http://127.0.0.1:8080/api/healthz" "API health"
-wait_for_http "http://127.0.0.1:5001/api/org-config" "Community-platform health"
+wait_for_http "http://127.0.0.1:5001/" "Community-platform health"
 wait_for_http "http://127.0.0.1:5173/dashboard/site" "Steward health"
 
 DEV_LOGIN_URL="http://127.0.0.1:8080/api/auth/dev-login?email=${DEV_LOGIN_EMAIL}"

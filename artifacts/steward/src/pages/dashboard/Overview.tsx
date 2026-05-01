@@ -137,6 +137,23 @@ interface EmailDraftResponse {
   intent: string;
 }
 
+interface AiOperationResponse {
+  status: "completed" | "draft_prepared" | "confirmation_required" | "unsupported" | "error";
+  intent: string;
+  message: string;
+  data?: {
+    kind?: "email_draft" | "board_report" | "list" | string;
+    draft?: EmailDraftResponse;
+    report?: BoardReportResponse;
+    href?: string;
+    items?: Array<Record<string, unknown>>;
+    summary?: string;
+    expiresAt?: string;
+    dryRun?: boolean;
+  };
+  pendingActionId?: string;
+}
+
 const EMAIL_DRAFT_ACTIONS: Array<{ label: string; intent: string }> = [
   { label: "Remind unpaid vendors", intent: "unpaid_vendor_reminder" },
   { label: "Sponsor thank-you", intent: "sponsor_thank_you" },
@@ -215,6 +232,8 @@ function CommandCenterOverview({ briefing, loading, orgName }: {
   const [draftOpen, setDraftOpen] = React.useState(false);
   const [draftLoading, setDraftLoading] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState<EmailDraftResponse | null>(null);
+  const [operationLoading, setOperationLoading] = React.useState(false);
+  const [operationResult, setOperationResult] = React.useState<AiOperationResponse | null>(null);
 
   const metrics = briefing?.metrics;
   const metricCards = [
@@ -261,31 +280,44 @@ function CommandCenterOverview({ briefing, loading, orgName }: {
     }
   }
 
-  function handleAskPillar() {
-    const text = askText.trim().toLowerCase();
+  async function handleAskPillar() {
+    const message = askText.trim();
     setAskNotice(null);
-    if (!text) return;
-    if (text.includes("unpaid") && text.includes("vendor")) {
-      window.location.href = "/dashboard/registrations";
-      return;
+    setOperationResult(null);
+    if (!message) return;
+
+    setOperationLoading(true);
+    try {
+      const res = await fetch("/api/ai/operations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...csrfHeaders("POST") },
+        credentials: "include",
+        body: JSON.stringify({ message }),
+      });
+      const body = await res.json().catch(() => ({})) as AiOperationResponse & { error?: string };
+      if (!res.ok) throw new Error(body.error ?? body.message ?? "Pillar could not handle that request");
+      setOperationResult(body);
+
+      if (body.status === "draft_prepared" && body.data?.kind === "email_draft" && body.data.draft) {
+        setDraft(body.data.draft);
+        setDraftOpen(true);
+      }
+
+      if (body.status === "draft_prepared" && body.data?.kind === "board_report" && body.data.report) {
+        setReport(body.data.report);
+        setReportOpen(true);
+      }
+    } catch (err) {
+      const messageText = err instanceof Error ? err.message : "Pillar could not handle that request";
+      setOperationResult({
+        status: "error",
+        intent: "error",
+        message: messageText,
+      });
+      toast.error(messageText);
+    } finally {
+      setOperationLoading(false);
     }
-    if (text.includes("pending") && text.includes("sponsor")) {
-      window.location.href = "/dashboard/sponsors";
-      return;
-    }
-    if (text.includes("upcoming") && text.includes("event")) {
-      window.location.href = "/dashboard/events";
-      return;
-    }
-    if (text.includes("draft") && text.includes("vendor")) {
-      void createEmailDraft("unpaid_vendor_reminder");
-      return;
-    }
-    if (text.includes("board") && text.includes("report")) {
-      void loadBoardReport();
-      return;
-    }
-    setAskNotice("Ask Pillar actions are coming soon. Try: show unpaid vendors, pending sponsors, upcoming events, draft vendor reminder, or generate board report.");
   }
 
   function copyDraft() {
@@ -447,15 +479,60 @@ function CommandCenterOverview({ briefing, loading, orgName }: {
                 value={askText}
                 onChange={(event) => setAskText(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") handleAskPillar();
+                  if (event.key === "Enter") void handleAskPillar();
                 }}
-                placeholder="Ask Pillar: show unpaid vendors, pending sponsors, upcoming events..."
+                placeholder="Ask Pillar: show unpaid vendors, change contact email, generate board report..."
                 className="border-0 bg-transparent p-0 text-sm text-slate-200 placeholder:text-slate-500 focus-visible:ring-0"
               />
             </div>
-            <Button onClick={handleAskPillar} className="sm:w-32">Go</Button>
+            <Button onClick={() => void handleAskPillar()} disabled={operationLoading} className="sm:w-32">
+              {operationLoading ? "Working..." : "Go"}
+            </Button>
           </div>
           {askNotice && <p className="text-sm text-slate-400">{askNotice}</p>}
+          {operationResult && (
+            <div className={cn(
+              "rounded-lg border px-4 py-3 text-sm",
+              operationResult.status === "completed" && "border-emerald-500/30 bg-emerald-500/10 text-emerald-100",
+              operationResult.status === "draft_prepared" && "border-blue-500/30 bg-blue-500/10 text-blue-100",
+              operationResult.status === "confirmation_required" && "border-amber-500/35 bg-amber-500/10 text-amber-100",
+              operationResult.status === "unsupported" && "border-slate-700 bg-slate-950/70 text-slate-300",
+              operationResult.status === "error" && "border-red-500/35 bg-red-500/10 text-red-100",
+            )}>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="flex items-center gap-2 font-semibold capitalize">
+                    {operationResult.status === "completed" && <CheckCircle2 className="h-4 w-4" />}
+                    {operationResult.status === "draft_prepared" && <FileText className="h-4 w-4" />}
+                    {operationResult.status === "confirmation_required" && <AlertTriangle className="h-4 w-4" />}
+                    {operationResult.status === "unsupported" && <MessageSquare className="h-4 w-4" />}
+                    {operationResult.status === "error" && <XCircle className="h-4 w-4" />}
+                    {operationResult.status.replace("_", " ")}
+                  </div>
+                  <p className="mt-1 leading-5">{operationResult.message}</p>
+                  {operationResult.data?.kind === "list" && Array.isArray(operationResult.data.items) && (
+                    <p className="mt-1 text-xs opacity-80">
+                      {operationResult.data.items.length} item{operationResult.data.items.length === 1 ? "" : "s"} found.
+                    </p>
+                  )}
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  {operationResult.data?.href && (
+                    <Link href={operationResult.data.href}>
+                      <Button size="sm" variant="outline" className="border-current bg-transparent text-current hover:bg-white/10">
+                        Open
+                      </Button>
+                    </Link>
+                  )}
+                  {operationResult.status === "confirmation_required" && (
+                    <Button size="sm" disabled variant="outline" className="border-current bg-transparent text-current opacity-70">
+                      Confirm action
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
