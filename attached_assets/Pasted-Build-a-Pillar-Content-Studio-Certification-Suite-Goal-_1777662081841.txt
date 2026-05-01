@@ -1,0 +1,112 @@
+Build a Pillar Content Studio Certification Suite.
+
+Goal:
+I need automated proof that Content Studio features actually work through the real UI and public/community site, not just that API routes return data.
+
+Use Playwright.
+
+Create a dedicated test file:
+artifacts/e2e/90-content-studio-certification.spec.ts
+
+This test should run against local dev:
+- API: http://localhost:8080
+- Steward: http://localhost:5173
+- Community/public site: use the canonical local preview/public route currently used by the app
+
+Do not rely only on API calls. The test must click through the actual Steward UI where possible and verify user-visible results.
+
+Test setup:
+1. Use dev-login.
+2. Navigate to the dashboard.
+3. Identify the active test org, preferably Test Festival or whichever org is available.
+4. Navigate to Content Studio.
+
+Certification areas:
+
+1. Announcements
+- Create announcement:
+  title: Content Studio Smoke Announcement
+  message: This announcement was created by the certification suite.
+- Publish/post it.
+- Verify it appears in the Content Studio recent list.
+- Verify whether it appears on the public/community site.
+- If public rendering requires Launch Site, trigger Launch Site and re-check.
+- If it still does not appear publicly, mark this section FAIL with screenshot and reason:
+  “Announcement saved in dashboard but not rendered on public site.”
+
+2. Newsletter/content draft
+- Generate or create a newsletter/content draft if UI exists.
+- Verify draft text appears.
+- Verify it is saved in draft/history area if applicable.
+- Confirm no email is sent automatically.
+- If module is missing or not wired, mark PARTIAL/MISSING.
+
+3. Social draft
+- Generate/create a social post draft if UI exists.
+- Verify draft/card appears.
+- Confirm it is not published automatically.
+- If provider connection is required, mark PARTIAL with reason, not hard fail.
+
+4. Sponsor image/media upload
+- Navigate to sponsor/event sponsor flow if accessible from Content Studio or related dashboard path.
+- Upload a tiny generated PNG fixture.
+- Save sponsor/logo.
+- Verify no “Failed to upload image” or “request entity too large.”
+- Verify saved image URL/path exists.
+- Verify image renders somewhere visible in dashboard or public site.
+- If public render requires publish/launch, trigger and re-check.
+
+5. AI operational draft
+- Use Ask Pillar or Content Studio AI input to draft an unpaid vendor reminder.
+- Verify draft appears.
+- Confirm no send occurs automatically.
+
+6. Risky action gate
+- Ask AI: “delete this event”
+- Verify UI/API shows confirmation_required or blocked state.
+- Confirm event was not deleted.
+
+7. Simple scripted site edits from AI
+- Ask AI to change contact email to content-smoke@example.com.
+- Verify UI says completed.
+- Verify public config/readback contains content-smoke@example.com.
+- Ask AI to change CTA label to “Plan a Visit”.
+- Verify readback/public config contains the label.
+
+Report output:
+At the end, print a certification summary:
+
+CONTENT STUDIO CERTIFICATION REPORT
+- Announcements dashboard save: PASS/FAIL
+- Announcements public render: PASS/FAIL/PARTIAL
+- Newsletter draft: PASS/FAIL/PARTIAL/MISSING
+- Social draft: PASS/FAIL/PARTIAL/MISSING
+- Sponsor image upload: PASS/FAIL
+- AI vendor reminder draft: PASS/FAIL
+- AI risky action gate: PASS/FAIL
+- AI simple site edits: PASS/FAIL
+
+Also save screenshots for failures under:
+artifacts/e2e-report/content-studio-certification/
+
+Important:
+- The test should not permanently damage real data.
+- Use unique smoke-test names/timestamps.
+- Clean up created test data where safe.
+- Never send real emails.
+- Never publish to real social platforms.
+- Never delete real events.
+- If cleanup is not safely available, leave clearly named smoke-test data.
+
+Build/verification:
+- Run the test locally.
+- Also run:
+  pnpm --filter @workspace/api-server run build
+  pnpm --filter @workspace/steward run build
+
+Report:
+- files changed
+- test command to run
+- certification output
+- which modules passed
+- which modules are earmarked broken or partial
