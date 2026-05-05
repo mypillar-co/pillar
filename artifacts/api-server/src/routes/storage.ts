@@ -1,4 +1,8 @@
 import express, { Router, type IRouter, type Request, type Response } from "express";
+import { randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { access, mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { Readable } from "stream";
 import { z } from "zod";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
@@ -38,6 +42,18 @@ const STORAGE_LIMITS: Record<string, number> = {
 };
 const DEFAULT_STORAGE_LIMIT = 100 * 1024 * 1024; // 100 MB (no active plan)
 
+const CONTENT_TYPE_EXTENSIONS: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "image/svg+xml": "svg",
+};
+
+const EXTENSION_CONTENT_TYPES: Record<string, string> = Object.fromEntries(
+  Object.entries(CONTENT_TYPE_EXTENSIONS).map(([contentType, ext]) => [ext, contentType]),
+);
+
 function storageLimitForTier(tier: string | null | undefined): number {
   if (!tier) return DEFAULT_STORAGE_LIMIT;
   return STORAGE_LIMITS[tier] ?? DEFAULT_STORAGE_LIMIT;
@@ -46,6 +62,70 @@ function storageLimitForTier(tier: string | null | undefined): number {
 function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
+}
+
+function localObjectRoots(): string[] {
+  const roots = [
+    process.env.PRIVATE_OBJECT_DIR,
+    path.resolve(process.cwd(), "../../.local-object-storage/private"),
+    path.resolve(process.cwd(), ".local-object-storage/private"),
+  ].filter((root): root is string => typeof root === "string" && root.trim().length > 0);
+  return Array.from(new Set(roots));
+}
+
+function safeLocalObjectPath(objectPath: string): string | null {
+  const withoutPrefix = objectPath
+    .replace(/^\/api\/storage\//, "/")
+    .replace(/^\/storage\//, "/")
+    .replace(/^\/public-objects\//, "")
+    .replace(/^\/objects\//, "");
+  if (!withoutPrefix.startsWith("local-uploads/")) return null;
+  if (withoutPrefix.includes("..") || path.isAbsolute(withoutPrefix)) return null;
+  return withoutPrefix;
+}
+
+function contentTypeForPath(filePath: string): string {
+  const ext = path.extname(filePath).replace(".", "").toLowerCase();
+  return EXTENSION_CONTENT_TYPES[ext] ?? "application/octet-stream";
+}
+
+async function writeLocalObject(orgId: string, body: Buffer, contentType: string): Promise<string> {
+  const ext = CONTENT_TYPE_EXTENSIONS[contentType] ?? "bin";
+  const relativePath = path.join("local-uploads", orgId, `${randomUUID()}.${ext}`);
+  let lastError: unknown = null;
+
+  for (const root of localObjectRoots()) {
+    try {
+      const fullPath = path.join(root, relativePath);
+      await mkdir(path.dirname(fullPath), { recursive: true });
+      await writeFile(fullPath, body);
+      return `/public-objects/${relativePath.split(path.sep).join("/")}`;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Local object storage is unavailable");
+}
+
+async function serveLocalObject(objectPath: string, res: Response): Promise<boolean> {
+  const relativePath = safeLocalObjectPath(objectPath);
+  if (!relativePath) return false;
+
+  for (const root of localObjectRoots()) {
+    const fullPath = path.join(root, relativePath);
+    try {
+      await access(fullPath);
+      res.setHeader("Content-Type", contentTypeForPath(fullPath));
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      createReadStream(fullPath).pipe(res);
+      return true;
+    } catch {
+      // Try the next configured root.
+    }
+  }
+
+  return false;
 }
 
 // ─── Request presigned upload URL ─────────────────────────────────────────────
@@ -111,8 +191,8 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
 
 // ─── Local/Replit fallback upload ─────────────────────────────────────────────
 // When Replit Object Storage is not configured, dashboard image flows still need
-// to work. Store a data URL directly in app data so galleries/sponsor logos can
-// render immediately and persist with the DB record that references them.
+// to work. Store the bytes in local object storage and return a compact URL-like
+// path; normal records should never persist large data:image payloads.
 router.post(
   "/storage/uploads/data-url",
   express.raw({ type: "image/*", limit: "10mb" }),
@@ -165,21 +245,26 @@ router.post(
       return;
     }
 
-    await db
-      .update(organizationsTable)
-      .set({ storageUsedBytes: sql`${organizationsTable.storageUsedBytes} + ${body.length}` })
-      .where(eq(organizationsTable.id, orgId));
+    try {
+      const objectPath = await writeLocalObject(orgId, body, contentType);
+      await db
+        .update(organizationsTable)
+        .set({ storageUsedBytes: sql`${organizationsTable.storageUsedBytes} + ${body.length}` })
+        .where(eq(organizationsTable.id, orgId));
 
-    const objectPath = `data:${contentType};base64,${body.toString("base64")}`;
-    res.json({
-      uploadURL: null,
-      objectPath,
-      metadata: {
-        name: "inline-image",
-        size: body.length,
-        contentType,
-      },
-    });
+      res.json({
+        uploadURL: null,
+        objectPath,
+        metadata: {
+          name: path.basename(objectPath),
+          size: body.length,
+          contentType,
+        },
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Error writing local upload fallback");
+      res.status(500).json({ error: "Failed to store uploaded image" });
+    }
   },
 );
 
@@ -217,6 +302,7 @@ router.get("/storage/public-objects/*filePath", async (req: Request, res: Respon
   try {
     const raw = req.params.filePath;
     const filePath = Array.isArray(raw) ? raw.join("/") : raw;
+    if (await serveLocalObject(`/public-objects/${filePath}`, res)) return;
     const file = await objectStorageService.searchPublicObject(filePath);
     if (!file) {
       res.status(404).json({ error: "File not found" });
@@ -255,6 +341,7 @@ router.get("/storage/objects/*path", async (req: Request, res: Response) => {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
     const objectPath = `/objects/${wildcardPath}`;
+    if (await serveLocalObject(objectPath, res)) return;
     const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
     const response = await objectStorageService.downloadObject(objectFile);
     res.status(response.status);

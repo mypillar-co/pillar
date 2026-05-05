@@ -63,6 +63,10 @@ import {
   TOGGLEABLE_SITE_FEATURES,
   saveSiteConfigPatch,
 } from "../lib/siteConfigPersistence";
+import {
+  applyDeterministicEventMutation,
+  updateEventByIdWithReadback,
+} from "../lib/eventMutationIntents";
 
 // Section types from the registry that are allowed on the public site.
 function getPublicSectionTypes(): string[] {
@@ -128,6 +132,17 @@ function toSlug(title: string): string {
     .replace(/(^-|-$)/g, "");
 }
 
+const SPONSOR_LOGO_INLINE_ERROR = "Please upload the logo first; sponsor records only store image URLs.";
+
+function sponsorLogoUrl(value: unknown): string | undefined {
+  if (value == null || value === "") return undefined;
+  if (typeof value !== "string") throw new Error(SPONSOR_LOGO_INLINE_ERROR);
+  const logoUrl = value.trim();
+  if (!logoUrl) return undefined;
+  if (logoUrl.startsWith("data:") || logoUrl.length > 4096) throw new Error(SPONSOR_LOGO_INLINE_ERROR);
+  return logoUrl;
+}
+
 // ─── Main chat endpoint ─────────────────────────────────────────────────────
 
 // ─── Site recompile helper ─────────────────────────────────────────────────
@@ -183,6 +198,12 @@ router.post("/chat", async (req: Request, res: Response) => {
 
   if (!message?.trim()) {
     res.status(400).json({ error: "message is required" });
+    return;
+  }
+
+  const deterministicEventMutation = await applyDeterministicEventMutation(org.id, message);
+  if (deterministicEventMutation) {
+    res.json({ reply: deterministicEventMutation.message, ...deterministicEventMutation });
     return;
   }
 
@@ -1059,13 +1080,27 @@ router.post("/chat", async (req: Request, res: Response) => {
 
     if (!Object.keys(allowed).length) return JSON.stringify({ error: "No valid fields to update" });
 
-    await db
-      .update(eventsTable)
-      .set(allowed)
-      .where(and(eq(eventsTable.id, existing.id), eq(eventsTable.orgId, org.id)));
+    const saved = await updateEventByIdWithReadback(org.id, existing.id, allowed);
+    if (!saved) return JSON.stringify({ error: "Event could not be verified after saving." });
 
     forceSiteRecompile(org.id).catch(() => {});
-    return JSON.stringify({ ok: true, slug, updated: Object.keys(allowed) });
+    return JSON.stringify({
+      ok: true,
+      slug,
+      message: `${saved.name} saved.`,
+      updated: {
+        id: saved.id,
+        name: saved.name,
+        startDate: saved.startDate,
+        startTime: saved.startTime,
+        endTime: saved.endTime,
+        location: saved.location,
+        description: saved.description,
+        status: saved.status,
+        isActive: saved.isActive,
+        showOnPublicSite: saved.showOnPublicSite,
+      },
+    });
   }
 
   async function execDeleteEvent(args: Record<string, unknown>): Promise<string> {
@@ -1194,7 +1229,7 @@ router.post("/chat", async (req: Request, res: Response) => {
         orgId: org.id,
         name: String(args.name ?? ""),
         website: args.websiteUrl ? String(args.websiteUrl) : undefined,
-        logoUrl: args.logoUrl ? String(args.logoUrl) : undefined,
+        logoUrl: sponsorLogoUrl(args.logoUrl),
         notes: args.level ? String(args.level) : undefined,
         status: "active",
         siteVisible: true,
@@ -1626,7 +1661,7 @@ router.post("/chat", async (req: Request, res: Response) => {
     if (typeof args.email === "string") patch.email = args.email;
     if (typeof args.phone === "string") patch.phone = args.phone;
     if (typeof args.website === "string") patch.website = args.website;
-    if (typeof args.logoUrl === "string") patch.logoUrl = args.logoUrl;
+    if (typeof args.logoUrl === "string") patch.logoUrl = sponsorLogoUrl(args.logoUrl);
     if (typeof args.notes === "string") patch.notes = args.notes;
     if (typeof args.tierRank === "number") patch.tierRank = args.tierRank;
     if (typeof args.siteVisible === "boolean") patch.siteVisible = args.siteVisible;

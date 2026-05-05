@@ -12,12 +12,17 @@ import {
   applyDeterministicSiteEdit,
   detectDeterministicSiteEditIntent,
 } from "../lib/siteEditIntents";
+import {
+  applyDeterministicEventMutation,
+  hasDeterministicEventMutationIntent,
+} from "../lib/eventMutationIntents";
 
 const router = Router();
 
 type OperationStatus =
   | "completed"
   | "draft_prepared"
+  | "clarification_required"
   | "confirmation_required"
   | "unsupported"
   | "error";
@@ -81,6 +86,7 @@ function detectIntent(message: string): string {
   const lower = message.toLowerCase();
   const siteEditIntent = detectDeterministicSiteEditIntent(message);
   if (siteEditIntent) return siteEditIntent;
+  if (hasDeterministicEventMutationIntent(message)) return "event_mutation";
 
   if (lower.includes("board") && lower.includes("report")) {
     return "generate_board_report";
@@ -236,6 +242,12 @@ router.post("/operations", async (req: Request, res: Response) => {
         ...(siteEditResult.data ?? {}),
         ...(siteEditResult.publicOrgId ? { publicOrgId: siteEditResult.publicOrgId } : {}),
       });
+      return;
+    }
+
+    const eventMutation = await applyDeterministicEventMutation(org.id, message);
+    if (eventMutation) {
+      operationResponse(res, eventMutation.status, eventMutation.intent, eventMutation.message, eventMutation.data);
       return;
     }
 

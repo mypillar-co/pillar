@@ -47,6 +47,7 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+.local-object-storage/
 .logs/
 
 # Playwright

@@ -20,6 +20,10 @@ import { resolveFullOrg, getFullOrgForUser } from "../lib/resolveOrg";
 import { scheduleSiteAutoUpdate } from "../lib/scheduleSiteAutoUpdate";
 import { createOpenAIClient } from "../lib/openaiClient";
 import {
+  applyDeterministicEventMutation,
+  updateEventByIdWithReadback,
+} from "../lib/eventMutationIntents";
+import {
   syncCreateEventToPillar,
   syncUpdateEventToPillar,
   syncDeleteEventToPillar,
@@ -181,6 +185,12 @@ router.post("/ai-manage", async (req: Request, res: Response) => {
 
   if (!message?.trim()) {
     res.status(400).json({ error: "message is required" });
+    return;
+  }
+
+  const deterministic = await applyDeterministicEventMutation(org.id, message);
+  if (deterministic) {
+    res.json({ reply: deterministic.message, ...deterministic });
     return;
   }
 
@@ -412,17 +422,26 @@ You help manage events through conversation. When given a command like "add a fa
       if (k in rest) updates[k] = rest[k];
     }
     if (!Object.keys(updates).length) return JSON.stringify({ error: "No updates provided" });
+    if ("startDate" in updates && !isReasonableEventDate(updates.startDate)) return JSON.stringify({ error: "Invalid start date" });
+    if ("startTime" in updates && !isValidTime(updates.startTime)) return JSON.stringify({ error: "Invalid start time" });
+    if ("endTime" in updates && !isValidTime(updates.endTime)) return JSON.stringify({ error: "Invalid end time" });
 
-    const [updated] = await db
-      .update(eventsTable)
-      .set(updates)
-      .where(and(eq(eventsTable.id, String(eventId)), eq(eventsTable.orgId, org.id)))
-      .returning({ id: eventsTable.id, name: eventsTable.name, status: eventsTable.status });
-
+    const updated = await updateEventByIdWithReadback(org.id, String(eventId), updates);
     if (!updated) return JSON.stringify({ error: "Event not found" });
 
-    scheduleSiteAutoUpdate(org.id).catch(() => {});
-    return JSON.stringify({ ok: true, updated });
+    return JSON.stringify({
+      ok: true,
+      message: `${updated.name} saved.`,
+      updated: {
+        id: updated.id,
+        name: updated.name,
+        status: updated.status,
+        startDate: updated.startDate,
+        startTime: updated.startTime,
+        location: updated.location,
+        description: updated.description,
+      },
+    });
   }
 
   // Tool-calling loop (max 3 rounds to handle multi-step)

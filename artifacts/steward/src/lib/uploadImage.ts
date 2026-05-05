@@ -19,7 +19,7 @@ export async function uploadImage(file: File): Promise<string> {
       throw new Error(data?.error ?? "Failed to upload image");
     }
     const { objectPath } = await directRes.json() as { objectPath: string };
-    return objectPath;
+    return objectPath.startsWith("/") ? `/api/storage${objectPath}` : objectPath;
   }
 
   const metaRes = await fetch("/api/storage/uploads/request-url", {
