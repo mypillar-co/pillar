@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { API, STEWARD, TEST_ORG_SLUG, loginToSteward } from "./helpers";
+import { API, STEWARD, TEST_ORG_SLUG, dbQuery, getTestOrgId, loginToSteward } from "./helpers";
 
 type EventRow = {
   id: string;
@@ -10,6 +10,48 @@ type EventRow = {
 type EventDetailRow = {
   sponsors?: Array<{ name?: string | null }>;
 };
+
+async function cleanupCommandCenterSmokeArtifacts(): Promise<void> {
+  const orgId = await getTestOrgId();
+  if (!orgId) return;
+
+  const smokeWhere = `
+    org_id = $1
+    AND (
+      name LIKE 'E2E Command Center Vendor%'
+      OR name LIKE 'Pillar Smoke Vendor%'
+      OR COALESCE(email, '') LIKE 'event-command-center-%@example.com'
+      OR COALESCE(email, '') LIKE 'vendor-smoke-%@example.com'
+    )
+  `;
+
+  await dbQuery(
+    `
+      WITH smoke_vendor_ids AS (
+        SELECT id FROM vendors WHERE ${smokeWhere}
+        UNION
+        SELECT vendor_id AS id FROM registrations
+        WHERE vendor_id IS NOT NULL
+          AND ${smokeWhere}
+      )
+      DELETE FROM event_vendors
+      WHERE org_id = $1
+        AND vendor_id IN (SELECT id FROM smoke_vendor_ids)
+    `,
+    [orgId],
+  );
+
+  await dbQuery(`DELETE FROM vendors WHERE ${smokeWhere}`, [orgId]);
+  await dbQuery(`DELETE FROM registrations WHERE ${smokeWhere}`, [orgId]);
+}
+
+test.beforeEach(async () => {
+  await cleanupCommandCenterSmokeArtifacts();
+});
+
+test.afterEach(async () => {
+  await cleanupCommandCenterSmokeArtifacts();
+});
 
 test("Event Command Center surfaces event operations and gates vendor review", async ({ page }) => {
   await loginToSteward(page, { targetPath: "/dashboard/events" });
