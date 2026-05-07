@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard,
@@ -26,6 +26,8 @@ import {
   ShoppingBag,
   Megaphone,
   LogOut,
+  Images,
+  Search,
 } from "lucide-react";
 import { useAuth } from "@workspace/replit-auth-web";
 import { useGetOrganization } from "@workspace/api-client-react";
@@ -84,6 +86,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Presence",
     items: [
       { label: "Website", href: "/dashboard/site", icon: Globe, tourId: "site-builder" },
+      { label: "Gallery", href: "/dashboard/gallery", icon: Images },
       { label: "Domain", href: "/dashboard/domains", icon: LinkIcon },
     ],
   },
@@ -129,6 +132,7 @@ const IDLE_LIMIT_MS = 30 * 60 * 1000; // 30 min
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [navSearch, setNavSearch] = useState("");
   const { user, isLoading: authLoading, logout } = useAuth();
   const { data: orgData, isLoading: orgLoading } = useGetOrganization();
   const org = orgData?.organization;
@@ -137,6 +141,19 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   const lastActivityRef = useRef(Date.now());
   const warnedRef = useRef(false);
+
+  const filteredNavSections = useMemo(() => {
+    const q = navSearch.trim().toLowerCase();
+    if (!q) return NAV_SECTIONS;
+    return NAV_SECTIONS
+      .map(section => ({
+        ...section,
+        items: section.items.filter(item =>
+          `${item.label} ${item.href} ${section.title ?? ""}`.toLowerCase().includes(q),
+        ),
+      }))
+      .filter(section => section.items.length > 0);
+  }, [navSearch]);
 
   // Idle timer — check every 30 s and also on tab-focus (browsers throttle intervals in bg tabs)
   useEffect(() => {
@@ -255,9 +272,23 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
+      {(!collapsed || mobile) && (
+        <div className="px-3 py-3 border-b border-white/8">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-600" />
+            <input
+              value={navSearch}
+              onChange={e => setNavSearch(e.target.value)}
+              placeholder="Find a tool..."
+              className="w-full rounded-lg border border-white/8 bg-white/5 py-2 pl-8 pr-3 text-xs text-slate-200 outline-none placeholder:text-slate-600 focus:border-primary/40"
+            />
+          </div>
+        </div>
+      )}
+
       {/* Nav Sections */}
       <nav className="flex-1 px-2 py-3 overflow-y-auto space-y-4">
-        {NAV_SECTIONS.map((section, si) => (
+        {filteredNavSections.map((section, si) => (
           <div key={si}>
             {section.title && !collapsed && (
               <p className="px-3 mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-600">
@@ -279,6 +310,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         ))}
+        {filteredNavSections.length === 0 && (!collapsed || mobile) && (
+          <p className="px-3 py-4 text-xs text-slate-500">No dashboard tools match “{navSearch}”.</p>
+        )}
       </nav>
 
       {/* Bottom Nav */}

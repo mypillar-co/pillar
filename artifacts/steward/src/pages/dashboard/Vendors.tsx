@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Users, Search, Mail, Phone, Loader2 } from "lucide-react";
+import { Edit3, Plus, Trash2, Users, Search, Mail, Phone, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,15 +13,28 @@ import { api, type Vendor } from "@/lib/api";
 
 const VENDOR_TYPES = ["food", "merchandise", "entertainment", "service", "nonprofit", "other"];
 
-function AddVendorDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+function VendorDialog({ open, onClose, vendor }: { open: boolean; onClose: () => void; vendor?: Vendor | null }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({ name: "", vendorType: "", email: "", phone: "", notes: "" });
+  const isEditing = Boolean(vendor);
+  React.useEffect(() => {
+    if (!open) return;
+    setForm({
+      name: vendor?.name ?? "",
+      vendorType: vendor?.vendorType ?? "",
+      email: vendor?.email ?? "",
+      phone: vendor?.phone ?? "",
+      notes: vendor?.notes ?? "",
+    });
+  }, [open, vendor]);
   const mutation = useMutation({
-    mutationFn: () => api.vendors.create(form),
+    mutationFn: () => isEditing && vendor
+      ? api.vendors.update(vendor.id, form)
+      : api.vendors.create(form),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["vendors"] });
       qc.invalidateQueries({ queryKey: ["stats"] });
-      toast.success("Vendor added");
+      toast.success(isEditing ? "Vendor updated" : "Vendor added");
       onClose();
       setForm({ name: "", vendorType: "", email: "", phone: "", notes: "" });
     },
@@ -31,7 +44,7 @@ function AddVendorDialog({ open, onClose }: { open: boolean; onClose: () => void
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="bg-[hsl(224,30%,14%)] border-white/10 text-white max-w-md">
-        <DialogHeader><DialogTitle>Add Vendor</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{isEditing ? "Edit Vendor" : "Add Vendor"}</DialogTitle></DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
             <Label className="text-slate-300">Vendor Name *</Label>
@@ -64,7 +77,7 @@ function AddVendorDialog({ open, onClose }: { open: boolean; onClose: () => void
         <DialogFooter>
           <Button variant="outline" onClick={onClose} className="border-white/10 text-slate-300">Cancel</Button>
           <Button onClick={() => mutation.mutate()} disabled={!form.name || mutation.isPending}>
-            {mutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Add Vendor
+            {mutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} {isEditing ? "Save Vendor" : "Add Vendor"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -75,8 +88,24 @@ function AddVendorDialog({ open, onClose }: { open: boolean; onClose: () => void
 export default function Vendors() {
   const [search, setSearch] = useState("");
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<Vendor | null>(null);
+  const qc = useQueryClient();
   const { data: vendors = [], isLoading } = useQuery({ queryKey: ["vendors"], queryFn: api.vendors.list });
   const filtered = vendors.filter((v: Vendor) => v.name.toLowerCase().includes(search.toLowerCase()));
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.vendors.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendors"] });
+      qc.invalidateQueries({ queryKey: ["stats"] });
+      toast.success("Vendor deleted");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  function deleteVendor(vendor: Vendor) {
+    if (!confirm(`Delete ${vendor.name}? This removes the vendor from event vendor lists too.`)) return;
+    deleteMutation.mutate(vendor.id);
+  }
 
   return (
     <div className="p-6 space-y-5 max-w-5xl mx-auto">
@@ -118,12 +147,32 @@ export default function Vendors() {
               <div className="flex items-center gap-2 flex-shrink-0">
                 {vendor.vendorType && <span className="text-xs text-muted-foreground capitalize hidden sm:block">{vendor.vendorType}</span>}
                 <Badge variant="outline" className={`text-xs capitalize ${vendor.status === "active" ? "border-emerald-500/30 text-emerald-400" : "border-white/20 text-slate-400"}`}>{vendor.status}</Badge>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => setEditing(vendor)}
+                  className="h-8 w-8 text-slate-400 hover:text-white hover:bg-white/10"
+                  aria-label={`Edit ${vendor.name}`}
+                >
+                  <Edit3 className="w-4 h-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => deleteVendor(vendor)}
+                  disabled={deleteMutation.isPending}
+                  className="h-8 w-8 text-slate-400 hover:text-red-300 hover:bg-red-500/10"
+                  aria-label={`Delete ${vendor.name}`}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
               </div>
             </div>
           ))}
         </div>
       )}
-      <AddVendorDialog open={adding} onClose={() => setAdding(false)} />
+      <VendorDialog open={adding} onClose={() => setAdding(false)} />
+      <VendorDialog open={Boolean(editing)} vendor={editing} onClose={() => setEditing(null)} />
     </div>
   );
 }

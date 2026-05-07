@@ -295,11 +295,30 @@ async function runMigrations() {
         org_id text NOT NULL,
         title text NOT NULL,
         body text NOT NULL,
+        status text NOT NULL DEFAULT 'published',
+        visibility text NOT NULL DEFAULT 'both',
         created_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now()
       )
     `);
+    await db.execute(sql`ALTER TABLE cs_announcements ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'published'`);
+    await db.execute(sql`ALTER TABLE cs_announcements ADD COLUMN IF NOT EXISTS visibility text NOT NULL DEFAULT 'both'`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS cs_announcements_org_idx ON cs_announcements (org_id, created_at DESC)`);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS pending_actions (
+        id varchar PRIMARY KEY,
+        org_id varchar NOT NULL,
+        intent text NOT NULL,
+        summary text NOT NULL,
+        payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+        status text NOT NULL DEFAULT 'pending',
+        created_at timestamptz NOT NULL DEFAULT now(),
+        expires_at timestamptz NOT NULL,
+        completed_at timestamptz
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS pending_actions_org_status_idx ON pending_actions (org_id, status, expires_at)`);
 
     // Track which contact-form messages an admin has replied to (via Autopilot reply_to_message tool)
     await db.execute(sql`ALTER TABLE org_contact_submissions ADD COLUMN IF NOT EXISTS replied_at timestamptz`);

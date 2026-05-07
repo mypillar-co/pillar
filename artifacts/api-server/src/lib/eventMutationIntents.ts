@@ -212,6 +212,23 @@ function formatTimeParts(hour: number, minute: number | null = 0): string {
   return `${hour12}:${String(minute ?? 0).padStart(2, "0")} ${period}`;
 }
 
+function formatStoredTimeForHumans(value: unknown): string {
+  const candidate = text(value);
+  if (!candidate) return "";
+  const twelveHour = candidate.match(/^(\d{1,2}):([0-5]\d)\s*(AM|PM)$/i);
+  if (twelveHour) {
+    const hour = Number(twelveHour[1]);
+    const minute = Number(twelveHour[2]);
+    const suffix = twelveHour[3].toUpperCase();
+    return `${hour % 12 || 12}:${String(minute).padStart(2, "0")} ${suffix}`;
+  }
+  const twentyFourHour = candidate.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+  if (twentyFourHour) {
+    return formatTimeParts(Number(twentyFourHour[1]), Number(twentyFourHour[2]));
+  }
+  return candidate;
+}
+
 function formatHumanDate(date: Date): string {
   return new Intl.DateTimeFormat("en-US", {
     weekday: "long",
@@ -455,7 +472,8 @@ export async function applyDeterministicEventMutation(
   }
 
   const humanDate = parsed.humanDate ?? saved.startDate ?? "the saved date";
-  const humanTime = saved.startTime ? ` at ${saved.startTime}` : "";
+  const displayTime = formatStoredTimeForHumans(saved.startTime);
+  const humanTime = displayTime ? ` at ${displayTime}` : "";
   return {
     status: "completed",
     intent,

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Star, Search, Mail, Globe, Loader2, Upload } from "lucide-react";
+import { Edit3, Plus, Star, Search, Mail, Globe, Loader2, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,31 +11,51 @@ import { Textarea } from "@/components/ui/textarea";
 import { api, type Sponsor } from "@/lib/api";
 import { uploadImage, isImageFile } from "@/lib/uploadImage";
 
-function AddSponsorDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+function SponsorDialog({ open, onClose, sponsor }: { open: boolean; onClose: () => void; sponsor?: Sponsor | null }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({ name: "", email: "", phone: "", website: "", notes: "", eventId: "", tier: "" });
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const isEditing = Boolean(sponsor);
   const { data: events = [] } = useQuery({ queryKey: ["events"], queryFn: api.events.list });
+  React.useEffect(() => {
+    if (!open) return;
+    setForm({
+      name: sponsor?.name ?? "",
+      email: sponsor?.email ?? "",
+      phone: sponsor?.phone ?? "",
+      website: sponsor?.website ?? "",
+      notes: sponsor?.notes ?? "",
+      eventId: "",
+      tier: "",
+    });
+    if (logoPreview) URL.revokeObjectURL(logoPreview);
+    setLogoPreview(sponsor?.logoUrl ?? null);
+    setLogoFile(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, sponsor]);
   const mutation = useMutation({
     mutationFn: async () => {
-      let logoUrl: string | undefined;
+      let logoUrl: string | undefined = sponsor?.logoUrl ?? undefined;
       if (logoFile) logoUrl = await uploadImage(logoFile);
-      return api.sponsors.create({
+      const payload = {
         ...form,
         eventId: form.eventId || undefined,
         tier: form.tier || undefined,
         logoUrl,
-      });
+      };
+      return isEditing && sponsor
+        ? api.sponsors.update(sponsor.id, payload)
+        : api.sponsors.create(payload);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sponsors"] });
       qc.invalidateQueries({ queryKey: ["stats"] });
       qc.invalidateQueries({ queryKey: ["events"] });
-      toast.success("Sponsor added");
+      toast.success(isEditing ? "Sponsor updated" : "Sponsor added");
       onClose();
       setForm({ name: "", email: "", phone: "", website: "", notes: "", eventId: "", tier: "" });
-      if (logoPreview) URL.revokeObjectURL(logoPreview);
+      if (logoPreview?.startsWith("blob:")) URL.revokeObjectURL(logoPreview);
       setLogoPreview(null);
       setLogoFile(null);
     },
@@ -48,14 +68,14 @@ function AddSponsorDialog({ open, onClose }: { open: boolean; onClose: () => voi
       toast.error("Please choose an image file.");
       return;
     }
-    if (logoPreview) URL.revokeObjectURL(logoPreview);
+    if (logoPreview?.startsWith("blob:")) URL.revokeObjectURL(logoPreview);
     setLogoFile(file);
     setLogoPreview(URL.createObjectURL(file));
   }
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="bg-[hsl(224,30%,14%)] border-white/10 text-white max-w-md">
-        <DialogHeader><DialogTitle>Add Sponsor</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{isEditing ? "Edit Sponsor" : "Add Sponsor"}</DialogTitle></DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
             <Label className="text-slate-300">Sponsor Name *</Label>
@@ -67,7 +87,7 @@ function AddSponsorDialog({ open, onClose }: { open: boolean; onClose: () => voi
               <div className="h-12 w-12 rounded-lg bg-white/5 flex items-center justify-center overflow-hidden">
                 {logoPreview ? <img src={logoPreview} alt="" className="h-full w-full object-contain" /> : <Upload className="h-4 w-4 text-slate-400" />}
               </div>
-              <span className="text-sm text-slate-300">{logoFile ? logoFile.name : "Upload sponsor logo"}</span>
+              <span className="text-sm text-slate-300">{logoFile ? logoFile.name : logoPreview ? "Logo selected" : "Upload sponsor logo"}</span>
               <input type="file" accept="image/*" className="hidden" onChange={e => handleLogo(e.target.files?.[0])} />
             </label>
           </div>
@@ -83,13 +103,13 @@ function AddSponsorDialog({ open, onClose }: { open: boolean; onClose: () => voi
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-slate-300">Event (optional)</Label>
+              <Label className="text-slate-300">{isEditing ? "Link to event (optional)" : "Event (optional)"}</Label>
               <select
                 value={form.eventId}
                 onChange={e => set("eventId")(e.target.value)}
                 className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm text-white"
               >
-                <option value="">Organization sponsor</option>
+                <option value="">{isEditing ? "Keep existing event links" : "Organization sponsor"}</option>
                 {events.map(event => <option key={event.id} value={event.id}>{event.name}</option>)}
               </select>
             </div>
@@ -106,7 +126,7 @@ function AddSponsorDialog({ open, onClose }: { open: boolean; onClose: () => voi
         <DialogFooter>
           <Button variant="outline" onClick={onClose} className="border-white/10 text-slate-300">Cancel</Button>
           <Button onClick={() => mutation.mutate()} disabled={!form.name || mutation.isPending}>
-            {mutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Add Sponsor
+            {mutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} {isEditing ? "Save Sponsor" : "Add Sponsor"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -117,8 +137,25 @@ function AddSponsorDialog({ open, onClose }: { open: boolean; onClose: () => voi
 export default function Sponsors() {
   const [search, setSearch] = useState("");
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<Sponsor | null>(null);
+  const qc = useQueryClient();
   const { data: sponsors = [], isLoading } = useQuery({ queryKey: ["sponsors"], queryFn: api.sponsors.list });
   const filtered = sponsors.filter((s: Sponsor) => s.name.toLowerCase().includes(search.toLowerCase()));
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.sponsors.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sponsors"] });
+      qc.invalidateQueries({ queryKey: ["stats"] });
+      qc.invalidateQueries({ queryKey: ["events"] });
+      toast.success("Sponsor deleted");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  function deleteSponsor(sponsor: Sponsor) {
+    if (!confirm(`Delete ${sponsor.name}? This removes the sponsor from event sponsor lists too.`)) return;
+    deleteMutation.mutate(sponsor.id);
+  }
 
   return (
     <div className="p-6 space-y-5 max-w-5xl mx-auto">
@@ -157,12 +194,34 @@ export default function Sponsors() {
                   </div>
                 </div>
               </div>
-              <Badge variant="outline" className={`text-xs capitalize flex-shrink-0 ${sponsor.status === "active" ? "border-emerald-500/30 text-emerald-400" : "border-white/20 text-slate-400"}`}>{sponsor.status}</Badge>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Badge variant="outline" className={`text-xs capitalize flex-shrink-0 ${sponsor.status === "active" ? "border-emerald-500/30 text-emerald-400" : "border-white/20 text-slate-400"}`}>{sponsor.status}</Badge>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => setEditing(sponsor)}
+                  className="h-8 w-8 text-slate-400 hover:text-white hover:bg-white/10"
+                  aria-label={`Edit ${sponsor.name}`}
+                >
+                  <Edit3 className="w-4 h-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => deleteSponsor(sponsor)}
+                  disabled={deleteMutation.isPending}
+                  className="h-8 w-8 text-slate-400 hover:text-red-300 hover:bg-red-500/10"
+                  aria-label={`Delete ${sponsor.name}`}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
           ))}
         </div>
       )}
-      <AddSponsorDialog open={adding} onClose={() => setAdding(false)} />
+      <SponsorDialog open={adding} onClose={() => setAdding(false)} />
+      <SponsorDialog open={Boolean(editing)} sponsor={editing} onClose={() => setEditing(null)} />
     </div>
   );
 }

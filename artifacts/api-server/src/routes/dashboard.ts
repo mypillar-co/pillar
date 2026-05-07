@@ -38,6 +38,26 @@ function parseEventDate(value: string | null | undefined): number | null {
   return Number.isNaN(time) ? null : time;
 }
 
+function formatDashboardTime(value: string | null | undefined): string | null {
+  const raw = value?.trim();
+  if (!raw) return null;
+  const match24 = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (match24) {
+    const hour = Math.max(0, Math.min(23, Number(match24[1])));
+    const minute = Math.max(0, Math.min(59, Number(match24[2])));
+    const suffix = hour >= 12 ? "PM" : "AM";
+    const displayHour = hour % 12 || 12;
+    return `${displayHour}:${String(minute).padStart(2, "0")} ${suffix}`;
+  }
+  const match12 = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+  if (match12) {
+    const hour = Math.max(1, Math.min(12, Number(match12[1])));
+    const minute = Math.max(0, Math.min(59, Number(match12[2] ?? 0)));
+    return `${hour}:${String(minute).padStart(2, "0")} ${match12[3].toUpperCase()}`;
+  }
+  return raw;
+}
+
 async function loadUpcomingEvents(orgId: string): Promise<DashboardEventRow[]> {
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
@@ -184,7 +204,7 @@ router.get("/briefing", async (req: Request, res: Response) => {
   const upcoming = upcomingEvents.map((event) => ({
     label: event.name,
     detail: [
-      event.startTime,
+      formatDashboardTime(event.startTime),
       event.location,
       event.isTicketed ? "ticketed" : null,
       event.hasRegistration ? "registration enabled" : null,

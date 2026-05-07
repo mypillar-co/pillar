@@ -7,6 +7,9 @@ import { requireOperationsTier } from "../lib/operationsTier";
 import { buildBoardMonthlyReport } from "../lib/boardReport";
 import {
   buildOperationalEmailDraft,
+  sendOperationalEmailDraft,
+  VALID_EMAIL_DRAFT_INTENTS,
+  type EmailDraftIntent,
 } from "../lib/operationEmailDrafts";
 import {
   applyDeterministicSiteEdit,
@@ -37,8 +40,6 @@ type PendingAction = {
   payload: Record<string, unknown>;
 };
 
-const pendingActions = new Map<string, PendingAction>();
-
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -60,7 +61,7 @@ function operationResponse(
   });
 }
 
-function createPendingAction(
+async function createPendingAction(
   orgId: string,
   intent: string,
   summary: string,
@@ -78,8 +79,66 @@ function createPendingAction(
     summary,
     payload,
   };
-  pendingActions.set(id, action);
+  await db.execute(sql`
+    INSERT INTO pending_actions (id, org_id, intent, summary, payload, status, created_at, expires_at)
+    VALUES (${id}, ${orgId}, ${intent}, ${summary}, ${JSON.stringify(payload)}::jsonb, 'pending', ${now}, ${expiresAt})
+  `);
   return action;
+}
+
+async function getPendingAction(id: string, orgId: string): Promise<PendingAction | null> {
+  const rows = await db.execute(sql`
+    SELECT id, org_id, intent, summary, payload, created_at, expires_at
+    FROM pending_actions
+    WHERE id = ${id}
+      AND org_id = ${orgId}
+      AND status = 'pending'
+    LIMIT 1
+  `);
+  const row = rows.rows[0] as Record<string, unknown> | undefined;
+  if (!row) return null;
+  const expiresAt = new Date(String(row.expires_at));
+  if (Number.isFinite(expiresAt.getTime()) && expiresAt.getTime() < Date.now()) {
+    await db.execute(sql`UPDATE pending_actions SET status = 'expired' WHERE id = ${id}`);
+    return null;
+  }
+  return {
+    id: String(row.id),
+    orgId: String(row.org_id),
+    intent: String(row.intent),
+    summary: String(row.summary),
+    payload: (row.payload && typeof row.payload === "object" ? row.payload : {}) as Record<string, unknown>,
+    createdAt: new Date(String(row.created_at)).toISOString(),
+    expiresAt: expiresAt.toISOString(),
+  };
+}
+
+async function completePendingAction(id: string) {
+  await db.execute(sql`
+    UPDATE pending_actions
+    SET status = 'completed', completed_at = now()
+    WHERE id = ${id}
+  `);
+}
+
+function emailIntentFromMessage(message: string): EmailDraftIntent | null {
+  const lower = message.toLowerCase();
+  if (lower.includes("vendor") && (lower.includes("reminder") || lower.includes("unpaid"))) {
+    return "unpaid_vendor_reminder";
+  }
+  if (lower.includes("sponsor") && (lower.includes("thank") || lower.includes("thanks"))) {
+    return "sponsor_thank_you";
+  }
+  if (lower.includes("volunteer") && lower.includes("reminder")) {
+    return "volunteer_reminder";
+  }
+  if (lower.includes("renewal") && (lower.includes("member") || lower.includes("membership"))) {
+    return "member_renewal";
+  }
+  if (lower.includes("event") && (lower.includes("announce") || lower.includes("announcement"))) {
+    return "event_announcement";
+  }
+  return null;
 }
 
 function detectIntent(message: string): string {
@@ -314,8 +373,50 @@ router.post("/operations", async (req: Request, res: Response) => {
       return;
     }
 
+    if (intent === "send_email") {
+      if (!requireOperationsTier(org, res)) return;
+      const emailIntent = emailIntentFromMessage(message);
+      if (!emailIntent || !VALID_EMAIL_DRAFT_INTENTS.has(emailIntent)) {
+        const action = await createPendingAction(org.id, intent, message, {
+          originalMessage: message,
+        });
+        operationResponse(
+          res,
+          "confirmation_required",
+          intent,
+          "This send request needs more detail before Pillar can prepare recipients. No email was sent.",
+          {
+            summary: action.summary,
+            expiresAt: action.expiresAt,
+          },
+          action.id,
+        );
+        return;
+      }
+      const draft = await buildOperationalEmailDraft(org, { intent: emailIntent });
+      const action = await createPendingAction(org.id, "send_operational_email_draft", message, {
+        emailIntent,
+        subject: draft.subject,
+        body: draft.body,
+      });
+      operationResponse(
+        res,
+        "confirmation_required",
+        "send_operational_email_draft",
+        `${draft.recipientsPreview}. Review and confirm before sending.`,
+        {
+          kind: "email_draft",
+          draft,
+          summary: action.summary,
+          expiresAt: action.expiresAt,
+        },
+        action.id,
+      );
+      return;
+    }
+
     if (confirmationRequiredIntent(intent)) {
-      const action = createPendingAction(org.id, intent, message, {
+      const action = await createPendingAction(org.id, intent, message, {
         dryRun: true,
         originalMessage: message,
       });
@@ -346,13 +447,53 @@ router.post("/operations/confirm", async (req: Request, res: Response) => {
 
   const body = (req.body ?? {}) as Record<string, unknown>;
   const pendingActionId = text(body.pendingActionId);
-  const action = pendingActionId ? pendingActions.get(pendingActionId) : null;
-  if (!action || action.orgId !== org.id) {
+  const action = pendingActionId ? await getPendingAction(pendingActionId, org.id) : null;
+  if (!action) {
     operationResponse(res, "error", "confirm_action", "Pending action was not found or has expired.");
     return;
   }
 
-  operationResponse(res, "confirmation_required", action.intent, "Confirmation gates are in place. This phase does not execute send, publish, delete, invite, approval, social, or payment actions yet.", {
+  if (body.confirm !== true && text(body.confirmationText).toUpperCase() !== "SEND") {
+    operationResponse(res, "confirmation_required", action.intent, "Confirm this action before Pillar executes it.", {
+      pendingActionId: action.id,
+      summary: action.summary,
+    }, action.id);
+    return;
+  }
+
+  if (action.intent === "send_operational_email_draft") {
+    if (!requireOperationsTier(org, res)) return;
+    const emailIntent = text(action.payload.emailIntent) as EmailDraftIntent;
+    const subject = text(action.payload.subject);
+    const draftBody = text(action.payload.body);
+    if (!VALID_EMAIL_DRAFT_INTENTS.has(emailIntent) || !subject || !draftBody) {
+      operationResponse(res, "error", action.intent, "Pending email draft is incomplete. Prepare the draft again.");
+      return;
+    }
+    const result = await sendOperationalEmailDraft(org, {
+      intent: emailIntent,
+      subject,
+      body: draftBody,
+      dryRun: body.dryRun === true,
+    });
+    if (!result.ok) {
+      operationResponse(res, "error", action.intent, result.error ?? "One or more emails could not be sent.", {
+        kind: "email_send_result",
+        result,
+      });
+      return;
+    }
+    await completePendingAction(action.id);
+    operationResponse(res, "completed", action.intent, result.dryRun
+      ? `Dry run complete for ${result.recipientCount} recipient${result.recipientCount === 1 ? "" : "s"}.`
+      : `Email sent to ${result.sentCount + result.simulatedCount} recipient${result.sentCount + result.simulatedCount === 1 ? "" : "s"}.`, {
+      kind: "email_send_result",
+      result,
+    });
+    return;
+  }
+
+  operationResponse(res, "confirmation_required", action.intent, "This risky action is gated, but execution is not enabled from Command Center yet. No changes were made.", {
     pendingActionId: action.id,
     summary: action.summary,
     dryRun: true,

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Sparkles, Copy, Check, ChevronRight, Loader2, Lock,
   ArrowLeft, Zap, FileText, History, Package, Clock, Trash2,
-  Search, ChevronDown, ChevronUp,
+  Search, ChevronDown, ChevronUp, Mail, Share2, Send, ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useGetSubscription } from "@workspace/api-client-react";
+import { csrfHeaders } from "@/lib/api";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -100,6 +101,62 @@ async function deleteHistoryItem(id: string) {
   if (!res.ok) throw new Error("Delete failed");
 }
 
+type EmailAudience = "newsletter" | "members" | "sponsors" | "vendors" | "contacts";
+
+async function deliverEmail(input: {
+  audience: EmailAudience;
+  subject: string;
+  body: string;
+  dryRun?: boolean;
+  confirm?: boolean;
+}) {
+  const res = await fetch("/api/content/email-delivery", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders("POST") },
+    body: JSON.stringify(input),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error ?? "Email delivery failed");
+  return data as {
+    status: "dry_run" | "sent" | "simulated" | "partial_failure";
+    recipientCount: number;
+    sentCount?: number;
+    simulatedCount?: number;
+    failedCount?: number;
+    recipientsPreview?: string;
+  };
+}
+
+async function createSocialDrafts(input: {
+  content: string;
+  platforms: string[];
+  scheduledAt?: string;
+  mediaUrl?: string;
+}) {
+  const res = await fetch("/api/content/social-drafts", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders("POST") },
+    body: JSON.stringify(input),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error ?? "Could not create social draft");
+  return data as { status: "draft" | "scheduled"; created: unknown[]; skipped?: string[] };
+}
+
+async function publishSocialNow(input: { content: string; platforms: string[] }) {
+  const res = await fetch("/api/social/zernio/publish", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...csrfHeaders("POST") },
+    body: JSON.stringify(input),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error ?? "Social publishing failed");
+  return data as { success: boolean };
+}
+
 // ── Category meta ─────────────────────────────────────────────────────────────
 
 const CATEGORY_META: Record<string, { label: string; color: string; bg: string }> = {
@@ -173,6 +230,222 @@ function CopyButton({ text, size = "sm" }: { text: string; size?: "sm" | "xs" })
         : <><Copy className="w-3.5 h-3.5 mr-1" /> Copy</>
       }
     </Button>
+  );
+}
+
+const EMAIL_AUDIENCES: Array<{ value: EmailAudience; label: string }> = [
+  { value: "newsletter", label: "Newsletter subscribers" },
+  { value: "members", label: "Active members" },
+  { value: "sponsors", label: "Active sponsors" },
+  { value: "vendors", label: "Active vendors" },
+  { value: "contacts", label: "Recent contacts" },
+];
+
+const SOCIAL_OPTIONS = [
+  { value: "facebook", label: "Facebook" },
+  { value: "twitter", label: "X" },
+  { value: "instagram", label: "Instagram" },
+];
+
+function categoryForTask(taskId: string, fallback?: string) {
+  if (fallback) return fallback;
+  if (taskId.includes("social") || taskId.includes("highlight") || taskId.includes("milestone") || taskId.includes("snippets")) return "social";
+  if (taskId.includes("newsletter") || taskId.includes("appeal") || taskId.includes("announcement") || taskId.includes("letter")) return "communications";
+  return "communications";
+}
+
+function DeliveryActions({
+  content,
+  label,
+  category,
+}: {
+  content: string;
+  label: string;
+  category: string;
+}) {
+  const [audience, setAudience] = useState<EmailAudience>("newsletter");
+  const [subject, setSubject] = useState(() => label || "Update from our organization");
+  const [previewCount, setPreviewCount] = useState<number | null>(null);
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [socialBusy, setSocialBusy] = useState(false);
+  const [publishBusy, setPublishBusy] = useState(false);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(["facebook"]);
+  const [scheduledAt, setScheduledAt] = useState("");
+  const [mediaUrl, setMediaUrl] = useState("");
+
+  if (!content) return null;
+
+  const isSocial = category === "social" || category === "repurposing" || /social|post|campaign|snippet/i.test(label);
+  const hasPlatformSections = /(?:^|\n)\s*(FACEBOOK|INSTAGRAM|X\/TWITTER|TWITTER|X):/i.test(content);
+
+  const togglePlatform = (platform: string) => {
+    setSelectedPlatforms(prev => prev.includes(platform)
+      ? prev.filter(p => p !== platform)
+      : [...prev, platform]
+    );
+  };
+
+  const previewEmail = async () => {
+    setEmailBusy(true);
+    try {
+      const result = await deliverEmail({ audience, subject, body: content, dryRun: true });
+      setPreviewCount(result.recipientCount);
+      toast.success(`Found ${result.recipientCount} recipient${result.recipientCount === 1 ? "" : "s"}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not preview recipients");
+    } finally {
+      setEmailBusy(false);
+    }
+  };
+
+  const sendEmailNow = async () => {
+    const countText = previewCount === null ? "this audience" : `${previewCount} recipient${previewCount === 1 ? "" : "s"}`;
+    if (!window.confirm(`Send this email to ${countText}?`)) return;
+    setEmailBusy(true);
+    try {
+      const result = await deliverEmail({ audience, subject, body: content, confirm: true });
+      if (result.status === "simulated") {
+        toast.success(`Email simulated for ${result.simulatedCount ?? result.recipientCount} recipient${result.recipientCount === 1 ? "" : "s"}`);
+      } else {
+        toast.success(`Email sent to ${result.sentCount ?? result.recipientCount} recipient${result.recipientCount === 1 ? "" : "s"}`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Email send failed");
+    } finally {
+      setEmailBusy(false);
+    }
+  };
+
+  const saveSocialDraft = async () => {
+    if (!selectedPlatforms.length) {
+      toast.error("Choose at least one platform");
+      return;
+    }
+    setSocialBusy(true);
+    try {
+      const scheduledAtIso = scheduledAt ? new Date(scheduledAt).toISOString() : undefined;
+      const result = await createSocialDrafts({
+        content,
+        platforms: selectedPlatforms,
+        scheduledAt: scheduledAtIso,
+        mediaUrl: mediaUrl.trim() || undefined,
+      });
+      const skipped = result.skipped?.length ? ` ${result.skipped.join(" ")}` : "";
+      toast.success(`${result.created.length} social ${result.status === "scheduled" ? "post scheduled" : "draft saved"}.${skipped}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save social draft");
+    } finally {
+      setSocialBusy(false);
+    }
+  };
+
+  const publishNow = async () => {
+    if (!selectedPlatforms.length) {
+      toast.error("Choose at least one platform");
+      return;
+    }
+    if (!window.confirm("Publish this now through connected social accounts?")) return;
+    setPublishBusy(true);
+    try {
+      await publishSocialNow({ content, platforms: selectedPlatforms });
+      toast.success("Social post sent to connected accounts");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Social publish failed");
+    } finally {
+      setPublishBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4 space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Delivery</p>
+          <p className="text-xs text-slate-500 mt-0.5">Copy stays available, but generated content can now go out through Pillar too.</p>
+        </div>
+        <CopyButton text={content} />
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div className="space-y-3 rounded-lg border border-white/8 bg-black/10 p-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-white">
+            <Mail className="w-4 h-4 text-primary" /> Send as email
+          </div>
+          <Input
+            value={subject}
+            onChange={e => setSubject(e.target.value)}
+            placeholder="Email subject"
+            className="bg-white/5 border-white/10 text-white placeholder:text-slate-600 text-sm"
+          />
+          <select
+            value={audience}
+            onChange={e => { setAudience(e.target.value as EmailAudience); setPreviewCount(null); }}
+            className="w-full rounded-md border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white"
+          >
+            {EMAIL_AUDIENCES.map(option => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+          {previewCount !== null && (
+            <p className="text-xs text-slate-400">{previewCount} recipient{previewCount === 1 ? "" : "s"} will receive this.</p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={previewEmail} disabled={emailBusy || !subject.trim()}>
+              {emailBusy ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : null}
+              Preview recipients
+            </Button>
+            <Button size="sm" onClick={sendEmailNow} disabled={emailBusy || !subject.trim()} className="bg-primary hover:bg-primary/90">
+              <Send className="w-3.5 h-3.5 mr-1.5" /> Send email
+            </Button>
+          </div>
+        </div>
+
+        <div className="space-y-3 rounded-lg border border-white/8 bg-black/10 p-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-white">
+            <Share2 className="w-4 h-4 text-primary" /> Social media
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {SOCIAL_OPTIONS.map(option => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => togglePlatform(option.value)}
+                className={`rounded-full border px-3 py-1 text-xs transition ${
+                  selectedPlatforms.includes(option.value)
+                    ? "border-primary/40 bg-primary/15 text-primary"
+                    : "border-white/10 text-slate-400 hover:text-white"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <Input
+            value={scheduledAt}
+            onChange={e => setScheduledAt(e.target.value)}
+            type="datetime-local"
+            className="bg-white/5 border-white/10 text-white text-sm"
+          />
+          <Input
+            value={mediaUrl}
+            onChange={e => setMediaUrl(e.target.value)}
+            placeholder="Optional image URL for Instagram"
+            className="bg-white/5 border-white/10 text-white placeholder:text-slate-600 text-sm"
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={saveSocialDraft} disabled={socialBusy || !isSocial}>
+              {socialBusy ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : null}
+              {scheduledAt ? "Schedule post" : "Save social draft"}
+            </Button>
+            <Button size="sm" onClick={publishNow} disabled={publishBusy || !isSocial || hasPlatformSections} className="bg-primary hover:bg-primary/90">
+              <ExternalLink className="w-3.5 h-3.5 mr-1.5" /> Publish now
+            </Button>
+          </div>
+          {!isSocial && <p className="text-xs text-slate-500">Use a social task or repurpose this copy into social posts before publishing.</p>}
+          {hasPlatformSections && <p className="text-xs text-slate-500">Multi-post campaigns are saved as separate social drafts first. Publish each platform from the Social Media page after review.</p>}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -301,6 +574,13 @@ function TaskWorkspace({ task, onBack }: { task: Task; onBack: () => void }) {
             {output && <CopyButton text={output} />}
           </div>
           <OutputPanel content={output} loading={mutation.isPending} />
+          {output && (
+            <DeliveryActions
+              content={output}
+              label={task.label}
+              category={task.category}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -415,7 +695,14 @@ function PackWorkspace({ pack, onBack }: { pack: Pack; onBack: () => void }) {
             ))
           ) : results.length > 0 ? (
             results.map(r => (
-              <OutputPanel key={r.taskId} label={r.label} content={r.content} />
+              <div key={r.taskId} className="space-y-3">
+                <OutputPanel label={r.label} content={r.content} />
+                <DeliveryActions
+                  content={r.content}
+                  label={r.label}
+                  category={categoryForTask(r.taskId)}
+                />
+              </div>
             ))
           ) : (
             <div className="flex flex-col items-center justify-center h-40 gap-2 text-slate-600 border border-white/8 rounded-xl">

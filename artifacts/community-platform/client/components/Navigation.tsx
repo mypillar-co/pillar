@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
+import { Facebook, Instagram, Twitter } from "lucide-react";
 import { useConfig } from "../config-context";
 
 export default function Navigation() {
@@ -26,6 +27,11 @@ export default function Navigation() {
   ];
 
   const shortName = config.shortName || config.orgName.split(" ").map(w => w[0]).join("").slice(0, 3);
+  const socialLinks = [
+    config.socialFacebook ? { href: config.socialFacebook, label: "Facebook", icon: Facebook } : null,
+    config.socialInstagram ? { href: config.socialInstagram, label: "Instagram", icon: Instagram } : null,
+    config.socialTwitter ? { href: config.socialTwitter, label: "X", icon: Twitter } : null,
+  ].filter(Boolean) as Array<{ href: string; label: string; icon: typeof Facebook }>;
 
   return (
     <nav className="sticky top-0 z-50 bg-white border-b border-gray-200 shadow-sm">
@@ -52,6 +58,22 @@ export default function Navigation() {
               </span>
             </Link>
           ))}
+          {socialLinks.length > 0 && (
+            <div className="ml-2 flex items-center gap-1 border-l border-gray-200 pl-2">
+              {socialLinks.map(link => (
+                <a
+                  key={link.label}
+                  href={link.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={link.label}
+                  className="rounded-md p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                >
+                  <link.icon className="h-4 w-4" />
+                </a>
+              ))}
+            </div>
+          )}
         </div>
 
         <button
@@ -80,6 +102,22 @@ export default function Navigation() {
               </span>
             </Link>
           ))}
+          {socialLinks.length > 0 && (
+            <div className="flex items-center gap-1 px-3 pt-2">
+              {socialLinks.map(link => (
+                <a
+                  key={link.label}
+                  href={link.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={link.label}
+                  className="rounded-md p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                >
+                  <link.icon className="h-4 w-4" />
+                </a>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </nav>

@@ -35,6 +35,9 @@ type Registration = {
   products?: string | null;
   needsElectricity?: boolean | null;
   eventId?: string | null;
+  eventName?: string | null;
+  eventSlug?: string | null;
+  eventStartDate?: string | null;
   tier?: string | null;
   vendorType?: string | null;
   feeAmount?: number | null;
@@ -60,10 +63,9 @@ function DocDownloadRow({ label, objectPath }: { label: string; objectPath: stri
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      // objectPath is like /objects/uploads/<uuid>
-      // Serve via the authenticated admin endpoint (falls through to the standard storage endpoint)
+      // Registration docs are private and must be verified against an org-owned application.
       const path = objectPath.startsWith("/") ? objectPath : `/${objectPath}`;
-      const res = await fetch(`/api/storage${path}`, { credentials: "include" });
+      const res = await fetch(`/api/public/registration-docs${path}`, { credentials: "include" });
       if (!res.ok) throw new Error("Download failed");
       const blob = await res.blob();
       const ext = blob.type === "application/pdf" ? ".pdf" : blob.type.split("/")[1] ? `.${blob.type.split("/")[1]}` : "";
@@ -353,6 +355,11 @@ export default function Registrations() {
                 </div>
                 <div className="flex items-center gap-3 mt-0.5">
                   <p className="text-sm text-slate-400 truncate">{reg.email}</p>
+                  {reg.eventName && (
+                    <span className="text-xs text-slate-500 flex-shrink-0">
+                      {reg.eventName}
+                    </span>
+                  )}
                   {reg.feeAmount != null && (
                     <span className="text-xs text-slate-500 flex-shrink-0">{formatFee(reg.feeAmount)}</span>
                   )}
@@ -405,6 +412,12 @@ export default function Registrations() {
 
                 {/* Contact info */}
                 <div className="grid grid-cols-2 gap-3 text-sm">
+                  {detailReg.eventName && (
+                    <div className="col-span-2">
+                      <p className="text-slate-500 text-xs mb-0.5">Event</p>
+                      <p className="text-white">{detailReg.eventName}</p>
+                    </div>
+                  )}
                   {detailReg.contactName && (
                     <div>
                       <p className="text-slate-500 text-xs mb-0.5">Contact</p>

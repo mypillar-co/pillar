@@ -295,6 +295,18 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
 app.use(authMiddleware);
 app.use(csrfMiddleware);
 
+// Public forms submitted from path-based local previews arrive as
+// /sites/:slug/api/public/..., but the API router is mounted at /api.
+// Normalize those paths before rate limiting and before the /api router mounts.
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  const match = req.path.match(/^\/sites\/([a-z0-9][a-z0-9-]{0,62})(\/api\/public\/.*)$/);
+  if (match) {
+    req.headers["x-org-id"] = match[1];
+    req.url = match[2] + (req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "");
+  }
+  next();
+});
+
 // ─── Rate limiting ────────────────────────────────────────────────────────────
 
 const publicApiLimiter = rateLimit({
@@ -611,7 +623,8 @@ app.use(async (req, res, next) => {
       (isCpSite ||
         (!hasReactSite &&
           isPathBased &&
-          !(subPath.startsWith("/api/") || subPath === "/api")));
+          !(subPath.startsWith("/api/") || subPath === "/api"))) &&
+      !subPath.startsWith("/api/public/");
 
     if (routeToCp) {
       req.url =
@@ -629,6 +642,7 @@ app.use(async (req, res, next) => {
     // ── API early-return for path-based non-CP orgs ────────────────────────────
     // Strip /sites/:slug prefix so Pillar API route handlers receive the request.
     if (isPathBased && (subPath.startsWith("/api/") || subPath === "/api")) {
+      req.headers["x-org-id"] = cpOrgSlug;
       req.url =
         subPath +
         (req.url && req.url.includes("?")

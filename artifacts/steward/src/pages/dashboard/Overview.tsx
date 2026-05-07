@@ -137,6 +137,15 @@ interface EmailDraftResponse {
   intent: string;
 }
 
+interface EmailSendResponse {
+  status: "sent" | "dry_run";
+  recipientCount: number;
+  sentCount: number;
+  simulatedCount: number;
+  failedCount: number;
+  dryRun: boolean;
+}
+
 interface AiOperationResponse {
   status: "completed" | "draft_prepared" | "confirmation_required" | "unsupported" | "error";
   intent: string;
@@ -232,7 +241,10 @@ function CommandCenterOverview({ briefing, loading, orgName }: {
   const [draftOpen, setDraftOpen] = React.useState(false);
   const [draftLoading, setDraftLoading] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState<EmailDraftResponse | null>(null);
+  const [draftSendLoading, setDraftSendLoading] = React.useState(false);
+  const [draftSendResult, setDraftSendResult] = React.useState<EmailSendResponse | null>(null);
   const [operationLoading, setOperationLoading] = React.useState(false);
+  const [operationConfirmLoading, setOperationConfirmLoading] = React.useState(false);
   const [operationResult, setOperationResult] = React.useState<AiOperationResponse | null>(null);
 
   const metrics = briefing?.metrics;
@@ -272,6 +284,7 @@ function CommandCenterOverview({ briefing, loading, orgName }: {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? "Failed to prepare draft");
       setDraft(body as EmailDraftResponse);
+      setDraftSendResult(null);
       setDraftOpen(true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to prepare draft");
@@ -300,6 +313,7 @@ function CommandCenterOverview({ briefing, loading, orgName }: {
 
       if (body.status === "draft_prepared" && body.data?.kind === "email_draft" && body.data.draft) {
         setDraft(body.data.draft);
+        setDraftSendResult(null);
         setDraftOpen(true);
       }
 
@@ -327,6 +341,64 @@ function CommandCenterOverview({ briefing, loading, orgName }: {
       () => toast.success("Draft copied"),
       () => toast.error("Could not copy draft"),
     );
+  }
+
+  async function sendDraft() {
+    if (!draft) return;
+    if (draft.recipientCount < 1) {
+      toast.error("No recipients match this draft yet.");
+      return;
+    }
+    if (!confirm(`Send this email to ${draft.recipientCount} recipient${draft.recipientCount === 1 ? "" : "s"}?`)) {
+      return;
+    }
+    setDraftSendLoading(true);
+    setDraftSendResult(null);
+    try {
+      const res = await fetch("/api/operations/email-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...csrfHeaders("POST") },
+        credentials: "include",
+        body: JSON.stringify({
+          intent: draft.intent,
+          subject: draft.subject,
+          body: draft.body,
+          confirm: true,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Email could not be sent");
+      setDraftSendResult(body as EmailSendResponse);
+      toast.success(body.status === "dry_run"
+        ? "Dry run complete"
+        : `Email sent to ${(body.sentCount ?? 0) + (body.simulatedCount ?? 0)} recipient${(body.sentCount ?? 0) + (body.simulatedCount ?? 0) === 1 ? "" : "s"}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Email could not be sent");
+    } finally {
+      setDraftSendLoading(false);
+    }
+  }
+
+  async function confirmPendingOperation() {
+    if (!operationResult?.pendingActionId) return;
+    if (!confirm("Confirm this Pillar action?")) return;
+    setOperationConfirmLoading(true);
+    try {
+      const res = await fetch("/api/ai/operations/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...csrfHeaders("POST") },
+        credentials: "include",
+        body: JSON.stringify({ pendingActionId: operationResult.pendingActionId, confirm: true }),
+      });
+      const body = await res.json().catch(() => ({})) as AiOperationResponse & { error?: string };
+      if (!res.ok) throw new Error(body.error ?? body.message ?? "Pillar could not confirm that action");
+      setOperationResult(body);
+      if (body.status === "completed") toast.success(body.message);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Pillar could not confirm that action");
+    } finally {
+      setOperationConfirmLoading(false);
+    }
   }
 
   return (
@@ -442,7 +514,7 @@ function CommandCenterOverview({ briefing, loading, orgName }: {
                 <ChevronRight className="h-4 w-4" />
               </Button>
             ))}
-            <p className="text-xs text-slate-500">Drafts only. Nothing sends from this panel.</p>
+            <p className="text-xs text-slate-500">Draft first, then send only after you confirm.</p>
           </CardContent>
         </Card>
 
@@ -524,9 +596,15 @@ function CommandCenterOverview({ briefing, loading, orgName }: {
                       </Button>
                     </Link>
                   )}
-                  {operationResult.status === "confirmation_required" && (
-                    <Button size="sm" disabled variant="outline" className="border-current bg-transparent text-current opacity-70">
-                      Confirm action
+                  {operationResult.status === "confirmation_required" && operationResult.pendingActionId && (
+                    <Button
+                      size="sm"
+                      disabled={operationConfirmLoading}
+                      variant="outline"
+                      onClick={() => void confirmPendingOperation()}
+                      className="border-current bg-transparent text-current hover:bg-white/10"
+                    >
+                      {operationConfirmLoading ? "Confirming..." : "Confirm action"}
                     </Button>
                   )}
                 </div>
@@ -569,6 +647,11 @@ function CommandCenterOverview({ briefing, loading, orgName }: {
               <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-sm text-slate-300">
                 {draft.recipientsPreview} · {draft.recipientCount} recipient{draft.recipientCount === 1 ? "" : "s"} · {draft.status}
               </div>
+              {draftSendResult && (
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">
+                  {draftSendResult.status === "dry_run" ? "Dry run complete" : "Send complete"} · {draftSendResult.sentCount} sent · {draftSendResult.simulatedCount} simulated · {draftSendResult.failedCount} failed
+                </div>
+              )}
               <Input
                 value={draft.subject}
                 onChange={(event) => setDraft({ ...draft, subject: event.target.value })}
@@ -585,6 +668,13 @@ function CommandCenterOverview({ briefing, loading, orgName }: {
                   Close
                 </Button>
                 <Button onClick={copyDraft}>Copy Draft</Button>
+                <Button
+                  onClick={() => void sendDraft()}
+                  disabled={draftSendLoading || draft.recipientCount < 1}
+                  className="bg-emerald-600 hover:bg-emerald-500"
+                >
+                  {draftSendLoading ? "Sending..." : "Send now"}
+                </Button>
               </div>
             </div>
           )}

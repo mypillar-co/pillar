@@ -1,9 +1,16 @@
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
+import { sendEmail, type MailResult } from "../mailer";
 
 type DraftOrg = {
   id: string;
   name: string;
+};
+
+type Recipient = {
+  email: string;
+  name: string;
+  tokens: Record<string, string>;
 };
 
 export type EmailDraftIntent =
@@ -29,6 +36,35 @@ function firstNameFromOrg(orgName: string): string {
   return orgName.trim() || "your organization";
 }
 
+function email(value: unknown): string {
+  const candidate = text(value).toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate) ? candidate : "";
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function bodyToHtml(body: string): string {
+  return body
+    .split(/\n{2,}/)
+    .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`)
+    .join("\n");
+}
+
+function applyTokens(template: string, recipient: Recipient): string {
+  let next = template;
+  for (const [key, value] of Object.entries(recipient.tokens)) {
+    next = next.replace(new RegExp(`{{\\s*${key}\\s*}}`, "gi"), value);
+  }
+  return next;
+}
+
 async function getEventSummary(orgId: string, eventId?: string | null) {
   if (!eventId) return null;
   const result = await db.execute(sql`
@@ -38,6 +74,117 @@ async function getEventSummary(orgId: string, eventId?: string | null) {
     LIMIT 1
   `);
   return (result.rows[0] as Record<string, unknown> | undefined) ?? null;
+}
+
+export async function resolveOperationalEmailRecipients(
+  orgId: string,
+  input: { intent: EmailDraftIntent; eventId?: string | null },
+): Promise<Recipient[]> {
+  if (input.intent === "unpaid_vendor_reminder") {
+    const rows = await db.execute(sql`
+      SELECT name, contact_name, email
+      FROM registrations
+      WHERE org_id = ${orgId}
+        AND type = 'vendor'
+        AND (status = 'pending_payment' OR stripe_payment_status = 'unpaid')
+        AND email IS NOT NULL
+      ORDER BY created_at DESC
+      LIMIT 100
+    `);
+    return rows.rows
+      .map((row) => {
+        const r = row as Record<string, unknown>;
+        const to = email(r.email);
+        const name = text(r.contact_name) || text(r.name) || "there";
+        return to ? { email: to, name, tokens: { contact_name: name, first_name: name.split(/\s+/)[0] ?? name } } : null;
+      })
+      .filter(Boolean) as Recipient[];
+  }
+
+  if (input.intent === "sponsor_thank_you") {
+    const rows = await db.execute(sql`
+      SELECT name, email
+      FROM sponsors
+      WHERE org_id = ${orgId}
+        AND status = 'active'
+        AND email IS NOT NULL
+      ORDER BY created_at DESC
+      LIMIT 100
+    `);
+    return rows.rows
+      .map((row) => {
+        const r = row as Record<string, unknown>;
+        const to = email(r.email);
+        const name = text(r.name) || "there";
+        return to ? { email: to, name, tokens: { sponsor_name: name, contact_name: name, first_name: name.split(/\s+/)[0] ?? name } } : null;
+      })
+      .filter(Boolean) as Recipient[];
+  }
+
+  if (input.intent === "volunteer_reminder") {
+    const rows = await db.execute(sql`
+      SELECT first_name, last_name, email
+      FROM members
+      WHERE org_id = ${orgId}
+        AND status = 'active'
+        AND (member_type = 'volunteer' OR member_type = 'general')
+        AND email IS NOT NULL
+      ORDER BY created_at DESC
+      LIMIT 100
+    `);
+    return rows.rows
+      .map((row) => {
+        const r = row as Record<string, unknown>;
+        const to = email(r.email);
+        const firstName = text(r.first_name) || "there";
+        const name = [firstName, text(r.last_name)].filter(Boolean).join(" ");
+        return to ? { email: to, name, tokens: { first_name: firstName, contact_name: name } } : null;
+      })
+      .filter(Boolean) as Recipient[];
+  }
+
+  if (input.intent === "member_renewal") {
+    const soon = new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const rows = await db.execute(sql`
+      SELECT first_name, last_name, email, renewal_date
+      FROM members
+      WHERE org_id = ${orgId}
+        AND status = 'active'
+        AND email IS NOT NULL
+        AND renewal_date IS NOT NULL
+        AND renewal_date <= ${soon}
+      ORDER BY renewal_date ASC
+      LIMIT 100
+    `);
+    return rows.rows
+      .map((row) => {
+        const r = row as Record<string, unknown>;
+        const to = email(r.email);
+        const firstName = text(r.first_name) || "there";
+        const name = [firstName, text(r.last_name)].filter(Boolean).join(" ");
+        return to ? { email: to, name, tokens: { first_name: firstName, contact_name: name } } : null;
+      })
+      .filter(Boolean) as Recipient[];
+  }
+
+  const rows = await db.execute(sql`
+    SELECT email, name
+    FROM newsletter_subscribers
+    WHERE org_id = ${orgId}
+      AND email IS NOT NULL
+      AND unsubscribed_at IS NULL
+    ORDER BY subscribed_at DESC
+    LIMIT 250
+  `);
+  return rows.rows
+    .map((row) => {
+      const r = row as Record<string, unknown>;
+      const to = email(r.email);
+      const subscriberName = text(r.name) || "there";
+      const firstName = subscriberName.split(/\s+/)[0] ?? subscriberName;
+      return to ? { email: to, name: firstName, tokens: { first_name: firstName, contact_name: firstName } } : null;
+    })
+    .filter(Boolean) as Recipient[];
 }
 
 export async function buildOperationalEmailDraft(
@@ -52,19 +199,10 @@ export async function buildOperationalEmailDraft(
   let subject = "";
   let draftBody = "";
   let recipientsPreview = "No matching recipients found yet.";
-  let recipientCount = 0;
+  let recipients = await resolveOperationalEmailRecipients(org.id, input);
+  let recipientCount = recipients.length;
 
   if (input.intent === "unpaid_vendor_reminder") {
-    const rows = await db.execute(sql`
-      SELECT name, email
-      FROM registrations
-      WHERE org_id = ${org.id}
-        AND type = 'vendor'
-        AND (status = 'pending_payment' OR stripe_payment_status = 'unpaid')
-      ORDER BY created_at DESC
-      LIMIT 25
-    `);
-    recipientCount = rows.rows.length;
     recipientsPreview = recipientCount
       ? `${recipientCount} vendor${recipientCount === 1 ? "" : "s"} with unpaid or pending items`
       : recipientsPreview;
@@ -73,15 +211,6 @@ export async function buildOperationalEmailDraft(
   }
 
   if (input.intent === "sponsor_thank_you") {
-    const rows = await db.execute(sql`
-      SELECT name, email
-      FROM sponsors
-      WHERE org_id = ${org.id}
-        AND status = 'active'
-      ORDER BY created_at DESC
-      LIMIT 25
-    `);
-    recipientCount = rows.rows.length;
     recipientsPreview = recipientCount
       ? `${recipientCount} active sponsor${recipientCount === 1 ? "" : "s"}`
       : recipientsPreview;
@@ -90,17 +219,6 @@ export async function buildOperationalEmailDraft(
   }
 
   if (input.intent === "volunteer_reminder") {
-    const rows = await db.execute(sql`
-      SELECT first_name, last_name, email
-      FROM members
-      WHERE org_id = ${org.id}
-        AND status = 'active'
-        AND (member_type = 'volunteer' OR member_type = 'general')
-        AND email IS NOT NULL
-      ORDER BY created_at DESC
-      LIMIT 50
-    `);
-    recipientCount = rows.rows.length;
     recipientsPreview = recipientCount
       ? `${recipientCount} active volunteer/general member${recipientCount === 1 ? "" : "s"}`
       : recipientsPreview;
@@ -109,19 +227,6 @@ export async function buildOperationalEmailDraft(
   }
 
   if (input.intent === "member_renewal") {
-    const soon = new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const rows = await db.execute(sql`
-      SELECT first_name, last_name, email, renewal_date
-      FROM members
-      WHERE org_id = ${org.id}
-        AND status = 'active'
-        AND email IS NOT NULL
-        AND renewal_date IS NOT NULL
-        AND renewal_date <= ${soon}
-      ORDER BY renewal_date ASC
-      LIMIT 50
-    `);
-    recipientCount = rows.rows.length;
     recipientsPreview = recipientCount
       ? `${recipientCount} member${recipientCount === 1 ? "" : "s"} due for renewal soon`
       : recipientsPreview;
@@ -130,12 +235,6 @@ export async function buildOperationalEmailDraft(
   }
 
   if (input.intent === "event_announcement") {
-    const subscriberRows = await db.execute(sql`
-      SELECT COUNT(*)::int AS n
-      FROM newsletter_subscribers
-      WHERE org_id = ${org.id}
-    `);
-    recipientCount = Number((subscriberRows.rows[0] as { n?: number } | undefined)?.n ?? 0);
     recipientsPreview = recipientCount
       ? `${recipientCount} newsletter subscriber${recipientCount === 1 ? "" : "s"}`
       : recipientsPreview;
@@ -152,5 +251,64 @@ export async function buildOperationalEmailDraft(
     recipientCount,
     status: "draft" as const,
     intent: input.intent,
+  };
+}
+
+export async function sendOperationalEmailDraft(
+  org: DraftOrg,
+  input: {
+    intent: EmailDraftIntent;
+    subject: string;
+    body: string;
+    eventId?: string | null;
+    dryRun?: boolean;
+  },
+) {
+  const recipients = await resolveOperationalEmailRecipients(org.id, input);
+  if (!recipients.length) {
+    return {
+      ok: false,
+      error: "No recipients match this operational email.",
+      recipientCount: 0,
+      sentCount: 0,
+      simulatedCount: 0,
+      failedCount: 0,
+      dryRun: input.dryRun === true,
+      results: [] as Array<{ email: string; sent: boolean; simulated?: boolean; error?: string }>,
+    };
+  }
+
+  const results: Array<{ email: string; sent: boolean; simulated?: boolean; error?: string }> = [];
+  for (const recipient of recipients) {
+    const personalizedBody = applyTokens(input.body, recipient);
+    if (input.dryRun === true) {
+      results.push({ email: recipient.email, sent: false, simulated: true });
+      continue;
+    }
+    const result: MailResult = await sendEmail({
+      to: recipient.email,
+      subject: input.subject,
+      html: bodyToHtml(personalizedBody),
+      text: personalizedBody,
+    });
+    results.push({
+      email: recipient.email,
+      sent: result.sent,
+      simulated: result.simulated,
+      error: result.error,
+    });
+  }
+
+  const sentCount = results.filter((result) => result.sent).length;
+  const simulatedCount = results.filter((result) => result.simulated).length;
+  const failedCount = results.filter((result) => !result.sent && !result.simulated).length;
+  return {
+    ok: failedCount === 0,
+    recipientCount: recipients.length,
+    sentCount,
+    simulatedCount,
+    failedCount,
+    dryRun: input.dryRun === true,
+    results,
   };
 }

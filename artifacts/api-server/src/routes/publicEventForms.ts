@@ -9,11 +9,17 @@
  * GET  /api/ticket-stats?event=<slug>
  */
 
-import { Router, type Request, type Response } from "express";
+import express, { Router, type Request, type Response } from "express";
 import { db, organizationsTable, eventsTable, registrationsTable, eventSponsorsTable, sponsorsTable, ticketSalesTable, ticketTypesTable, eventWaitlistTable } from "@workspace/db";
 import { eq, and, or, sql, inArray } from "drizzle-orm";
+import { isAllowedRegistrationDocType, writeLocalRegistrationDoc } from "../lib/localRegistrationDocs";
 
 const router = Router();
+
+const publicEventAttempts = new Map<string, { count: number; windowStart: number }>();
+const PUBLIC_EVENT_WINDOW_MS = 60 * 60 * 1000;
+const PUBLIC_EVENT_MAX = 12;
+const MAX_REGISTRATION_DOC_SIZE = 10 * 1024 * 1024;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -36,9 +42,68 @@ async function resolveEventAndOrg(eventSlug: string): Promise<{
   return { event, org };
 }
 
+function clientIp(req: Request): string {
+  return (
+    (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ||
+    req.socket.remoteAddress ||
+    "unknown"
+  );
+}
+
+function botSubmission(req: Request): boolean {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  if (typeof body._hp === "string" && body._hp.trim()) return true;
+  const startedAt = Number(body._ts);
+  if (Number.isFinite(startedAt) && Date.now() - startedAt < 3000) return true;
+  const ip = clientIp(req);
+  const now = Date.now();
+  const entry = publicEventAttempts.get(ip);
+  if (!entry || now - entry.windowStart > PUBLIC_EVENT_WINDOW_MS) {
+    publicEventAttempts.set(ip, { count: 1, windowStart: now });
+    return false;
+  }
+  if (entry.count >= PUBLIC_EVENT_MAX) return true;
+  entry.count += 1;
+  return false;
+}
+
 // ─── POST /api/public/events/:slug/vendor-apply ───────────────────────────────
 
+router.post(
+  "/events/:slug/registration-docs/upload",
+  express.raw({ type: ["application/pdf", "image/*"], limit: "10mb" }),
+  async (req: Request, res: Response) => {
+    const { slug } = req.params;
+    const ctx = await resolveEventAndOrg(slug);
+    if (!ctx) { res.status(404).json({ error: "Event not found" }); return; }
+
+    const contentType = String(req.headers["content-type"] ?? "").toLowerCase();
+    if (!isAllowedRegistrationDocType(contentType)) {
+      res.status(400).json({ error: "Only PDF and image files are accepted" });
+      return;
+    }
+
+    const body = req.body;
+    if (!Buffer.isBuffer(body) || body.length === 0) {
+      res.status(400).json({ error: "File body is required" });
+      return;
+    }
+    if (body.length > MAX_REGISTRATION_DOC_SIZE) {
+      res.status(413).json({ error: "File must be 10 MB or smaller" });
+      return;
+    }
+
+    try {
+      const objectPath = await writeLocalRegistrationDoc(ctx.org.id, body, contentType);
+      res.json({ ok: true, objectPath });
+    } catch {
+      res.status(500).json({ error: "Failed to store registration document" });
+    }
+  },
+);
+
 router.post("/events/:slug/vendor-apply", async (req: Request, res: Response) => {
+  if (botSubmission(req)) { res.json({ ok: true }); return; }
   const { slug } = req.params;
   const ctx = await resolveEventAndOrg(slug);
   if (!ctx) { res.status(404).json({ error: "Event not found" }); return; }
@@ -51,28 +116,39 @@ router.post("/events/:slug/vendor-apply", async (req: Request, res: Response) =>
   }
 
   const {
-    businessName, contactName, email, phone,
+    businessName, name, contactName, email, phone,
     vendorType, products, needsElectricity,
-    servSafeUrl, insuranceCertUrl,
+    servSafeUrl, insuranceCertUrl, description,
+    isFoodVendor, foodVendorType, serveSide, truckTrailerSize,
   } = req.body as Record<string, unknown>;
 
-  if (!businessName || typeof businessName !== "string") { res.status(400).json({ error: "businessName is required" }); return; }
+  const nextBusinessName = typeof businessName === "string" ? businessName : typeof name === "string" ? name : "";
+  if (!nextBusinessName) { res.status(400).json({ error: "businessName is required" }); return; }
   if (!contactName || typeof contactName !== "string") { res.status(400).json({ error: "contactName is required" }); return; }
   if (!email || typeof email !== "string" || !email.includes("@")) { res.status(400).json({ error: "Valid email is required" }); return; }
   if (!phone || typeof phone !== "string") { res.status(400).json({ error: "phone is required" }); return; }
   if (!vendorType || typeof vendorType !== "string") { res.status(400).json({ error: "vendorType is required" }); return; }
   if (!products || typeof products !== "string") { res.status(400).json({ error: "products description is required" }); return; }
 
+  const logistics = [
+    `Food vendor: ${isFoodVendor === true || isFoodVendor === "true" || isFoodVendor === "Yes" ? "Yes" : "No"}`,
+    foodVendorType ? `Food vendor type: ${String(foodVendorType)}` : null,
+    serveSide ? `Serving side: ${String(serveSide)}` : null,
+    truckTrailerSize ? `Truck/trailer size: ${String(truckTrailerSize)}` : null,
+    description ? String(description) : null,
+  ].filter(Boolean).join("\n");
+
   const [reg] = await db.insert(registrationsTable).values({
     orgId: org.id,
     type: "vendor",
     status: "pending_approval",
-    name: String(businessName),
+    name: String(nextBusinessName),
     contactName: String(contactName),
     email: String(email),
     phone: String(phone),
     vendorType: String(vendorType),
     products: String(products),
+    description: logistics || undefined,
     needsElectricity: needsElectricity === true || needsElectricity === "true",
     eventId: event.id,
     servSafeUrl: servSafeUrl ? String(servSafeUrl) : undefined,
@@ -87,35 +163,42 @@ router.post("/events/:slug/vendor-apply", async (req: Request, res: Response) =>
 // ─── POST /api/public/events/:slug/sponsor-signup ────────────────────────────
 
 router.post("/events/:slug/sponsor-signup", async (req: Request, res: Response) => {
+  if (botSubmission(req)) { res.json({ ok: true }); return; }
   const { slug } = req.params;
   const ctx = await resolveEventAndOrg(slug);
   if (!ctx) { res.status(404).json({ error: "Event not found" }); return; }
 
   const { event, org } = ctx;
 
+  if (!event.hasRegistration || event.registrationClosed) {
+    res.status(400).json({ error: "Sponsor registration is closed for this event." });
+    return;
+  }
+
   const {
-    companyName, contactName, email, website, tier, logoUrl,
+    companyName, name, contactName, email, website, tier, logoUrl, description,
   } = req.body as Record<string, unknown>;
 
-  if (!companyName || typeof companyName !== "string") { res.status(400).json({ error: "companyName is required" }); return; }
+  const nextCompanyName = typeof companyName === "string" ? companyName : typeof name === "string" ? name : "";
+  if (!nextCompanyName) { res.status(400).json({ error: "companyName is required" }); return; }
   if (!contactName || typeof contactName !== "string") { res.status(400).json({ error: "contactName is required" }); return; }
   if (!email || typeof email !== "string" || !email.includes("@")) { res.status(400).json({ error: "Valid email is required" }); return; }
-  if (!tier || typeof tier !== "string") { res.status(400).json({ error: "tier is required" }); return; }
-  if (!logoUrl || typeof logoUrl !== "string") { res.status(400).json({ error: "logo is required" }); return; }
+  const nextTier = typeof tier === "string" && tier.trim() ? tier : "Supporting";
 
   const validTiers = ["Presenting", "Gold", "Silver", "Supporting", "Trophy"];
-  if (!validTiers.includes(tier)) { res.status(400).json({ error: "Invalid tier" }); return; }
+  if (!validTiers.map(t => t.toLowerCase()).includes(nextTier.toLowerCase())) { res.status(400).json({ error: "Invalid tier" }); return; }
 
   const [reg] = await db.insert(registrationsTable).values({
     orgId: org.id,
     type: "sponsor",
     status: "pending_approval",
-    name: String(companyName),
+    name: String(nextCompanyName),
     contactName: String(contactName),
     email: String(email),
     website: website ? String(website) : undefined,
-    tier: String(tier),
-    logoUrl: String(logoUrl),
+    tier: String(nextTier),
+    logoUrl: typeof logoUrl === "string" && logoUrl.trim() ? logoUrl : undefined,
+    description: typeof description === "string" && description.trim() ? description : undefined,
     eventId: event.id,
     feeAmount: 0,
     stripePaymentStatus: "waived",
@@ -127,30 +210,36 @@ router.post("/events/:slug/sponsor-signup", async (req: Request, res: Response) 
 // ─── POST /api/public/events/:slug/register ───────────────────────────────────
 
 router.post("/events/:slug/register", async (req: Request, res: Response) => {
+  if (botSubmission(req)) { res.json({ ok: true }); return; }
   const { slug } = req.params;
   const ctx = await resolveEventAndOrg(slug);
   if (!ctx) { res.status(404).json({ error: "Event not found" }); return; }
 
   const { event, org } = ctx;
 
-  const { name, email, phone, vehicleInfo } = req.body as Record<string, unknown>;
+  if (!event.hasRegistration || event.registrationClosed) {
+    res.status(400).json({ error: "Registration is closed for this event." });
+    return;
+  }
+
+  const { name, email, phone, vehicleInfo, quantity } = req.body as Record<string, unknown>;
 
   if (!name || typeof name !== "string") { res.status(400).json({ error: "name is required" }); return; }
   if (!email || typeof email !== "string" || !email.includes("@")) { res.status(400).json({ error: "Valid email is required" }); return; }
 
-  const [reg] = await db.insert(registrationsTable).values({
+  const [reg] = await db.insert(ticketSalesTable).values({
     orgId: org.id,
-    type: "participant",
-    status: "approved",
-    name: String(name),
-    contactName: String(name),
-    email: String(email),
-    phone: phone ? String(phone) : undefined,
-    description: vehicleInfo ? String(vehicleInfo) : undefined,
     eventId: event.id,
-    feeAmount: 0,
-    stripePaymentStatus: "waived",
-  }).returning({ id: registrationsTable.id });
+    attendeeName: String(name),
+    attendeeEmail: String(email).trim().toLowerCase(),
+    attendeePhone: phone ? String(phone) : undefined,
+    quantity: Math.max(1, Math.min(10, Number(quantity) || 1)),
+    amountPaid: 0,
+    platformFee: 0,
+    paymentMethod: "rsvp",
+    paymentStatus: "rsvp",
+    notes: vehicleInfo ? String(vehicleInfo) : "Public RSVP",
+  }).returning({ id: ticketSalesTable.id });
 
   res.status(201).json({ ok: true, id: reg.id, message: "Registration confirmed" });
 });
@@ -251,10 +340,21 @@ publicQueryRouter.get("/event-sponsors.json", async (req: Request, res: Response
   const eventSlug = req.query.event as string | undefined;
   if (!eventSlug) { res.status(400).json({ ok: false, error: "event param required" }); return; }
 
+  const orgSlug = req.header("x-org-id");
   const [event] = await db
-    .select({ id: eventsTable.id, name: eventsTable.name, slug: eventsTable.slug })
+    .select({
+      id: eventsTable.id,
+      orgId: eventsTable.orgId,
+      name: eventsTable.name,
+      slug: eventsTable.slug,
+      hasSponsorSection: eventsTable.hasSponsorSection,
+    })
     .from(eventsTable)
-    .where(eq(eventsTable.slug, eventSlug));
+    .innerJoin(organizationsTable, eq(eventsTable.orgId, organizationsTable.id))
+    .where(and(
+      eq(eventsTable.slug, eventSlug),
+      orgSlug ? eq(organizationsTable.slug, orgSlug) : sql`true`,
+    ));
 
   if (!event) { res.status(404).json({ ok: false, error: "Event not found" }); return; }
 
@@ -262,7 +362,7 @@ publicQueryRouter.get("/event-sponsors.json", async (req: Request, res: Response
     presenting: 0, gold: 1, silver: 2, supporting: 3, trophy: 4,
   };
 
-  const rows = await db
+  let rows = await db
     .select({
       name: sponsorsTable.name,
       tier: eventSponsorsTable.tier,
@@ -277,6 +377,23 @@ publicQueryRouter.get("/event-sponsors.json", async (req: Request, res: Response
       eq(sponsorsTable.status, "active"),
       eq(sponsorsTable.siteVisible, true),
     ));
+
+  if (rows.length === 0 && event.hasSponsorSection) {
+    rows = await db
+      .select({
+        name: sponsorsTable.name,
+        tier: sql<string | null>`NULL`,
+        tierRank: sponsorsTable.tierRank,
+        logoUrl: sponsorsTable.logoUrl,
+        website: sponsorsTable.website,
+      })
+      .from(sponsorsTable)
+      .where(and(
+        eq(sponsorsTable.orgId, event.orgId),
+        eq(sponsorsTable.status, "active"),
+        eq(sponsorsTable.siteVisible, true),
+      ));
+  }
 
   const baseUrl = process.env.REPLIT_DEV_DOMAIN
     ? `https://${process.env.REPLIT_DEV_DOMAIN}`

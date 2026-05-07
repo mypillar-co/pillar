@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Contact2, Search, Mail, Phone, Building2, Loader2 } from "lucide-react";
+import { Plus, Contact2, Search, Mail, Phone, Building2, Loader2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,49 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { api, type ContactItem } from "@/lib/api";
 
 const CONTACT_TYPES = ["general", "vendor_rep", "sponsor_rep", "attendee", "member", "board"];
+
+function parseCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let current = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === '"' && line[i + 1] === '"') {
+      current += '"';
+      i += 1;
+    } else if (ch === '"') {
+      quoted = !quoted;
+    } else if (ch === "," && !quoted) {
+      out.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  out.push(current.trim());
+  return out;
+}
+
+function parseContactsCsv(text: string): Array<Partial<ContactItem> & { name?: string; notes?: string }> {
+  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = parseCsvLine(lines[0]).map(h => h.toLowerCase().replace(/[^a-z0-9]/g, ""));
+  return lines.slice(1).map(line => {
+    const cells = parseCsvLine(line);
+    const row: Record<string, string> = {};
+    headers.forEach((header, i) => { row[header] = cells[i] ?? ""; });
+    return {
+      name: row.name || row.fullname,
+      firstName: row.firstname || row.first,
+      lastName: row.lastname || row.last,
+      email: row.email,
+      phone: row.phone,
+      company: row.company || row.organization || row.business,
+      contactType: row.type || row.contacttype,
+      notes: row.notes,
+    };
+  });
+}
 
 function AddContactDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
@@ -82,9 +125,30 @@ export default function Contacts() {
   const [search, setSearch] = useState("");
   const [adding, setAdding] = useState(false);
   const { data: contacts = [], isLoading } = useQuery({ queryKey: ["contacts"], queryFn: api.contacts.list });
+  const qc = useQueryClient();
+  const importMutation = useMutation({
+    mutationFn: (rows: Array<Partial<ContactItem> & { name?: string; notes?: string }>) => api.contacts.bulkImport({ rows }),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["contacts"] });
+      qc.invalidateQueries({ queryKey: ["stats"] });
+      toast.success(`Imported ${result.createdCount} contact${result.createdCount !== 1 ? "s" : ""}${result.skippedCount ? `, skipped ${result.skippedCount}` : ""}`);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
   const filtered = contacts.filter((c: ContactItem) => 
     `${c.firstName} ${c.lastName ?? ""} ${c.email ?? ""} ${c.company ?? ""}`.toLowerCase().includes(search.toLowerCase())
   );
+
+  async function handleImport(file: File | undefined) {
+    if (!file) return;
+    const text = await file.text();
+    const rows = parseContactsCsv(text);
+    if (!rows.length) {
+      toast.error("No contacts found. Use headers like firstName,lastName,email,phone,company,type.");
+      return;
+    }
+    importMutation.mutate(rows);
+  }
 
   return (
     <div className="p-6 space-y-5 max-w-5xl mx-auto">
@@ -93,7 +157,14 @@ export default function Contacts() {
           <h1 className="text-2xl font-bold text-white">Contacts</h1>
           <p className="text-sm text-muted-foreground mt-0.5">{contacts.length} contact{contacts.length !== 1 ? "s" : ""} in your database</p>
         </div>
-        <Button onClick={() => setAdding(true)}><Plus className="w-4 h-4 mr-2" /> Add Contact</Button>
+        <div className="flex gap-2">
+          <label className="inline-flex cursor-pointer items-center rounded-md border border-white/10 px-3 py-2 text-sm font-medium text-slate-300 hover:bg-white/5">
+            {importMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+            Import CSV
+            <input type="file" accept=".csv,text/csv" className="hidden" onChange={e => { handleImport(e.target.files?.[0]); e.target.value = ""; }} />
+          </label>
+          <Button onClick={() => setAdding(true)}><Plus className="w-4 h-4 mr-2" /> Add Contact</Button>
+        </div>
       </div>
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />

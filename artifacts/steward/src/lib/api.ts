@@ -50,6 +50,7 @@ export type EventItem = {
   featured?: boolean;
   imageUrl?: string | null;
   isActive?: boolean;
+  showOnPublicSite?: boolean;
   createdAt: string;
   updatedAt?: string;
   totalSold?: number;
@@ -127,6 +128,26 @@ export type EventSponsor = {
   siteVisible?: boolean | null;
 };
 
+export type EventVendor = {
+  id: string;
+  eventId: string;
+  vendorId: string;
+  orgId: string;
+  boothNumber?: string | null;
+  boothLocation?: string | null;
+  feeAmount?: number | null;
+  feeStatus?: string | null;
+  status?: string | null;
+  notes?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  vendorType?: string | null;
+  vendorStatus?: string | null;
+};
+
 export type EventDetail = {
   event: EventItem;
   ticketTypes: TicketType[];
@@ -134,6 +155,7 @@ export type EventDetail = {
   approvals: EventApproval[];
   communications: EventCommunication[];
   sponsors: EventSponsor[];
+  vendors: EventVendor[];
   totalRevenue: number;
   totalSold: number;
 };
@@ -363,13 +385,22 @@ export const api = {
   },
   vendors: {
     list: () => req<Vendor[]>("/api/vendors"),
-    create: (data: Partial<Vendor>) => req<Vendor>("/api/vendors", { method: "POST", body: JSON.stringify(data) }),
+    create: (data: Partial<Vendor> & { eventId?: string; feeAmount?: number; eventNotes?: string }) =>
+      req<Vendor>("/api/vendors", { method: "POST", body: JSON.stringify(data) }),
+    update: (id: string, data: Partial<Vendor> & { eventId?: string; feeAmount?: number; eventNotes?: string }) =>
+      req<Vendor>(`/api/vendors/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    delete: (id: string) => req<void>(`/api/vendors/${id}`, { method: "DELETE" }),
   },
   announcements: {
-    list: () => req<Array<{ id: number; title: string; body: string; created_at: string }>>("/api/announcements"),
-    create: (data: { title: string; body: string }) =>
-      req<{ id: number; title: string; body: string; created_at: string }>("/api/announcements", {
+    list: () => req<Array<{ id: number; title: string; body: string; status?: string; visibility?: string; created_at: string }>>("/api/announcements"),
+    create: (data: { title: string; body: string; visibility?: "members" | "both" | "public" }) =>
+      req<{ id: number; title: string; body: string; status?: string; visibility?: string; created_at: string }>("/api/announcements", {
         method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (id: number, data: { title?: string; body?: string; visibility?: "members" | "both" | "public" }) =>
+      req<{ id: number; title: string; body: string; status?: string; visibility?: string; created_at: string }>(`/api/announcements/${id}`, {
+        method: "PUT",
         body: JSON.stringify(data),
       }),
     delete: (id: number) => req<void>(`/api/announcements/${id}`, { method: "DELETE" }),
@@ -403,10 +434,18 @@ export const api = {
     list: () => req<Sponsor[]>("/api/sponsors"),
     create: (data: Partial<Sponsor> & { eventId?: string; tier?: string }) =>
       req<Sponsor>("/api/sponsors", { method: "POST", body: JSON.stringify(data) }),
+    update: (id: string, data: Partial<Sponsor> & { eventId?: string; tier?: string }) =>
+      req<Sponsor>(`/api/sponsors/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    delete: (id: string) => req<void>(`/api/sponsors/${id}`, { method: "DELETE" }),
   },
   contacts: {
     list: () => req<ContactItem[]>("/api/contacts"),
     create: (data: Partial<ContactItem>) => req<ContactItem>("/api/contacts", { method: "POST", body: JSON.stringify(data) }),
+    bulkImport: (data: { rows: Array<Partial<ContactItem>> }) =>
+      req<{ ok: boolean; createdCount: number; skippedCount: number; skipped: Array<{ row: number; reason: string }> }>("/api/contacts/bulk-import", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
   },
   social: {
     oauth: {

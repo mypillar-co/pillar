@@ -1,10 +1,21 @@
 import { Router, type Request, type Response } from "express";
-import { db, organizationsTable, studioOutputsTable } from "@workspace/db";
-import { eq, sql, desc, and } from "drizzle-orm";
+import {
+  db,
+  membersTable,
+  newsletterSubscribersTable,
+  orgContactSubmissionsTable,
+  organizationsTable,
+  socialPostsTable,
+  sponsorsTable,
+  studioOutputsTable,
+  vendorsTable,
+} from "@workspace/db";
+import { eq, sql, desc, and, isNotNull, isNull } from "drizzle-orm";
 import OpenAI from "openai";
 import { getSessionId } from "../lib/auth";
 import { resolveFullOrg } from "../lib/resolveOrg";
 import { createOpenAIClient } from "../lib/openaiClient";
+import { sendEmail, type MailResult } from "../mailer";
 
 const router = Router();
 
@@ -537,6 +548,147 @@ const PACKS: Record<string, PackConfig> = {
 // ── Tier checks ───────────────────────────────────────────────────────────────
 
 const TIER_ALLOWS_CONTENT = new Set(["tier1a", "tier2", "tier3", "tier4"]);
+const TIER_ALLOWS_SOCIAL = new Set(["tier1a", "tier2", "tier3"]);
+const CONTENT_AUDIENCES = new Set(["newsletter", "members", "sponsors", "vendors", "contacts"]);
+const SOCIAL_PLATFORMS = new Set(["facebook", "twitter", "instagram", "buffer_facebook", "buffer_twitter", "buffer_instagram", "buffer_linkedin"]);
+
+type ContentAudience = "newsletter" | "members" | "sponsors" | "vendors" | "contacts";
+
+type DeliveryRecipient = {
+  email: string;
+  name: string;
+};
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function cleanEmail(value: unknown): string {
+  const candidate = text(value).toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate) ? candidate : "";
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function bodyToHtml(body: string): string {
+  return body
+    .split(/\n{2,}/)
+    .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`)
+    .join("\n");
+}
+
+function dedupeRecipients(rows: DeliveryRecipient[]): DeliveryRecipient[] {
+  const seen = new Set<string>();
+  const result: DeliveryRecipient[] = [];
+  for (const row of rows) {
+    const email = cleanEmail(row.email);
+    if (!email || seen.has(email)) continue;
+    seen.add(email);
+    result.push({ email, name: row.name || email });
+  }
+  return result;
+}
+
+async function resolveContentRecipients(orgId: string, audience: ContentAudience): Promise<DeliveryRecipient[]> {
+  if (audience === "newsletter") {
+    const rows = await db
+      .select({ email: newsletterSubscribersTable.email, name: newsletterSubscribersTable.name })
+      .from(newsletterSubscribersTable)
+      .where(and(eq(newsletterSubscribersTable.orgId, orgId), isNull(newsletterSubscribersTable.unsubscribedAt)))
+      .orderBy(desc(newsletterSubscribersTable.subscribedAt))
+      .limit(250);
+    return dedupeRecipients(rows.map((row) => ({ email: row.email, name: row.name ?? row.email })));
+  }
+
+  if (audience === "members") {
+    const rows = await db
+      .select({ email: membersTable.email, firstName: membersTable.firstName, lastName: membersTable.lastName })
+      .from(membersTable)
+      .where(and(eq(membersTable.orgId, orgId), eq(membersTable.status, "active"), isNotNull(membersTable.email)))
+      .orderBy(desc(membersTable.createdAt))
+      .limit(250);
+    return dedupeRecipients(rows.map((row) => ({
+      email: row.email ?? "",
+      name: [row.firstName, row.lastName].filter(Boolean).join(" ") || row.email || "",
+    })));
+  }
+
+  if (audience === "sponsors") {
+    const rows = await db
+      .select({ email: sponsorsTable.email, name: sponsorsTable.name })
+      .from(sponsorsTable)
+      .where(and(eq(sponsorsTable.orgId, orgId), eq(sponsorsTable.status, "active"), isNotNull(sponsorsTable.email)))
+      .orderBy(desc(sponsorsTable.createdAt))
+      .limit(250);
+    return dedupeRecipients(rows.map((row) => ({ email: row.email ?? "", name: row.name })));
+  }
+
+  if (audience === "vendors") {
+    const rows = await db
+      .select({ email: vendorsTable.email, name: vendorsTable.name })
+      .from(vendorsTable)
+      .where(and(eq(vendorsTable.orgId, orgId), eq(vendorsTable.status, "active"), isNotNull(vendorsTable.email)))
+      .orderBy(desc(vendorsTable.createdAt))
+      .limit(250);
+    return dedupeRecipients(rows.map((row) => ({ email: row.email ?? "", name: row.name })));
+  }
+
+  const rows = await db
+    .select({ email: orgContactSubmissionsTable.email, name: orgContactSubmissionsTable.name })
+    .from(orgContactSubmissionsTable)
+    .where(eq(orgContactSubmissionsTable.orgId, orgId))
+    .orderBy(desc(orgContactSubmissionsTable.createdAt))
+    .limit(250);
+  return dedupeRecipients(rows.map((row) => ({ email: row.email, name: row.name })));
+}
+
+function audienceLabel(audience: ContentAudience): string {
+  const labels: Record<ContentAudience, string> = {
+    newsletter: "newsletter subscribers",
+    members: "active members",
+    sponsors: "active sponsors",
+    vendors: "active vendors",
+    contacts: "recent contacts",
+  };
+  return labels[audience];
+}
+
+function normalizePlatforms(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const platforms = input.map((p) => text(p)).filter((p) => SOCIAL_PLATFORMS.has(p));
+  return Array.from(new Set(platforms));
+}
+
+function tierAllowsSocial(tier: string | null | undefined): boolean {
+  return TIER_ALLOWS_SOCIAL.has(tier ?? "");
+}
+
+function splitSocialSections(content: string): Array<{ platform: string; content: string }> {
+  const matches = [...content.matchAll(/(?:^|\n)\s*(FACEBOOK|INSTAGRAM|X\/TWITTER|TWITTER|X):\s*/gi)];
+  if (!matches.length) return [];
+
+  const sections: Array<{ platform: string; content: string }> = [];
+  for (let i = 0; i < matches.length; i += 1) {
+    const match = matches[i];
+    const next = matches[i + 1];
+    const label = (match[1] ?? "").toLowerCase();
+    const platform = label.includes("facebook") ? "facebook"
+      : label.includes("instagram") ? "instagram"
+      : "twitter";
+    const start = (match.index ?? 0) + match[0].length;
+    const end = next?.index ?? content.length;
+    const sectionContent = content.slice(start, end).trim();
+    if (sectionContent) sections.push({ platform, content: sectionContent });
+  }
+  return sections;
+}
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
@@ -678,6 +830,170 @@ router.post("/pack", async (req: Request, res: Response) => {
   } catch {
     res.status(500).json({ error: "Pack generation failed. Please try again." });
   }
+});
+
+// POST /api/content/email-delivery
+router.post("/email-delivery", async (req: Request, res: Response) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+
+  if (!TIER_ALLOWS_CONTENT.has(org.tier ?? "")) {
+    res.status(403).json({ error: "Content Studio requires a Starter plan or higher" });
+    return;
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const audience = text(body.audience) as ContentAudience;
+  const subject = text(body.subject);
+  const messageBody = text(body.body);
+  const dryRun = body.dryRun === true;
+  const confirm = body.confirm === true;
+
+  if (!CONTENT_AUDIENCES.has(audience)) {
+    res.status(400).json({ error: "Choose a valid audience before sending." });
+    return;
+  }
+  if (!subject || !messageBody) {
+    res.status(400).json({ error: "Subject and body are required before sending." });
+    return;
+  }
+  if (!dryRun && !confirm) {
+    res.status(400).json({ error: "Preview recipients or confirm the send before emails go out." });
+    return;
+  }
+
+  const recipients = await resolveContentRecipients(org.id, audience);
+  if (!recipients.length) {
+    res.status(400).json({
+      error: `No ${audienceLabel(audience)} with email addresses were found.`,
+      status: dryRun ? "dry_run" : "not_sent",
+      recipientCount: 0,
+      audience,
+    });
+    return;
+  }
+
+  if (dryRun) {
+    res.json({
+      status: "dry_run",
+      audience,
+      recipientCount: recipients.length,
+      recipientsPreview: `${recipients.length} ${audienceLabel(audience)}`,
+    });
+    return;
+  }
+
+  const results: Array<{ email: string; sent: boolean; simulated?: boolean; error?: string }> = [];
+  for (const recipient of recipients) {
+    const result: MailResult = await sendEmail({
+      to: recipient.email,
+      subject,
+      html: bodyToHtml(messageBody),
+      text: messageBody,
+    });
+    results.push({
+      email: recipient.email,
+      sent: result.sent,
+      simulated: result.simulated,
+      error: result.error,
+    });
+  }
+
+  const sentCount = results.filter((result) => result.sent).length;
+  const simulatedCount = results.filter((result) => result.simulated).length;
+  const failedCount = results.filter((result) => !result.sent && !result.simulated).length;
+  res.status(failedCount ? 502 : 200).json({
+    status: failedCount ? "partial_failure" : simulatedCount ? "simulated" : "sent",
+    audience,
+    recipientCount: recipients.length,
+    sentCount,
+    simulatedCount,
+    failedCount,
+    results,
+  });
+});
+
+// POST /api/content/social-drafts
+router.post("/social-drafts", async (req: Request, res: Response) => {
+  const org = await resolveFullOrg(req, res);
+  if (!org) return;
+
+  if (!tierAllowsSocial(org.tier)) {
+    res.status(403).json({ error: "Social media features require the Autopilot plan or higher" });
+    return;
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const content = text(body.content);
+  const mediaUrl = text(body.mediaUrl) || null;
+  const scheduledAtRaw = text(body.scheduledAt);
+  if (!content) {
+    res.status(400).json({ error: "Post content is required." });
+    return;
+  }
+
+  let scheduledAt: Date | null = null;
+  if (scheduledAtRaw) {
+    const parsed = new Date(scheduledAtRaw);
+    if (Number.isNaN(parsed.getTime()) || parsed.getTime() < Date.now() + 60_000) {
+      res.status(400).json({ error: "Schedule time must be at least 1 minute in the future." });
+      return;
+    }
+    scheduledAt = parsed;
+  }
+
+  const requestedPlatforms = normalizePlatforms(body.platforms);
+  const sections = splitSocialSections(content);
+  const postsToCreate: Array<{ platforms: string[]; content: string }> = [];
+  const skipped: string[] = [];
+
+  if (sections.length) {
+    for (const section of sections) {
+      if (section.platform === "instagram" && !mediaUrl) {
+        skipped.push("Instagram section skipped because Instagram needs a hosted image URL.");
+        continue;
+      }
+      if (section.platform === "twitter" && section.content.length > 280) {
+        skipped.push("X/Twitter section skipped because it is over 280 characters.");
+        continue;
+      }
+      postsToCreate.push({ platforms: [section.platform], content: section.content });
+    }
+  } else {
+    const platforms = requestedPlatforms.length ? requestedPlatforms : ["facebook"];
+    if (platforms.includes("instagram") && !mediaUrl) {
+      res.status(400).json({ error: "Instagram posts require a hosted image URL." });
+      return;
+    }
+    if (platforms.includes("twitter") && content.length > 280) {
+      res.status(400).json({ error: `X/Twitter posts must be 280 characters or fewer (current: ${content.length}).` });
+      return;
+    }
+    postsToCreate.push({ platforms, content });
+  }
+
+  if (!postsToCreate.length) {
+    res.status(400).json({ error: skipped[0] ?? "No social drafts could be created.", skipped });
+    return;
+  }
+
+  const created = await db
+    .insert(socialPostsTable)
+    .values(postsToCreate.map((post) => ({
+      orgId: org.id,
+      platforms: post.platforms,
+      content: post.content,
+      mediaUrl,
+      scheduledAt,
+      status: scheduledAt ? "scheduled" : "draft",
+    })))
+    .returning();
+
+  res.status(201).json({
+    status: scheduledAt ? "scheduled" : "draft",
+    created,
+    skipped,
+  });
 });
 
 // GET /api/content/history

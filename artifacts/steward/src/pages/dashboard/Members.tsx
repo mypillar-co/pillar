@@ -189,9 +189,10 @@ function MemberFormFields({
         />
       </div>
       <div className="space-y-1.5">
-        <Label className="text-slate-300">Email</Label>
+        <Label className="text-slate-300">Email *</Label>
         <Input
           type="email"
+          required
           value={form.email}
           onChange={(e) => update("email", e.target.value)}
           className="bg-white/5 border-white/10 text-white"
@@ -373,12 +374,20 @@ export default function Members() {
       toast.error("First name is required");
       return;
     }
+    if (!addForm.email.trim()) {
+      toast.error("Email is required so the member can receive an invite and register.");
+      return;
+    }
     createMutation.mutate();
   };
 
   const handleEditSubmit = () => {
     if (!editForm.firstName.trim()) {
       toast.error("First name is required");
+      return;
+    }
+    if (!editForm.email.trim()) {
+      toast.error("Email is required so the member can register for the portal.");
       return;
     }
     updateMutation.mutate();
@@ -627,7 +636,7 @@ export default function Members() {
             >
               Cancel
             </Button>
-            <Button onClick={handleAddSubmit} disabled={createMutation.isPending}>
+            <Button onClick={handleAddSubmit} disabled={createMutation.isPending || !addForm.email.trim()}>
               {createMutation.isPending ? "Saving…" : "Save"}
             </Button>
           </DialogFooter>
@@ -650,6 +659,7 @@ export default function Members() {
             <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-slate-300">
               Upload or paste CSV columns like <code>First Name, Last Name, Email, Phone, Type, Status, Join Date, Renewal Date, Notes</code>.
               A <code>Name</code> column also works if you do not split first and last names.
+              Email is required so each member can receive an invite and register.
             </div>
             <Input
               type="file"
@@ -671,7 +681,7 @@ export default function Members() {
                 onChange={(e) => setSendImportInvites(e.target.checked)}
                 className="h-4 w-4 rounded border-white/20 bg-white/5"
               />
-              Send portal invite emails for imported rows with email addresses
+              Send portal invite emails after import
             </label>
             <p className="text-xs text-slate-400">
               Preview: {importRows.length} row{importRows.length === 1 ? "" : "s"} ready to import.
@@ -707,7 +717,7 @@ export default function Members() {
             >
               Cancel
             </Button>
-            <Button onClick={handleEditSubmit} disabled={updateMutation.isPending}>
+            <Button onClick={handleEditSubmit} disabled={updateMutation.isPending || !editForm.email.trim()}>
               {updateMutation.isPending ? "Saving…" : "Save"}
             </Button>
           </DialogFooter>

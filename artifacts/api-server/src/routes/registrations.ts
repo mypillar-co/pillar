@@ -1,11 +1,13 @@
 import { Router, type Request, type Response } from "express";
 import {
   db, organizationsTable, registrationsTable, sponsorsTable, vendorsTable, eventsTable,
+  eventSponsorsTable, eventVendorsTable,
 } from "@workspace/db";
-import { eq, and, or, desc, asc } from "drizzle-orm";
+import { eq, and, or, desc, asc, sql } from "drizzle-orm";
 import { resolveFullOrg } from "../lib/resolveOrg";
 import { getUncachableStripeClient } from "../stripeClient";
 import { ObjectStorageService } from "../lib/objectStorage";
+import { serveLocalRegistrationDoc } from "../lib/localRegistrationDocs";
 
 const objectStorage = new ObjectStorageService();
 
@@ -19,6 +21,37 @@ const ALLOWED_DOC_TYPES = [
 const MAX_DOC_SIZE = 10 * 1024 * 1024; // 10 MB
 
 const router = Router();
+
+const publicRegistrationAttempts = new Map<string, { count: number; windowStart: number }>();
+const PUBLIC_REGISTRATION_WINDOW_MS = 60 * 60 * 1000;
+const PUBLIC_REGISTRATION_MAX = 12;
+
+function getClientIp(req: Request): string {
+  return (
+    (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ||
+    req.socket.remoteAddress ||
+    "unknown"
+  );
+}
+
+function publicRegistrationRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const entry = publicRegistrationAttempts.get(ip);
+  if (!entry || now - entry.windowStart > PUBLIC_REGISTRATION_WINDOW_MS) {
+    publicRegistrationAttempts.set(ip, { count: 1, windowStart: now });
+    return false;
+  }
+  if (entry.count >= PUBLIC_REGISTRATION_MAX) return true;
+  entry.count += 1;
+  return false;
+}
+
+function botSubmission(req: Request, body: Record<string, unknown>): boolean {
+  if (typeof body._hp === "string" && body._hp.trim()) return true;
+  const startedAt = Number(body._ts);
+  if (Number.isFinite(startedAt) && Date.now() - startedAt < 3000) return true;
+  return publicRegistrationRateLimited(getClientIp(req));
+}
 
 // ─── Public: request presigned URL for a registration document ────────────────
 // Unauthenticated — used during vendor/sponsor registration before any account exists.
@@ -41,10 +74,13 @@ router.post("/public/registration-docs/upload-url", async (req: Request, res: Re
     return;
   }
 
-  const uploadURL = await objectStorage.getObjectEntityUploadURL();
-  const objectPath = objectStorage.normalizeObjectEntityPath(uploadURL);
-
-  res.json({ uploadURL, objectPath });
+  try {
+    const uploadURL = await objectStorage.getObjectEntityUploadURL();
+    const objectPath = objectStorage.normalizeObjectEntityPath(uploadURL);
+    res.json({ uploadURL, objectPath });
+  } catch {
+    res.status(503).json({ error: "Signed upload URL unavailable" });
+  }
 });
 
 // ─── Protected: serve a registration document — must belong to requesting user's org ──
@@ -93,6 +129,8 @@ router.get("/public/registration-docs/objects/*path", async (req: Request, res: 
       res.status(403).json({ error: "Forbidden" });
       return;
     }
+
+    if (await serveLocalRegistrationDoc(objectPath, res)) return;
 
     const file = await objectStorage.getObjectEntityFile(objectPath);
     const response = await objectStorage.downloadObject(file, 60);
@@ -155,6 +193,11 @@ router.get("/public/orgs/:slug/register-info", async (req: Request, res: Respons
 // ─── Public: submit registration ──────────────────────────────────────────────
 router.post("/public/orgs/:slug/register", async (req: Request, res: Response) => {
   const { slug } = req.params;
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  if (botSubmission(req, body)) {
+    res.json({ ok: true });
+    return;
+  }
   const [org] = await db
     .select()
     .from(organizationsTable)
@@ -165,7 +208,7 @@ router.post("/public/orgs/:slug/register", async (req: Request, res: Response) =
     type, name, contactName, email, phone, website, logoUrl, description,
     tier, vendorType, servSafeUrl, insuranceCertUrl,
     address, city, state, zip, products, needsElectricity, eventId,
-  } = req.body as {
+  } = body as {
     type?: string; name?: string; contactName?: string; email?: string; phone?: string;
     website?: string; logoUrl?: string; description?: string;
     tier?: string; vendorType?: string;
@@ -268,12 +311,26 @@ router.get("/registrations", async (req: Request, res: Response) => {
   if (eventId) conditions.push(eq(registrationsTable.eventId, eventId));
 
   const rows = await db
-    .select()
+    .select({
+      registration: registrationsTable,
+      eventName: eventsTable.name,
+      eventSlug: eventsTable.slug,
+      eventStartDate: eventsTable.startDate,
+    })
     .from(registrationsTable)
+    .leftJoin(eventsTable, and(
+      eq(registrationsTable.eventId, eventsTable.id),
+      eq(eventsTable.orgId, org.id),
+    ))
     .where(and(...conditions))
     .orderBy(desc(registrationsTable.createdAt));
 
-  res.json(rows);
+  res.json(rows.map(({ registration, eventName, eventSlug, eventStartDate }) => ({
+    ...registration,
+    eventName,
+    eventSlug,
+    eventStartDate,
+  })));
 });
 
 // ─── Admin: approve ───────────────────────────────────────────────────────────
@@ -309,6 +366,25 @@ router.post("/registrations/:id/approve", async (req: Request, res: Response) =>
       })
       .returning();
     sponsorId = sponsor.id;
+    if (reg.eventId) {
+      await db
+        .insert(eventSponsorsTable)
+        .values({
+          orgId: org.id,
+          eventId: reg.eventId,
+          sponsorId,
+          tier: reg.tier ?? undefined,
+          status: "active",
+        })
+        .onConflictDoUpdate({
+          target: [eventSponsorsTable.eventId, eventSponsorsTable.sponsorId],
+          set: {
+            tier: reg.tier ?? undefined,
+            status: "active",
+            updatedAt: sql`now()`,
+          },
+        });
+    }
   } else {
     const [vendor] = await db
       .insert(vendorsTable)
@@ -323,6 +399,29 @@ router.post("/registrations/:id/approve", async (req: Request, res: Response) =>
       })
       .returning();
     vendorId = vendor.id;
+    if (reg.eventId) {
+      await db
+        .insert(eventVendorsTable)
+        .values({
+          orgId: org.id,
+          eventId: reg.eventId,
+          vendorId,
+          feeAmount: reg.feeAmount ? reg.feeAmount / 100 : undefined,
+          feeStatus: reg.stripePaymentStatus === "paid" ? "paid" : "waived",
+          status: "active",
+          notes: reg.products ?? reg.description ?? undefined,
+        })
+        .onConflictDoUpdate({
+          target: [eventVendorsTable.eventId, eventVendorsTable.vendorId],
+          set: {
+            feeAmount: reg.feeAmount ? reg.feeAmount / 100 : undefined,
+            feeStatus: reg.stripePaymentStatus === "paid" ? "paid" : "waived",
+            status: "active",
+            notes: reg.products ?? reg.description ?? undefined,
+            updatedAt: sql`now()`,
+          },
+        });
+    }
   }
 
   const [updated] = await db

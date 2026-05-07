@@ -17,10 +17,18 @@ interface Event {
   featured: boolean | null;
 }
 
+interface Announcement {
+  id: number;
+  title: string;
+  body: string;
+  created_at: string;
+}
+
 export default function HomePage() {
   const config = useConfig();
   const { data: events } = useQuery<Event[]>({ queryKey: ["/api/events"] });
   const { data: siteContent } = useQuery<Record<string, string>>({ queryKey: ["/api/site-content"] });
+  const { data: announcements } = useQuery<Announcement[]>({ queryKey: ["/api/announcements"] });
 
   if (!config) return null;
 
@@ -97,6 +105,30 @@ export default function HomePage() {
           ) : null}
         </div>
       </section>
+
+      {(announcements?.length ?? 0) > 0 && (
+        <section className="cp-announcements" aria-label="Announcements">
+          <div className="max-w-7xl mx-auto px-4">
+            <div className="cp-announcement-strip">
+              <div className="cp-announcement-kicker">Latest announcement</div>
+              <div className="cp-announcement-list">
+                {(announcements ?? []).slice(0, 3).map((announcement) => (
+                  <article key={announcement.id} className="cp-announcement-item">
+                    <div className="cp-announcement-date">
+                      {new Date(announcement.created_at).toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </div>
+                    <h2>{announcement.title}</h2>
+                    <p>{announcement.body}</p>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Stats */}
       <section className="max-w-7xl mx-auto px-4 py-16">

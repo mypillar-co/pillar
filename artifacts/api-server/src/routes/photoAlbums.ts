@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { db, photoAlbumsTable, albumPhotosTable } from "@workspace/db";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, and } from "drizzle-orm";
 import { resolveOrgId as resolveOrg } from "../lib/resolveOrg";
 import { scheduleSiteAutoUpdate } from "../lib/scheduleSiteAutoUpdate";
 
@@ -90,6 +90,30 @@ router.get("/", async (req: Request, res: Response) => {
     .where(eq(photoAlbumsTable.orgId, orgId))
     .orderBy(desc(photoAlbumsTable.createdAt));
   res.json(albums);
+});
+
+// GET /api/photo-albums/:albumId/photos
+router.get("/:albumId/photos", async (req: Request, res: Response) => {
+  const orgId = await resolveOrg(req, res);
+  if (!orgId) return;
+
+  const { albumId } = req.params;
+  const [album] = await db
+    .select({ id: photoAlbumsTable.id })
+    .from(photoAlbumsTable)
+    .where(and(eq(photoAlbumsTable.id, albumId), eq(photoAlbumsTable.orgId, orgId)))
+    .limit(1);
+  if (!album) {
+    res.status(404).json({ error: "album not found" });
+    return;
+  }
+
+  const photos = await db
+    .select()
+    .from(albumPhotosTable)
+    .where(and(eq(albumPhotosTable.albumId, albumId), eq(albumPhotosTable.orgId, orgId)))
+    .orderBy(desc(albumPhotosTable.createdAt));
+  res.json(photos);
 });
 
 // POST /api/photo-albums

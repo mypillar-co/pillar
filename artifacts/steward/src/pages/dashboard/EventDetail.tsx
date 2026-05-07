@@ -6,7 +6,7 @@ import {
   Ticket, DollarSign, Users, Send, CheckCircle, XCircle, Plus,
   MessageSquare, RefreshCw, Sparkles, ClipboardList, Mail,
   ExternalLink, Copy, ChevronDown, ChevronUp, Clock, Star,
-  Upload, Globe,
+  Upload, Globe, ShoppingBag, AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { api, type EventItem, type EventDetail, type TicketType, type TicketSale, type EventSponsor } from "@/lib/api";
+import { api, csrfHeaders, type EventItem, type EventDetail, type TicketType, type TicketSale, type EventSponsor, type EventVendor } from "@/lib/api";
 import { uploadImage, isImageFile } from "@/lib/uploadImage";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -41,7 +41,7 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
-type Tab = "overview" | "sponsors" | "registrations" | "attendees" | "communication" | "waitlist";
+type Tab = "overview" | "sponsors" | "vendors" | "registrations" | "attendees" | "communication" | "waitlist";
 
 type WaitlistEntry = {
   id: string;
@@ -67,8 +67,74 @@ type Registration = {
   logoUrl?: string | null;
   feeAmount?: number;
   stripePaymentStatus?: string | null;
+  servSafeUrl?: string | null;
+  insuranceCertUrl?: string | null;
+  products?: string | null;
+  description?: string | null;
   createdAt: string;
 };
+
+type DraftIntent = "event_announcement" | "unpaid_vendor_reminder" | "sponsor_thank_you";
+
+const APPLICATION_TYPE_LABELS: Record<string, string> = {
+  vendor: "Vendor application",
+  sponsor: "Sponsor application",
+  participant: "RSVP registration",
+};
+
+function applicationTypeLabel(type: string): string {
+  return APPLICATION_TYPE_LABELS[type] ?? `${type.replace(/_/g, " ")} registration`;
+}
+
+function money(value: number | null | undefined): string {
+  if (value == null) return "N/A";
+  return `$${Number(value).toFixed(2)}`;
+}
+
+function paymentLabel(status?: string | null): string {
+  if (!status) return "No payment required";
+  return status.replace(/_/g, " ");
+}
+
+function formatEventDate(event: EventItem): string {
+  if (!event.startDate) return "Date not set";
+  const date = new Date(`${event.startDate}T00:00:00`);
+  const dateText = date.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  return event.startTime ? `${dateText} at ${event.startTime}` : dateText;
+}
+
+function countdownLabel(startDate?: string | null): string {
+  if (!startDate) return "No date set";
+  const today = new Date();
+  const eventDate = new Date(`${startDate}T00:00:00`);
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const days = Math.ceil((eventDate.getTime() - startOfToday.getTime()) / (24 * 60 * 60 * 1000));
+  if (days < 0) return `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} ago`;
+  if (days === 0) return "Today";
+  if (days === 1) return "Tomorrow";
+  return `${days} days out`;
+}
+
+function isUnpaidRegistration(reg: Registration): boolean {
+  return reg.status === "pending_payment" || reg.stripePaymentStatus === "unpaid";
+}
+
+function isFoodVendor(reg: Registration): boolean {
+  return reg.type === "vendor" && (reg.vendorType ?? "").toLowerCase().includes("food");
+}
+
+function missingVendorDocs(reg: Registration): string[] {
+  if (reg.type !== "vendor") return [];
+  const missing: string[] = [];
+  if (!reg.insuranceCertUrl) missing.push("Insurance");
+  if (isFoodVendor(reg) && !reg.servSafeUrl) missing.push("ServSafe");
+  return missing;
+}
 
 function AddEventSponsorDialog({ open, onClose, eventId, eventName }: {
   open: boolean;
@@ -77,11 +143,26 @@ function AddEventSponsorDialog({ open, onClose, eventId, eventName }: {
   eventName: string;
 }) {
   const qc = useQueryClient();
+  const { data: sponsors = [] } = useQuery({
+    queryKey: ["sponsors"],
+    queryFn: api.sponsors.list,
+    enabled: open,
+  });
+  const [mode, setMode] = useState<"existing" | "new">("existing");
+  const [existingSponsorId, setExistingSponsorId] = useState("");
   const [form, setForm] = useState({ name: "", email: "", website: "", tier: "", notes: "" });
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const mutation = useMutation({
     mutationFn: async () => {
+      if (mode === "existing") {
+        if (!existingSponsorId) throw new Error("Choose a sponsor to link");
+        return api.sponsors.update(existingSponsorId, {
+          eventId,
+          tier: form.tier || undefined,
+          notes: form.notes || undefined,
+        });
+      }
       let logoUrl: string | undefined;
       if (logoFile) logoUrl = await uploadImage(logoFile);
       return api.sponsors.create({
@@ -101,6 +182,8 @@ function AddEventSponsorDialog({ open, onClose, eventId, eventName }: {
       toast.success("Sponsor linked to event");
       onClose();
       setForm({ name: "", email: "", website: "", tier: "", notes: "" });
+      setExistingSponsorId("");
+      setMode("existing");
       if (logoPreview) URL.revokeObjectURL(logoPreview);
       setLogoPreview(null);
       setLogoFile(null);
@@ -125,43 +208,225 @@ function AddEventSponsorDialog({ open, onClose, eventId, eventName }: {
           <DialogTitle>Add Sponsor to {eventName}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
-          <div className="space-y-1.5">
-            <Label className="text-slate-300">Sponsor Name *</Label>
-            <Input value={form.name} onChange={e => set("name")(e.target.value)} placeholder="Acme Corp" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
+          <div className="grid grid-cols-2 gap-2 rounded-lg bg-white/5 p-1">
+            <button
+              type="button"
+              onClick={() => setMode("existing")}
+              className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${mode === "existing" ? "bg-primary text-white" : "text-slate-300 hover:bg-white/5"}`}
+            >
+              Existing sponsor
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("new")}
+              className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${mode === "new" ? "bg-primary text-white" : "text-slate-300 hover:bg-white/5"}`}
+            >
+              New sponsor
+            </button>
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-slate-300">Logo image (optional)</Label>
-            <label className="flex items-center gap-3 rounded-lg border border-dashed border-white/15 bg-white/5 p-3 cursor-pointer hover:border-amber-500/40">
-              <div className="h-12 w-12 rounded-lg bg-white/5 flex items-center justify-center overflow-hidden">
-                {logoPreview ? <img src={logoPreview} alt="" className="h-full w-full object-contain" /> : <Upload className="h-4 w-4 text-slate-400" />}
+          {mode === "existing" ? (
+            <div className="space-y-1.5">
+              <Label className="text-slate-300">Choose Sponsor *</Label>
+              <Select value={existingSponsorId} onValueChange={setExistingSponsorId}>
+                <SelectTrigger className="bg-white/5 border-white/10 text-white">
+                  <SelectValue placeholder={sponsors.length ? "Select sponsor" : "No sponsors yet"} />
+                </SelectTrigger>
+                <SelectContent className="bg-[hsl(224,30%,16%)] border-white/10">
+                  {sponsors.map(sponsor => (
+                    <SelectItem key={sponsor.id} value={sponsor.id} className="text-white">
+                      {sponsor.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <Label className="text-slate-300">Sponsor Name *</Label>
+                <Input value={form.name} onChange={e => set("name")(e.target.value)} placeholder="Acme Corp" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
               </div>
-              <span className="text-sm text-slate-300">{logoFile ? logoFile.name : "Upload sponsor logo"}</span>
-              <input type="file" accept="image/*" className="hidden" onChange={e => handleLogo(e.target.files?.[0])} />
-            </label>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-slate-300">Website</Label>
-              <Input value={form.website} onChange={e => set("website")(e.target.value)} placeholder="https://acme.com" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-slate-300">Tier</Label>
-              <Input value={form.tier} onChange={e => set("tier")(e.target.value)} placeholder="Gold" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
-            </div>
+              <div className="space-y-1.5">
+                <Label className="text-slate-300">Logo image (optional)</Label>
+                <label className="flex items-center gap-3 rounded-lg border border-dashed border-white/15 bg-white/5 p-3 cursor-pointer hover:border-amber-500/40">
+                  <div className="h-12 w-12 rounded-lg bg-white/5 flex items-center justify-center overflow-hidden">
+                    {logoPreview ? <img src={logoPreview} alt="" className="h-full w-full object-contain" /> : <Upload className="h-4 w-4 text-slate-400" />}
+                  </div>
+                  <span className="text-sm text-slate-300">{logoFile ? logoFile.name : "Upload sponsor logo"}</span>
+                  <input type="file" accept="image/*" className="hidden" onChange={e => handleLogo(e.target.files?.[0])} />
+                </label>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">Website</Label>
+                  <Input value={form.website} onChange={e => set("website")(e.target.value)} placeholder="https://acme.com" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">Email</Label>
+                  <Input type="email" value={form.email} onChange={e => set("email")(e.target.value)} placeholder="sponsor@example.com" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
+                </div>
+              </div>
+            </>
+          )}
+          <div className="space-y-1.5">
+            <Label className="text-slate-300">Event Sponsorship Level</Label>
+            <Input value={form.tier} onChange={e => set("tier")(e.target.value)} placeholder="Gold" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-slate-300">Email</Label>
-            <Input type="email" value={form.email} onChange={e => set("email")(e.target.value)} placeholder="sponsor@example.com" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-slate-300">Notes</Label>
+            <Label className="text-slate-300">Event Notes</Label>
             <Textarea value={form.notes} onChange={e => set("notes")(e.target.value)} rows={2} className="bg-white/5 border-white/10 text-white resize-none" />
           </div>
+          {mode === "existing" && sponsors.length === 0 && (
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-100">
+              No sponsor records exist yet. Switch to New sponsor to create one and link it to this event.
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} className="border-white/10 text-slate-300">Cancel</Button>
-          <Button onClick={() => mutation.mutate()} disabled={!form.name || mutation.isPending}>
-            {mutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Add Sponsor
+          <Button onClick={() => mutation.mutate()} disabled={(mode === "existing" ? !existingSponsorId : !form.name) || mutation.isPending}>
+            {mutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Link Sponsor
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AddEventVendorDialog({ open, onClose, eventId, eventName }: {
+  open: boolean;
+  onClose: () => void;
+  eventId: string;
+  eventName: string;
+}) {
+  const qc = useQueryClient();
+  const { data: vendors = [] } = useQuery({
+    queryKey: ["vendors"],
+    queryFn: api.vendors.list,
+    enabled: open,
+  });
+  const [mode, setMode] = useState<"existing" | "new">("existing");
+  const [existingVendorId, setExistingVendorId] = useState("");
+  const [form, setForm] = useState({
+    name: "",
+    vendorType: "",
+    email: "",
+    phone: "",
+    feeAmount: "",
+    notes: "",
+  });
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const eventLink = {
+        eventId,
+        eventNotes: form.notes || undefined,
+        feeAmount: form.feeAmount ? Number(form.feeAmount) : undefined,
+      };
+      if (mode === "existing") {
+        if (!existingVendorId) throw new Error("Choose a vendor to link");
+        return api.vendors.update(existingVendorId, eventLink);
+      }
+      return api.vendors.create({
+        name: form.name,
+        vendorType: form.vendorType || undefined,
+        email: form.email || undefined,
+        phone: form.phone || undefined,
+        notes: form.notes || undefined,
+        ...eventLink,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["event", eventId] });
+      qc.invalidateQueries({ queryKey: ["vendors"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-briefing"] });
+      toast.success("Vendor linked to event");
+      onClose();
+      setMode("existing");
+      setExistingVendorId("");
+      setForm({ name: "", vendorType: "", email: "", phone: "", feeAmount: "", notes: "" });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const set = (key: keyof typeof form) => (value: string) => setForm(prev => ({ ...prev, [key]: value }));
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="bg-[hsl(224,30%,14%)] border-white/10 text-white max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add Vendor to {eventName}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="grid grid-cols-2 gap-2 rounded-lg bg-white/5 p-1">
+            <button
+              type="button"
+              onClick={() => setMode("existing")}
+              className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${mode === "existing" ? "bg-primary text-white" : "text-slate-300 hover:bg-white/5"}`}
+            >
+              Existing vendor
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("new")}
+              className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${mode === "new" ? "bg-primary text-white" : "text-slate-300 hover:bg-white/5"}`}
+            >
+              New vendor
+            </button>
+          </div>
+          {mode === "existing" ? (
+            <div className="space-y-1.5">
+              <Label className="text-slate-300">Choose Vendor *</Label>
+              <Select value={existingVendorId} onValueChange={setExistingVendorId}>
+                <SelectTrigger className="bg-white/5 border-white/10 text-white">
+                  <SelectValue placeholder={vendors.length ? "Select vendor" : "No vendors yet"} />
+                </SelectTrigger>
+                <SelectContent className="bg-[hsl(224,30%,16%)] border-white/10">
+                  {vendors.map(vendor => (
+                    <SelectItem key={vendor.id} value={vendor.id} className="text-white">
+                      {vendor.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <Label className="text-slate-300">Vendor Name *</Label>
+                <Input value={form.name} onChange={e => set("name")(e.target.value)} placeholder="Main Street Coffee" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">Vendor Type</Label>
+                  <Input value={form.vendorType} onChange={e => set("vendorType")(e.target.value)} placeholder="Food, Craft, Service" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">Email</Label>
+                  <Input type="email" value={form.email} onChange={e => set("email")(e.target.value)} placeholder="vendor@example.com" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-slate-300">Phone</Label>
+                <Input value={form.phone} onChange={e => set("phone")(e.target.value)} placeholder="555-0100" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
+              </div>
+            </>
+          )}
+          <div className="space-y-1.5">
+            <Label className="text-slate-300">Event Vendor Fee</Label>
+            <Input type="number" min="0" step="0.01" value={form.feeAmount} onChange={e => set("feeAmount")(e.target.value)} placeholder="0.00" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-slate-300">Event Notes</Label>
+            <Textarea value={form.notes} onChange={e => set("notes")(e.target.value)} rows={2} className="bg-white/5 border-white/10 text-white resize-none" />
+          </div>
+          {mode === "existing" && vendors.length === 0 && (
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-100">
+              No vendor records exist yet. Switch to New vendor to create one and link it to this event.
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} className="border-white/10 text-slate-300">Cancel</Button>
+          <Button onClick={() => mutation.mutate()} disabled={(mode === "existing" ? !existingVendorId : !form.name) || mutation.isPending}>
+            {mutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Link Vendor
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -336,6 +601,7 @@ export default function EventDetailPage() {
   const [addingSale, setAddingSale] = useState(false);
   const [addingTicketType, setAddingTicketType] = useState(false);
   const [addingSponsor, setAddingSponsor] = useState(false);
+  const [addingVendor, setAddingVendor] = useState(false);
   const [commSubject, setCommSubject] = useState("");
   const [commBody, setCommBody] = useState("");
   const [approvalComment, setApprovalComment] = useState("");
@@ -400,6 +666,7 @@ export default function EventDetailPage() {
   const detail = data as EventDetail | undefined;
   const event = detail?.event;
   const eventSponsors = detail?.sponsors ?? [];
+  const eventVendors = detail?.vendors ?? [];
 
   const updateMutation = useMutation({
     mutationFn: () => api.events.update(id, form),
@@ -463,6 +730,9 @@ export default function EventDetailPage() {
       fetch(`${BASE}/api/registrations/${regId}/approve`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" } }).then(r => r.json()),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["event-registrations", id] });
+      qc.invalidateQueries({ queryKey: ["event", id] });
+      qc.invalidateQueries({ queryKey: ["sponsors"] });
+      qc.invalidateQueries({ queryKey: ["vendors"] });
       toast.success("Application approved");
     },
     onError: (e: Error) => toast.error(e.message),
@@ -498,6 +768,27 @@ export default function EventDetailPage() {
       toast.success("Message sent");
       setCommSubject("");
       setCommBody("");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const draftCommMutation = useMutation({
+    mutationFn: async ({ intent }: { intent: DraftIntent }) => {
+      const res = await fetch(`${BASE}/api/operations/email-draft`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...csrfHeaders("POST") },
+        body: JSON.stringify({ intent, eventId: id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { error?: string }).error ?? "Draft failed");
+      return data as { subject?: string; body?: string; recipientCount?: number; status?: string };
+    },
+    onSuccess: (draft) => {
+      setCommSubject(draft.subject ?? "");
+      setCommBody(draft.body ?? "");
+      setTab("communication");
+      toast.success(`Draft prepared${draft.recipientCount != null ? ` for ${draft.recipientCount} recipient${draft.recipientCount === 1 ? "" : "s"}` : ""}`);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -553,15 +844,26 @@ export default function EventDetailPage() {
   const hasPendingApproval = detail?.approvals?.some(a => a.status === "pending");
   const canSubmit = event.status === "draft" && !hasPendingApproval;
   const canApproveReject = event.status === "pending_approval" && hasPendingApproval;
-  const pendingRegs = (registrations as Registration[]).filter(r => r.status === "pending_approval");
+  const allRegistrations = registrations as Registration[];
+  const vendorApplications = allRegistrations.filter(r => r.type === "vendor");
+  const sponsorApplications = allRegistrations.filter(r => r.type === "sponsor");
+  const rsvpRegistrations = allRegistrations.filter(r => r.type === "participant");
+  const pendingVendorApps = vendorApplications.filter(r => r.status === "pending_approval");
+  const pendingSponsorApps = sponsorApplications.filter(r => r.status === "pending_approval");
+  const pendingRegs = allRegistrations.filter(r => r.status === "pending_approval");
+  const unpaidApplications = allRegistrations.filter(isUnpaidRegistration);
+  const missingDocApplications = vendorApplications.filter(r => missingVendorDocs(r).length > 0);
+  const visibleOnPublicSite = event.showOnPublicSite !== false && !["draft", "cancelled"].includes(event.status);
+  const totalRegistrationCount = (detail?.totalSold ?? 0) + rsvpRegistrations.length;
   const publicEventUrl = event.slug && orgData?.slug
     ? `https://${orgData.slug}.mypillar.co/events/${event.slug}`
     : null;
   const TABS: { key: Tab; label: string; icon: React.ElementType; count?: number }[] = [
     { key: "overview", label: "Overview", icon: Calendar },
-    { key: "sponsors", label: "Sponsors", icon: Star, count: eventSponsors.length || undefined },
+    { key: "sponsors", label: "Sponsors", icon: Star, count: (eventSponsors.length + pendingSponsorApps.length) || undefined },
+    { key: "vendors", label: "Vendors", icon: ShoppingBag, count: (eventVendors.length + pendingVendorApps.length) || undefined },
     { key: "registrations", label: "Registrations", icon: ClipboardList, count: pendingRegs.length || undefined },
-    { key: "attendees", label: "Attendees", icon: Users, count: detail?.totalSold || undefined },
+    { key: "attendees", label: "Attendees", icon: Users, count: totalRegistrationCount || undefined },
     { key: "communication", label: "Communication", icon: Mail },
     { key: "waitlist", label: "Waitlist", icon: Clock, count: (waitlist as WaitlistEntry[]).filter(w => w.status === "waiting").length || undefined },
   ];
@@ -706,27 +1008,78 @@ export default function EventDetailPage() {
         </Card>
       )}
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          { label: "Tickets Sold", value: detail?.totalSold ?? 0, icon: Users },
-          { label: "Revenue", value: `$${(detail?.totalRevenue ?? 0).toFixed(2)}`, icon: DollarSign },
-          { label: "Pending Applications", value: pendingRegs.length, icon: ClipboardList },
-          { label: "Messages Sent", value: detail?.communications?.length ?? 0, icon: MessageSquare },
-        ].map(s => (
-          <Card key={s.label} className="border-white/10 bg-card/60">
-            <CardContent className="pt-4 pb-3 flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                <s.icon className="w-4 h-4 text-primary" />
+      {/* Event Command Center */}
+      <Card className="border-white/10 bg-card/70">
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-base font-semibold text-white">Event Command Center</CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">Operational snapshot for this event, using live registrations, sponsors, vendors, tickets, and communications.</p>
+            </div>
+            <Badge variant="outline" className={visibleOnPublicSite ? "border-emerald-500/30 text-emerald-400" : "border-slate-500/30 text-slate-400"}>
+              {visibleOnPublicSite ? "Public page visible" : "Not public"}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              { label: "Event date", value: countdownLabel(event.startDate), detail: formatEventDate(event), icon: Calendar, attention: false },
+              { label: event.isTicketed ? "Tickets sold" : "RSVPs / attendees", value: detail?.totalSold ?? 0, detail: `${detail?.sales?.length ?? 0} attendee record${(detail?.sales?.length ?? 0) === 1 ? "" : "s"}`, icon: Users, attention: false },
+              { label: "Pending vendors", value: pendingVendorApps.length, detail: `${eventVendors.length} approved/linked`, icon: ShoppingBag, attention: pendingVendorApps.length > 0 },
+              { label: "Pending sponsors", value: pendingSponsorApps.length, detail: `${eventSponsors.length} approved/linked`, icon: Star, attention: pendingSponsorApps.length > 0 },
+              { label: "Unpaid items", value: unpaidApplications.length, detail: "Sponsor/vendor applications", icon: DollarSign, attention: unpaidApplications.length > 0 },
+              { label: "Missing docs", value: missingDocApplications.length, detail: "Vendor insurance or food docs", icon: AlertTriangle, attention: missingDocApplications.length > 0 },
+              { label: "Communications", value: detail?.communications?.length ?? 0, detail: "Messages recorded", icon: MessageSquare, attention: false },
+              { label: "Revenue", value: `$${(detail?.totalRevenue ?? 0).toFixed(2)}`, detail: "Ticket/RSVP payments", icon: DollarSign, attention: false },
+            ].map(s => (
+              <button
+                type="button"
+                key={s.label}
+                onClick={() => {
+                  if (s.label.includes("vendor")) setTab("vendors");
+                  else if (s.label.includes("sponsor")) setTab("sponsors");
+                  else if (s.label.includes("doc") || s.label.includes("Unpaid")) setTab("registrations");
+                  else if (s.label.includes("Communication")) setTab("communication");
+                  else if (s.label.includes("Tickets") || s.label.includes("RSVP")) setTab("attendees");
+                  else setTab("overview");
+                }}
+                className={`rounded-xl border p-3 text-left transition-colors ${s.attention ? "border-amber-500/25 bg-amber-500/8 hover:bg-amber-500/12" : "border-white/8 bg-white/5 hover:bg-white/8"}`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${s.attention ? "bg-amber-500/15" : "bg-primary/10"}`}>
+                    <s.icon className={`h-4 w-4 ${s.attention ? "text-amber-400" : "text-primary"}`} />
+                  </div>
+                  {s.attention && <span className="h-2 w-2 rounded-full bg-amber-400" />}
+                </div>
+                <p className="mt-3 text-xs text-muted-foreground">{s.label}</p>
+                <p className="mt-0.5 text-xl font-bold text-white">{s.value}</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground truncate">{s.detail}</p>
+              </button>
+            ))}
+          </div>
+
+          {(pendingRegs.length > 0 || missingDocApplications.length > 0 || unpaidApplications.length > 0) && (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/8 p-3">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-400" />
+                <p className="text-sm font-medium text-amber-100">Needs attention</p>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">{s.label}</p>
-                <p className="text-lg font-bold text-white">{s.value}</p>
+              <div className="mt-2 grid gap-2 text-xs text-amber-50/80 sm:grid-cols-3">
+                <button type="button" onClick={() => setTab("registrations")} className="rounded-lg bg-black/10 px-3 py-2 text-left hover:bg-black/20">
+                  {pendingRegs.length} application{pendingRegs.length === 1 ? "" : "s"} awaiting approval
+                </button>
+                <button type="button" onClick={() => setTab("registrations")} className="rounded-lg bg-black/10 px-3 py-2 text-left hover:bg-black/20">
+                  {missingDocApplications.length} vendor{missingDocApplications.length === 1 ? "" : "s"} missing documents
+                </button>
+                <button type="button" onClick={() => setTab("registrations")} className="rounded-lg bg-black/10 px-3 py-2 text-left hover:bg-black/20">
+                  {unpaidApplications.length} unpaid sponsor/vendor item{unpaidApplications.length === 1 ? "" : "s"}
+                </button>
               </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Tab Bar */}
       <div className="flex gap-1 p-1 bg-white/5 rounded-xl border border-white/8">
@@ -888,6 +1241,39 @@ export default function EventDetailPage() {
             </CardContent>
           </Card>
 
+          {/* Event Vendors */}
+          <Card className="border-white/10 bg-card/60">
+            <CardHeader className="pb-3 flex flex-row items-center justify-between">
+              <CardTitle className="text-base font-semibold text-white flex items-center gap-2">
+                <ShoppingBag className="w-4 h-4 text-primary" /> Event Vendors
+              </CardTitle>
+              <Button size="sm" variant="outline" onClick={() => setAddingVendor(true)} className="border-white/10 text-slate-300 h-7 text-xs">
+                <Plus className="w-3 h-3 mr-1" /> Add Vendor
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {eventVendors.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-white/10 p-4 text-sm text-muted-foreground">
+                  No vendors are linked to this event yet. Add approved booths, food vendors, or service partners here.
+                </div>
+              ) : (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {eventVendors.slice(0, 4).map((vendor: EventVendor) => (
+                    <div key={vendor.id} className="flex items-center gap-3 rounded-lg border border-white/8 bg-white/5 p-3">
+                      <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                        <ShoppingBag className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-white truncate">{vendor.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">{vendor.vendorType || "Event vendor"}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Ticket Types */}
           <Card className="border-white/10 bg-card/60">
             <CardHeader className="pb-3 flex flex-row items-center justify-between">
@@ -958,6 +1344,46 @@ export default function EventDetailPage() {
               <Plus className="w-4 h-4 mr-2" /> Add Sponsor
             </Button>
           </div>
+          {sponsorApplications.length > 0 && (
+            <Card className="border-white/10 bg-card/60">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold text-white flex items-center gap-2">
+                  <ClipboardList className="w-4 h-4 text-amber-400" /> Sponsor Applications
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {sponsorApplications.map((reg) => {
+                  const statusColor = reg.status === "approved" ? "border-emerald-500/30 text-emerald-400" : reg.status === "rejected" ? "border-red-500/30 text-red-400" : reg.status === "pending_approval" ? "border-amber-500/30 text-amber-400" : "border-white/20 text-slate-400";
+                  return (
+                    <div key={reg.id} className="rounded-xl border border-white/8 bg-white/5 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-medium text-white truncate">{reg.name}</p>
+                            <Badge variant="outline" className={`text-xs capitalize ${statusColor}`}>{reg.status.replace(/_/g, " ")}</Badge>
+                            {reg.tier && <Badge variant="outline" className="text-xs border-amber-500/30 text-amber-400">{reg.tier}</Badge>}
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">{reg.email || "No email"}{reg.phone ? ` · ${reg.phone}` : ""}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">Payment: {paymentLabel(reg.stripePaymentStatus)}{reg.feeAmount != null ? ` · ${reg.feeAmount > 0 ? `$${(reg.feeAmount / 100).toFixed(2)}` : "Waived"}` : ""}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">Logo: {reg.logoUrl ? "Submitted" : "Not submitted"}</p>
+                        </div>
+                        {reg.status === "pending_approval" && (
+                          <div className="flex shrink-0 gap-2">
+                            <Button size="sm" onClick={() => approveRegMutation.mutate(reg.id)} disabled={approveRegMutation.isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                              <CheckCircle className="w-3.5 h-3.5 mr-1.5" /> Approve
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => setRejectingId(reg.id)} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
+                              <XCircle className="w-3.5 h-3.5 mr-1.5" /> Reject
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
           {eventSponsors.length === 0 ? (
             <div className="text-center py-16 border border-dashed border-white/10 rounded-xl">
               <Star className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
@@ -989,7 +1415,124 @@ export default function EventDetailPage() {
                           </a>
                         )}
                         {sponsor.email && <p className="mt-1 text-xs text-muted-foreground">{sponsor.email}</p>}
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Status: {sponsor.status || sponsor.sponsorStatus || "active"}
+                          {sponsor.amountPledged != null ? ` · pledged ${money(sponsor.amountPledged)}` : ""}
+                          {sponsor.amountReceived != null ? ` · received ${money(sponsor.amountReceived)}` : ""}
+                        </p>
                         {sponsor.notes && <p className="mt-2 text-xs text-slate-300 line-clamp-2">{sponsor.notes}</p>}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── VENDORS TAB ── */}
+      {tab === "vendors" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">{eventVendors.length} vendor{eventVendors.length !== 1 ? "s" : ""} linked to this event</p>
+              <p className="text-xs text-muted-foreground/70 mt-0.5">Vendors are operational records by default and are not shown publicly unless a public listing is enabled later.</p>
+            </div>
+            <Button size="sm" onClick={() => setAddingVendor(true)}>
+              <Plus className="w-4 h-4 mr-2" /> Add Vendor
+            </Button>
+          </div>
+          {vendorApplications.length > 0 && (
+            <Card className="border-white/10 bg-card/60">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold text-white flex items-center gap-2">
+                  <ClipboardList className="w-4 h-4 text-primary" /> Vendor Applications
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {vendorApplications.map((reg) => {
+                  const statusColor = reg.status === "approved" ? "border-emerald-500/30 text-emerald-400" : reg.status === "rejected" ? "border-red-500/30 text-red-400" : reg.status === "pending_approval" ? "border-amber-500/30 text-amber-400" : "border-white/20 text-slate-400";
+                  const missing = missingVendorDocs(reg);
+                  return (
+                    <div key={reg.id} className="rounded-xl border border-white/8 bg-white/5 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-medium text-white truncate">{reg.name}</p>
+                            <Badge variant="outline" className={`text-xs capitalize ${statusColor}`}>{reg.status.replace(/_/g, " ")}</Badge>
+                            {reg.vendorType && <Badge variant="outline" className="text-xs border-primary/30 text-primary">{reg.vendorType}</Badge>}
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">{reg.contactName || reg.email || "No contact"}{reg.phone ? ` · ${reg.phone}` : ""}</p>
+                          {reg.products && <p className="mt-1 text-xs text-slate-300 line-clamp-2">Selling: {reg.products}</p>}
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            <Badge variant="outline" className={reg.insuranceCertUrl ? "border-emerald-500/30 text-emerald-400" : "border-red-500/30 text-red-400"}>
+                              Insurance {reg.insuranceCertUrl ? "submitted" : "missing"}
+                            </Badge>
+                            {isFoodVendor(reg) && (
+                              <Badge variant="outline" className={reg.servSafeUrl ? "border-emerald-500/30 text-emerald-400" : "border-red-500/30 text-red-400"}>
+                                ServSafe {reg.servSafeUrl ? "submitted" : "missing"}
+                              </Badge>
+                            )}
+                            {missing.length > 0 && (
+                              <Badge variant="outline" className="border-amber-500/30 text-amber-400">
+                                Missing {missing.join(", ")}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="mt-2 text-xs text-muted-foreground">Payment: {paymentLabel(reg.stripePaymentStatus)}{reg.feeAmount != null ? ` · ${reg.feeAmount > 0 ? `$${(reg.feeAmount / 100).toFixed(2)}` : "Waived"}` : ""}</p>
+                        </div>
+                        {reg.status === "pending_approval" && (
+                          <div className="flex shrink-0 gap-2">
+                            <Button size="sm" onClick={() => approveRegMutation.mutate(reg.id)} disabled={approveRegMutation.isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                              <CheckCircle className="w-3.5 h-3.5 mr-1.5" /> Approve
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => setRejectingId(reg.id)} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
+                              <XCircle className="w-3.5 h-3.5 mr-1.5" /> Reject
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
+          {eventVendors.length === 0 ? (
+            <div className="text-center py-16 border border-dashed border-white/10 rounded-xl">
+              <ShoppingBag className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+              <p className="text-muted-foreground">No vendors linked to this event</p>
+              <p className="text-xs text-muted-foreground/60 mt-1">Add vendors manually or approve event vendor applications from Registrations.</p>
+              <Button size="sm" className="mt-4" onClick={() => setAddingVendor(true)}>
+                <Plus className="w-4 h-4 mr-2" /> Add Event Vendor
+              </Button>
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {eventVendors.map((vendor: EventVendor) => (
+                <Card key={vendor.id} className="border-white/10 bg-card/60">
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="h-14 w-14 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                        <ShoppingBag className="h-5 w-5 text-primary" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-white truncate">{vendor.name}</p>
+                          <Badge variant="outline" className="text-[10px] border-primary/30 text-primary capitalize">
+                            {vendor.vendorType || "Vendor"}
+                          </Badge>
+                        </div>
+                        {vendor.email && <p className="mt-1 text-xs text-muted-foreground">{vendor.email}</p>}
+                        {vendor.phone && <p className="mt-1 text-xs text-muted-foreground">{vendor.phone}</p>}
+                        {vendor.feeAmount != null && (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Fee: ${Number(vendor.feeAmount).toFixed(2)} · {vendor.feeStatus || "pending"}
+                          </p>
+                        )}
+                        <p className="mt-1 text-xs text-muted-foreground">Status: {vendor.status || vendor.vendorStatus || "active"}</p>
+                        {vendor.notes && <p className="mt-2 text-xs text-slate-300 line-clamp-2">{vendor.notes}</p>}
                       </div>
                     </div>
                   </CardContent>
@@ -1013,6 +1556,20 @@ export default function EventDetailPage() {
             </div>
           ) : (
             <>
+              <div className="grid gap-2 sm:grid-cols-4">
+                {[
+                  { label: "RSVPs", value: rsvpRegistrations.length, detail: "Free registrations" },
+                  { label: "Ticketed attendees", value: detail?.totalSold ?? 0, detail: "Ticket/RSVP sales records" },
+                  { label: "Vendors", value: vendorApplications.length, detail: `${pendingVendorApps.length} pending` },
+                  { label: "Sponsors", value: sponsorApplications.length, detail: `${pendingSponsorApps.length} pending` },
+                ].map(item => (
+                  <div key={item.label} className="rounded-xl border border-white/8 bg-white/5 p-3">
+                    <p className="text-xs text-muted-foreground">{item.label}</p>
+                    <p className="mt-1 text-xl font-bold text-white">{item.value}</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">{item.detail}</p>
+                  </div>
+                ))}
+              </div>
               {pendingRegs.length > 0 && (
                 <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
                   <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
@@ -1028,14 +1585,15 @@ export default function EventDetailPage() {
                       <div className="flex items-center justify-between p-4 cursor-pointer hover:bg-white/5 transition-colors" onClick={() => setExpandedReg(isExpanded ? null : reg.id)}>
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                            <span className="text-xs font-bold text-primary">{reg.type === "vendor" ? "V" : "S"}</span>
+                            <span className="text-xs font-bold text-primary">{reg.type === "vendor" ? "V" : reg.type === "sponsor" ? "S" : "R"}</span>
                           </div>
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-white truncate">{reg.name}</p>
-                            <p className="text-xs text-muted-foreground">{reg.contactName ?? reg.email ?? ""} · {reg.type}</p>
+                            <p className="text-xs text-muted-foreground">{reg.contactName ?? reg.email ?? ""} · {applicationTypeLabel(reg.type)}</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
+                          <Badge variant="outline" className="text-xs border-white/15 text-slate-300">{applicationTypeLabel(reg.type)}</Badge>
                           <Badge variant="outline" className={`text-xs capitalize ${statusColor}`}>{reg.status.replace(/_/g, " ")}</Badge>
                           {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
                         </div>
@@ -1050,6 +1608,24 @@ export default function EventDetailPage() {
                             {reg.feeAmount != null && <div><p className="text-xs text-muted-foreground">Fee</p><p className="text-sm text-white">{reg.feeAmount > 0 ? `$${(reg.feeAmount / 100).toFixed(2)}` : "Waived"}</p></div>}
                             {reg.stripePaymentStatus && <div><p className="text-xs text-muted-foreground">Payment</p><p className="text-sm text-white capitalize">{reg.stripePaymentStatus}</p></div>}
                           </div>
+                          {reg.type === "vendor" && (
+                            <div className="flex flex-wrap gap-1.5">
+                              <Badge variant="outline" className={reg.insuranceCertUrl ? "border-emerald-500/30 text-emerald-400" : "border-red-500/30 text-red-400"}>
+                                Insurance {reg.insuranceCertUrl ? "submitted" : "missing"}
+                              </Badge>
+                              {isFoodVendor(reg) && (
+                                <Badge variant="outline" className={reg.servSafeUrl ? "border-emerald-500/30 text-emerald-400" : "border-red-500/30 text-red-400"}>
+                                  ServSafe {reg.servSafeUrl ? "submitted" : "missing"}
+                                </Badge>
+                              )}
+                            </div>
+                          )}
+                          {reg.products && (
+                            <div>
+                              <p className="text-xs text-muted-foreground">Selling / Offering</p>
+                              <p className="text-sm text-slate-300">{reg.products}</p>
+                            </div>
+                          )}
                           {reg.status === "pending_approval" && (
                             <div className="flex gap-2 pt-1">
                               <Button size="sm" onClick={() => approveRegMutation.mutate(reg.id)} disabled={approveRegMutation.isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
@@ -1118,6 +1694,36 @@ export default function EventDetailPage() {
       {/* ── COMMUNICATION TAB ── */}
       {tab === "communication" && (
         <div className="space-y-4">
+          <Card className="border-white/10 bg-card/60">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-semibold text-white flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-primary" /> Communication Quick Actions
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {[
+                  { label: "Draft announcement", intent: "event_announcement" as DraftIntent, detail: "Prepare a public or member-facing event update." },
+                  { label: "Draft vendor reminder", intent: "unpaid_vendor_reminder" as DraftIntent, detail: "Prepare a follow-up for unpaid vendor applications." },
+                  { label: "Draft sponsor thank-you", intent: "sponsor_thank_you" as DraftIntent, detail: "Prepare a sponsor update or thank-you." },
+                  { label: "Draft attendee update", intent: "event_announcement" as DraftIntent, detail: "Prepare an attendee-facing event notice." },
+                ].map(action => (
+                  <button
+                    key={action.label}
+                    type="button"
+                    onClick={() => draftCommMutation.mutate({ intent: action.intent })}
+                    disabled={draftCommMutation.isPending}
+                    className="rounded-xl border border-white/8 bg-white/5 p-3 text-left transition-colors hover:bg-white/8 disabled:opacity-60"
+                  >
+                    <p className="text-sm font-medium text-white">{action.label}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{action.detail}</p>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">Drafts are prepared here only. Nothing is sent until a human reviews and confirms.</p>
+            </CardContent>
+          </Card>
+
           <Card className="border-white/10 bg-card/60">
             <CardHeader className="pb-3">
               <CardTitle className="text-base font-semibold text-white flex items-center gap-2">
@@ -1225,6 +1831,7 @@ export default function EventDetailPage() {
       <AddSaleDialog open={addingSale} onClose={() => setAddingSale(false)} eventId={id} ticketTypes={detail?.ticketTypes ?? []} />
       <AddTicketTypeDialog open={addingTicketType} onClose={() => setAddingTicketType(false)} eventId={id} />
       <AddEventSponsorDialog open={addingSponsor} onClose={() => setAddingSponsor(false)} eventId={id} eventName={event.name} />
+      <AddEventVendorDialog open={addingVendor} onClose={() => setAddingVendor(false)} eventId={id} eventName={event.name} />
       <RejectDialog
         open={!!rejectingId}
         onClose={() => setRejectingId(null)}

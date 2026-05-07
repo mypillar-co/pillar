@@ -205,7 +205,11 @@ router.post("/", async (req: Request, res: Response) => {
   }
 
   const trimmedEmail = cleanOptionalEmail(email);
-  if (trimmedEmail && !isValidEmail(trimmedEmail)) {
+  if (!trimmedEmail) {
+    res.status(400).json({ error: "Email is required so the member can receive an invite and register." });
+    return;
+  }
+  if (!isValidEmail(trimmedEmail)) {
     res.status(400).json({ error: "Invalid email format" });
     return;
   }
@@ -316,7 +320,11 @@ router.post("/bulk-import", async (req: Request, res: Response) => {
       skipped.push({ row: i + 1, reason: "Missing first name" });
       continue;
     }
-    if (email && !isValidEmail(email)) {
+    if (!email) {
+      skipped.push({ row: i + 1, reason: "Missing email — members need an email invite to register" });
+      continue;
+    }
+    if (!isValidEmail(email)) {
       skipped.push({ row: i + 1, reason: `Invalid email: ${email}` });
       continue;
     }
@@ -407,6 +415,10 @@ router.put("/:id", async (req: Request, res: Response) => {
     return;
   }
   const nextEmail = email !== undefined ? cleanOptionalEmail(email) : existing.email;
+  if (email !== undefined && !nextEmail) {
+    res.status(400).json({ error: "Email is required so the member can register for the portal." });
+    return;
+  }
   if (nextEmail && !isValidEmail(nextEmail)) {
     res.status(400).json({ error: "Invalid email format" });
     return;
