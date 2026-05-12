@@ -16,6 +16,8 @@ export interface OrgConfig {
   heroImageUrl?: string | null;
   heroVisualType?: HeroVisualType | null;
   heroLayout?: "split_framed" | "full_bleed" | "split" | "background" | null;
+  siteArchetype?: string | null;
+  stylePreset?: string | null;
   memberCount?: number;
   contactEmail?: string | null;
   contactPhone?: string | null;
@@ -46,8 +48,21 @@ export interface OrgConfig {
     membersPortal?: unknown;
     heroVisualType?: HeroVisualType | null;
     heroLayout?: "split_framed" | "full_bleed" | "split" | "background" | null;
+    siteArchetype?: string | null;
+    stylePreset?: string | null;
+    customPages?: CustomPageConfig[];
   };
   _empty?: boolean;
+}
+
+export interface CustomPageConfig {
+  title: string;
+  slug: string;
+  navLabel?: string;
+  showInNav?: boolean;
+  intro?: string;
+  sections?: { title: string; body: string }[];
+  cta?: { label: string; href: string };
 }
 
 const ConfigContext = createContext<OrgConfig | null>(null);

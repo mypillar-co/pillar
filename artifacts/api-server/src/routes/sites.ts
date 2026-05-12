@@ -922,10 +922,11 @@ function getOrgTypeColors(orgName: string, orgType: string): { primaryHex: strin
   if (/kiwanis/.test(n)) return { primaryHex: "#1a5fa8", accentHex: "#f5c518", primaryRgb: "26,95,168" };
   if (/optimist\s*(club|international)?/.test(n)) return { primaryHex: "#c0392b", accentHex: "#f5c518", primaryRgb: "192,57,43" };
   if (/soroptimist/.test(n)) return { primaryHex: "#004a99", accentHex: "#ffd700", primaryRgb: "0,74,153" };
-  // Masonic Lodges (Free & Accepted Masons) — PA Grand Lodge of Pennsylvania official colors
-  // Primary: Midnight #12233e | Accent: Cornflower #5b7db1 (NOT gold — these are the official PA GL spec)
+  // Masonic/lodge sites should use the organization's own uploaded/selected
+  // brand colors or Pillar's default heritage treatment. Do not borrow a
+  // specific Grand Lodge palette unless the user explicitly provides it.
   if (/\bmasonic?\b|\bmasonry\b|lodge\s*#?\d+|f\.?\s*[&a]\.?\s*m\.?\b|free\s*(and|&)\s*accepted/.test(n))
-    return { primaryHex: "#12233e", accentHex: "#5b7db1", primaryRgb: "18,35,62" };
+    return null;
   // Other Named Fraternal (Elks, Eagles, Moose, Knights of Columbus, Odd Fellows, Shriners)
   if (/\belks\b|moose\s*(lodge)?\b|eagles\s*(lodge|club)?|knights\s*of\s*columbus|odd\s*fellows|shriners/.test(n))
     return { primaryHex: "#1a2d4a", accentHex: "#c9a84c", primaryRgb: "26,45,74" };
@@ -1675,12 +1676,22 @@ ${JSON.stringify(homepagePlan, null, 2)}
 
 The site archetype above is already classified from real org data. Respect it. The CTA language, tone, section priorities, and image strategy should match it.
 
+ROTARY / CIVIC SERVICE DESIGN RULES:
+- For Rotary clubs and similar civic service clubs, use a public-service action archetype: strong action-oriented hero, current project/news feature mosaic, impact numbers, service-area cards, regular meeting details, and a final get-involved invitation.
+- The experience should feel like an active local chapter of a larger service movement: practical, optimistic, people-centered, and easy to join for a first meeting or project.
+- Do not copy Rotary.org HTML, JavaScript, CSS, images, headlines, or proprietary page styling. Use the structural pattern only, adapted to this specific organization and Pillar's components.
+
+LIONS CLUB DESIGN RULES:
+- For Lions clubs, use a join/donate/service-support archetype: clear utility CTAs, a cause-selection or support-pathway section, impact numbers, local service cause cards, a foundation-style promotional band, and an easy member/contact path.
+- The page should make local compassion feel concrete: visitors can join, give, volunteer, donate supplies, attend an event, or contact the club without hunting.
+- Do not copy Lions International HTML, JavaScript, CSS, fonts, images, logos, donation form code, or exact page styling. Use the structural pattern only, adapted to this specific club and Pillar's components.
+
 COLOR SELECTION RULES — MANDATORY org-type colors (from specs/pillar-org-design-strategies.md + community framework):${frameworkColorNote}
 DETECT org type from name/description, then apply EXACT colors. These are NOT suggestions:
 - ROTARY CLUB → primary: #0c4da2 (Rotary royal blue, HSL 218 100% 32%), accent: #f7a81b (Rotary gold, HSL 40 93% 54%)
 - LIONS CLUB → primary: #4b2181 (Lions purple, HSL 275 70% 30%), accent: #f5c518 (Lions gold)
 - KIWANIS → primary: #1a5fa8 (Kiwanis blue, HSL 210 80% 35%), accent: #f5c518 (gold)
-- MASONIC LODGE (Free & Accepted Masons, any lodge with a number e.g. "Lodge #601") → primary: #12233e (PA Grand Lodge Midnight, HSL 220 70% 16%), accent: #5b7db1 (PA Grand Lodge Cornflower). NOT gold — these are the official PA Grand Lodge of Pennsylvania colors.
+- LODGE / FRATERNAL (Free & Accepted Masons, lodge, fraternal orgs) → use explicit brand colors if provided; otherwise use Pillar's existing heritage color system. Do not copy a specific Grand Lodge or third-party lodge palette by default.
 - OTHER FRATERNAL (Elks, Moose Lodge, Eagles, Knights of Columbus, Odd Fellows, Shriners) → primary: #1a2d4a (deep navy, HSL 220 60% 25%), accent: #c9a84c (gold)
 - VETERANS (VFW, American Legion, AMVETS) → primary: #162d55 (military navy, HSL 215 70% 22%), accent: #c0392b (patriotic red)
 - HOA / HOMEOWNERS ASSOCIATION → primary: #2d7d6e (calm teal, HSL 170 35% 40%), accent: #4aaba0

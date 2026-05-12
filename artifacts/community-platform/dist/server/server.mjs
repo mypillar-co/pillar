@@ -81077,6 +81077,20 @@ function checkoutRateLimited(ip) {
   entry.count++;
   return false;
 }
+var publicFormAttempts = /* @__PURE__ */ new Map();
+var PUBLIC_FORM_WINDOW_MS = 60 * 60 * 1e3;
+var PUBLIC_FORM_MAX = 12;
+function publicFormRateLimited(ip) {
+  const now = Date.now();
+  const entry = publicFormAttempts.get(ip);
+  if (!entry || now - entry.windowStart > PUBLIC_FORM_WINDOW_MS) {
+    publicFormAttempts.set(ip, { count: 1, windowStart: now });
+    return false;
+  }
+  if (entry.count >= PUBLIC_FORM_MAX) return true;
+  entry.count++;
+  return false;
+}
 function generateSlug(title) {
   return title.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }
@@ -81162,7 +81176,7 @@ function registerRoutes(app2) {
                e.start_date, e.start_time, e.location,
                e.is_ticketed, e.ticket_price::text, e.ticket_capacity,
                e.is_active, e.featured, e.image_url,
-               e.has_registration, e.show_on_public_site
+               e.has_registration, e.has_sponsor_section, e.show_on_public_site
         FROM events e
         JOIN organizations o ON e.org_id = o.id
         WHERE o.slug = ${orgSlug}
@@ -81171,7 +81185,7 @@ function registerRoutes(app2) {
         ORDER BY e.start_date ASC
       `);
       return result.rows.map((row, idx) => ({
-        id: idx + 1,
+        id: row.id || idx + 1,
         orgId: orgSlug,
         title: row.name || "",
         slug: row.slug || null,
@@ -81188,6 +81202,7 @@ function registerRoutes(app2) {
         ticketPrice: row.ticket_price || null,
         ticketCapacity: row.ticket_capacity || null,
         hasRegistration: Boolean(row.has_registration),
+        hasSponsorSection: Boolean(row.has_sponsor_section),
         showInNav: false,
         externalLink: null
       }));
@@ -81201,7 +81216,8 @@ function registerRoutes(app2) {
         SELECT e.id, e.name, e.slug, e.description, e.event_type,
                e.start_date, e.start_time, e.location,
                e.is_ticketed, e.ticket_price::text, e.ticket_capacity,
-               e.is_active, e.featured, e.image_url, e.has_registration
+               e.is_active, e.featured, e.image_url, e.has_registration,
+               e.has_sponsor_section
         FROM events e
         JOIN organizations o ON e.org_id = o.id
         WHERE o.slug = ${orgSlug}
@@ -81211,7 +81227,7 @@ function registerRoutes(app2) {
       const row = result.rows[0];
       if (!row) return null;
       return {
-        id: 1,
+        id: row.id || 1,
         orgId: orgSlug,
         title: row.name || "",
         slug: row.slug || null,
@@ -81228,11 +81244,87 @@ function registerRoutes(app2) {
         ticketPrice: row.ticket_price || null,
         ticketCapacity: row.ticket_capacity || null,
         hasRegistration: Boolean(row.has_registration),
+        hasSponsorSection: Boolean(row.has_sponsor_section),
         showInNav: false,
         externalLink: null
       };
     } catch {
       return null;
+    }
+  }
+  async function getPillarEventMetaBySlug(orgSlug, slug) {
+    try {
+      const result = await db.execute(neonSql`
+        SELECT e.id, e.has_sponsor_section
+        FROM events e
+        JOIN organizations o ON e.org_id = o.id
+        WHERE o.slug = ${orgSlug}
+          AND e.slug = ${slug}
+        LIMIT 1
+      `);
+      const row = result.rows[0];
+      if (!row) return null;
+      return {
+        id: row.id,
+        hasSponsorSection: Boolean(row.has_sponsor_section)
+      };
+    } catch {
+      return null;
+    }
+  }
+  async function getPublicEventSponsors(eventId, orgSlug, includeOrgFallback) {
+    try {
+      const rows = eventId ? (await db.execute(neonSql`
+            SELECT s.name, s.website, s.logo_url, es.tier, es.status
+            FROM event_sponsors es
+            JOIN sponsors s ON es.sponsor_id = s.id
+            WHERE es.event_id = ${eventId}
+              AND es.status = 'active'
+              AND s.status = 'active'
+              AND COALESCE(s.site_visible, true) = true
+            ORDER BY COALESCE(s.tier_rank, 99), COALESCE(s.site_display_priority, 99), s.name
+          `)).rows : [];
+      if (rows.length === 0 && includeOrgFallback) {
+        const fallback = await db.execute(neonSql`
+          SELECT s.name, s.website, s.logo_url, NULL::text AS tier, s.status
+          FROM sponsors s
+          JOIN organizations o ON s.org_id = o.id
+          WHERE o.slug = ${orgSlug}
+            AND s.status = 'active'
+            AND COALESCE(s.site_visible, true) = true
+          ORDER BY COALESCE(s.tier_rank, 99), COALESCE(s.site_display_priority, 99), s.name
+        `);
+        rows.push(...fallback.rows);
+      }
+      return rows.map((row) => ({
+        name: row.name,
+        website: row.website || null,
+        logoUrl: row.logo_url || null,
+        tier: row.tier || null
+      }));
+    } catch {
+      return [];
+    }
+  }
+  async function getPublicEventVendors(eventId) {
+    try {
+      const result = await db.execute(neonSql`
+        SELECT v.name, v.vendor_type, ev.booth_number, ev.booth_location
+        FROM event_vendors ev
+        JOIN vendors v ON ev.vendor_id = v.id
+        WHERE ev.event_id = ${eventId}
+          AND ev.status = 'active'
+          AND v.status = 'active'
+        ORDER BY v.name
+      `);
+      return result.rows.map((row) => ({
+        name: row.name,
+        vendorType: row.vendor_type || null,
+        boothNumber: row.booth_number || null,
+        boothLocation: row.booth_location || null
+      }));
+    } catch {
+      return [];
     }
   }
   async function getPillarTicketTypes(eventSlug, orgSlug) {
@@ -81321,7 +81413,17 @@ function registerRoutes(app2) {
         gated: true
       });
     }
-    res.json({ ...event, isMembersOnly: !!event.membersOnly });
+    const pillarMeta = await getPillarEventMetaBySlug(orgId, req.params.slug);
+    const eventId = pillarMeta?.id ?? String(event.id ?? "");
+    const includeSponsorFallback = Boolean(event.hasSponsorSection ?? pillarMeta?.hasSponsorSection);
+    const [sponsors, vendors] = eventId ? await Promise.all([
+      getPublicEventSponsors(eventId, orgId, includeSponsorFallback),
+      getPublicEventVendors(eventId)
+    ]) : [
+      includeSponsorFallback ? await getPublicEventSponsors(null, orgId, true) : [],
+      []
+    ];
+    res.json({ ...event, sponsors, vendors, isMembersOnly: !!event.membersOnly });
   });
   app2.get("/api/events/:slug/ticket-availability", async (req, res) => {
     const orgId = getOrgId(req);
@@ -81330,7 +81432,9 @@ function registerRoutes(app2) {
     if (!event) event = await getPillarEventBySlug(orgId, slug);
     if (!event || !event.isTicketed) return res.status(404).json({ error: "Not a ticketed event" });
     const ticketTypes = await getPillarTicketTypes(slug, orgId);
-    const sold = await getTicketsSoldForEvent(orgId, event.id);
+    const legacyEventId = Number(event.id);
+    const isLegacyNumericEvent = Number.isInteger(legacyEventId) && String(legacyEventId) === String(event.id);
+    const sold = isLegacyNumericEvent ? await getTicketsSoldForEvent(orgId, legacyEventId) : ticketTypes.reduce((sum, ticket) => sum + (Number(ticket.sold) || 0), 0);
     const remaining = event.ticketCapacity ? event.ticketCapacity - sold : null;
     res.json({
       ticketPrice: event.ticketPrice || "0",
@@ -81406,6 +81510,98 @@ function registerRoutes(app2) {
       res.status(500).json({ error: "Internal server error" });
     }
   });
+  app2.post(["/api/events/:slug/rsvp", "/api/public/events/:slug/register"], async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const { slug } = req.params;
+      const { name, email, phone, quantity, _hp, _ts } = req.body;
+      if (_hp) return res.json({ success: true });
+      if (typeof _ts === "number" && Date.now() - _ts < 3e3) return res.json({ success: true });
+      if (publicFormRateLimited(getClientIp(req))) {
+        return res.status(429).json({ error: "Too many requests. Please wait before trying again." });
+      }
+      if (!name?.trim() || !email?.trim() || !email.includes("@")) {
+        return res.status(400).json({ error: "Name and valid email are required" });
+      }
+      const result = await db.execute(neonSql`
+        INSERT INTO ticket_sales (
+          event_id, org_id, attendee_name, attendee_email, attendee_phone,
+          quantity, amount_paid, platform_fee, payment_method, payment_status, notes, created_at
+        )
+        SELECT e.id, e.org_id, ${name.trim()}, ${email.trim().toLowerCase()}, ${phone?.trim() || null},
+               ${Math.max(1, Math.min(10, Number(quantity) || 1))}, 0, 0, 'rsvp', 'rsvp', 'Public RSVP', NOW()
+        FROM events e
+        JOIN organizations o ON e.org_id = o.id
+        WHERE o.slug = ${orgId}
+          AND e.slug = ${slug}
+          AND e.has_registration = true
+          AND e.is_active IS NOT FALSE
+          AND e.status IN ('published', 'active')
+        RETURNING id
+      `);
+      const row = result.rows[0];
+      if (!row) return res.status(404).json({ error: "RSVP is not open for this event" });
+      res.json({ ok: true, saleId: row.id });
+    } catch (err) {
+      console.error("RSVP error:", err);
+      res.status(500).json({ error: "Unable to save RSVP" });
+    }
+  });
+  app2.post(["/api/events/:slug/apply", "/api/public/events/:slug/vendor-apply", "/api/public/events/:slug/sponsor-signup"], async (req, res) => {
+    try {
+      const orgId = getOrgId(req);
+      const { slug } = req.params;
+      const routeType = req.path.includes("sponsor-signup") ? "sponsor" : req.path.includes("vendor-apply") ? "vendor" : null;
+      const { type: bodyType, name, contactName, email, phone, website, description, tier, vendorType, logoUrl, _hp, _ts } = req.body;
+      const type = routeType ?? bodyType;
+      if (_hp) return res.json({ success: true });
+      if (typeof _ts === "number" && Date.now() - _ts < 3e3) return res.json({ success: true });
+      if (publicFormRateLimited(getClientIp(req))) {
+        return res.status(429).json({ error: "Too many requests. Please wait before trying again." });
+      }
+      if (type !== "vendor" && type !== "sponsor") return res.status(400).json({ error: "Choose vendor or sponsor" });
+      if (!String(name ?? "").trim() || !String(email ?? "").includes("@")) {
+        return res.status(400).json({ error: "Business name and valid email are required" });
+      }
+      const apiPort = process.env.API_PORT || "8080";
+      const eventLookup = await db.execute(neonSql`
+        SELECT e.id
+        FROM events e
+        JOIN organizations o ON e.org_id = o.id
+        WHERE o.slug = ${orgId}
+          AND e.slug = ${slug}
+          AND e.has_registration = true
+          AND e.is_active IS NOT FALSE
+          AND e.status IN ('published', 'active')
+        LIMIT 1
+      `);
+      const eventId = eventLookup.rows[0]?.id ?? null;
+      if (!eventId) return res.status(404).json({ error: "Applications are not open for this event" });
+      const apiRes = await fetch(`http://localhost:${apiPort}/api/public/orgs/${encodeURIComponent(orgId)}/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type,
+          name,
+          contactName,
+          email,
+          phone,
+          website,
+          description,
+          tier,
+          vendorType,
+          logoUrl,
+          eventId,
+          _ts: Date.now() - 5e3
+        })
+      });
+      const data = await apiRes.json();
+      res.status(apiRes.status).json(data);
+    } catch (err) {
+      console.error("Event application error:", err);
+      res.status(500).json({ error: "Unable to submit application" });
+    }
+  });
   app2.get("/api/sponsors", async (req, res) => {
     const orgId = getOrgId(req);
     res.json(await getSponsors(orgId));
@@ -81413,6 +81609,19 @@ function registerRoutes(app2) {
   app2.get("/api/sponsors/event/:eventType", async (req, res) => {
     const orgId = getOrgId(req);
     res.json(await getSponsorsByEvent(orgId, req.params.eventType));
+  });
+  app2.get("/api/announcements", async (req, res) => {
+    const orgIds = await getOrgIdCandidates(req);
+    const rows = await db.execute(neonSql`
+      SELECT id, title, body, status, visibility, created_at
+      FROM cs_announcements
+      WHERE org_id IN (${neonSql.join(orgIds.map((id) => neonSql`${id}`), neonSql`, `)})
+        AND status = 'published'
+        AND visibility IN ('public', 'both')
+      ORDER BY created_at DESC
+      LIMIT 5
+    `);
+    res.json(rows.rows);
   });
   app2.get("/api/businesses", async (req, res) => {
     const orgId = getOrgId(req);
@@ -82244,10 +82453,13 @@ function registerRoutes(app2) {
     res.json(rows.rows);
   });
   app2.get("/api/members/announcements", requireMember, async (req, res) => {
-    const orgId = getOrgId(req);
+    const orgIds = await getOrgIdCandidates(req);
     const rows = await db.execute(neonSql`
       SELECT id, title, body, created_at
-      FROM cs_announcements WHERE org_id = ${orgId}
+      FROM cs_announcements
+      WHERE org_id IN (${neonSql.join(orgIds.map((id) => neonSql`${id}`), neonSql`, `)})
+        AND status = 'published'
+        AND visibility IN ('members', 'both')
       ORDER BY created_at DESC LIMIT 50
     `);
     res.json(rows.rows);
@@ -82257,8 +82469,9 @@ function registerRoutes(app2) {
     const { title, body } = req.body;
     if (!title || !body) return res.status(400).json({ error: "Title and body required" });
     const rows = await db.execute(neonSql`
-      INSERT INTO cs_announcements (org_id, title, body) VALUES (${orgId}, ${title}, ${body})
-      RETURNING id, title, body, created_at
+      INSERT INTO cs_announcements (org_id, title, body, status, visibility)
+      VALUES (${orgId}, ${title}, ${body}, 'published', 'both')
+      RETURNING id, title, body, status, visibility, created_at
     `);
     res.status(201).json(rows.rows[0]);
   });
@@ -82272,7 +82485,7 @@ function registerRoutes(app2) {
   app2.get("/api/admin/announcements", requireAuth, async (req, res) => {
     const orgId = req.session.orgId || getOrgId(req);
     const rows = await db.execute(neonSql`
-      SELECT id, title, body, created_at FROM cs_announcements
+      SELECT id, title, body, status, visibility, created_at FROM cs_announcements
       WHERE org_id = ${orgId} ORDER BY created_at DESC
     `);
     res.json(rows.rows);

@@ -20,6 +20,7 @@ import MemberRegisterPage from "./pages/MemberRegisterPage";
 import MemberPortalPage from "./pages/MemberPortalPage";
 import MemberForgotPasswordPage from "./pages/MemberForgotPasswordPage";
 import MemberResetPasswordPage from "./pages/MemberResetPasswordPage";
+import CustomPage from "./pages/CustomPage";
 
 function AppContent() {
   const config = useConfig();
@@ -68,6 +69,7 @@ function AppContent() {
           <Route path="/members" component={MemberPortalPage} />
           <Route path="/payment-success" component={PaymentSuccessPage} />
           <Route path="/events/:slug/tickets/success" component={TicketSuccessPage} />
+          <Route path="/:slug" component={CustomPage} />
           <Route>
             <div className="max-w-3xl mx-auto px-4 py-24 text-center">
               <h1 className="text-4xl font-bold font-serif mb-4">404</h1>
