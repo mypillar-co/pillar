@@ -1,9 +1,14 @@
+import { useQuery } from "@tanstack/react-query";
 import { useConfig } from "../config-context";
 import { Link } from "wouter";
 
 export default function AboutPage() {
   const config = useConfig();
+  const { data: siteContent } = useQuery<Record<string, string>>({ queryKey: ["/api/site-content"] });
   if (!config) return null;
+
+  const aboutHeading = siteContent?.about_heading || "Our Mission";
+  const aboutCopy = siteContent?.about_mission || config.mission;
 
   return (
     <div>
@@ -15,10 +20,10 @@ export default function AboutPage() {
         </div>
       </section>
 
-      {config.mission && (
+      {aboutCopy && (
         <section className="max-w-3xl mx-auto px-4 py-16">
-          <h2 className="text-2xl font-bold font-serif mb-6">Our Mission</h2>
-          <p className="text-gray-600 leading-relaxed text-lg">{config.mission}</p>
+          <h2 className="text-2xl font-bold font-serif mb-6">{aboutHeading}</h2>
+          <div className="text-gray-600 leading-relaxed text-lg whitespace-pre-line">{aboutCopy}</div>
         </section>
       )}
 

@@ -1282,12 +1282,34 @@ export default function CommunityBuilder() {
           canRetry,
         });
       } else {
-        setProvisionResult({ ok: true, siteUrl: d.siteUrl, isNewSite: d.isNewSite ?? isNew });
-        // Update local site status so management view reflects the new state
-        setSiteStatus(prev => prev
-          ? { ...prev, isProvisioned: true, url: d.siteUrl ?? prev.url }
+        let refreshedStatus: SiteStatusData | null = null;
+        try {
+          const statusRes = await csrfFetch("/api/community-site/target");
+          if (statusRes.ok) {
+            refreshedStatus = await statusRes.json() as SiteStatusData;
+          }
+        } catch {
+          // Non-fatal. The launch succeeded, so fall back to the local status.
+        }
+
+        const liveUrl = d.siteUrl ?? refreshedStatus?.url ?? siteStatus?.url ?? undefined;
+        setProvisionResult({ ok: true, siteUrl: liveUrl, isNewSite: d.isNewSite ?? isNew });
+        setSiteStatus(refreshedStatus ?? (siteStatus
+          ? { ...siteStatus, isProvisioned: true, url: d.siteUrl ?? siteStatus.url }
           : { url: d.siteUrl ?? null, isProvisioned: true, configSummary: null }
-        );
+        ));
+        setReadyPayload(null);
+        setStarted(false);
+        setEditMode(false);
+        setStepIndex(0);
+        setChatItems([]);
+        setInput("");
+        setFinalizingPayload(false);
+        setFinalizeError(false);
+        setLogoPath(null);
+        setLogoPreview(null);
+        setAiEditError(null);
+        setAiEditSuccessMessage(null);
       }
     } catch {
       setProvisionResult({

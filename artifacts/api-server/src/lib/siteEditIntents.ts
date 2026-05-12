@@ -1,4 +1,4 @@
-import { saveSiteConfigPatch } from "./siteConfigPersistence";
+import { readSiteConfig, saveSiteConfigPatch } from "./siteConfigPersistence";
 
 type SiteEditStatus = "completed" | "error";
 
@@ -7,7 +7,8 @@ export type DeterministicSiteEditIntent =
   | "update_contact_phone"
   | "update_hours"
   | "update_cta_label"
-  | "update_cta_href";
+  | "update_cta_href"
+  | "create_custom_page";
 
 export type DeterministicSiteEditResult = {
   status: SiteEditStatus;
@@ -36,6 +37,53 @@ function titleCase(value: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64) || "page";
+}
+
+function sentenceCase(value: string): string {
+  const cleaned = value.trim().replace(/\s+/g, " ").replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "");
+  return cleaned ? cleaned[0].toUpperCase() + cleaned.slice(1) : cleaned;
+}
+
+function extractRequestedPageTitle(message: string): string | null {
+  const quoted = message.match(/new page called\s+["'`]?([^"'`]+?)["'`]?(?:\s+and|\s+with|\.|$)/i);
+  if (quoted?.[1]) return sentenceCase(quoted[1]);
+  const titled = message.match(/new page\s+["'`]?([^"'`.]+?)["'`]?(?:\s+and|\s+with|\.|$)/i);
+  return titled?.[1] ? sentenceCase(titled[1]) : null;
+}
+
+function extractRequestedSections(message: string): string[] {
+  const match = message.match(/(?:include|with)\s+(?:\w+\s+)?sections?\s*:\s*([^.]*)/i);
+  if (!match?.[1]) return [];
+  return match[1]
+    .replace(/\band\b/gi, ",")
+    .split(",")
+    .map(part => sentenceCase(part))
+    .filter(Boolean);
+}
+
+function servicePageBody(orgName: string, sectionTitle: string): string {
+  const title = sectionTitle.toLowerCase();
+  if (title.includes("food")) {
+    return `${orgName} helps provide food support for local students in need so young people can stay focused, healthy, and ready to learn.`;
+  }
+  if (title.includes("scholar")) {
+    return `${orgName} invests in graduating seniors through scholarships that recognize hard work, service, and promise.`;
+  }
+  if (title.includes("dictionar")) {
+    return `${orgName} supports literacy by providing dictionaries to every 3rd grader at Norwin.`;
+  }
+  if (title.includes("military") || title.includes("veteran")) {
+    return `${orgName} honors local military personnel and their families with gratitude for their service and sacrifice.`;
+  }
+  return `${orgName} supports ${sectionTitle.toLowerCase()} through local service, volunteer time, and community partnerships.`;
 }
 
 function extractAfterChangeTarget(message: string): string | null {
@@ -99,6 +147,9 @@ function extractHoursPatch(message: string): Record<string, string> | null {
 export function detectDeterministicSiteEditIntent(message: string): DeterministicSiteEditIntent | null {
   const lower = message.toLowerCase();
 
+  if (/\b(create|add)\b/.test(lower) && (/\bnew page\b/.test(lower) || /\bpage called\b/.test(lower))) {
+    return "create_custom_page";
+  }
   if ((lower.includes("email") || lower.includes("contact")) && EMAIL_IN_TEXT_RE.test(message)) {
     return "update_contact_email";
   }
@@ -128,6 +179,57 @@ export async function applyDeterministicSiteEdit(
 ): Promise<DeterministicSiteEditResult | null> {
   const intent = detectDeterministicSiteEditIntent(message);
   if (!intent) return null;
+
+  if (intent === "create_custom_page") {
+    const title = extractRequestedPageTitle(message);
+    if (!title) {
+      return { status: "error", intent, httpStatus: 400, message: "Please include a page title." };
+    }
+
+    const currentConfig = await readSiteConfig(orgId);
+    const orgName = text(currentConfig.orgName) || "Your organization";
+    const sections = extractRequestedSections(message);
+    const page = {
+      title,
+      slug: slugify(title),
+      navLabel: title,
+      showInNav: /\b(navigation|nav|menu)\b/i.test(message),
+      intro: `${orgName} puts service into action through hands-on projects that support Norwin and beyond.`,
+      sections: sections.map(sectionTitle => ({
+        title: sectionTitle,
+        body: servicePageBody(orgName, sectionTitle),
+      })),
+      cta: {
+        label: /get involved/i.test(message) ? "Get Involved" : "Contact Us",
+        href: "/contact",
+      },
+    };
+
+    const currentFeatures = currentConfig.features && typeof currentConfig.features === "object" && !Array.isArray(currentConfig.features)
+      ? currentConfig.features as Record<string, unknown>
+      : {};
+    const existingPages = Array.isArray(currentFeatures.customPages)
+      ? (currentFeatures.customPages as Record<string, unknown>[]).filter(p => p.slug !== page.slug)
+      : [];
+    const saved = await saveSiteConfigPatch(orgId, {
+      features: {
+        customPages: [...existingPages, page],
+      },
+    });
+    const savedPages = saved.config.features && typeof saved.config.features === "object" && !Array.isArray(saved.config.features)
+      ? (saved.config.features as Record<string, unknown>).customPages
+      : null;
+    if (!Array.isArray(savedPages) || !savedPages.some(p => typeof p === "object" && p !== null && (p as Record<string, unknown>).slug === page.slug)) {
+      return { status: "error", intent, httpStatus: 500, message: "Custom page could not be verified after saving." };
+    }
+    return {
+      status: "completed",
+      intent,
+      message: `${title} page created.`,
+      data: { customPage: page },
+      publicOrgId: saved.publicOrgId,
+    };
+  }
 
   if (intent === "update_contact_email") {
     const email = extractEmail(message);

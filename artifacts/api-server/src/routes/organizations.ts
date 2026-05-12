@@ -683,21 +683,21 @@ router.put("/organizations", async (req: Request, res: Response) => {
     );
   }
 
-  // Sync branding to live community tenant if published
+  // Sync branding/profile to live community tenant when provisioned.
   const effectiveSlug = slugChanged ? slug! : org.slug;
   if (effectiveSlug) {
-    const [publishedSite] = await db
-      .select({ id: sitesTable.id })
-      .from(sitesTable)
-      .where(
-        and(
-          eq(sitesTable.orgId, existing.id),
-          eq(sitesTable.status, "published"),
-        ),
-      )
-      .limit(1);
-    if (publishedSite) {
-      const patch: Record<string, string | undefined> = { orgName: name };
+    const configResult = await db.execute(sql`
+      SELECT org_id
+      FROM cs_org_configs
+      WHERE org_id = ${effectiveSlug}
+      LIMIT 1
+    `);
+    if (configResult.rows.length > 0) {
+      const patch: Record<string, string | undefined> = {
+        orgName: name,
+        shortName: getOrgInitials(name),
+      };
+      if (type) patch.orgType = type;
       if (primaryColor) patch.primaryColor = primaryColor;
       if (accentColor) patch.accentColor = accentColor;
       if (tagline) patch.tagline = tagline;
