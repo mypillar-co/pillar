@@ -199,9 +199,9 @@ function HomeTab() {
   );
 }
 
-function SectionCard({ title, children }: { title?: string; children: React.ReactNode }) {
+function SectionCard({ title, children, testId }: { title?: string; children: React.ReactNode; testId?: string }) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8">
+    <div data-testid={testId} className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8">
       {title && <h2 className="text-xl font-serif font-bold text-gray-900 mb-4">{title}</h2>}
       {children}
     </div>
@@ -212,7 +212,7 @@ function SectionRenderer({ section }: { section: PortalSection }) {
   switch (section.type) {
     case "welcome_message":
       return (
-        <SectionCard title={section.title}>
+        <SectionCard title={section.title} testId="member-facing-section-welcome_message">
           {section.body && (
             <div className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{section.body}</div>
           )}
@@ -221,7 +221,7 @@ function SectionRenderer({ section }: { section: PortalSection }) {
     case "notices": {
       const list = section.notices ?? [];
       return (
-        <SectionCard title={section.title ?? "Notices"}>
+        <SectionCard title={section.title ?? "Notices"} testId="member-facing-section-notices">
           {list.length === 0 ? (
             <p className="text-sm text-gray-500">No current notices.</p>
           ) : (
@@ -240,7 +240,7 @@ function SectionRenderer({ section }: { section: PortalSection }) {
     }
     case "meeting_schedule":
       return (
-        <SectionCard title={section.title ?? "When we meet"}>
+        <SectionCard title={section.title ?? "When we meet"} testId="member-facing-section-meeting_schedule">
           {section.cadence && <p className="text-sm text-gray-800 mb-2"><span className="font-semibold">Cadence: </span>{section.cadence}</p>}
           {section.location && <p className="text-sm text-gray-800 mb-3"><span className="font-semibold">Location: </span>{section.location}</p>}
           {(section.upcoming?.length ?? 0) > 0 && (
@@ -258,7 +258,7 @@ function SectionRenderer({ section }: { section: PortalSection }) {
     case "dues_info":
       const payUrl = safePortalUrl(section.payUrl);
       return (
-        <SectionCard title={section.title ?? "Dues"}>
+        <SectionCard title={section.title ?? "Dues information"} testId="member-facing-section-dues_info">
           {section.amountText && <div className="text-2xl font-serif font-bold text-gray-900 mb-2">{section.amountText}</div>}
           {section.body && <p className="text-sm text-gray-700 whitespace-pre-wrap mb-3">{section.body}</p>}
           {payUrl ? (
@@ -274,7 +274,7 @@ function SectionRenderer({ section }: { section: PortalSection }) {
     case "committee_signups": {
       const list = section.committees ?? [];
       return (
-        <SectionCard title={section.title ?? "Committees"}>
+        <SectionCard title={section.title ?? "Committees"} testId="member-facing-section-committee_signups">
           {list.length === 0 ? (
             <p className="text-sm text-gray-500">No committees listed yet.</p>
           ) : (
@@ -294,14 +294,13 @@ function SectionRenderer({ section }: { section: PortalSection }) {
     case "documents": {
       const list = section.documents ?? [];
       return (
-        <SectionCard title={section.title ?? "Documents"}>
+        <SectionCard title={section.title ?? "Documents"} testId="member-facing-section-documents">
           {list.length === 0 ? (
             <p className="text-sm text-gray-500">No documents uploaded yet.</p>
           ) : (
             <div className="space-y-2">
               {list.map((d, i) => {
                 const url = safePortalUrl(d.url, { allowRelative: true });
-                const hasUrl = Boolean(url);
                 const content = (
                   <>
                     <div>
@@ -310,11 +309,11 @@ function SectionRenderer({ section }: { section: PortalSection }) {
                     </div>
                     <div className="flex items-center gap-2">
                       {d.category && <span className="text-xs text-gray-400">{d.category}</span>}
-                      <span className="text-xs text-gray-400">{hasUrl ? "Open" : "Unavailable"}</span>
+                      <span className="text-xs text-gray-400">{url ? "Open" : "Unavailable"}</span>
                     </div>
                   </>
                 );
-                return hasUrl ? (
+                return url ? (
                   <a key={i} href={url} target="_blank" rel="noreferrer"
                     className="flex items-center justify-between gap-4 p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
                     {content}
@@ -332,7 +331,7 @@ function SectionRenderer({ section }: { section: PortalSection }) {
     }
     case "member_roster":
       return (
-        <SectionCard title={section.title ?? "Member roster"}>
+        <SectionCard title={section.title ?? "Member roster"} testId="member-facing-section-member_roster">
           <DirectoryGrid />
         </SectionCard>
       );

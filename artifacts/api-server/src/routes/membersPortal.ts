@@ -1,4 +1,6 @@
 import { Router, type Request, type Response } from "express";
+import { createHash } from "crypto";
+import { z } from "zod";
 import OpenAI from "openai";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
@@ -12,6 +14,7 @@ import {
 } from "../lib/sectionRegistry";
 import {
   buildStarterPortalConfig,
+  getPortalTemplateLabel,
   type MembersPortalConfig,
   type PortalSection,
 } from "../lib/membersPortalDefaults";
@@ -30,6 +33,79 @@ interface OrgRow {
 type PortalPersistResult = {
   cpMirrorError?: string;
 };
+
+const MAX_PORTAL_SECTIONS = 12;
+const MAX_LIST_ITEMS = 12;
+const MAX_DOCUMENTS = 24;
+
+const optionalText = (max: number) => z.string().max(max).optional().nullable();
+const safeHttpsUrl = optionalText(500).refine(
+  (value) => !value || /^https:\/\//i.test(value.trim()),
+  "URL must start with https://.",
+);
+const safeDocumentUrl = optionalText(500).refine((value) => {
+  if (!value) return true;
+  const trimmed = value.trim();
+  return /^https:\/\//i.test(trimmed) || (trimmed.startsWith("/") && !trimmed.startsWith("//"));
+}, "Document URLs must start with https:// or a single /.");
+
+const baseSectionSchema = z.object({
+  type: z.string(),
+  title: optionalText(160),
+  body: optionalText(2200),
+}).passthrough();
+
+const portalSectionSchemas: Record<string, z.ZodTypeAny> = {
+  welcome_message: baseSectionSchema.extend({
+    type: z.literal("welcome_message"),
+  }),
+  dues_info: baseSectionSchema.extend({
+    type: z.literal("dues_info"),
+    amountText: optionalText(80),
+    payUrl: safeHttpsUrl,
+  }),
+  meeting_schedule: baseSectionSchema.extend({
+    type: z.literal("meeting_schedule"),
+    cadence: optionalText(160),
+    location: optionalText(240),
+    upcoming: z.array(z.object({
+      date: optionalText(80),
+      note: optionalText(240),
+    }).passthrough()).max(MAX_LIST_ITEMS).optional(),
+  }),
+  notices: baseSectionSchema.extend({
+    type: z.literal("notices"),
+    notices: z.array(z.object({
+      date: optionalText(80),
+      title: optionalText(160),
+      body: optionalText(1000),
+    }).passthrough()).max(MAX_LIST_ITEMS).optional(),
+  }),
+  committee_signups: baseSectionSchema.extend({
+    type: z.literal("committee_signups"),
+    committees: z.array(z.object({
+      name: optionalText(120),
+      description: optionalText(600),
+      contact: optionalText(160),
+    }).passthrough()).max(MAX_LIST_ITEMS).optional(),
+  }),
+  documents: baseSectionSchema.extend({
+    type: z.literal("documents"),
+    documents: z.array(z.object({
+      name: optionalText(160),
+      url: safeDocumentUrl,
+      description: optionalText(400),
+      category: optionalText(80),
+    }).passthrough()).max(MAX_DOCUMENTS).optional(),
+  }),
+  member_roster: baseSectionSchema.extend({
+    type: z.literal("member_roster"),
+  }),
+};
+
+type SanitizeResult =
+  | { ok: true; section: PortalSection }
+  | { ok: false; error: string };
 
 async function loadOrgRow(orgId: string): Promise<OrgRow | null> {
   const r = await db.execute(sql`
@@ -52,6 +128,35 @@ function cloneSection(section: Record<string, unknown>): PortalSection {
   return JSON.parse(JSON.stringify(section)) as PortalSection;
 }
 
+function portalRevision(portal: MembersPortalConfig): string {
+  return createHash("sha256")
+    .update(JSON.stringify({
+      provisionedAt: portal.provisionedAt ?? null,
+      sections: portal.sections ?? [],
+    }))
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function availablePortalSections() {
+  return Object.values(SECTION_REGISTRY)
+    .filter((s) => s.surfaces.portal)
+    .map((s) => ({
+      type: s.type,
+      label: s.label,
+      description: s.description,
+      managedBy: s.managedBy ?? "manual",
+      example: s.example,
+    }));
+}
+
+function formatZodMessage(error: z.ZodError): string {
+  const first = error.issues[0];
+  if (!first) return "Invalid section payload.";
+  const path = first.path.length ? `${first.path.join(".")}: ` : "";
+  return `${path}${first.message}`;
+}
+
 function sanitizeText(value: unknown, maxLength: number): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.replace(/\u00a0/g, " ").trim();
@@ -59,9 +164,19 @@ function sanitizeText(value: unknown, maxLength: number): string | undefined {
   return trimmed.slice(0, maxLength);
 }
 
-function sanitizePortalSection(section: Record<string, unknown>): PortalSection | null {
-  if (!validateSection(section, "portal")) return null;
+function sanitizePortalSection(section: Record<string, unknown>): SanitizeResult {
+  if (!validateSection(section, "portal")) {
+    return { ok: false, error: `Invalid portal section type: ${String(section.type)}` };
+  }
   const type = String(section.type);
+  const schema = portalSectionSchemas[type];
+  const parsed = schema?.safeParse(section);
+  if (!parsed?.success) {
+    return {
+      ok: false,
+      error: parsed ? formatZodMessage(parsed.error) : `Invalid portal section type: ${type}`,
+    };
+  }
   const cleaned: Record<string, unknown> = { type };
   const title = sanitizeText(section.title, 160);
   const body = sanitizeText(section.body, 2200);
@@ -121,7 +236,7 @@ function sanitizePortalSection(section: Record<string, unknown>): PortalSection 
       };
     });
   }
-  return cleaned as PortalSection;
+  return { ok: true, section: cleaned as PortalSection };
 }
 
 function deterministicPortalSuggestions(
@@ -203,11 +318,12 @@ router.get("/", async (req: Request, res: Response) => {
   res.json({
     sections: portal.sections,
     provisionedAt: portal.provisionedAt ?? null,
+    revision: portalRevision(portal),
     orgName: row.name,
     orgSlug: row.slug,
-    available: Object.values(SECTION_REGISTRY)
-      .filter((s) => s.surfaces.portal)
-      .map((s) => ({ type: s.type, label: s.label, description: s.description, example: s.example })),
+    templateLabel: getPortalTemplateLabel(row.type),
+    publicMembersUrl: row.slug ? `https://${row.slug}.mypillar.co/members` : null,
+    available: availablePortalSections(),
   });
 });
 
@@ -219,8 +335,8 @@ router.patch("/", async (req: Request, res: Response) => {
   if (!Array.isArray(sections)) {
     return res.status(400).json({ error: "sections must be an array" });
   }
-  if (sections.length > 12) {
-    return res.status(400).json({ error: "Members portal can have up to 12 sections." });
+  if (sections.length > MAX_PORTAL_SECTIONS) {
+    return res.status(400).json({ error: `Members portal can have up to ${MAX_PORTAL_SECTIONS} sections.` });
   }
   const cleaned: PortalSection[] = [];
   const seenTypes = new Set<string>();
@@ -235,10 +351,10 @@ router.patch("/", async (req: Request, res: Response) => {
     }
     seenTypes.add(type);
     const sanitized = sanitizePortalSection(section);
-    if (!sanitized) {
-      return res.status(400).json({ error: `Invalid portal section type: ${String(section.type)}` });
+    if (!sanitized.ok) {
+      return res.status(400).json({ error: sanitized.error });
     }
-    cleaned.push(sanitized);
+    cleaned.push(sanitized.section);
   }
   const row = await loadOrgRow(org.id);
   if (!row) return res.status(404).json({ error: "Org not found" });
@@ -252,8 +368,12 @@ router.patch("/", async (req: Request, res: Response) => {
   res.json({
     sections: portal.sections,
     provisionedAt: portal.provisionedAt,
+    revision: portalRevision(portal),
     orgName: row.name,
     orgSlug: row.slug,
+    templateLabel: getPortalTemplateLabel(row.type),
+    publicMembersUrl: row.slug ? `https://${row.slug}.mypillar.co/members` : null,
+    available: availablePortalSections(),
     warning: persistResult.cpMirrorError ? "Portal saved, but the public member site sync is delayed. Try saving again in a moment." : undefined,
   });
 });
@@ -268,8 +388,21 @@ router.post("/ai-suggest", async (req: Request, res: Response) => {
   const currentSections = current.sections.length > 0
     ? current.sections
     : buildStarterPortalConfig(row.type, row.name ?? "your organization").sections;
-  const body = (req.body ?? {}) as { draftSectionTypes?: unknown };
+  const body = (req.body ?? {}) as { draftSectionTypes?: unknown; draftSections?: unknown };
   const currentTypes = new Set(currentSections.map((s) => s.type));
+  let draftContext = currentSections;
+  if (Array.isArray(body.draftSections)) {
+    const cleanedDraft: PortalSection[] = [];
+    for (const item of body.draftSections.slice(0, MAX_PORTAL_SECTIONS)) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      const sanitized = sanitizePortalSection(item as Record<string, unknown>);
+      if (sanitized.ok) cleanedDraft.push(sanitized.section);
+    }
+    if (cleanedDraft.length) draftContext = cleanedDraft;
+  }
+  for (const section of draftContext) {
+    currentTypes.add(section.type);
+  }
   if (Array.isArray(body.draftSectionTypes)) {
     for (const type of body.draftSectionTypes) {
       if (typeof type === "string") currentTypes.add(type);
@@ -288,9 +421,11 @@ router.post("/ai-suggest", async (req: Request, res: Response) => {
   const registryPrompt = getPortalSectionRegistryPrompt();
 
   const userPrompt = `Organization: ${row.name ?? "Unknown"} (type: ${row.type ?? "unknown"}).
-The members portal currently has these section types: ${
+The unsaved members portal draft currently has these section types: ${
     [...currentTypes].join(", ") || "(none)"
   }.
+Current draft JSON:
+${JSON.stringify(draftContext.slice(0, MAX_PORTAL_SECTIONS), null, 2)}
 
 Suggest 1-3 additional portal sections that would be useful for this organization
 that aren't already in the portal. For each suggestion, return a complete section
@@ -322,9 +457,11 @@ No commentary, no markdown fences.`;
       for (const s of parsed.sections) {
         if (!s || typeof s !== "object") continue;
         const section = s as Record<string, unknown>;
-        if (!validateSection(section, "portal")) continue;
+        const sanitized = sanitizePortalSection(section);
+        if (!sanitized.ok) continue;
         if (currentTypes.has(String(section.type))) continue; // skip dupes
-        suggestions.push(section as PortalSection);
+        suggestions.push(sanitized.section);
+        currentTypes.add(sanitized.section.type);
       }
     }
     res.json({ suggestions });

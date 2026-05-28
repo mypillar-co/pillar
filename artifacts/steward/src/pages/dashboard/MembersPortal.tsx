@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { toast } from "sonner";
-import { Plus, Trash2, ArrowUp, ArrowDown, Sparkles, Save, X, Eye, GripVertical, RotateCcw, Users } from "lucide-react";
+import { Plus, Trash2, ArrowUp, ArrowDown, Sparkles, Save, X, Eye, GripVertical, RotateCcw, Users, ExternalLink, CheckCircle2, Info } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,21 +36,25 @@ type AvailableSection = {
   type: string;
   label: string;
   description: string;
+  managedBy?: "manual" | "members" | "announcements";
   example: PortalSection;
 };
 
 type PortalResponse = {
   sections: PortalSection[];
   provisionedAt: string | null;
+  revision: string;
   orgName?: string | null;
   orgSlug?: string | null;
+  templateLabel?: string | null;
+  publicMembersUrl?: string | null;
   warning?: string;
   available: AvailableSection[];
 };
 
 type PersistedPortalDraft = {
   sections: PortalSection[];
-  savedProvisionedAt: string | null;
+  savedRevision: string | null;
   updatedAt: string;
 };
 
@@ -60,13 +64,13 @@ function portalDraftStorageKey(scope: string): string {
   return `pillar:members-portal-draft:${scope || "current"}`;
 }
 
-function readPersistedDraft(key: string, savedProvisionedAt: string | null): PortalSection[] | null {
+function readPersistedDraft(key: string, savedRevision: string | null): PortalSection[] | null {
   try {
     const raw = window.localStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<PersistedPortalDraft>;
     if (!Array.isArray(parsed.sections)) return null;
-    if ((parsed.savedProvisionedAt ?? null) !== savedProvisionedAt) return null;
+    if ((parsed.savedRevision ?? null) !== savedRevision) return null;
     return parsed.sections as PortalSection[];
   } catch {
     return null;
@@ -103,19 +107,22 @@ export default function MembersPortal() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const editorHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const draftScope = data?.orgSlug ?? data?.orgName ?? "current";
   const draftKey = portalDraftStorageKey(draftScope);
 
   useEffect(() => {
     if (data?.sections) {
-      const persisted = readPersistedDraft(draftKey, data.provisionedAt ?? null);
+      const persisted = readPersistedDraft(draftKey, data.revision ?? null);
       setDraft(persisted ?? data.sections);
       setDirty(Boolean(persisted));
       setSaveError(null);
       setSyncWarning(data.warning ?? null);
+      setStatusMessage(null);
       setSelectedIndex(0);
     }
-  }, [data?.sections, data?.provisionedAt, draftKey]);
+  }, [data?.sections, data?.revision, draftKey]);
 
   useEffect(() => {
     setSelectedIndex((current) => {
@@ -132,11 +139,11 @@ export default function MembersPortal() {
     }
     const payload: PersistedPortalDraft = {
       sections: draft,
-      savedProvisionedAt: data.provisionedAt ?? null,
+      savedRevision: data.revision ?? null,
       updatedAt: new Date().toISOString(),
     };
     window.localStorage.setItem(draftKey, JSON.stringify(payload));
-  }, [data?.sections, data?.provisionedAt, dirty, draft, draftKey]);
+  }, [data?.sections, data?.revision, dirty, draft, draftKey]);
 
   useEffect(() => {
     if (!dirty) return undefined;
@@ -164,6 +171,7 @@ export default function MembersPortal() {
       setDirty(false);
       window.localStorage.removeItem(draftKey);
       setSyncWarning(resp.warning ?? null);
+      setStatusMessage(resp.warning ? "Portal saved. Public sync is still catching up." : "Portal saved.");
       if (resp.warning) toast.warning(resp.warning);
       else toast.success("Portal saved");
     },
@@ -178,7 +186,7 @@ export default function MembersPortal() {
     mutationFn: () =>
       apiJson<{ suggestions: PortalSection[] }>("/api/members-portal/ai-suggest", {
         method: "POST",
-        body: JSON.stringify({ draftSectionTypes: draft.map((section) => section.type) }),
+        body: JSON.stringify({ draftSectionTypes: draft.map((section) => section.type), draftSections: draft }),
       }),
     onSuccess: (resp) => {
       const existingTypes = new Set(draft.map((section) => section.type));
@@ -196,6 +204,8 @@ export default function MembersPortal() {
       setDirty(true);
       setSaveError(null);
       setSyncWarning(null);
+      setStatusMessage(`${suggestions.length} AI suggestion${suggestions.length === 1 ? "" : "s"} added to your draft.`);
+      window.setTimeout(() => editorHeadingRef.current?.focus(), 0);
       toast.success(`Added ${suggestions.length} suggested section${suggestions.length === 1 ? "" : "s"} — review and save.`);
     },
     onError: (e: any) => toast.error(e.message ?? "AI suggestion failed"),
@@ -221,6 +231,7 @@ export default function MembersPortal() {
     setDirty(true);
     setSaveError(null);
     setSyncWarning(null);
+    setStatusMessage("Section order updated in the preview.");
   }
   function reorder(from: number, to: number) {
     if (from === to || from < 0 || to < 0 || from >= draft.length || to >= draft.length) return;
@@ -232,6 +243,7 @@ export default function MembersPortal() {
     setDirty(true);
     setSaveError(null);
     setSyncWarning(null);
+    setStatusMessage("Section order updated in the preview.");
   }
   function remove(idx: number) {
     setDraft(draft.filter((_, i) => i !== idx));
@@ -239,12 +251,15 @@ export default function MembersPortal() {
     setDirty(true);
     setSaveError(null);
     setSyncWarning(null);
+    setStatusMessage("Section removed from this draft.");
+    window.setTimeout(() => editorHeadingRef.current?.focus(), 0);
   }
   function update(idx: number, patch: Partial<PortalSection>) {
     setDraft(draft.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
     setDirty(true);
     setSaveError(null);
     setSyncWarning(null);
+    setStatusMessage(null);
   }
   function addSection() {
     if (!addType) return;
@@ -256,6 +271,8 @@ export default function MembersPortal() {
     setDirty(true);
     setSaveError(null);
     setSyncWarning(null);
+    setStatusMessage(`${def.label} added to your draft.`);
+    window.setTimeout(() => editorHeadingRef.current?.focus(), 0);
   }
 
   function discardDraft() {
@@ -293,20 +310,28 @@ export default function MembersPortal() {
           <p className="text-xs uppercase tracking-wide text-amber-500 font-semibold">Members workbench</p>
           <h1 className="text-2xl font-bold text-slate-900">Members Portal</h1>
           <p className="text-sm text-slate-500 mt-1 max-w-2xl">
-            Tune what logged-in members see at <code className="text-xs bg-slate-100 px-1 rounded">/members</code>.
-            The roster itself stays managed from Members; this workbench controls the portal sections around it.
+            Keep members informed without email chains or website edits. Shape what logged-in members see at{" "}
+            <code className="text-xs bg-slate-100 px-1 rounded">/members</code>; member records stay managed from Members.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {data?.publicMembersUrl && (
+            <a href={data.publicMembersUrl} target="_blank" rel="noreferrer">
+              <Button type="button" variant="outline">
+                <ExternalLink className="w-4 h-4 mr-1.5" />
+                Open live portal
+              </Button>
+            </a>
+          )}
           {dirty && (
             <Button data-testid="members-portal-discard" variant="ghost" onClick={discardDraft}>
               <RotateCcw className="w-4 h-4 mr-1.5" />
               Discard draft
             </Button>
           )}
-          <Button variant="outline" onClick={() => aiSuggest.mutate()} disabled={aiSuggest.isPending}>
+          <Button data-testid="members-portal-ai-suggest" variant="outline" onClick={() => aiSuggest.mutate()} disabled={aiSuggest.isPending}>
             <Sparkles className="w-4 h-4 mr-1.5" />
-            {aiSuggest.isPending ? "Finding sections…" : "Suggest sections"}
+            {aiSuggest.isPending ? "Building suggestions…" : "AI build my portal"}
           </Button>
           <Button data-testid="members-portal-save" onClick={() => save.mutate(draft)} disabled={!dirty || save.isPending}>
             <Save className="w-4 h-4 mr-1.5" />
@@ -315,13 +340,51 @@ export default function MembersPortal() {
         </div>
       </header>
 
-      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
-        {dirty ? (
-          <span>Previewing unsaved draft. Save changes when the portal looks right, or discard to return to the saved portal.</span>
-        ) : (
-          <span>Showing saved portal. Changes you make here update the preview first.</span>
-        )}
+      <div className="grid gap-4 lg:grid-cols-[1.25fr_1fr]">
+        <Card className="border-slate-200 p-4">
+          <div className="flex items-start gap-3">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+            <div>
+              <p className="text-sm font-semibold text-slate-900">What this controls</p>
+              <p className="mt-1 text-sm text-slate-600">
+                Edit the private portal sections, welcome copy, meeting info, documents, dues notes, and committee prompts.
+                Member names and directory details are managed from the Members tab.
+              </p>
+              <p className="mt-2 text-xs text-slate-500">
+                Starter template: <span className="font-medium text-slate-700">{data?.templateLabel ?? "member organization"}</span>
+              </p>
+            </div>
+          </div>
+        </Card>
+        <WorkbenchChecklist sections={draft} dirty={dirty} publicMembersUrl={data?.publicMembersUrl ?? null} />
       </div>
+
+      <div className={`rounded-lg border px-4 py-3 text-sm ${dirty ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <span>
+            {dirty
+              ? "Previewing unsaved draft. Save changes when the portal looks right, or discard to return to the saved portal."
+              : "Showing saved portal. Changes you make here update the preview first."}
+          </span>
+          {dirty && (
+            <Button size="sm" data-testid="members-portal-dirty-save" onClick={() => save.mutate(draft)} disabled={save.isPending}>
+              <Save className="w-3.5 h-3.5 mr-1.5" />
+              {save.isPending ? "Saving..." : "Save draft"}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div data-testid="members-portal-status" aria-live="polite" className="sr-only">
+        {statusMessage}
+      </div>
+
+      {statusMessage && !saveError && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
+          <CheckCircle2 className="mr-2 inline h-4 w-4" />
+          {statusMessage}
+        </div>
+      )}
 
       {saveError && (
         <div data-testid="members-portal-save-error" aria-live="polite" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
@@ -355,6 +418,9 @@ export default function MembersPortal() {
           <div className="border-b border-slate-200 px-4 py-3">
             <p className="text-xs uppercase tracking-wide text-slate-400 font-semibold">Edit portal</p>
             <p className="text-sm font-semibold text-slate-900">Sections</p>
+            <p id="members-portal-reorder-help" className="mt-1 text-xs text-slate-500">
+              Drag sections or use the arrow buttons to change the order. Select a section to edit its fields below.
+            </p>
           </div>
 
           <div className="max-h-[760px] overflow-y-auto p-4 space-y-4">
@@ -385,7 +451,7 @@ export default function MembersPortal() {
               )}
             </Card>
 
-            <div className="space-y-2" role="list" aria-label="Members portal sections">
+            <div className="space-y-2" role="list" aria-label="Members portal sections" aria-describedby="members-portal-reorder-help">
               {draft.length === 0 && (
                 <Card className="p-8 text-center text-sm text-slate-500">
                   No portal sections yet. Add one above or click "Suggest sections".
@@ -468,7 +534,9 @@ export default function MembersPortal() {
                 canMoveUp={selectedIndex > 0}
                 canMoveDown={selectedIndex < draft.length - 1}
                 label={selectedMeta?.label ?? selected.type.replace(/_/g, " ")}
+                description={selectedMeta?.description ?? ""}
                 locked={LOCKED_SYSTEM_SECTION_TYPES.has(selected.type)}
+                headingRef={editorHeadingRef}
               />
             )}
           </div>
@@ -514,6 +582,53 @@ function PortalPreview({
         )}
       </div>
     </div>
+  );
+}
+
+function WorkbenchChecklist({
+  sections,
+  dirty,
+  publicMembersUrl,
+}: {
+  sections: PortalSection[];
+  dirty: boolean;
+  publicMembersUrl: string | null;
+}) {
+  const hasWelcome = sections.some((section) => section.type === "welcome_message" && String(section.body ?? "").trim());
+  const hasMeeting = sections.some((section) => section.type === "meeting_schedule");
+  const hasRoster = sections.some((section) => section.type === "member_roster");
+  const hasResources = sections.some((section) => section.type === "documents" || section.type === "notices");
+  const items = [
+    { label: "Review the member welcome message", done: hasWelcome },
+    { label: "Confirm meeting or resource sections", done: hasMeeting || hasResources },
+    { label: "Add or review member records", done: hasRoster },
+    { label: dirty ? "Save the draft when ready" : "Saved portal is ready to share", done: !dirty },
+  ];
+  return (
+    <Card className="border-slate-200 p-4">
+      <p className="text-sm font-semibold text-slate-900">Quick setup checklist</p>
+      <div className="mt-3 space-y-2">
+        {items.map((item) => (
+          <div key={item.label} className="flex items-center gap-2 text-sm">
+            <CheckCircle2 className={`h-4 w-4 ${item.done ? "text-emerald-500" : "text-slate-300"}`} aria-hidden="true" />
+            <span className={item.done ? "text-slate-700" : "text-slate-500"}>{item.label}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Link href="/dashboard/members">
+          <Button type="button" size="sm" variant="outline">Manage members</Button>
+        </Link>
+        {publicMembersUrl && (
+          <a href={publicMembersUrl} target="_blank" rel="noreferrer">
+            <Button type="button" size="sm" variant="ghost">
+              <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+              Preview live portal
+            </Button>
+          </a>
+        )}
+      </div>
+    </Card>
   );
 }
 
@@ -637,7 +752,12 @@ function PortalPreviewSection({
             </div>
           ))}
         </div>
-        <p className="mt-3 text-xs text-slate-500">Example member cards only. Real roster data is managed from the Members tab.</p>
+        <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+          <p>Example member cards only. Real roster data is managed from the Members tab.</p>
+          <Link href="/dashboard/members" className="mt-1 inline-flex font-medium underline">
+            Manage members
+          </Link>
+        </div>
       </>,
     );
   }
@@ -653,7 +773,9 @@ function SectionEditor({
   canMoveUp,
   canMoveDown,
   label,
+  description,
   locked,
+  headingRef,
 }: {
   section: PortalSection;
   onChange: (patch: Partial<PortalSection>) => void;
@@ -663,7 +785,9 @@ function SectionEditor({
   canMoveUp: boolean;
   canMoveDown: boolean;
   label: string;
+  description: string;
   locked: boolean;
+  headingRef: RefObject<HTMLHeadingElement | null>;
 }) {
   const titleInputId = `members-portal-${section.type}-title`;
   const bodyInputId = `members-portal-${section.type}-body`;
@@ -673,7 +797,10 @@ function SectionEditor({
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-wide text-slate-400 font-semibold">Selected section</p>
-          <div className="text-sm font-semibold text-slate-900 mt-1">{label}</div>
+          <h2 ref={headingRef} tabIndex={-1} className="text-sm font-semibold text-slate-900 mt-1 outline-none">
+            {label}
+          </h2>
+          {description && <p className="mt-1 text-xs text-slate-500">{description}</p>}
         </div>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon" onClick={onMoveUp} disabled={!canMoveUp} title="Move up" aria-label="Move selected section up">
@@ -819,6 +946,12 @@ function SectionEditor({
           }
           onChange={(items) => onChange({ [getListKey(section.type)]: items } as Partial<PortalSection>)}
         />
+      )}
+
+      {section.type === "documents" && (
+        <p className="text-xs text-slate-500">
+          Use secure https links or site-relative file paths for now. A guided upload picker will come later.
+        </p>
       )}
 
       {section.type === "member_roster" && (
