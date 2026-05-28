@@ -658,3 +658,22 @@ body {
     min-height: 360px;
   }
 }
+
+html[data-pillar-preview-editing="true"] [data-pillar-edit="text"] {
+  cursor: text;
+  border-radius: 4px;
+  outline: 1px dashed transparent;
+  outline-offset: 4px;
+  transition: outline-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+html[data-pillar-preview-editing="true"] [data-pillar-edit="text"]:hover {
+  outline-color: rgba(212, 160, 23, 0.75);
+  background-color: rgba(212, 160, 23, 0.08);
+}
+
+html[data-pillar-preview-editing="true"] [data-pillar-editing="true"] {
+  outline: 2px solid #d4a017 !important;
+  background-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 0 0 4px rgba(212, 160, 23, 0.18);
+}

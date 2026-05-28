@@ -3,6 +3,15 @@ import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMember, useMemberLogout, type CurrentMember } from "../lib/memberAuth";
 import { useConfig } from "../config-context";
+import { apiFetch } from "../lib/api";
+import {
+  configuredPageSections,
+  editAttrs,
+  pageSectionBlock,
+  pageSectionOrder,
+  pageSectionVisible,
+  textOr,
+} from "../lib/pageSections";
 
 interface DirectoryRow {
   id: string;
@@ -57,15 +66,30 @@ export default function MemberPortalPage() {
     return <div className="max-w-3xl mx-auto px-4 py-24 text-center text-sm text-gray-500">Loading…</div>;
   }
   if (!member) {
+    const publicSections = config
+      ? configuredPageSections(config, "members", [
+          { id: "members-intro", type: "members_intro", title: "Members area", body: "Please sign in to access member content.", visible: true },
+          { id: "members-actions", type: "member_actions", title: "Member sign in", visible: true },
+        ])
+      : [];
+    const intro = pageSectionBlock(publicSections, "members_intro");
     return (
-      <div className="max-w-md mx-auto px-4 py-24 text-center">
-        <h1 className="text-2xl font-serif font-bold text-gray-900 mb-3">Members area</h1>
-        <p className="text-sm text-gray-500 mb-6">Please sign in to access member content.</p>
+      <div className="max-w-md mx-auto px-4 py-24 text-center flex flex-col">
+        {pageSectionVisible(publicSections, "members_intro") && (
+        <section data-testid="page-section-members-members_intro" style={{ order: pageSectionOrder(publicSections, "members_intro", 0) }}>
+          <h1 {...editAttrs("members", intro?.id || "members-intro", "title")} className="text-2xl font-serif font-bold text-gray-900 mb-3">{textOr(intro?.title) || "Members area"}</h1>
+          <p {...editAttrs("members", intro?.id || "members-intro", "body")} className="text-sm text-gray-500 mb-6">{textOr(intro?.body) || "Please sign in to access member content."}</p>
+        </section>
+        )}
+        {pageSectionVisible(publicSections, "member_actions") && (
+        <section data-testid="page-section-members-member_actions" style={{ order: pageSectionOrder(publicSections, "member_actions", 1) }}>
         <button onClick={() => navigate("/members/login")}
           className="px-5 py-2.5 rounded-md text-white text-sm font-medium"
           style={{ backgroundColor: "var(--primary-hex)" }}>
           Sign in
         </button>
+        </section>
+        )}
       </div>
     );
   }
@@ -110,7 +134,7 @@ function HomeTab() {
   const { data, isLoading, error } = useQuery<PortalConfig>({
     queryKey: ["/api/members-portal/config"],
     queryFn: async () => {
-      const res = await fetch("/api/members-portal/config", { credentials: "include" });
+      const res = await apiFetch("/api/members-portal/config");
       if (!res.ok) throw new Error("Failed to load portal");
       return res.json();
     },
@@ -122,7 +146,7 @@ function HomeTab() {
   const announcements = useQuery<Announcement[]>({
     queryKey: ["/api/members/announcements"],
     queryFn: async () => {
-      const res = await fetch("/api/members/announcements", { credentials: "include" });
+      const res = await apiFetch("/api/members/announcements");
       if (!res.ok) throw new Error("Failed to load announcements");
       return res.json();
     },
@@ -291,7 +315,7 @@ function DirectoryGrid() {
   const { data, isLoading } = useQuery<DirectoryRow[]>({
     queryKey: ["/api/members/directory"],
     queryFn: async () => {
-      const res = await fetch("/api/members/directory", { credentials: "include" });
+      const res = await apiFetch("/api/members/directory");
       if (!res.ok) throw new Error("Failed to load directory");
       return res.json();
     },
@@ -345,10 +369,9 @@ function ProfileTab({ member }: { member: CurrentMember }) {
 
   const save = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/members/me", {
+      const res = await apiFetch("/api/members/me", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify(form),
       });
       if (!res.ok) throw new Error((await res.json()).error || "Save failed");

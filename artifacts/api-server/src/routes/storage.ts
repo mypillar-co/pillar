@@ -8,7 +8,7 @@ import { z } from "zod";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { db, organizationsTable, orgMembersTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
-import { getOrgIdForUser } from "../lib/resolveOrg";
+import { getEditableOrgIdForUser, getOrgIdForUser } from "../lib/resolveOrg";
 
 const RequestUploadUrlBody = z.object({
   name: z.string(),
@@ -47,12 +47,23 @@ const CONTENT_TYPE_EXTENSIONS: Record<string, string> = {
   "image/png": "png",
   "image/webp": "webp",
   "image/gif": "gif",
-  "image/svg+xml": "svg",
+  "application/pdf": "pdf",
 };
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const ALLOWED_UPLOAD_CONTENT_TYPES = new Set(Object.keys(CONTENT_TYPE_EXTENSIONS));
 
 const EXTENSION_CONTENT_TYPES: Record<string, string> = Object.fromEntries(
   Object.entries(CONTENT_TYPE_EXTENSIONS).map(([contentType, ext]) => [ext, contentType]),
 );
+
+function getAuthenticatedUserId(req: Request, res: Response): string | null {
+  const userId = (req.user as { id?: string } | undefined)?.id;
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return null;
+  }
+  return userId;
+}
 
 function storageLimitForTier(tier: string | null | undefined): number {
   if (!tier) return DEFAULT_STORAGE_LIMIT;
@@ -87,6 +98,23 @@ function safeLocalObjectPath(objectPath: string): string | null {
 function contentTypeForPath(filePath: string): string {
   const ext = path.extname(filePath).replace(".", "").toLowerCase();
   return EXTENSION_CONTENT_TYPES[ext] ?? "application/octet-stream";
+}
+
+function normalizeContentType(value: string): string {
+  return value.split(";")[0]?.trim().toLowerCase() ?? "";
+}
+
+function uploadValidationError(contentType: string, size: number): string | null {
+  if (!ALLOWED_UPLOAD_CONTENT_TYPES.has(contentType)) {
+    return "Only JPG, PNG, WebP, GIF, and PDF uploads are supported.";
+  }
+  if (!Number.isFinite(size) || size <= 0) {
+    return "Upload size must be greater than zero.";
+  }
+  if (size > MAX_UPLOAD_BYTES) {
+    return "Uploads must be 10 MB or smaller.";
+  }
+  return null;
 }
 
 async function writeLocalObject(orgId: string, body: Buffer, contentType: string): Promise<string> {
@@ -142,9 +170,19 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
     return;
   }
 
-  const { name, size, contentType } = parsed.data;
+  const { name, size } = parsed.data;
+  const contentType = normalizeContentType(parsed.data.contentType);
 
-  const orgId = await getOrgIdForUser(req.user!.id);
+  const validationError = uploadValidationError(contentType, size);
+  if (validationError) {
+    res.status(400).json({ error: validationError });
+    return;
+  }
+
+  const userId = getAuthenticatedUserId(req, res);
+  if (!userId) return;
+
+  const orgId = await getEditableOrgIdForUser(userId);
   if (!orgId) {
     res.status(404).json({ error: "Organization not found" });
     return;
@@ -202,7 +240,7 @@ router.post(
       return;
     }
 
-    const contentType = (req.headers["content-type"] ?? "").toString();
+    const contentType = normalizeContentType((req.headers["content-type"] ?? "").toString());
     if (!contentType.startsWith("image/")) {
       res.status(400).json({ error: "Only image uploads are supported" });
       return;
@@ -214,7 +252,16 @@ router.post(
       return;
     }
 
-    const orgId = await getOrgIdForUser(req.user!.id);
+    const validationError = uploadValidationError(contentType, body.length);
+    if (validationError) {
+      res.status(400).json({ error: validationError });
+      return;
+    }
+
+    const userId = getAuthenticatedUserId(req, res);
+    if (!userId) return;
+
+    const orgId = await getEditableOrgIdForUser(userId);
     if (!orgId) {
       res.status(404).json({ error: "Organization not found" });
       return;
@@ -282,8 +329,15 @@ router.post("/storage/uploads/confirm", async (req: Request, res: Response) => {
   }
 
   const { size } = parsed.data;
+  if (!Number.isFinite(size) || size <= 0 || size > MAX_UPLOAD_BYTES) {
+    res.status(400).json({ error: "Upload size must be between 1 byte and 10 MB." });
+    return;
+  }
 
-  const orgId = await getOrgIdForUser(req.user!.id);
+  const userId = getAuthenticatedUserId(req, res);
+  if (!userId) return;
+
+  const orgId = await getEditableOrgIdForUser(userId);
   if (!orgId) {
     res.status(404).json({ error: "Organization not found" });
     return;
@@ -331,7 +385,10 @@ router.get("/storage/objects/*path", async (req: Request, res: Response) => {
     return;
   }
 
-  const orgId = await getOrgIdForUser(req.user!.id);
+  const userId = getAuthenticatedUserId(req, res);
+  if (!userId) return;
+
+  const orgId = await getOrgIdForUser(userId);
   if (!orgId) {
     res.status(403).json({ error: "Forbidden: no organization found for this account" });
     return;

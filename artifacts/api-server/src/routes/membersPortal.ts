@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from "express";
 import OpenAI from "openai";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
-import { resolveFullOrg } from "../lib/resolveOrg";
+import { resolveFullOrg, resolveFullOrgEditor } from "../lib/resolveOrg";
 import { logger } from "../lib/logger";
 import { syncOrgConfigPatchToPillar } from "../lib/pillarOrgSync";
 import {
@@ -46,6 +46,78 @@ function getCurrentPortal(org: OrgRow): MembersPortalConfig {
 
 function cloneSection(section: Record<string, unknown>): PortalSection {
   return JSON.parse(JSON.stringify(section)) as PortalSection;
+}
+
+function sanitizeText(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.replace(/\u00a0/g, " ").trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, maxLength);
+}
+
+function sanitizePortalSection(section: Record<string, unknown>): PortalSection | null {
+  if (!validateSection(section, "portal")) return null;
+  const type = String(section.type);
+  const cleaned: Record<string, unknown> = { type };
+  const title = sanitizeText(section.title, 160);
+  const body = sanitizeText(section.body, 2200);
+  if (title) cleaned.title = title;
+  if (body) cleaned.body = body;
+  if (type === "dues_info") {
+    const amountText = sanitizeText(section.amountText, 80);
+    const payUrl = sanitizeText(section.payUrl, 500);
+    if (amountText) cleaned.amountText = amountText;
+    if (payUrl && /^https?:\/\//i.test(payUrl)) cleaned.payUrl = payUrl;
+    else cleaned.payUrl = null;
+  }
+  if (type === "meeting_schedule") {
+    const cadence = sanitizeText(section.cadence, 160);
+    const location = sanitizeText(section.location, 240);
+    if (cadence) cleaned.cadence = cadence;
+    if (location) cleaned.location = location;
+    if (Array.isArray(section.upcoming)) {
+      cleaned.upcoming = section.upcoming.slice(0, 12).map((item) => {
+        const row = item && typeof item === "object" && !Array.isArray(item) ? item as Record<string, unknown> : {};
+        return {
+          date: sanitizeText(row.date, 80) ?? "",
+          note: sanitizeText(row.note, 240) ?? "",
+        };
+      });
+    }
+  }
+  if (type === "notices" && Array.isArray(section.notices)) {
+    cleaned.notices = section.notices.slice(0, 12).map((item) => {
+      const row = item && typeof item === "object" && !Array.isArray(item) ? item as Record<string, unknown> : {};
+      return {
+        date: sanitizeText(row.date, 80) ?? "",
+        title: sanitizeText(row.title, 160) ?? "",
+        body: sanitizeText(row.body, 1000) ?? "",
+      };
+    });
+  }
+  if (type === "committee_signups" && Array.isArray(section.committees)) {
+    cleaned.committees = section.committees.slice(0, 12).map((item) => {
+      const row = item && typeof item === "object" && !Array.isArray(item) ? item as Record<string, unknown> : {};
+      return {
+        name: sanitizeText(row.name, 120) ?? "",
+        description: sanitizeText(row.description, 600) ?? "",
+        contact: sanitizeText(row.contact, 160) ?? "",
+      };
+    });
+  }
+  if (type === "documents" && Array.isArray(section.documents)) {
+    cleaned.documents = section.documents.slice(0, 24).map((item) => {
+      const row = item && typeof item === "object" && !Array.isArray(item) ? item as Record<string, unknown> : {};
+      const url = sanitizeText(row.url, 500) ?? "";
+      return {
+        name: sanitizeText(row.name, 160) ?? "",
+        url: /^https?:\/\//i.test(url) || url.startsWith("/") ? url : "",
+        description: sanitizeText(row.description, 400) ?? "",
+        category: sanitizeText(row.category, 80) ?? "",
+      };
+    });
+  }
+  return cleaned as PortalSection;
 }
 
 function deterministicPortalSuggestions(
@@ -134,7 +206,7 @@ router.get("/", async (req: Request, res: Response) => {
 
 // PATCH /api/members-portal — replace sections array
 router.patch("/", async (req: Request, res: Response) => {
-  const org = await resolveFullOrg(req, res);
+  const org = await resolveFullOrgEditor(req, res);
   if (!org) return;
   const { sections } = (req.body ?? {}) as { sections?: unknown };
   if (!Array.isArray(sections)) {
@@ -144,10 +216,11 @@ router.patch("/", async (req: Request, res: Response) => {
   for (const s of sections) {
     if (!s || typeof s !== "object") continue;
     const section = s as Record<string, unknown>;
-    if (!validateSection(section, "portal")) {
+    const sanitized = sanitizePortalSection(section);
+    if (!sanitized) {
       return res.status(400).json({ error: `Invalid portal section type: ${String(section.type)}` });
     }
-    cleaned.push(section as PortalSection);
+    cleaned.push(sanitized);
   }
   const row = await loadOrgRow(org.id);
   if (!row) return res.status(404).json({ error: "Org not found" });
@@ -163,7 +236,7 @@ router.patch("/", async (req: Request, res: Response) => {
 
 // POST /api/members-portal/ai-suggest — ask AI for additional sections
 router.post("/ai-suggest", async (req: Request, res: Response) => {
-  const org = await resolveFullOrg(req, res);
+  const org = await resolveFullOrgEditor(req, res);
   if (!org) return;
   const row = await loadOrgRow(org.id);
   if (!row) return res.status(404).json({ error: "Org not found" });

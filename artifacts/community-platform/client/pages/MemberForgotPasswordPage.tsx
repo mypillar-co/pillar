@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useConfig } from "../config-context";
+import { apiFetch } from "../lib/api";
 
 export default function MemberForgotPasswordPage() {
   const config = useConfig();
@@ -11,10 +12,9 @@ export default function MemberForgotPasswordPage() {
     e.preventDefault();
     setBusy(true);
     try {
-      await fetch("/api/members/forgot-password", {
+      await apiFetch("/api/members/forgot-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ email }),
       });
       setDone(true);

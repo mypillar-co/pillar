@@ -1,5 +1,6 @@
 import { createContext, useContext, ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiFetch } from "./api";
 
 export interface CurrentMember {
   id: string;
@@ -27,7 +28,7 @@ export function MemberAuthProvider({ children }: { children: ReactNode }) {
   const { data, isLoading, refetch } = useQuery<CurrentMember | null>({
     queryKey: ["/api/members/me"],
     queryFn: async () => {
-      const res = await fetch("/api/members/me", { credentials: "include" });
+      const res = await apiFetch("/api/members/me");
       if (res.status === 401) return null;
       if (!res.ok) throw new Error("Failed to fetch session");
       return res.json();
@@ -52,7 +53,7 @@ export function useMemberLogout() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/members/logout", { method: "POST", credentials: "include" });
+      const res = await apiFetch("/api/members/logout", { method: "POST" });
       if (!res.ok) throw new Error("Logout failed");
     },
     onSuccess: () => {

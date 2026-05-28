@@ -1,12 +1,13 @@
 import { Router, type Request, type Response } from "express";
 import { db, organizationsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
-import { resolveFullOrg } from "../lib/resolveOrg";
+import { resolveFullOrg, resolveFullOrgEditor } from "../lib/resolveOrg";
 import { getSectionRegistryPrompt, validateSection } from "../lib/sectionRegistry";
 import OpenAI from "openai";
 import { load as cheerioLoad } from "cheerio";
 import { AI_UNAVAILABLE_MESSAGE, createOpenAIClient } from "../lib/openaiClient";
 import { applyDeterministicSiteEdit } from "../lib/siteEditIntents";
+import { readSiteConfig, saveSiteConfigPatch } from "../lib/siteConfigPersistence";
 
 const SIDECAR = "http://127.0.0.1:1106";
 
@@ -36,9 +37,328 @@ const router = Router();
 const CONTEXT_TURNS = 12;
 const MAX_INTERVIEW_TOKENS = 750;
 const MAX_PAYLOAD_TOKENS = 2200;
+const HOMEPAGE_BUILTIN_SECTION_TYPES = new Set([
+  "hero",
+  "announcements",
+  "lodge_explore",
+  "rotary_features",
+  "lions_support",
+  "stats",
+  "rotary_service_areas",
+  "lions_promo",
+  "events",
+  "partners",
+  "newsletter",
+]);
+
+const PAGE_BUILTIN_SECTION_TYPES = new Set([
+  "page_hero",
+  "about_intro",
+  "programs",
+  "find_us",
+  "partners",
+  "cta",
+  "contact_intro",
+  "contact_form",
+  "contact_details",
+  "social_links",
+  "gallery_intro",
+  "album_grid",
+  "members_intro",
+  "member_actions",
+  "media",
+  "form",
+  "copy",
+]);
+
+const STANDARD_EDITABLE_PAGE_KEYS = new Set(["home", "about", "contact", "gallery", "members"]);
 
 function getOpenAIClient() {
   return createOpenAIClient({ timeout: 60_000 });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function safeText(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, maxLength);
+}
+
+function safeId(value: unknown, fallback: string): string {
+  const raw = typeof value === "string" ? value : fallback;
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || fallback;
+}
+
+function safeImageUrl(value: unknown): string | null | undefined {
+  if (value === null) return null;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("data:image/") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("http://")
+  ) {
+    return trimmed.slice(0, 5000);
+  }
+  return undefined;
+}
+
+function sanitizeHomepageSections(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  const cleaned: Record<string, unknown>[] = [];
+
+  for (const item of value.slice(0, 24)) {
+    if (!isRecord(item) || typeof item.type !== "string") continue;
+    const type = item.type.trim();
+    if (!type) continue;
+    const isAllowedBuiltIn = HOMEPAGE_BUILTIN_SECTION_TYPES.has(type);
+    const isAllowedTemplate = validateSection({ type }, "public");
+    if (!isAllowedBuiltIn && !isAllowedTemplate) continue;
+
+    const imageUrl = safeImageUrl(item.imageUrl);
+    const section: Record<string, unknown> = {
+      id: safeId(item.id, type),
+      type,
+      visible: item.visible !== false,
+    };
+    const title = safeText(item.title, 160);
+    const subtitle = safeText(item.subtitle, 240);
+    const body = safeText(item.body, 1600);
+    if (title) section.title = title;
+    if (subtitle) section.subtitle = subtitle;
+    if (body) section.body = body;
+    if (imageUrl !== undefined) section.imageUrl = imageUrl;
+    if (isRecord(item.data)) section.data = item.data;
+    cleaned.push(section);
+  }
+
+  return cleaned;
+}
+
+function sanitizePageKey(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const key = value.trim().toLowerCase();
+  if (STANDARD_EDITABLE_PAGE_KEYS.has(key) || key === "events") return key;
+  if (/^custom:[a-z0-9][a-z0-9-]{0,80}$/.test(key)) return key;
+  return null;
+}
+
+function sanitizePageSections(value: unknown, pageKey: string): Record<string, unknown>[] {
+  if (pageKey === "home") return sanitizeHomepageSections(value);
+  if (!Array.isArray(value)) return [];
+  const cleaned: Record<string, unknown>[] = [];
+
+  for (const item of value.slice(0, 32)) {
+    if (!isRecord(item) || typeof item.type !== "string") continue;
+    const type = item.type.trim();
+    if (!type) continue;
+    const isAllowedBuiltIn = PAGE_BUILTIN_SECTION_TYPES.has(type);
+    const isAllowedTemplate = validateSection({ type }, "public");
+    if (!isAllowedBuiltIn && !isAllowedTemplate) continue;
+
+    const imageUrl = safeImageUrl(item.imageUrl);
+    const section: Record<string, unknown> = {
+      id: safeId(item.id, type),
+      type,
+      visible: item.visible !== false,
+    };
+    const title = safeText(item.title, 160);
+    const subtitle = safeText(item.subtitle, 240);
+    const body = safeText(item.body, 2200);
+    if (title) section.title = title;
+    if (subtitle) section.subtitle = subtitle;
+    if (body) section.body = body;
+    if (imageUrl !== undefined) section.imageUrl = imageUrl;
+    if (isRecord(item.data)) section.data = item.data;
+    cleaned.push(section);
+  }
+
+  return cleaned;
+}
+
+function pageSectionsMap(value: unknown): Record<string, unknown> {
+  return isRecord(value) ? value : {};
+}
+
+function safeSlug(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return slug || null;
+}
+
+function safeTextList(value: unknown, maxItems: number, maxLength: number): string[] {
+  const source = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/\r?\n|,/)
+      : [];
+  return source
+    .map(item => typeof item === "string" ? item.trim() : "")
+    .filter(Boolean)
+    .slice(0, maxItems)
+    .map(item => item.slice(0, maxLength));
+}
+
+function safeBlockTypes(value: unknown): Set<string> {
+  const allowed = new Set(["copy", "form", "photo"]);
+  const source = Array.isArray(value) ? value : ["copy"];
+  const selected = new Set(
+    source
+      .map(item => typeof item === "string" ? item : "")
+      .filter(item => allowed.has(item)),
+  );
+  if (selected.size === 0) selected.add("copy");
+  return selected;
+}
+
+function requestInfoForm(title: string) {
+  return {
+    type: "request_info",
+    title: `Request information about ${title}`,
+    description: "Send us your contact information and what you would like to learn more about.",
+    submitLabel: "Request information",
+    fields: [
+      { name: "name", label: "Name", type: "text", required: true },
+      { name: "email", label: "Email", type: "email", required: true },
+      { name: "interest", label: "I am interested in", type: "select", required: false, options: ["General information"] },
+      { name: "message", label: "Message", type: "textarea", required: false },
+    ],
+  };
+}
+
+function buildCustomPageDraft(input: Record<string, unknown>): {
+  page: Record<string, unknown>;
+  blocks: Record<string, unknown>[];
+} | { error: string } {
+  const title = safeText(input.title, 120);
+  if (!title) return { error: "Page title is required." };
+  const slug = safeSlug(input.slug) ?? safeSlug(title);
+  if (!slug) return { error: "A valid page slug is required." };
+
+  const intro = safeText(input.intro, 600) ?? "";
+  const navLabel = safeText(input.navLabel, 80) ?? title;
+  const sectionTitles = safeTextList(input.sections, 12, 120);
+  const blockTypes = safeBlockTypes(input.blocks);
+
+  const copySections = (sectionTitles.length > 0 ? sectionTitles : ["Overview"]).map((sectionTitle, index) => ({
+    title: sectionTitle,
+    body: "",
+    id: `${slug}-section-${index + 1}`,
+  }));
+
+  const blocks: Record<string, unknown>[] = [
+    { id: `${slug}-hero`, type: "page_hero", title, body: intro, visible: true },
+  ];
+  if (blockTypes.has("photo")) {
+    blocks.push({ id: `${slug}-media`, type: "media", title: "Featured image", visible: true });
+  }
+  if (blockTypes.has("copy")) {
+    blocks.push(...copySections.map((section, index) => ({
+      id: section.id,
+      type: "copy",
+      title: section.title,
+      body: section.body,
+      visible: true,
+      data: { sortOrder: index + 1 },
+    })));
+  }
+  if (blockTypes.has("form")) {
+    blocks.push({ id: `${slug}-form`, type: "form", title: "Request Information", visible: true });
+  }
+
+  const form = blockTypes.has("form") ? requestInfoForm(title) : undefined;
+  if (form && sectionTitles.length > 0) {
+    form.fields[2] = {
+      name: "interest",
+      label: "I am interested in",
+      type: "select",
+      required: false,
+      options: sectionTitles,
+    };
+  }
+
+  const page: Record<string, unknown> = {
+    title,
+    slug,
+    navLabel,
+    showInNav: input.showInNav !== false,
+    intro,
+    sections: copySections.map(section => ({ title: section.title, body: section.body })),
+    blocks,
+  };
+  if (blockTypes.has("photo")) page.media = { type: "image", url: null, alt: "", caption: "" };
+  if (form) page.form = form;
+  return { page, blocks };
+}
+
+function customPagesArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => isRecord(item) && typeof item.slug === "string")
+    : [];
+}
+
+function syncLegacyPageFields(
+  config: Record<string, unknown>,
+  pageKey: string,
+  cleaned: Record<string, unknown>[],
+): Record<string, unknown> {
+  const nextConfig = { ...config };
+
+  if (pageKey === "about") {
+    const intro = cleaned.find(section => section.type === "about_intro");
+    const currentSiteContent = isRecord(nextConfig.siteContent) ? nextConfig.siteContent : {};
+    nextConfig.siteContent = {
+      ...currentSiteContent,
+      ...(typeof intro?.title === "string" ? { about_heading: intro.title } : {}),
+      ...(typeof intro?.body === "string" ? { about_mission: intro.body } : {}),
+    };
+  }
+
+  if (pageKey.startsWith("custom:")) {
+    const slug = pageKey.slice("custom:".length);
+    const currentFeatures = isRecord(nextConfig.features) ? nextConfig.features : {};
+    const pages = Array.isArray(currentFeatures.customPages)
+      ? (currentFeatures.customPages as Record<string, unknown>[])
+      : [];
+    const nextPages = pages.map(page => {
+      if (page.slug !== slug) return page;
+      const hero = cleaned.find(section => section.type === "page_hero");
+      const copySections = cleaned
+        .filter(section => ["copy", "feature_list", "history", "documents", "gallery", "volunteer_opportunities", "meeting_schedule"].includes(String(section.type)))
+        .map(section => ({
+          title: typeof section.title === "string" ? section.title : "Section",
+          body: typeof section.body === "string" ? section.body : "",
+        }))
+        .filter(section => section.title.trim() || section.body.trim());
+      return {
+        ...page,
+        ...(typeof hero?.title === "string" ? { title: hero.title } : {}),
+        ...(typeof hero?.body === "string" ? { intro: hero.body } : {}),
+        blocks: cleaned,
+        sections: copySections,
+      };
+    });
+    nextConfig.features = {
+      ...currentFeatures,
+      customPages: nextPages,
+    };
+  }
+
+  return nextConfig;
 }
 
 async function callAI(
@@ -672,7 +992,7 @@ router.get("/target", async (req: Request, res: Response) => {
   try {
     const row = await db.execute(sql`
       SELECT o.community_site_url, o.community_site_key, o.site_config,
-             c.org_id AS cs_org_id, c.hero_image_url, c.features
+             c.org_id AS cs_org_id, c.hero_image_url, c.logo_url, c.features
       FROM organizations o
       LEFT JOIN cs_org_configs c ON c.org_id = o.slug OR c.org_id = o.id
       WHERE o.id = ${org.id}
@@ -683,14 +1003,25 @@ router.get("/target", async (req: Request, res: Response) => {
     const configFeatures = config?.features as Record<string, unknown> | null | undefined;
     const csFeatures = r?.features as Record<string, unknown> | null | undefined;
 
-    // Return a lightweight summary for the management view
-    const configSummary = config ? {
-      orgName:      (config.orgName      as string | undefined) ?? null,
-      location:     (config.location     as string | undefined) ?? null,
-      primaryColor: (config.primaryColor as string | undefined) ?? null,
-      accentColor:  (config.accentColor  as string | undefined) ?? null,
-      tagline:      (config.tagline      as string | undefined) ?? null,
-    } : null;
+	    // Return a lightweight summary for the management view
+	    const siteContent = config?.siteContent && typeof config.siteContent === "object" && !Array.isArray(config.siteContent)
+	      ? config.siteContent as Record<string, unknown>
+	      : {};
+	    const configSummary = config ? {
+	      orgName:      (config.orgName      as string | undefined) ?? null,
+	      orgType:      (config.orgType      as string | undefined) ?? null,
+	      location:     (config.location     as string | undefined) ?? null,
+	      primaryColor: (config.primaryColor as string | undefined) ?? null,
+	      accentColor:  (config.accentColor  as string | undefined) ?? null,
+	      tagline:      (config.tagline      as string | undefined) ?? null,
+	      mission:      (config.mission      as string | undefined) ?? null,
+	      siteArchetype:
+	        (configFeatures?.siteArchetype as string | undefined) ??
+	        (config.siteArchetype as string | undefined) ??
+	        null,
+	      homeIntro:    (siteContent.home_intro    as string | undefined) ?? null,
+	      aboutMission: (siteContent.about_mission as string | undefined) ?? null,
+	    } : null;
 
     res.json({
       url:          (r?.community_site_url as string | null) ?? null,
@@ -700,21 +1031,258 @@ router.get("/target", async (req: Request, res: Response) => {
       tier:         (org as { tier?: string | null }).tier ?? null,
       isProvisioned: !!config || !!(r?.community_site_url) || !!(r?.cs_org_id),
       configSummary,
+      logoUrl:
+        (config?.logoUrl as string | null | undefined) ??
+        (r?.logo_url as string | null) ??
+        null,
       heroImageUrl: (r?.hero_image_url as string | null) ?? null,
       heroVisualType:
         (csFeatures?.heroVisualType as string | undefined) ??
         (configFeatures?.heroVisualType as string | undefined) ??
         (config?.heroVisualType as string | undefined) ??
         null,
+      customPages: Array.isArray(configFeatures?.customPages)
+        ? configFeatures.customPages
+        : Array.isArray(csFeatures?.customPages)
+          ? csFeatures.customPages
+          : [],
+      homepageSections: Array.isArray(configFeatures?.homepageSections)
+        ? configFeatures.homepageSections
+        : Array.isArray(config?.sections)
+          ? config.sections
+          : Array.isArray(csFeatures?.homepageSections)
+            ? csFeatures.homepageSections
+            : [],
+      pageSections: isRecord(configFeatures?.pageSections)
+        ? configFeatures.pageSections
+        : isRecord(csFeatures?.pageSections)
+          ? csFeatures.pageSections
+          : {},
     });
   } catch {
     res.json({ url: null, hasKey: false, tier: null, isProvisioned: false, configSummary: null });
   }
 });
 
+// ── DELETE /api/community-site/logo ─────────────────────────────────────────
+// Clears the image used in the top-left navigation logo. This is separate from
+// the homepage hero image.
+router.delete("/logo", async (req: Request, res: Response) => {
+  const org = await resolveFullOrgEditor(req, res);
+  if (!org) return;
+
+  try {
+    const saved = await saveSiteConfigPatch(org.id, { logoUrl: null });
+    if (saved.config.logoUrl !== null) {
+      res.status(500).json({ error: "Logo could not be verified after saving." });
+      return;
+    }
+    res.json({ ok: true, logoUrl: null, publicOrgId: saved.publicOrgId });
+  } catch (err) {
+    console.error("Logo clear error:", err);
+    res.status(500).json({ error: "Failed to remove logo" });
+  }
+});
+
+// ── PATCH /api/community-site/homepage-sections ─────────────────────────────
+// Controlled visual editor write path. This stores the same guarded block list
+// the AI editor may edit under `features.homepageSections`, without changing
+// unrelated site_config fields or the published rendering defaults.
+router.patch("/homepage-sections", async (req: Request, res: Response) => {
+  const org = await resolveFullOrgEditor(req, res);
+  if (!org) return;
+
+  const { sections } = req.body as { sections?: unknown };
+  const cleaned = sanitizeHomepageSections(sections);
+  if (cleaned.length === 0) {
+    res.status(400).json({ error: "At least one approved homepage section is required." });
+    return;
+  }
+
+  try {
+    const currentConfig = await readSiteConfig(org.id);
+    const currentFeatures = isRecord(currentConfig.features)
+      ? currentConfig.features
+      : {};
+    const saved = await saveSiteConfigPatch(org.id, {
+      sections: cleaned,
+      features: {
+        ...currentFeatures,
+        homepageSections: cleaned,
+      },
+    });
+    const features = isRecord(saved.config.features) ? saved.config.features : {};
+    res.json({
+      ok: true,
+      sections: cleaned,
+      publicOrgId: saved.publicOrgId,
+      customPages: Array.isArray(features.customPages) ? features.customPages : [],
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    res.status(500).json({ error: `Could not publish homepage sections: ${msg}` });
+  }
+});
+
+// ── PATCH /api/community-site/page-sections ─────────────────────────────────
+// Page-aware visual editor write path. Uses the same block schema as Home and
+// stores page-specific drafts under features.pageSections.
+router.patch("/page-sections", async (req: Request, res: Response) => {
+  const org = await resolveFullOrgEditor(req, res);
+  if (!org) return;
+
+  const { pageKey: rawPageKey, sections } = req.body as { pageKey?: unknown; sections?: unknown };
+  const pageKey = sanitizePageKey(rawPageKey);
+  if (!pageKey) {
+    res.status(400).json({ error: "A valid page key is required." });
+    return;
+  }
+  if (pageKey === "events") {
+    res.status(400).json({ error: "Events are managed from the Events tab." });
+    return;
+  }
+
+  const cleaned = sanitizePageSections(sections, pageKey);
+  if (cleaned.length === 0) {
+    res.status(400).json({ error: "At least one approved page section is required." });
+    return;
+  }
+
+  try {
+    const currentConfig = await readSiteConfig(org.id);
+    const currentFeatures = isRecord(currentConfig.features) ? currentConfig.features : {};
+    const currentPageSections = pageSectionsMap(currentFeatures.pageSections);
+    let nextConfig = syncLegacyPageFields(currentConfig, pageKey, cleaned);
+    const nextFeatures = isRecord(nextConfig.features) ? nextConfig.features : currentFeatures;
+    const nextPageSections = {
+      ...currentPageSections,
+      [pageKey]: cleaned,
+    };
+    const featurePatch: Record<string, unknown> = {
+      ...nextFeatures,
+      pageSections: nextPageSections,
+    };
+    const topLevelPatch: Record<string, unknown> = {
+      ...nextConfig,
+      features: featurePatch,
+    };
+
+    if (pageKey === "home") {
+      topLevelPatch.sections = cleaned;
+      featurePatch.homepageSections = cleaned;
+    }
+
+    const saved = await saveSiteConfigPatch(org.id, topLevelPatch);
+    const features = isRecord(saved.config.features) ? saved.config.features : {};
+    res.json({
+      ok: true,
+      pageKey,
+      sections: cleaned,
+      pageSections: isRecord(features.pageSections) ? features.pageSections : {},
+      homepageSections: Array.isArray(features.homepageSections) ? features.homepageSections : [],
+      customPages: Array.isArray(features.customPages) ? features.customPages : [],
+      publicOrgId: saved.publicOrgId,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    res.status(500).json({ error: `Could not publish page sections: ${msg}` });
+  }
+});
+
+// ── POST /api/community-site/custom-pages ───────────────────────────────────
+// First-class custom page creation for the guarded visual editor. This avoids
+// routing basic page CRUD through AI, while still writing the same schema the
+// AI editor and public renderer use.
+router.post("/custom-pages", async (req: Request, res: Response) => {
+  const org = await resolveFullOrgEditor(req, res);
+  if (!org) return;
+
+  const input = isRecord(req.body) ? req.body : {};
+  const draft = buildCustomPageDraft(input);
+  if ("error" in draft) {
+    res.status(400).json({ error: draft.error });
+    return;
+  }
+  const slug = String(draft.page.slug);
+
+  try {
+    const currentConfig = await readSiteConfig(org.id);
+    const currentFeatures = isRecord(currentConfig.features) ? currentConfig.features : {};
+    const currentPages = customPagesArray(currentFeatures.customPages);
+    if (currentPages.some(page => page.slug === slug)) {
+      res.status(409).json({ error: `A page named "${draft.page.title}" already exists.` });
+      return;
+    }
+    const currentPageSections = pageSectionsMap(currentFeatures.pageSections);
+    const nextFeatures = {
+      ...currentFeatures,
+      customPages: [...currentPages, draft.page],
+      pageSections: {
+        ...currentPageSections,
+        [`custom:${slug}`]: draft.blocks,
+      },
+    };
+    const saved = await saveSiteConfigPatch(org.id, { features: nextFeatures });
+    const features = isRecord(saved.config.features) ? saved.config.features : {};
+    res.json({
+      ok: true,
+      customPages: Array.isArray(features.customPages) ? features.customPages : [],
+      pageSections: isRecord(features.pageSections) ? features.pageSections : {},
+      publicOrgId: saved.publicOrgId,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    res.status(500).json({ error: `Could not create page: ${msg}` });
+  }
+});
+
+// ── DELETE /api/community-site/custom-pages/:slug ───────────────────────────
+router.delete("/custom-pages/:slug", async (req: Request, res: Response) => {
+  const org = await resolveFullOrgEditor(req, res);
+  if (!org) return;
+
+  const slug = safeSlug(req.params.slug);
+  if (!slug) {
+    res.status(400).json({ error: "A valid page slug is required." });
+    return;
+  }
+
+  try {
+    const currentConfig = await readSiteConfig(org.id);
+    const currentFeatures = isRecord(currentConfig.features) ? currentConfig.features : {};
+    const currentPages = customPagesArray(currentFeatures.customPages);
+    const nextPages = currentPages.filter(page => page.slug !== slug);
+    if (nextPages.length === currentPages.length) {
+      res.status(404).json({ error: "Custom page not found." });
+      return;
+    }
+    const currentPageSections = pageSectionsMap(currentFeatures.pageSections);
+    const nextPageSections = { ...currentPageSections };
+    delete nextPageSections[`custom:${slug}`];
+
+    const saved = await saveSiteConfigPatch(org.id, {
+      features: {
+        ...currentFeatures,
+        customPages: nextPages,
+        pageSections: nextPageSections,
+      },
+    });
+    const features = isRecord(saved.config.features) ? saved.config.features : {};
+    res.json({
+      ok: true,
+      customPages: Array.isArray(features.customPages) ? features.customPages : [],
+      pageSections: isRecord(features.pageSections) ? features.pageSections : {},
+      publicOrgId: saved.publicOrgId,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    res.status(500).json({ error: `Could not delete page: ${msg}` });
+  }
+});
+
 // ── PUT /api/community-site/target ──────────────────────────────────────────
 router.put("/target", async (req: Request, res: Response) => {
-  const org = await resolveFullOrg(req, res);
+  const org = await resolveFullOrgEditor(req, res);
   if (!org) return;
 
   const { url, key } = req.body as { url?: string; key?: string };
@@ -744,7 +1312,7 @@ router.put("/target", async (req: Request, res: Response) => {
 // Takes a natural-language change request, applies it to the stored site_config,
 // and returns the updated payload for review before re-provisioning.
 router.post("/ai-edit", async (req: Request, res: Response) => {
-  const org = await resolveFullOrg(req, res);
+  const org = await resolveFullOrgEditor(req, res);
   if (!org) return;
 
   const { changeRequest } = req.body as { changeRequest?: string };
@@ -796,6 +1364,8 @@ router.post("/ai-edit", async (req: Request, res: Response) => {
       if (req.includes("social") || req.includes("facebook") || req.includes("instagram")) return ["socialFacebook", "socialInstagram"];
       if (req.includes("name"))                                                      return ["orgName", "shortName"];
       if (req.includes("photo") || req.includes("image") || req.includes("banner"))  return ["heroImageUrl"];
+      if (req.includes("homepage") || req.includes("section") || req.includes("reorder") || req.includes("hide") || req.includes("show")) return ["features", "sections"];
+      if (req.includes("page") || req.includes("navigation") || req.includes("nav") || req.includes("menu") || req.includes("form")) return ["features"];
       if (req.includes("program") || req.includes("service") || req.includes("about")) return ["siteContent"];
       // Fallback: top-level scalar fields only. Object values (like siteContent)
       // can be huge and are excluded to keep the prompt small.
@@ -812,10 +1382,21 @@ router.post("/ai-edit", async (req: Request, res: Response) => {
       if (k in currentConfig) subset[k] = (currentConfig as Record<string, unknown>)[k];
     }
 
+    const websiteEditScope = `Website editing scope:
+- Basic identity edits: organization name, short name, tagline, mission, contact details, meeting information, and social links.
+- Design edits: colors, homepage hero image/visual style, and high-level homepage section emphasis.
+- Content edits: About copy, homepage intro/tagline, programs/services, custom pages, custom page sections, navigation labels, and request-information forms.
+- Page edits: create, update, delete, and hide/show custom pages. Keep navigation clear and never delete built-in admin/member functionality unless explicitly requested.
+- Page section edits: use a controlled block list, not freeform layout. The block schema is { id, type, title, subtitle, body, visible, imageUrl, data }. Store Home in features.homepageSections and standard/custom pages in features.pageSections keyed by page key (about, contact, gallery, members, custom:<slug>). Top-level sections may mirror Home. Allowed Home built-in section types are: ${Array.from(HOMEPAGE_BUILTIN_SECTION_TYPES).join(", ")}. Allowed normal page built-in section types are: ${Array.from(PAGE_BUILTIN_SECTION_TYPES).join(", ")}. Approved template types must come from the registry below.
+- Events are system-managed. Do not edit event titles, dates, descriptions, registrations, or event records through website setup. The Events page content is managed from the Events tab.
+- Media edits: users may upload images manually; when a request asks to add pictures without a file, create a clear placeholder/content area rather than inventing a real image URL.`;
+
     const prompt = `You are updating a community organization's website configuration.
 
 Current values for the fields you may change (JSON):
 ${JSON.stringify(subset, null, 2)}
+
+${websiteEditScope}
 
 ${getSectionRegistryPrompt()}
 
@@ -883,7 +1464,7 @@ Return only the JSON object, no markdown, no explanation.`;
 // ── POST /api/community-site/logo-upload-url ────────────────────────────────
 // Returns a presigned PUT URL so the frontend can upload a logo directly to GCS.
 router.post("/logo-upload-url", async (req: Request, res: Response) => {
-  const org = await resolveFullOrg(req, res);
+  const org = await resolveFullOrgEditor(req, res);
   if (!org) return;
 
   const privateDir = process.env.PRIVATE_OBJECT_DIR;
@@ -894,6 +1475,10 @@ router.post("/logo-upload-url", async (req: Request, res: Response) => {
 
   const { ext: rawExt = "png" } = req.body as { ext?: string };
   const ext = rawExt.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5) || "png";
+  if (!["jpg", "jpeg", "png", "webp", "gif"].includes(ext)) {
+    res.status(400).json({ error: "Logo uploads must be JPG, PNG, WebP, or GIF." });
+    return;
+  }
 
   try {
     const { randomUUID } = await import("crypto");

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useConfig } from "../config-context";
+import { apiFetch } from "../lib/api";
 
 export default function MemberResetPasswordPage() {
   const config = useConfig();
@@ -31,10 +32,9 @@ export default function MemberResetPasswordPage() {
     }
     setBusy(true);
     try {
-      const res = await fetch("/api/members/reset-password", {
+      const res = await apiFetch("/api/members/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ token, password }),
       });
       const data = await res.json();

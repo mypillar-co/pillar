@@ -1,6 +1,15 @@
 import { useState } from "react";
 import { useConfig } from "../config-context";
 import { apiFetch } from "../lib/api";
+import {
+  configuredPageSections,
+  editAttrs,
+  editableCopySections,
+  pageSectionBlock,
+  pageSectionOrder,
+  pageSectionVisible,
+  textOr,
+} from "../lib/pageSections";
 
 export default function ContactPage() {
   const config = useConfig();
@@ -14,6 +23,17 @@ export default function ContactPage() {
   const [message, setMessage] = useState("");
 
   if (!config) return null;
+  const sections = configuredPageSections(config, "contact", [
+    { id: "contact-intro", type: "contact_intro", title: "Contact Us", body: "We'd love to hear from you", visible: true },
+    { id: "contact-form", type: "contact_form", title: "Send a Message", visible: true },
+    { id: "contact-details", type: "contact_details", title: "Get in Touch", visible: true },
+    { id: "contact-social", type: "social_links", title: "Follow Us", visible: true },
+  ]);
+  const intro = pageSectionBlock(sections, "contact_intro");
+  const formSection = pageSectionBlock(sections, "contact_form");
+  const details = pageSectionBlock(sections, "contact_details");
+  const social = pageSectionBlock(sections, "social_links");
+  const extraSections = editableCopySections(sections);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,14 +49,19 @@ export default function ContactPage() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-16">
-      <div className="mb-10">
-        <h1 className="text-3xl md:text-4xl font-bold font-serif mb-2">Contact Us</h1>
-        <p className="text-gray-500">We'd love to hear from you</p>
+    <div className="max-w-5xl mx-auto px-4 py-16 flex flex-col">
+      {pageSectionVisible(sections, "contact_intro") && (
+      <div data-testid="page-section-contact-contact_intro" style={{ order: pageSectionOrder(sections, "contact_intro", 0) }} className="mb-10">
+        <h1 {...editAttrs("contact", intro?.id || "contact-intro", "title")} className="text-3xl md:text-4xl font-bold font-serif mb-2">{textOr(intro?.title) || "Contact Us"}</h1>
+        <p {...editAttrs("contact", intro?.id || "contact-intro", "body")} className="text-gray-500">{textOr(intro?.body) || "We'd love to hear from you"}</p>
       </div>
+      )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-        <div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-12" style={{ order: 10 }}>
+        {pageSectionVisible(sections, "contact_form") && (
+        <div data-testid="page-section-contact-contact_form" style={{ order: pageSectionOrder(sections, "contact_form", 1) }}>
+          {formSection?.title && <h2 {...editAttrs("contact", formSection.id, "title")} className="text-xl font-bold font-serif mb-4">{formSection.title}</h2>}
+          {formSection?.body && <p {...editAttrs("contact", formSection.id, "body")} className="text-gray-500 mb-5">{formSection.body}</p>}
           {submitted ? (
             <div className="p-8 border border-green-200 bg-green-50 rounded-lg text-center">
               <div className="text-3xl mb-3">✉️</div>
@@ -75,9 +100,12 @@ export default function ContactPage() {
             </form>
           )}
         </div>
+        )}
 
-        <div className="space-y-6">
-          <h2 className="text-xl font-bold font-serif">Get in Touch</h2>
+        {pageSectionVisible(sections, "contact_details") && (
+        <div data-testid="page-section-contact-contact_details" style={{ order: pageSectionOrder(sections, "contact_details", 2) }} className="space-y-6">
+          <h2 {...editAttrs("contact", details?.id || "contact-details", "title")} className="text-xl font-bold font-serif">{textOr(details?.title) || "Get in Touch"}</h2>
+          {details?.body && <p {...editAttrs("contact", details.id, "body")} className="text-gray-500 text-sm">{details.body}</p>}
           <div className="space-y-4 text-sm text-gray-600">
             {config.contactAddress && (
               <div className="flex gap-3">
@@ -119,9 +147,10 @@ export default function ContactPage() {
             )}
           </div>
 
-          {(config.socialFacebook || config.socialInstagram || config.socialTwitter || config.socialLinkedin) && (
+          {pageSectionVisible(sections, "social_links") && (config.socialFacebook || config.socialInstagram || config.socialTwitter || config.socialLinkedin) && (
             <div>
-              <p className="font-semibold text-sm mb-3">Follow Us</p>
+              <p {...editAttrs("contact", social?.id || "contact-social", "title")} className="font-semibold text-sm mb-3">{textOr(social?.title) || "Follow Us"}</p>
+              {social?.body && <p {...editAttrs("contact", social.id, "body")} className="text-gray-500 text-sm mb-3">{social.body}</p>}
               <div className="flex gap-3 flex-wrap">
                 {config.socialFacebook && <a href={config.socialFacebook} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 border border-gray-200 rounded-md text-xs hover:bg-gray-50">Facebook</a>}
                 {config.socialInstagram && <a href={config.socialInstagram} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 border border-gray-200 rounded-md text-xs hover:bg-gray-50">Instagram</a>}
@@ -131,7 +160,20 @@ export default function ContactPage() {
             </div>
           )}
         </div>
+        )}
       </div>
+
+      {extraSections.map((section, index) => (
+        <section
+          key={section.id || `${section.type}-${index}`}
+          data-testid={`page-section-contact-${section.type}`}
+          style={{ order: pageSectionOrder(sections, section.type, 20 + index) }}
+          className="py-10"
+        >
+          {section.title && <h2 {...editAttrs("contact", section.id, "title")} className="text-2xl font-bold font-serif mb-4">{section.title}</h2>}
+          {section.body && <p {...editAttrs("contact", section.id, "body")} className="text-gray-600 leading-relaxed whitespace-pre-line">{section.body}</p>}
+        </section>
+      ))}
     </div>
   );
 }

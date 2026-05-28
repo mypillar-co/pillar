@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { Link } from "wouter";
-import { useConfig, type OrgConfig } from "../config-context";
+import { useConfig, type HomepageSectionBlock, type OrgConfig } from "../config-context";
 import { apiFetch } from "../lib/api";
 import { normalizeHeroVisualType } from "../lib/heroVisual";
+import { editAttrs } from "../lib/pageSections";
 
 interface Event {
   id: number;
@@ -34,28 +36,44 @@ export default function HomePage() {
 
   const featuredEvents = events?.filter(e => e.featured).slice(0, 3) || events?.slice(0, 3) || [];
   const get = (key: string, fallback = "") => siteContent?.[key] || fallback;
-  const heroImage = config.heroImageUrl || get("image_home_hero");
-  const heroVisualType = normalizeHeroVisualType(
-    config.features?.heroVisualType ?? config.heroVisualType,
-    config.features?.heroLayout ?? config.heroLayout,
-  );
   const isLodgeSite = isLodgeFraternalSite(config);
   const isLionsSite = !isLodgeSite && isLionsClubSite(config);
   const isRotarySite = !isLodgeSite && !isLionsSite && isRotaryClubSite(config);
   const hasHallSignal = hasHallRentalSignal(config, siteContent);
+  const homepageSections = resolveHomepageSections(config, {
+    hasAnnouncements: (announcements?.length ?? 0) > 0,
+    hasEvents: featuredEvents.length > 0,
+    hasPartners: (config.partners?.length ?? 0) > 0,
+    hasNewsletter: config.features?.newsletter === true,
+    isLodgeSite,
+    isLionsSite,
+    isRotarySite,
+  });
+  const sectionBlock = (type: string) => homepageSections.find(section => section.type === type);
+  const sectionVisible = (type: string) => sectionBlock(type)?.visible !== false;
+  const sectionOrder = (type: string, fallback: number) => {
+    const index = homepageSections.findIndex(section => section.type === type);
+    return index === -1 ? fallback : index;
+  };
+  const heroBlock = sectionBlock("hero");
+  const heroImage = heroBlock?.imageUrl || config.heroImageUrl || get("image_home_hero");
+  const heroVisualType = normalizeHeroVisualType(
+    config.features?.heroVisualType ?? config.heroVisualType,
+    config.features?.heroLayout ?? config.heroLayout,
+  );
   const showBannerBackground = Boolean(heroImage) && heroVisualType === "banner_background";
   const showFeaturePhoto =
     Boolean(heroImage) &&
     (heroVisualType === "feature_photo" || (isLodgeSite && heroVisualType === "none"));
-  const heroTitle = isLodgeSite
+  const heroTitle = textOr(heroBlock?.title) || (isLodgeSite
     ? lodgeHeroTitle(config)
     : isLionsSite
       ? lionsHeroTitle(config)
     : isRotarySite
       ? rotaryHeroTitle(config)
-      : config.orgName;
-  const heroTagline = get("home_tagline") || config.tagline;
-  const heroIntro = isLodgeSite
+      : config.orgName);
+  const heroTagline = textOr(heroBlock?.subtitle) || get("home_tagline") || config.tagline;
+  const heroIntro = textOr(heroBlock?.body) || (isLodgeSite
     ? get("home_intro") ||
       config.mission ||
       `${config.orgName} brings fellowship, service, and tradition together for ${config.location || "the local community"}.`
@@ -67,7 +85,7 @@ export default function HomePage() {
       ? get("home_intro") ||
         config.mission ||
         `${config.orgName} turns local compassion into service through projects, giving, and practical support for ${config.location || "the community"}.`
-    : get("home_intro");
+    : get("home_intro"));
   const primaryAction = isLodgeSite
     ? { label: "Visit a Meeting", href: "/contact" }
     : isLionsSite
@@ -106,10 +124,15 @@ export default function HomePage() {
           { value: "100%", label: "Volunteer Driven" },
         ];
 
+  const extraHomepageSections = homepageSections.filter(
+    section => section.visible !== false && !BUILT_IN_HOMEPAGE_SECTION_TYPES.has(section.type),
+  );
+
   return (
-    <div>
+    <div className="flex flex-col">
       {/* Hero */}
-      <section className={`relative overflow-hidden flex items-center ${showFeaturePhoto ? "cp-hero-split min-h-[560px]" : "min-h-[500px]"} ${isLodgeSite ? "cp-lodge-hero" : ""} ${isRotarySite ? "cp-rotary-hero" : ""} ${isLionsSite ? "cp-lions-hero" : ""}`}>
+      {sectionVisible("hero") && (
+	      <section data-testid="homepage-section-hero" style={{ order: sectionOrder("hero", 0) }} className={`relative overflow-hidden flex items-center ${showFeaturePhoto ? "cp-hero-split min-h-[560px]" : "min-h-[500px]"} ${isLodgeSite ? "cp-lodge-hero" : ""} ${isRotarySite ? "cp-rotary-hero" : ""} ${isLionsSite ? "cp-lions-hero" : ""}`}>
         {showBannerBackground && (
           <img src={heroImage} alt="" className="cp-hero-image absolute inset-0 w-full h-full" />
         )}
@@ -129,16 +152,16 @@ export default function HomePage() {
             <span className="inline-flex items-center mb-4 px-3 py-1 rounded-full text-xs bg-white/20 text-white border border-white/30">
               {isLodgeSite ? "Lodge & Fellowship" : isLionsSite ? "Lions Club" : isRotarySite ? "Service Club" : config.orgType || "Community Organization"}
             </span>
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-3 font-serif leading-tight">
+            <h1 {...editAttrs("home", heroBlock?.id || "hero", "title")} className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-3 font-serif leading-tight">
               {heroTitle}
             </h1>
             {heroTagline && (
-              <p className="text-lg md:text-xl text-white/90 mb-4 font-medium italic">
+              <p {...editAttrs("home", heroBlock?.id || "hero", "subtitle")} className="text-lg md:text-xl text-white/90 mb-4 font-medium italic">
                 {heroTagline}
               </p>
             )}
             {heroIntro && (
-              <p className="text-base text-white/70 mb-8 leading-relaxed max-w-lg">
+              <p {...editAttrs("home", heroBlock?.id || "hero", "body")} className="text-base text-white/70 mb-8 leading-relaxed max-w-lg">
                 {heroIntro}
               </p>
             )}
@@ -162,9 +185,10 @@ export default function HomePage() {
           ) : null}
         </div>
       </section>
+      )}
 
-      {(announcements?.length ?? 0) > 0 && (
-        <section className="cp-announcements" aria-label="Announcements">
+      {sectionVisible("announcements") && (announcements?.length ?? 0) > 0 && (
+        <section style={{ order: sectionOrder("announcements", 1) }} className="cp-announcements" aria-label="Announcements">
           <div className="max-w-7xl mx-auto px-4">
             <div className="cp-announcement-strip">
               <div className="cp-announcement-kicker">Latest announcement</div>
@@ -187,28 +211,35 @@ export default function HomePage() {
         </section>
       )}
 
-      {isLodgeSite && (
-        <LodgeExploreSection config={config} hasHallSignal={hasHallSignal} />
+      {sectionVisible("lodge_explore") && isLodgeSite && (
+        <div style={{ order: sectionOrder("lodge_explore", 2) }}>
+          <LodgeExploreSection config={config} hasHallSignal={hasHallSignal} />
+        </div>
       )}
 
-      {isRotarySite && (
-        <RotaryFeatureMosaic
-          config={config}
-          events={featuredEvents}
-          announcements={announcements ?? []}
-        />
+      {sectionVisible("rotary_features") && isRotarySite && (
+        <div style={{ order: sectionOrder("rotary_features", 3) }}>
+          <RotaryFeatureMosaic
+            config={config}
+            events={featuredEvents}
+            announcements={announcements ?? []}
+          />
+        </div>
       )}
 
-      {isLionsSite && (
-        <LionsSupportPathway config={config} />
+      {sectionVisible("lions_support") && isLionsSite && (
+        <div style={{ order: sectionOrder("lions_support", 4) }}>
+          <LionsSupportPathway config={config} />
+        </div>
       )}
 
       {/* Stats */}
-      <section className={`max-w-7xl mx-auto px-4 py-16 ${isRotarySite ? "cp-rotary-impact" : ""} ${isLionsSite ? "cp-lions-impact" : ""}`}>
+      {sectionVisible("stats") && (
+	      <section data-testid="homepage-section-stats" style={{ order: sectionOrder("stats", 5) }} className={`max-w-7xl mx-auto px-4 py-16 ${isRotarySite ? "cp-rotary-impact" : ""} ${isLionsSite ? "cp-lions-impact" : ""}`}>
         {(isRotarySite || isLionsSite) && (
           <div className={isLionsSite ? "cp-lions-impact-heading" : "cp-rotary-impact-heading"}>
             <span>{isLionsSite ? "Local impact" : "Impact by the numbers"}</span>
-            <h2>{isLionsSite ? "Service people can see" : "Service made visible"}</h2>
+            <h2 {...editAttrs("home", sectionBlock("stats")?.id || "stats", "title")}>{sectionBlock("stats")?.title || (isLionsSite ? "Service people can see" : "Service made visible")}</h2>
           </div>
         )}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -220,22 +251,27 @@ export default function HomePage() {
           ))}
         </div>
       </section>
-
-      {isRotarySite && (
-        <RotaryServiceAreas config={config} />
       )}
 
-      {isLionsSite && (
-        <LionsServicePromo config={config} imageUrl={heroImage} />
+      {sectionVisible("rotary_service_areas") && isRotarySite && (
+        <div style={{ order: sectionOrder("rotary_service_areas", 6) }}>
+          <RotaryServiceAreas config={config} />
+        </div>
+      )}
+
+      {sectionVisible("lions_promo") && isLionsSite && (
+        <div style={{ order: sectionOrder("lions_promo", 7) }}>
+          <LionsServicePromo config={config} imageUrl={heroImage} />
+        </div>
       )}
 
       {/* Upcoming Events */}
-      {featuredEvents.length > 0 && (
-        <section className="bg-gray-50 py-16">
+      {sectionVisible("events") && featuredEvents.length > 0 && (
+	        <section data-testid="homepage-section-events" style={{ order: sectionOrder("events", 8) }} className="bg-gray-50 py-16">
           <div className="max-w-7xl mx-auto px-4">
             <div className="flex items-center justify-between mb-8">
               <div>
-                <h2 className="text-2xl md:text-3xl font-bold font-serif">Upcoming Events</h2>
+                <h2 className="text-2xl md:text-3xl font-bold font-serif">{sectionBlock("events")?.title || "Upcoming Events"}</h2>
                 <p className="text-gray-500 text-sm mt-1">Don't miss what's happening in {config.location || "our community"}</p>
               </div>
               <Link href="/events">
@@ -268,9 +304,9 @@ export default function HomePage() {
       )}
 
       {/* Partners */}
-      {config.partners && config.partners.length > 0 && (
-        <section className="max-w-7xl mx-auto px-4 py-16">
-          <h2 className="text-2xl font-bold font-serif text-center mb-8">Community Partners</h2>
+      {sectionVisible("partners") && config.partners && config.partners.length > 0 && (
+        <section style={{ order: sectionOrder("partners", 9) }} className="max-w-7xl mx-auto px-4 py-16">
+          <h2 {...editAttrs("home", sectionBlock("partners")?.id || "partners", "title")} className="text-2xl font-bold font-serif text-center mb-8">{sectionBlock("partners")?.title || "Community Partners"}</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {config.partners.map((partner) => (
               <div key={partner.name} className="p-4 border border-gray-200 rounded-lg text-center">
@@ -283,11 +319,232 @@ export default function HomePage() {
       )}
 
       {/* Newsletter */}
-      {config.features?.newsletter && (
-        <NewsletterSection orgName={config.orgName} location={config.location} />
+      {sectionVisible("newsletter") && config.features?.newsletter && (
+        <div style={{ order: sectionOrder("newsletter", 10) }}>
+          <NewsletterSection
+            orgName={config.orgName}
+            location={config.location}
+            title={sectionBlock("newsletter")?.title}
+            body={sectionBlock("newsletter")?.body}
+          />
+        </div>
       )}
+
+      {extraHomepageSections.map((section, index) => (
+        <ApprovedHomepageSection
+          key={section.id || `${section.type}-${index}`}
+          section={section}
+          orgName={config.orgName}
+          location={config.location}
+          order={sectionOrder(section.type, 20 + index)}
+        />
+      ))}
     </div>
   );
+}
+
+const BUILT_IN_HOMEPAGE_SECTION_TYPES = new Set([
+  "hero",
+  "announcements",
+  "lodge_explore",
+  "rotary_features",
+  "lions_support",
+  "stats",
+  "rotary_service_areas",
+  "lions_promo",
+  "events",
+  "partners",
+  "newsletter",
+]);
+
+type HomepageSectionFlags = {
+  hasAnnouncements: boolean;
+  hasEvents: boolean;
+  hasPartners: boolean;
+  hasNewsletter: boolean;
+  isLodgeSite: boolean;
+  isLionsSite: boolean;
+  isRotarySite: boolean;
+};
+
+function textOr(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function getConfiguredHomepageSections(config: OrgConfig): HomepageSectionBlock[] {
+  if (Array.isArray(config.features?.homepageSections)) return config.features.homepageSections;
+  if (Array.isArray(config.sections)) return config.sections;
+  return [];
+}
+
+function defaultHomepageSections(flags: HomepageSectionFlags): HomepageSectionBlock[] {
+  const sections: HomepageSectionBlock[] = [
+    { id: "hero", type: "hero", title: "Hero", visible: true },
+  ];
+  if (flags.hasAnnouncements) sections.push({ id: "announcements", type: "announcements", title: "Announcements", visible: true });
+  if (flags.isLodgeSite) sections.push({ id: "lodge-explore", type: "lodge_explore", title: "Explore", visible: true });
+  if (flags.isRotarySite) sections.push({ id: "rotary-features", type: "rotary_features", title: "News & Features", visible: true });
+  if (flags.isLionsSite) sections.push({ id: "lions-support", type: "lions_support", title: "Support Pathway", visible: true });
+  sections.push({ id: "stats", type: "stats", title: "Impact", visible: true });
+  if (flags.isRotarySite) sections.push({ id: "rotary-service-areas", type: "rotary_service_areas", title: "Service Areas", visible: true });
+  if (flags.isLionsSite) sections.push({ id: "lions-promo", type: "lions_promo", title: "Service Promo", visible: true });
+  if (flags.hasEvents) sections.push({ id: "events", type: "events", title: "Upcoming Events", visible: true });
+  if (flags.hasPartners) sections.push({ id: "partners", type: "partners", title: "Community Partners", visible: true });
+  if (flags.hasNewsletter) sections.push({ id: "newsletter", type: "newsletter", title: "Stay Connected", visible: true });
+  return sections;
+}
+
+function resolveHomepageSections(config: OrgConfig, flags: HomepageSectionFlags): HomepageSectionBlock[] {
+  const defaults = defaultHomepageSections(flags);
+  const configured = getConfiguredHomepageSections(config);
+  if (configured.length === 0) return defaults;
+
+  const defaultsByType = new Map(defaults.map(section => [section.type, section]));
+  const normalized = configured
+    .filter(section => section && typeof section.type === "string")
+    .map(section => ({
+      ...(defaultsByType.get(section.type) ?? {}),
+      ...section,
+      id: textOr(section.id) || section.type,
+      visible: section.visible !== false,
+    }));
+
+  for (const section of defaults) {
+    if (!normalized.some(item => item.type === section.type)) {
+      normalized.push(section);
+    }
+  }
+
+  return normalized;
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function listValue(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+}
+
+function ApprovedHomepageSection({
+  section,
+  orgName,
+  location,
+  order,
+}: {
+  section: HomepageSectionBlock;
+  orgName: string;
+  location?: string | null;
+  order: number;
+}) {
+  const data = recordValue(section.data);
+  const title = textOr(section.title) || approvedSectionLabel(section.type);
+  const body = textOr(section.body);
+  const intro = textOr(data.intro) || body;
+
+  if (section.type === "meeting_schedule") {
+    const cadence = textOr(data.cadence) || "Meeting details will be announced soon.";
+    const meetingLocation = textOr(data.location) || location || "";
+    return (
+      <section style={{ order }} className="max-w-4xl mx-auto px-4 py-16">
+        <h2 className="text-2xl md:text-3xl font-bold font-serif mb-4">{title}</h2>
+        {intro && <p className="text-gray-500 mb-6">{intro}</p>}
+        <div className="border border-gray-200 rounded-lg bg-white p-6">
+          <p className="font-semibold text-gray-900">{cadence}</p>
+          {meetingLocation && <p className="text-gray-500 mt-1">{meetingLocation}</p>}
+        </div>
+      </section>
+    );
+  }
+
+  if (section.type === "gallery") {
+    const photos = listValue(data.photos);
+    return (
+      <section style={{ order }} className="bg-gray-50 py-16">
+        <div className="max-w-7xl mx-auto px-4">
+          <h2 className="text-2xl md:text-3xl font-bold font-serif mb-4">{title}</h2>
+          {intro && <p className="text-gray-500 mb-8 max-w-2xl">{intro}</p>}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {(photos.length > 0 ? photos : section.imageUrl ? [{ url: section.imageUrl, caption: title }] : []).map((photo, index) => (
+              <div key={index} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+                {textOr(photo.url) && <img src={textOr(photo.url)} alt={textOr(photo.caption) || title} className="w-full h-48 object-cover" />}
+                {textOr(photo.caption) && <p className="p-3 text-sm text-gray-500">{textOr(photo.caption)}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  const cards = section.type === "volunteer_opportunities"
+    ? listValue(data.opportunities).map(item => ({
+        title: textOr(item.title),
+        body: textOr(item.description),
+      }))
+    : section.type === "leadership"
+      ? listValue(data.members).map(item => ({
+          title: textOr(item.name),
+          body: textOr(item.title),
+        }))
+    : section.type === "documents"
+      ? listValue(data.documents).map(item => ({
+          title: textOr(item.name),
+          body: textOr(item.description),
+        }))
+    : section.type === "sponsors_showcase"
+      ? listValue(data.sponsors).map(item => ({
+          title: textOr(item.name),
+          body: textOr(item.tier),
+        }))
+    : [];
+
+  return (
+    <section style={{ order }} className="max-w-7xl mx-auto px-4 py-16">
+      <div className="max-w-3xl">
+        <h2 className="text-2xl md:text-3xl font-bold font-serif mb-4">{title}</h2>
+        <p className="text-gray-500 leading-relaxed">
+          {intro || defaultApprovedSectionBody(section.type, orgName)}
+        </p>
+      </div>
+      {cards.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
+          {cards.map((card, index) => (
+            <article key={`${card.title}-${index}`} className="border border-gray-200 rounded-lg bg-white p-5">
+              <h3 className="font-semibold text-lg mb-2">{card.title || "Item"}</h3>
+              {card.body && <p className="text-sm text-gray-500">{card.body}</p>}
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function approvedSectionLabel(type: string): string {
+  switch (type) {
+    case "meeting_schedule": return "When We Meet";
+    case "volunteer_opportunities": return "Volunteer Opportunities";
+    case "gallery": return "Photo Gallery";
+    case "documents": return "Resources";
+    case "history": return "Our History";
+    case "leadership": return "Leadership";
+    case "sponsors_showcase": return "Our Sponsors";
+    default: return "Community Section";
+  }
+}
+
+function defaultApprovedSectionBody(type: string, orgName: string): string {
+  switch (type) {
+    case "history": return `${orgName} has a story shaped by service, fellowship, and local commitment.`;
+    case "volunteer_opportunities": return "Explore practical ways to lend a hand and support the work happening now.";
+    case "documents": return "Find helpful documents, forms, and community resources.";
+    default: return `${orgName} shares updates and opportunities for the community here.`;
+  }
 }
 
 function isLodgeFraternalSite(config: OrgConfig): boolean {
@@ -683,13 +940,23 @@ function LodgeExploreSection({
   );
 }
 
-function NewsletterSection({ orgName, location }: { orgName: string; location?: string | null }) {
+function NewsletterSection({
+  orgName,
+  location,
+  title,
+  body,
+}: {
+  orgName: string;
+  location?: string | null;
+  title?: string;
+  body?: string;
+}) {
   return (
     <section className="border-y border-gray-200 bg-white py-16">
       <div className="max-w-7xl mx-auto px-4 text-center">
-        <h2 className="text-2xl md:text-3xl font-bold font-serif mb-2">Stay Connected</h2>
+        <h2 className="text-2xl md:text-3xl font-bold font-serif mb-2">{title || "Stay Connected"}</h2>
         <p className="text-sm text-gray-500 mb-6 max-w-md mx-auto">
-          Get the latest news about {location || orgName} events and community updates.
+          {body || `Get the latest news about ${location || orgName} events and community updates.`}
         </p>
         <form
           onSubmit={async (e) => {

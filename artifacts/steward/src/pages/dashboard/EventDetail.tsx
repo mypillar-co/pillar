@@ -24,14 +24,6 @@ import { uploadImage, isImageFile } from "@/lib/uploadImage";
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 const STATUS_OPTIONS = ["draft", "published", "active", "completed", "cancelled"];
-const STATUS_COLORS: Record<string, string> = {
-  draft: "border-white/20 text-slate-400",
-  pending_approval: "border-amber-500/30 text-amber-400",
-  published: "border-emerald-500/30 text-emerald-400",
-  active: "border-blue-500/30 text-blue-400",
-  completed: "border-slate-500/30 text-slate-500",
-  cancelled: "border-red-500/30 text-red-400",
-};
 const STATUS_LABELS: Record<string, string> = {
   draft: "Draft",
   pending_approval: "Pending Approval",
@@ -86,6 +78,33 @@ function applicationTypeLabel(type: string): string {
   return APPLICATION_TYPE_LABELS[type] ?? `${type.replace(/_/g, " ")} registration`;
 }
 
+function humanizeStatus(status?: string | null): string {
+  if (!status) return "Not set";
+  return STATUS_LABELS[status] ?? status.replace(/_/g, " ");
+}
+
+function statusToneClass(status?: string | null): string {
+  const normalized = (status ?? "").toLowerCase();
+  if (["approved", "published", "active", "paid", "complete", "completed", "notified"].includes(normalized)) {
+    return "border-emerald-500/30 text-emerald-400 bg-emerald-500/10";
+  }
+  if (["rejected", "cancelled", "canceled", "failed", "declined"].includes(normalized)) {
+    return "border-red-500/30 text-red-400 bg-red-500/10";
+  }
+  if (["pending", "pending_approval", "pending_payment", "unpaid", "waiting", "draft"].includes(normalized)) {
+    return "border-amber-500/30 text-amber-400 bg-amber-500/10";
+  }
+  return "border-white/20 text-slate-300 bg-white/5";
+}
+
+function StatusBadge({ status, children }: { status?: string | null; children?: React.ReactNode }) {
+  return (
+    <Badge variant="outline" className={`text-xs capitalize ${statusToneClass(status)}`}>
+      {children ?? humanizeStatus(status)}
+    </Badge>
+  );
+}
+
 function money(value: number | null | undefined): string {
   if (value == null) return "N/A";
   return `$${Number(value).toFixed(2)}`;
@@ -93,7 +112,18 @@ function money(value: number | null | undefined): string {
 
 function paymentLabel(status?: string | null): string {
   if (!status) return "No payment required";
-  return status.replace(/_/g, " ");
+  return humanizeStatus(status);
+}
+
+function formatTimeLabel(time?: string | null): string {
+  if (!time) return "";
+  const match = time.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return time;
+  const hour = Number(match[1]);
+  const minute = match[2];
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const hour12 = hour % 12 || 12;
+  return `${hour12}:${minute} ${suffix}`;
 }
 
 function formatEventDate(event: EventItem): string {
@@ -105,7 +135,8 @@ function formatEventDate(event: EventItem): string {
     day: "numeric",
     year: "numeric",
   });
-  return event.startTime ? `${dateText} at ${event.startTime}` : dateText;
+  const timeText = formatTimeLabel(event.startTime);
+  return timeText ? `${dateText} at ${timeText}` : dateText;
 }
 
 function countdownLabel(startDate?: string | null): string {
@@ -134,6 +165,27 @@ function missingVendorDocs(reg: Registration): string[] {
   if (!reg.insuranceCertUrl) missing.push("Insurance");
   if (isFoodVendor(reg) && !reg.servSafeUrl) missing.push("ServSafe");
   return missing;
+}
+
+function EmptyState({
+  icon: Icon,
+  title,
+  description,
+  action,
+}: {
+  icon: React.ElementType;
+  title: string;
+  description: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="text-center py-14 px-4 border border-dashed border-white/10 rounded-xl bg-white/[0.02]">
+      <Icon className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+      <p className="text-sm font-medium text-slate-200">{title}</p>
+      <p className="text-xs text-muted-foreground/70 mt-1 max-w-md mx-auto">{description}</p>
+      {action && <div className="mt-4">{action}</div>}
+    </div>
+  );
 }
 
 function AddEventSponsorDialog({ open, onClose, eventId, eventName }: {
@@ -829,7 +881,14 @@ export default function EventDetailPage() {
   }
 
   if (isLoading) {
-    return <div className="flex items-center justify-center h-64"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
+    return (
+      <div className="p-6 max-w-6xl mx-auto">
+        <div className="flex items-center justify-center gap-3 h-64 rounded-xl border border-white/10 bg-card/50 text-muted-foreground">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span className="text-sm">Loading event command center...</span>
+        </div>
+      </div>
+    );
   }
 
   if (!event) {
@@ -855,6 +914,8 @@ export default function EventDetailPage() {
   const missingDocApplications = vendorApplications.filter(r => missingVendorDocs(r).length > 0);
   const visibleOnPublicSite = event.showOnPublicSite !== false && !["draft", "cancelled"].includes(event.status);
   const totalRegistrationCount = (detail?.totalSold ?? 0) + rsvpRegistrations.length;
+  const applicationActionPending = approveRegMutation.isPending || rejectRegMutation.isPending;
+  const eventApprovalPending = approveMutation.isPending || rejectMutation.isPending;
   const publicEventUrl = event.slug && orgData?.slug
     ? `https://${orgData.slug}.mypillar.co/events/${event.slug}`
     : null;
@@ -867,12 +928,32 @@ export default function EventDetailPage() {
     { key: "communication", label: "Communication", icon: Mail },
     { key: "waitlist", label: "Waitlist", icon: Clock, count: (waitlist as WaitlistEntry[]).filter(w => w.status === "waiting").length || undefined },
   ];
+  const attentionItems: { label: string; detail: string; count: number; tab: Tab }[] = [
+    {
+      label: "Applications awaiting review",
+      detail: "Approve or reject vendor and sponsor applications.",
+      count: pendingRegs.length,
+      tab: "registrations",
+    },
+    {
+      label: "Vendor documents missing",
+      detail: "Check insurance and food-service documents before approval.",
+      count: missingDocApplications.length,
+      tab: "vendors",
+    },
+    {
+      label: "Payments awaiting follow-up",
+      detail: "Sponsor or vendor applications marked unpaid.",
+      count: unpaidApplications.length,
+      tab: "registrations",
+    },
+  ].filter(item => item.count > 0);
 
   return (
-    <div className="p-6 space-y-5 max-w-4xl mx-auto">
+    <div className="p-4 sm:p-6 space-y-5 max-w-6xl mx-auto">
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-center gap-3 min-w-0">
           <Link href="/dashboard/events">
             <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white flex-shrink-0">
@@ -885,9 +966,7 @@ export default function EventDetailPage() {
               {event.isRecurring && <RefreshCw className="w-4 h-4 text-muted-foreground flex-shrink-0" />}
             </div>
             <div className="flex items-center gap-2 mt-1">
-              <Badge variant="outline" className={`text-xs ${STATUS_COLORS[event.status] ?? ""}`}>
-                {STATUS_LABELS[event.status] ?? event.status}
-              </Badge>
+              <StatusBadge status={event.status} />
               {publicEventUrl && (
                 <a href={publicEventUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors">
                   <ExternalLink className="w-3 h-3" /> View public page
@@ -896,7 +975,7 @@ export default function EventDetailPage() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <Button variant="outline" size="sm" onClick={() => setAiOpen(v => !v)} className="border-primary/30 text-primary hover:bg-primary/10">
             <Sparkles className="w-4 h-4 mr-1.5" /> Ask AI
           </Button>
@@ -991,17 +1070,19 @@ export default function EventDetailPage() {
       {canApproveReject && (
         <Card className="border-amber-500/20 bg-amber-500/5">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base font-semibold text-amber-400">Approval Required</CardTitle>
+            <CardTitle className="text-base font-semibold text-amber-400 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" /> Approval required
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="text-sm text-slate-300">This event is pending approval before it can be published.</p>
+            <p className="text-sm text-slate-300">Review this event before it appears publicly. Approving publishes it; returning it keeps it out of public view.</p>
             <Textarea value={approvalComment} onChange={e => setApprovalComment(e.target.value)} placeholder="Add a comment for the submitter... (optional)" rows={2} className="bg-white/5 border-white/10 text-white placeholder:text-slate-500 resize-none" />
-            <div className="flex gap-2">
-              <Button size="sm" onClick={() => approveMutation.mutate()} disabled={approveMutation.isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button size="sm" onClick={() => approveMutation.mutate()} disabled={eventApprovalPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
                 {approveMutation.isPending ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-1.5" />} Approve & Publish
               </Button>
-              <Button size="sm" variant="outline" onClick={() => rejectMutation.mutate()} disabled={rejectMutation.isPending} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
-                {rejectMutation.isPending ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <XCircle className="w-4 h-4 mr-1.5" />} Reject
+              <Button size="sm" variant="outline" onClick={() => rejectMutation.mutate()} disabled={eventApprovalPending} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
+                {rejectMutation.isPending ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <XCircle className="w-4 h-4 mr-1.5" />} Return to Draft
               </Button>
             </div>
           </CardContent>
@@ -1011,13 +1092,13 @@ export default function EventDetailPage() {
       {/* Event Command Center */}
       <Card className="border-white/10 bg-card/70">
         <CardHeader className="pb-3">
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <CardTitle className="text-base font-semibold text-white">Event Command Center</CardTitle>
-              <p className="mt-1 text-xs text-muted-foreground">Operational snapshot for this event, using live registrations, sponsors, vendors, tickets, and communications.</p>
+              <p className="mt-1 text-xs text-muted-foreground">The current operating picture for registrations, approvals, sponsors, vendors, and event communications.</p>
             </div>
-            <Badge variant="outline" className={visibleOnPublicSite ? "border-emerald-500/30 text-emerald-400" : "border-slate-500/30 text-slate-400"}>
-              {visibleOnPublicSite ? "Public page visible" : "Not public"}
+            <Badge variant="outline" className={visibleOnPublicSite ? "border-emerald-500/30 text-emerald-400 bg-emerald-500/10 w-fit" : "border-slate-500/30 text-slate-300 bg-white/5 w-fit"}>
+              {visibleOnPublicSite ? "Public page live" : "Hidden from public site"}
             </Badge>
           </div>
         </CardHeader>
@@ -1059,33 +1140,43 @@ export default function EventDetailPage() {
             ))}
           </div>
 
-          {(pendingRegs.length > 0 || missingDocApplications.length > 0 || unpaidApplications.length > 0) && (
+          {attentionItems.length > 0 ? (
             <div className="rounded-xl border border-amber-500/20 bg-amber-500/8 p-3">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-amber-400" />
                 <p className="text-sm font-medium text-amber-100">Needs attention</p>
               </div>
               <div className="mt-2 grid gap-2 text-xs text-amber-50/80 sm:grid-cols-3">
-                <button type="button" onClick={() => setTab("registrations")} className="rounded-lg bg-black/10 px-3 py-2 text-left hover:bg-black/20">
-                  {pendingRegs.length} application{pendingRegs.length === 1 ? "" : "s"} awaiting approval
-                </button>
-                <button type="button" onClick={() => setTab("registrations")} className="rounded-lg bg-black/10 px-3 py-2 text-left hover:bg-black/20">
-                  {missingDocApplications.length} vendor{missingDocApplications.length === 1 ? "" : "s"} missing documents
-                </button>
-                <button type="button" onClick={() => setTab("registrations")} className="rounded-lg bg-black/10 px-3 py-2 text-left hover:bg-black/20">
-                  {unpaidApplications.length} unpaid sponsor/vendor item{unpaidApplications.length === 1 ? "" : "s"}
-                </button>
+                {attentionItems.map(item => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => setTab(item.tab)}
+                    className="rounded-lg bg-black/10 px-3 py-2 text-left hover:bg-black/20 focus:outline-none focus:ring-2 focus:ring-amber-400/40"
+                  >
+                    <span className="font-semibold text-amber-100">{item.count}</span> {item.label.toLowerCase()}
+                    <span className="block pt-0.5 text-[11px] text-amber-50/60">{item.detail}</span>
+                  </button>
+                ))}
               </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-500/15 bg-emerald-500/5 p-3">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="h-4 w-4 text-emerald-400" />
+                <p className="text-sm font-medium text-emerald-100">No urgent operational issues</p>
+              </div>
+              <p className="mt-1 text-xs text-emerald-50/60">No pending approvals, missing vendor documents, or unpaid sponsor/vendor items are flagged right now.</p>
             </div>
           )}
         </CardContent>
       </Card>
 
       {/* Tab Bar */}
-      <div className="flex gap-1 p-1 bg-white/5 rounded-xl border border-white/8">
+      <div className="flex gap-1 overflow-x-auto p-1 bg-white/5 rounded-xl border border-white/8">
         {TABS.map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all ${tab === t.key ? "bg-primary text-white" : "text-slate-400 hover:text-white hover:bg-white/5"}`}>
+            className={`shrink-0 sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all ${tab === t.key ? "bg-primary text-white" : "text-slate-400 hover:text-white hover:bg-white/5"}`}>
             <t.icon className="w-3.5 h-3.5" />
             {t.label}
             {t.count != null && t.count > 0 && (
@@ -1107,7 +1198,7 @@ export default function EventDetailPage() {
             <CardContent>
               {editing ? (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label className="text-slate-300">Name</Label>
                       <Input value={form.name ?? ""} onChange={e => set("name")(e.target.value)} className="bg-white/5 border-white/10 text-white" />
@@ -1122,7 +1213,7 @@ export default function EventDetailPage() {
                       </Select>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label className="text-slate-300">Start Date</Label>
                       <Input type="date" value={form.startDate ?? ""} onChange={e => set("startDate")(e.target.value)} className="bg-white/5 border-white/10 text-white" />
@@ -1132,7 +1223,7 @@ export default function EventDetailPage() {
                       <Input type="time" value={form.startTime ?? ""} onChange={e => set("startTime")(e.target.value)} className="bg-white/5 border-white/10 text-white" />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label className="text-slate-300">End Date</Label>
                       <Input type="date" value={form.endDate ?? ""} onChange={e => set("endDate")(e.target.value)} className="bg-white/5 border-white/10 text-white" />
@@ -1149,12 +1240,12 @@ export default function EventDetailPage() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                  <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
                     <div>
                       <p className="text-xs text-muted-foreground mb-0.5">Date</p>
                       <p className="text-sm text-white">
                         {event.startDate ? new Date(event.startDate + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }) : "Not set"}
-                        {event.startTime && ` at ${event.startTime}`}
+                        {event.startTime && ` at ${formatTimeLabel(event.startTime)}`}
                       </p>
                     </div>
                     <div>
@@ -1220,9 +1311,16 @@ export default function EventDetailPage() {
             </CardHeader>
             <CardContent>
               {eventSponsors.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-white/10 p-4 text-sm text-muted-foreground">
-                  No sponsors are linked to this event yet. Add the businesses or partners supporting this event here.
-                </div>
+                <EmptyState
+                  icon={Star}
+                  title="No sponsors linked yet"
+                  description="Add approved businesses or partners here so they can be tracked and shown with this event."
+                  action={(
+                    <Button size="sm" variant="outline" onClick={() => setAddingSponsor(true)} className="border-white/10 text-slate-300">
+                      <Plus className="w-4 h-4 mr-2" /> Add Sponsor
+                    </Button>
+                  )}
+                />
               ) : (
                 <div className="grid gap-2 sm:grid-cols-2">
                   {eventSponsors.slice(0, 4).map((sponsor: EventSponsor) => (
@@ -1253,9 +1351,16 @@ export default function EventDetailPage() {
             </CardHeader>
             <CardContent>
               {eventVendors.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-white/10 p-4 text-sm text-muted-foreground">
-                  No vendors are linked to this event yet. Add approved booths, food vendors, or service partners here.
-                </div>
+                <EmptyState
+                  icon={ShoppingBag}
+                  title="No vendors linked yet"
+                  description="Add approved booths, food vendors, or service partners here. Vendors stay internal unless you enable a public listing later."
+                  action={(
+                    <Button size="sm" variant="outline" onClick={() => setAddingVendor(true)} className="border-white/10 text-slate-300">
+                      <Plus className="w-4 h-4 mr-2" /> Add Vendor
+                    </Button>
+                  )}
+                />
               ) : (
                 <div className="grid gap-2 sm:grid-cols-2">
                   {eventVendors.slice(0, 4).map((vendor: EventVendor) => (
@@ -1335,12 +1440,13 @@ export default function EventDetailPage() {
       {/* ── SPONSORS TAB ── */}
       {tab === "sponsors" && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
+              <h2 className="text-base font-semibold text-white">Sponsor operations</h2>
               <p className="text-sm text-muted-foreground">{eventSponsors.length} sponsor{eventSponsors.length !== 1 ? "s" : ""} linked to this event</p>
               <p className="text-xs text-muted-foreground/70 mt-0.5">Sponsors added here are served with this event on the public event page.</p>
             </div>
-            <Button size="sm" onClick={() => setAddingSponsor(true)}>
+            <Button size="sm" onClick={() => setAddingSponsor(true)} className="w-fit">
               <Plus className="w-4 h-4 mr-2" /> Add Sponsor
             </Button>
           </div>
@@ -1350,17 +1456,17 @@ export default function EventDetailPage() {
                 <CardTitle className="text-base font-semibold text-white flex items-center gap-2">
                   <ClipboardList className="w-4 h-4 text-amber-400" /> Sponsor Applications
                 </CardTitle>
+                <p className="mt-1 text-xs text-muted-foreground">Review pending sponsor requests before they appear as event sponsors.</p>
               </CardHeader>
               <CardContent className="space-y-2">
                 {sponsorApplications.map((reg) => {
-                  const statusColor = reg.status === "approved" ? "border-emerald-500/30 text-emerald-400" : reg.status === "rejected" ? "border-red-500/30 text-red-400" : reg.status === "pending_approval" ? "border-amber-500/30 text-amber-400" : "border-white/20 text-slate-400";
                   return (
                     <div key={reg.id} className="rounded-xl border border-white/8 bg-white/5 p-3">
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-medium text-white truncate">{reg.name}</p>
-                            <Badge variant="outline" className={`text-xs capitalize ${statusColor}`}>{reg.status.replace(/_/g, " ")}</Badge>
+                            <StatusBadge status={reg.status} />
                             {reg.tier && <Badge variant="outline" className="text-xs border-amber-500/30 text-amber-400">{reg.tier}</Badge>}
                           </div>
                           <p className="mt-1 text-xs text-muted-foreground">{reg.email || "No email"}{reg.phone ? ` · ${reg.phone}` : ""}</p>
@@ -1368,11 +1474,11 @@ export default function EventDetailPage() {
                           <p className="mt-1 text-xs text-muted-foreground">Logo: {reg.logoUrl ? "Submitted" : "Not submitted"}</p>
                         </div>
                         {reg.status === "pending_approval" && (
-                          <div className="flex shrink-0 gap-2">
-                            <Button size="sm" onClick={() => approveRegMutation.mutate(reg.id)} disabled={approveRegMutation.isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-                              <CheckCircle className="w-3.5 h-3.5 mr-1.5" /> Approve
+                          <div className="flex flex-col gap-2 sm:flex-row sm:shrink-0">
+                            <Button size="sm" onClick={() => approveRegMutation.mutate(reg.id)} disabled={applicationActionPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                              {approveRegMutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5 mr-1.5" />} Approve
                             </Button>
-                            <Button size="sm" variant="outline" onClick={() => setRejectingId(reg.id)} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
+                            <Button size="sm" variant="outline" onClick={() => setRejectingId(reg.id)} disabled={applicationActionPending} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
                               <XCircle className="w-3.5 h-3.5 mr-1.5" /> Reject
                             </Button>
                           </div>
@@ -1385,14 +1491,12 @@ export default function EventDetailPage() {
             </Card>
           )}
           {eventSponsors.length === 0 ? (
-            <div className="text-center py-16 border border-dashed border-white/10 rounded-xl">
-              <Star className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-              <p className="text-muted-foreground">No sponsors linked to this event</p>
-              <p className="text-xs text-muted-foreground/60 mt-1">Add sponsor names, websites, and optional logos for this specific event.</p>
-              <Button size="sm" className="mt-4" onClick={() => setAddingSponsor(true)}>
-                <Plus className="w-4 h-4 mr-2" /> Add Event Sponsor
-              </Button>
-            </div>
+            <EmptyState
+              icon={Star}
+              title="No sponsors linked to this event"
+              description="Add sponsor names, websites, and optional logos for this specific event."
+              action={<Button size="sm" onClick={() => setAddingSponsor(true)}><Plus className="w-4 h-4 mr-2" /> Add Event Sponsor</Button>}
+            />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
               {eventSponsors.map((sponsor: EventSponsor) => (
@@ -1434,12 +1538,13 @@ export default function EventDetailPage() {
       {/* ── VENDORS TAB ── */}
       {tab === "vendors" && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
+              <h2 className="text-base font-semibold text-white">Vendor operations</h2>
               <p className="text-sm text-muted-foreground">{eventVendors.length} vendor{eventVendors.length !== 1 ? "s" : ""} linked to this event</p>
               <p className="text-xs text-muted-foreground/70 mt-0.5">Vendors are operational records by default and are not shown publicly unless a public listing is enabled later.</p>
             </div>
-            <Button size="sm" onClick={() => setAddingVendor(true)}>
+            <Button size="sm" onClick={() => setAddingVendor(true)} className="w-fit">
               <Plus className="w-4 h-4 mr-2" /> Add Vendor
             </Button>
           </div>
@@ -1449,18 +1554,18 @@ export default function EventDetailPage() {
                 <CardTitle className="text-base font-semibold text-white flex items-center gap-2">
                   <ClipboardList className="w-4 h-4 text-primary" /> Vendor Applications
                 </CardTitle>
+                <p className="mt-1 text-xs text-muted-foreground">Review applications, document status, and payment status before approving vendors.</p>
               </CardHeader>
               <CardContent className="space-y-2">
                 {vendorApplications.map((reg) => {
-                  const statusColor = reg.status === "approved" ? "border-emerald-500/30 text-emerald-400" : reg.status === "rejected" ? "border-red-500/30 text-red-400" : reg.status === "pending_approval" ? "border-amber-500/30 text-amber-400" : "border-white/20 text-slate-400";
                   const missing = missingVendorDocs(reg);
                   return (
                     <div key={reg.id} className="rounded-xl border border-white/8 bg-white/5 p-3">
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-medium text-white truncate">{reg.name}</p>
-                            <Badge variant="outline" className={`text-xs capitalize ${statusColor}`}>{reg.status.replace(/_/g, " ")}</Badge>
+                            <StatusBadge status={reg.status} />
                             {reg.vendorType && <Badge variant="outline" className="text-xs border-primary/30 text-primary">{reg.vendorType}</Badge>}
                           </div>
                           <p className="mt-1 text-xs text-muted-foreground">{reg.contactName || reg.email || "No contact"}{reg.phone ? ` · ${reg.phone}` : ""}</p>
@@ -1483,11 +1588,11 @@ export default function EventDetailPage() {
                           <p className="mt-2 text-xs text-muted-foreground">Payment: {paymentLabel(reg.stripePaymentStatus)}{reg.feeAmount != null ? ` · ${reg.feeAmount > 0 ? `$${(reg.feeAmount / 100).toFixed(2)}` : "Waived"}` : ""}</p>
                         </div>
                         {reg.status === "pending_approval" && (
-                          <div className="flex shrink-0 gap-2">
-                            <Button size="sm" onClick={() => approveRegMutation.mutate(reg.id)} disabled={approveRegMutation.isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-                              <CheckCircle className="w-3.5 h-3.5 mr-1.5" /> Approve
+                          <div className="flex flex-col gap-2 sm:flex-row sm:shrink-0">
+                            <Button size="sm" onClick={() => approveRegMutation.mutate(reg.id)} disabled={applicationActionPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                              {approveRegMutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5 mr-1.5" />} Approve
                             </Button>
-                            <Button size="sm" variant="outline" onClick={() => setRejectingId(reg.id)} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
+                            <Button size="sm" variant="outline" onClick={() => setRejectingId(reg.id)} disabled={applicationActionPending} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
                               <XCircle className="w-3.5 h-3.5 mr-1.5" /> Reject
                             </Button>
                           </div>
@@ -1500,14 +1605,12 @@ export default function EventDetailPage() {
             </Card>
           )}
           {eventVendors.length === 0 ? (
-            <div className="text-center py-16 border border-dashed border-white/10 rounded-xl">
-              <ShoppingBag className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-              <p className="text-muted-foreground">No vendors linked to this event</p>
-              <p className="text-xs text-muted-foreground/60 mt-1">Add vendors manually or approve event vendor applications from Registrations.</p>
-              <Button size="sm" className="mt-4" onClick={() => setAddingVendor(true)}>
-                <Plus className="w-4 h-4 mr-2" /> Add Event Vendor
-              </Button>
-            </div>
+            <EmptyState
+              icon={ShoppingBag}
+              title="No vendors linked to this event"
+              description="Add vendors manually or approve public event vendor applications."
+              action={<Button size="sm" onClick={() => setAddingVendor(true)}><Plus className="w-4 h-4 mr-2" /> Add Event Vendor</Button>}
+            />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
               {eventVendors.map((vendor: EventVendor) => (
@@ -1547,16 +1650,19 @@ export default function EventDetailPage() {
       {tab === "registrations" && (
         <div className="space-y-4">
           {regsLoading ? (
-            <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
-          ) : (registrations as Registration[]).length === 0 ? (
-            <div className="text-center py-16 border border-dashed border-white/10 rounded-xl">
-              <ClipboardList className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-              <p className="text-muted-foreground">No applications yet</p>
-              <p className="text-xs text-muted-foreground/60 mt-1">Vendor and sponsor applications submitted through your public event page will appear here</p>
+            <div className="flex items-center justify-center gap-3 py-12 rounded-xl border border-white/10 bg-card/50 text-muted-foreground">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span className="text-sm">Loading registration activity...</span>
             </div>
+          ) : (registrations as Registration[]).length === 0 ? (
+            <EmptyState
+              icon={ClipboardList}
+              title="No registrations or applications yet"
+              description="RSVPs, vendor applications, and sponsor applications submitted through your public event page will appear here."
+            />
           ) : (
             <>
-              <div className="grid gap-2 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
                 {[
                   { label: "RSVPs", value: rsvpRegistrations.length, detail: "Free registrations" },
                   { label: "Ticketed attendees", value: detail?.totalSold ?? 0, detail: "Ticket/RSVP sales records" },
@@ -1578,11 +1684,10 @@ export default function EventDetailPage() {
               )}
               <div className="space-y-2">
                 {(registrations as Registration[]).map(reg => {
-                  const isExpanded = expandedReg === reg.id;
-                  const statusColor = reg.status === "approved" ? "border-emerald-500/30 text-emerald-400" : reg.status === "rejected" ? "border-red-500/30 text-red-400" : reg.status === "pending_approval" ? "border-amber-500/30 text-amber-400" : "border-white/20 text-slate-400";
+                const isExpanded = expandedReg === reg.id;
                   return (
                     <div key={reg.id} className="border border-white/8 bg-card/50 rounded-xl overflow-hidden">
-                      <div className="flex items-center justify-between p-4 cursor-pointer hover:bg-white/5 transition-colors" onClick={() => setExpandedReg(isExpanded ? null : reg.id)}>
+                      <div className="flex flex-col gap-3 p-4 cursor-pointer hover:bg-white/5 transition-colors sm:flex-row sm:items-center sm:justify-between" onClick={() => setExpandedReg(isExpanded ? null : reg.id)}>
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
                             <span className="text-xs font-bold text-primary">{reg.type === "vendor" ? "V" : reg.type === "sponsor" ? "S" : "R"}</span>
@@ -1592,15 +1697,15 @@ export default function EventDetailPage() {
                             <p className="text-xs text-muted-foreground">{reg.contactName ?? reg.email ?? ""} · {applicationTypeLabel(reg.type)}</p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
+                        <div className="flex flex-wrap items-center gap-2 sm:flex-shrink-0">
                           <Badge variant="outline" className="text-xs border-white/15 text-slate-300">{applicationTypeLabel(reg.type)}</Badge>
-                          <Badge variant="outline" className={`text-xs capitalize ${statusColor}`}>{reg.status.replace(/_/g, " ")}</Badge>
+                          <StatusBadge status={reg.status} />
                           {isExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
                         </div>
                       </div>
                       {isExpanded && (
                         <div className="px-4 pb-4 border-t border-white/8 pt-3 space-y-3">
-                          <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                          <div className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
                             {reg.email && <div><p className="text-xs text-muted-foreground">Email</p><p className="text-sm text-white">{reg.email}</p></div>}
                             {reg.phone && <div><p className="text-xs text-muted-foreground">Phone</p><p className="text-sm text-white">{reg.phone}</p></div>}
                             {reg.vendorType && <div><p className="text-xs text-muted-foreground">Vendor Type</p><p className="text-sm text-white capitalize">{reg.vendorType}</p></div>}
@@ -1627,11 +1732,11 @@ export default function EventDetailPage() {
                             </div>
                           )}
                           {reg.status === "pending_approval" && (
-                            <div className="flex gap-2 pt-1">
-                              <Button size="sm" onClick={() => approveRegMutation.mutate(reg.id)} disabled={approveRegMutation.isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                            <div className="flex flex-col gap-2 pt-1 sm:flex-row">
+                              <Button size="sm" onClick={() => approveRegMutation.mutate(reg.id)} disabled={applicationActionPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
                                 {approveRegMutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5 mr-1.5" />} Approve
                               </Button>
-                              <Button size="sm" variant="outline" onClick={() => setRejectingId(reg.id)} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
+                              <Button size="sm" variant="outline" onClick={() => setRejectingId(reg.id)} disabled={applicationActionPending} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
                                 <XCircle className="w-3.5 h-3.5 mr-1.5" /> Reject
                               </Button>
                             </div>
@@ -1650,20 +1755,22 @@ export default function EventDetailPage() {
       {/* ── ATTENDEES TAB ── */}
       {tab === "attendees" && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">{detail?.totalSold ?? 0} attendee{detail?.totalSold !== 1 ? "s" : ""} · ${(detail?.totalRevenue ?? 0).toFixed(2)} total revenue</p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-white">Attendees and sales</h2>
+              <p className="text-sm text-muted-foreground">{detail?.totalSold ?? 0} ticketed attendee{detail?.totalSold !== 1 ? "s" : ""} · {rsvpRegistrations.length} RSVP{rsvpRegistrations.length === 1 ? "" : "s"} · ${(detail?.totalRevenue ?? 0).toFixed(2)} total revenue</p>
+            </div>
             <Button size="sm" variant="outline" onClick={() => setAddingSale(true)} className="border-white/10 text-slate-300 h-7 text-xs">
               <Plus className="w-3 h-3 mr-1" /> Record Sale
             </Button>
           </div>
           {!detail?.sales?.length ? (
-            <div className="text-center py-16 border border-dashed border-white/10 rounded-xl">
-              <Users className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-              <p className="text-muted-foreground">No ticket sales recorded yet</p>
-              <Button size="sm" className="mt-4" onClick={() => setAddingSale(true)}>
-                <Plus className="w-4 h-4 mr-2" /> Record First Sale
-              </Button>
-            </div>
+            <EmptyState
+              icon={Users}
+              title="No ticket sales recorded yet"
+              description="Manual ticket sales and attendee payment records will show here. RSVP registrations are tracked in the Registrations tab."
+              action={<Button size="sm" onClick={() => setAddingSale(true)}><Plus className="w-4 h-4 mr-2" /> Record First Sale</Button>}
+            />
           ) : (
             <div className="space-y-1.5">
               <div className="grid grid-cols-12 gap-2 px-3 mb-1">
@@ -1699,6 +1806,7 @@ export default function EventDetailPage() {
               <CardTitle className="text-base font-semibold text-white flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-primary" /> Communication Quick Actions
               </CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">Prepare event messages from the current event context. Drafts fill the editor below for human review.</p>
             </CardHeader>
             <CardContent>
               <div className="grid gap-2 sm:grid-cols-2">
@@ -1715,20 +1823,24 @@ export default function EventDetailPage() {
                     disabled={draftCommMutation.isPending}
                     className="rounded-xl border border-white/8 bg-white/5 p-3 text-left transition-colors hover:bg-white/8 disabled:opacity-60"
                   >
-                    <p className="text-sm font-medium text-white">{action.label}</p>
+                    <p className="text-sm font-medium text-white flex items-center gap-2">
+                      {draftCommMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                      {action.label}
+                    </p>
                     <p className="mt-1 text-xs text-muted-foreground">{action.detail}</p>
                   </button>
                 ))}
               </div>
-              <p className="mt-3 text-xs text-muted-foreground">Drafts are prepared here only. Nothing is sent until a human reviews and confirms.</p>
+              <p className="mt-3 text-xs text-muted-foreground">Drafts are prepared here only. Nothing is sent until you review the subject and message.</p>
             </CardContent>
           </Card>
 
           <Card className="border-white/10 bg-card/60">
             <CardHeader className="pb-3">
               <CardTitle className="text-base font-semibold text-white flex items-center gap-2">
-                <Mail className="w-4 h-4 text-primary" /> Send Message to Attendees
+                <Mail className="w-4 h-4 text-primary" /> Review and send attendee message
               </CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">Use this for attendee-facing event updates after reviewing the draft.</p>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-1.5">
@@ -1741,7 +1853,7 @@ export default function EventDetailPage() {
               </div>
               <div className="flex items-center justify-between pt-1">
                 <p className="text-xs text-muted-foreground">{detail?.totalSold ?? 0} attendee{detail?.totalSold !== 1 ? "s" : ""} will receive this message</p>
-                <Button size="sm" onClick={() => sendCommMutation.mutate()} disabled={!commSubject || !commBody || sendCommMutation.isPending}>
+                <Button size="sm" onClick={() => sendCommMutation.mutate()} disabled={!commSubject.trim() || !commBody.trim() || sendCommMutation.isPending}>
                   {sendCommMutation.isPending ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Send className="w-4 h-4 mr-1.5" />} Send Message
                 </Button>
               </div>
@@ -1769,11 +1881,11 @@ export default function EventDetailPage() {
               </CardContent>
             </Card>
           ) : (
-            <div className="text-center py-12 border border-dashed border-white/10 rounded-xl">
-              <MessageSquare className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-              <p className="text-muted-foreground">No messages sent yet</p>
-              <p className="text-xs text-muted-foreground/60 mt-1">Messages you send to attendees will appear here</p>
-            </div>
+            <EmptyState
+              icon={MessageSquare}
+              title="No messages sent yet"
+              description="Messages you send to attendees will appear here with recipient counts."
+            />
           )}
         </div>
       )}
@@ -1782,11 +1894,11 @@ export default function EventDetailPage() {
       {tab === "waitlist" && (
         <div className="space-y-4">
           {(waitlist as WaitlistEntry[]).length === 0 ? (
-            <div className="text-center py-16 border border-dashed border-white/10 rounded-xl">
-              <Clock className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-              <p className="text-muted-foreground">No one on the waitlist</p>
-              <p className="text-xs text-muted-foreground/60 mt-1">When the event sells out, sign-ups will appear here</p>
-            </div>
+            <EmptyState
+              icon={Clock}
+              title="No one on the waitlist"
+              description="When the event sells out, waitlist sign-ups will appear here."
+            />
           ) : (
             <div className="space-y-2">
               {(waitlist as WaitlistEntry[]).map((entry) => (

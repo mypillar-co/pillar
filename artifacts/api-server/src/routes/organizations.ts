@@ -40,6 +40,8 @@ import { objectStorageClient, ObjectStorageService } from "../lib/objectStorage.
 import { AI_UNAVAILABLE_MESSAGE, createOpenAIClient } from "../lib/openaiClient";
 
 const objectStorageService = new ObjectStorageService();
+const ALLOWED_HERO_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const MAX_HERO_IMAGE_BYTES = 10 * 1024 * 1024;
 
 interface UnsplashPhoto {
   id: string;
@@ -905,8 +907,8 @@ router.post("/organizations/hero-image/upload", async (req: Request, res: Respon
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const contentType = (req.headers["content-type"] ?? "").split(";")[0].trim();
-  if (!contentType.startsWith("image/")) {
-    res.status(400).json({ error: "Image content-type required" });
+  if (!ALLOWED_HERO_IMAGE_TYPES.has(contentType.toLowerCase())) {
+    res.status(400).json({ error: "Only JPG, PNG, WebP, and GIF images are supported." });
     return;
   }
 
@@ -918,6 +920,10 @@ router.post("/organizations/hero-image/upload", async (req: Request, res: Respon
     for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as ArrayBuffer));
     const imageBuffer = Buffer.concat(chunks);
     if (imageBuffer.length === 0) { res.status(400).json({ error: "Empty file" }); return; }
+    if (imageBuffer.length > MAX_HERO_IMAGE_BYTES) {
+      res.status(413).json({ error: "Images must be 10 MB or smaller." });
+      return;
+    }
 
     const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
     let heroImageUrl: string;
