@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { toast } from "sonner";
-import { Plus, Trash2, ArrowUp, ArrowDown, Sparkles, Save, X, Eye, GripVertical } from "lucide-react";
+import { Plus, Trash2, ArrowUp, ArrowDown, Sparkles, Save, X, Eye, GripVertical, RotateCcw, Users } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,8 +42,36 @@ type AvailableSection = {
 type PortalResponse = {
   sections: PortalSection[];
   provisionedAt: string | null;
+  orgName?: string | null;
+  orgSlug?: string | null;
+  warning?: string;
   available: AvailableSection[];
 };
+
+type PersistedPortalDraft = {
+  sections: PortalSection[];
+  savedProvisionedAt: string | null;
+  updatedAt: string;
+};
+
+const LOCKED_SYSTEM_SECTION_TYPES = new Set(["member_roster"]);
+
+function portalDraftStorageKey(scope: string): string {
+  return `pillar:members-portal-draft:${scope || "current"}`;
+}
+
+function readPersistedDraft(key: string, savedProvisionedAt: string | null): PortalSection[] | null {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PersistedPortalDraft>;
+    if (!Array.isArray(parsed.sections)) return null;
+    if ((parsed.savedProvisionedAt ?? null) !== savedProvisionedAt) return null;
+    return parsed.sections as PortalSection[];
+  } catch {
+    return null;
+  }
+}
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
@@ -61,25 +90,32 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
 
 export default function MembersPortal() {
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery<PortalResponse>({
+  const { data, isLoading, isError, error } = useQuery<PortalResponse>({
     queryKey: ["/api/members-portal"],
     queryFn: () => apiJson<PortalResponse>("/api/members-portal"),
   });
 
   const [draft, setDraft] = useState<PortalSection[]>([]);
   const [dirty, setDirty] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [syncWarning, setSyncWarning] = useState<string | null>(null);
   const [addType, setAddType] = useState<string>("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const draftScope = data?.orgSlug ?? data?.orgName ?? "current";
+  const draftKey = portalDraftStorageKey(draftScope);
 
   useEffect(() => {
     if (data?.sections) {
-      setDraft(data.sections);
-      setDirty(false);
+      const persisted = readPersistedDraft(draftKey, data.provisionedAt ?? null);
+      setDraft(persisted ?? data.sections);
+      setDirty(Boolean(persisted));
+      setSaveError(null);
+      setSyncWarning(data.warning ?? null);
       setSelectedIndex(0);
     }
-  }, [data?.sections]);
+  }, [data?.sections, data?.provisionedAt, draftKey]);
 
   useEffect(() => {
     setSelectedIndex((current) => {
@@ -88,33 +124,79 @@ export default function MembersPortal() {
     });
   }, [draft.length]);
 
+  useEffect(() => {
+    if (!data?.sections) return;
+    if (!dirty) {
+      window.localStorage.removeItem(draftKey);
+      return;
+    }
+    const payload: PersistedPortalDraft = {
+      sections: draft,
+      savedProvisionedAt: data.provisionedAt ?? null,
+      updatedAt: new Date().toISOString(),
+    };
+    window.localStorage.setItem(draftKey, JSON.stringify(payload));
+  }, [data?.sections, data?.provisionedAt, dirty, draft, draftKey]);
+
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [dirty]);
+
   const save = useMutation({
     mutationFn: (sections: PortalSection[]) =>
       apiJson<PortalResponse>("/api/members-portal", {
         method: "PATCH",
         body: JSON.stringify({ sections }),
       }),
+    onMutate: () => {
+      setSaveError(null);
+    },
     onSuccess: (resp) => {
       qc.setQueryData(["/api/members-portal"], (prev: PortalResponse | undefined) =>
-        prev ? { ...prev, sections: resp.sections, provisionedAt: resp.provisionedAt } : prev,
+        prev ? { ...prev, ...resp, sections: resp.sections, provisionedAt: resp.provisionedAt } : resp,
       );
       setDirty(false);
-      toast.success("Portal saved");
+      window.localStorage.removeItem(draftKey);
+      setSyncWarning(resp.warning ?? null);
+      if (resp.warning) toast.warning(resp.warning);
+      else toast.success("Portal saved");
     },
-    onError: (e: any) => toast.error(e.message ?? "Save failed"),
+    onError: (e: any) => {
+      const message = e.message ?? "Save failed";
+      setSaveError(message);
+      toast.error(message);
+    },
   });
 
   const aiSuggest = useMutation({
     mutationFn: () =>
-      apiJson<{ suggestions: PortalSection[] }>("/api/members-portal/ai-suggest", { method: "POST" }),
+      apiJson<{ suggestions: PortalSection[] }>("/api/members-portal/ai-suggest", {
+        method: "POST",
+        body: JSON.stringify({ draftSectionTypes: draft.map((section) => section.type) }),
+      }),
     onSuccess: (resp) => {
-      if (!resp.suggestions?.length) {
+      const existingTypes = new Set(draft.map((section) => section.type));
+      const suggestions = (resp.suggestions ?? []).filter((section) => {
+        if (!section?.type || existingTypes.has(section.type)) return false;
+        existingTypes.add(section.type);
+        return true;
+      });
+      if (!suggestions.length) {
         toast.info("No new suggestions right now.");
         return;
       }
-      setDraft((prev) => [...prev, ...resp.suggestions]);
+      setDraft((prev) => [...prev, ...suggestions]);
+      setSelectedIndex(draft.length);
       setDirty(true);
-      toast.success(`Added ${resp.suggestions.length} suggested section${resp.suggestions.length === 1 ? "" : "s"} — review and save.`);
+      setSaveError(null);
+      setSyncWarning(null);
+      toast.success(`Added ${suggestions.length} suggested section${suggestions.length === 1 ? "" : "s"} — review and save.`);
     },
     onError: (e: any) => toast.error(e.message ?? "AI suggestion failed"),
   });
@@ -137,6 +219,8 @@ export default function MembersPortal() {
     setDraft(next);
     setSelectedIndex(j);
     setDirty(true);
+    setSaveError(null);
+    setSyncWarning(null);
   }
   function reorder(from: number, to: number) {
     if (from === to || from < 0 || to < 0 || from >= draft.length || to >= draft.length) return;
@@ -146,15 +230,21 @@ export default function MembersPortal() {
     setDraft(next);
     setSelectedIndex(to);
     setDirty(true);
+    setSaveError(null);
+    setSyncWarning(null);
   }
   function remove(idx: number) {
     setDraft(draft.filter((_, i) => i !== idx));
     setSelectedIndex(Math.max(0, Math.min(idx, draft.length - 2)));
     setDirty(true);
+    setSaveError(null);
+    setSyncWarning(null);
   }
   function update(idx: number, patch: Partial<PortalSection>) {
     setDraft(draft.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
     setDirty(true);
+    setSaveError(null);
+    setSyncWarning(null);
   }
   function addSection() {
     if (!addType) return;
@@ -164,9 +254,35 @@ export default function MembersPortal() {
     setSelectedIndex(draft.length);
     setAddType("");
     setDirty(true);
+    setSaveError(null);
+    setSyncWarning(null);
+  }
+
+  function discardDraft() {
+    setDraft(data?.sections ?? []);
+    setSelectedIndex(0);
+    setDirty(false);
+    setSaveError(null);
+    setSyncWarning(null);
+    window.localStorage.removeItem(draftKey);
+    toast.info("Draft discarded");
   }
 
   if (isLoading) return <div className="p-8 text-sm text-slate-500">Loading…</div>;
+  if (isError) {
+    const message = error instanceof Error ? error.message : "Members portal could not be loaded.";
+    return (
+      <div className="p-6 sm:p-8 max-w-3xl mx-auto">
+        <Card className="p-6 border-red-200 bg-red-50">
+          <p className="text-sm font-semibold text-red-900">Members portal unavailable</p>
+          <p className="mt-1 text-sm text-red-700">{message}</p>
+          <Button className="mt-4" variant="outline" onClick={() => qc.invalidateQueries({ queryKey: ["/api/members-portal"] })}>
+            Try again
+          </Button>
+        </Card>
+      </div>
+    );
+  }
   const selected = draft[selectedIndex] ?? draft[0];
   const selectedMeta = selected ? data?.available.find((a) => a.type === selected.type) : null;
 
@@ -182,6 +298,12 @@ export default function MembersPortal() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {dirty && (
+            <Button data-testid="members-portal-discard" variant="ghost" onClick={discardDraft}>
+              <RotateCcw className="w-4 h-4 mr-1.5" />
+              Discard draft
+            </Button>
+          )}
           <Button variant="outline" onClick={() => aiSuggest.mutate()} disabled={aiSuggest.isPending}>
             <Sparkles className="w-4 h-4 mr-1.5" />
             {aiSuggest.isPending ? "Finding sections…" : "Suggest sections"}
@@ -195,11 +317,23 @@ export default function MembersPortal() {
 
       <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
         {dirty ? (
-          <span>Previewing unsaved draft. Save changes when the portal looks right.</span>
+          <span>Previewing unsaved draft. Save changes when the portal looks right, or discard to return to the saved portal.</span>
         ) : (
           <span>Showing saved portal. Changes you make here update the preview first.</span>
         )}
       </div>
+
+      {saveError && (
+        <div data-testid="members-portal-save-error" aria-live="polite" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <strong className="font-semibold">Save failed.</strong> {saveError}
+        </div>
+      )}
+
+      {syncWarning && (
+        <div data-testid="members-portal-sync-warning" aria-live="polite" className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-900">
+          <strong className="font-semibold">Saved locally.</strong> {syncWarning}
+        </div>
+      )}
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_430px]">
         <Card className="overflow-hidden border-slate-200 bg-slate-950">
@@ -251,7 +385,7 @@ export default function MembersPortal() {
               )}
             </Card>
 
-            <div className="space-y-2">
+            <div className="space-y-2" role="list" aria-label="Members portal sections">
               {draft.length === 0 && (
                 <Card className="p-8 text-center text-sm text-slate-500">
                   No portal sections yet. Add one above or click "Suggest sections".
@@ -263,6 +397,7 @@ export default function MembersPortal() {
                   <div
                     key={`${section.type}-${idx}`}
                     data-testid={`members-portal-section-row-${section.type}`}
+                    role="listitem"
                     draggable
                     onDragStart={(event) => {
                       setDraggingIndex(idx);
@@ -298,6 +433,7 @@ export default function MembersPortal() {
                         type="button"
                         onClick={() => setSelectedIndex(idx)}
                         data-testid={`members-portal-section-select-${section.type}`}
+                        aria-pressed={selectedIndex === idx}
                         className="min-w-0 flex flex-1 items-center gap-2 text-left"
                         aria-label={`Edit ${label}`}
                       >
@@ -332,6 +468,7 @@ export default function MembersPortal() {
                 canMoveUp={selectedIndex > 0}
                 canMoveDown={selectedIndex < draft.length - 1}
                 label={selectedMeta?.label ?? selected.type.replace(/_/g, " ")}
+                locked={LOCKED_SYSTEM_SECTION_TYPES.has(selected.type)}
               />
             )}
           </div>
@@ -356,6 +493,9 @@ function PortalPreview({
         <p className="text-xs uppercase tracking-wide text-slate-400">Members portal</p>
         <h2 className="mt-1 text-2xl font-serif font-bold text-slate-950">Welcome, member.</h2>
         <p className="mt-1 text-sm text-slate-500">This is a preview of the logged-in portal home.</p>
+        <p className="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+          Latest announcements are managed from Announcements and appear above these sections for signed-in members.
+        </p>
       </div>
       <div className="space-y-4 p-5">
         {sections.length === 0 ? (
@@ -428,7 +568,11 @@ function PortalPreviewSection({
         <h3 className="text-lg font-serif font-bold text-slate-950">{section.title || "Annual dues"}</h3>
         {section.amountText && <p className="mt-2 text-2xl font-serif font-bold text-slate-950">{section.amountText}</p>}
         {section.body && <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{section.body}</p>}
-        <button type="button" className="mt-4 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white">Pay dues</button>
+        {section.payUrl ? (
+          <button type="button" className="mt-4 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white">Pay dues</button>
+        ) : (
+          <p className="mt-3 text-xs text-slate-500 italic">Online payment coming soon.</p>
+        )}
       </>,
     );
   }
@@ -493,7 +637,7 @@ function PortalPreviewSection({
             </div>
           ))}
         </div>
-        <p className="mt-3 text-xs text-slate-500">Roster data is managed from the Members tab.</p>
+        <p className="mt-3 text-xs text-slate-500">Example member cards only. Real roster data is managed from the Members tab.</p>
       </>,
     );
   }
@@ -509,6 +653,7 @@ function SectionEditor({
   canMoveUp,
   canMoveDown,
   label,
+  locked,
 }: {
   section: PortalSection;
   onChange: (patch: Partial<PortalSection>) => void;
@@ -518,7 +663,11 @@ function SectionEditor({
   canMoveUp: boolean;
   canMoveDown: boolean;
   label: string;
+  locked: boolean;
 }) {
+  const titleInputId = `members-portal-${section.type}-title`;
+  const bodyInputId = `members-portal-${section.type}-body`;
+
   return (
     <Card className="p-5 space-y-3 border-slate-200">
       <div className="flex items-start justify-between gap-3">
@@ -539,9 +688,27 @@ function SectionEditor({
         </div>
       </div>
 
+      {locked && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+          <div className="flex items-start gap-2">
+            <Users className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <div>
+              <p className="font-semibold">This content is managed from Members.</p>
+              <p className="mt-1 text-blue-800">
+                You can rename, move, or remove this section here. Member names, emails, photos, and directory visibility come from the Members tab.
+              </p>
+              <Link href="/dashboard/members" className="mt-2 inline-flex font-medium underline">
+                Manage members
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div>
-        <Label className="text-xs text-slate-600">Title</Label>
+        <Label htmlFor={titleInputId} className="text-xs text-slate-600">Title</Label>
         <Input
+          id={titleInputId}
           data-testid="members-portal-section-title-input"
           value={section.title ?? ""}
           onChange={(e) => onChange({ title: e.target.value })}
@@ -551,8 +718,9 @@ function SectionEditor({
 
       {(section.type === "welcome_message" || section.type === "dues_info") && (
         <div>
-          <Label className="text-xs text-slate-600">Body</Label>
+          <Label htmlFor={bodyInputId} className="text-xs text-slate-600">Body</Label>
           <Textarea
+            id={bodyInputId}
             data-testid="members-portal-section-body-input"
             value={section.body ?? ""}
             onChange={(e) => onChange({ body: e.target.value })}
@@ -565,16 +733,18 @@ function SectionEditor({
       {section.type === "dues_info" && (
         <>
           <div>
-            <Label className="text-xs text-slate-600">Amount text (e.g. "$120 / year")</Label>
+            <Label htmlFor={`members-portal-${section.type}-amount`} className="text-xs text-slate-600">Amount text (e.g. "$120 / year")</Label>
             <Input
+              id={`members-portal-${section.type}-amount`}
               value={section.amountText ?? ""}
               onChange={(e) => onChange({ amountText: e.target.value })}
               className="mt-1"
             />
           </div>
           <div>
-            <Label className="text-xs text-slate-600">Pay URL (optional)</Label>
+            <Label htmlFor={`members-portal-${section.type}-pay-url`} className="text-xs text-slate-600">Pay URL (optional)</Label>
             <Input
+              id={`members-portal-${section.type}-pay-url`}
               value={section.payUrl ?? ""}
               onChange={(e) => onChange({ payUrl: e.target.value || null })}
               className="mt-1"
@@ -587,16 +757,18 @@ function SectionEditor({
       {section.type === "meeting_schedule" && (
         <>
           <div>
-            <Label className="text-xs text-slate-600">Cadence (e.g. "Second Thursday, 7 PM")</Label>
+            <Label htmlFor={`members-portal-${section.type}-cadence`} className="text-xs text-slate-600">Cadence (e.g. "Second Thursday, 7 PM")</Label>
             <Input
+              id={`members-portal-${section.type}-cadence`}
               value={section.cadence ?? ""}
               onChange={(e) => onChange({ cadence: e.target.value })}
               className="mt-1"
             />
           </div>
           <div>
-            <Label className="text-xs text-slate-600">Location</Label>
+            <Label htmlFor={`members-portal-${section.type}-location`} className="text-xs text-slate-600">Location</Label>
             <Input
+              id={`members-portal-${section.type}-location`}
               value={section.location ?? ""}
               onChange={(e) => onChange({ location: e.target.value })}
               className="mt-1"
@@ -707,15 +879,17 @@ function ListEditor({
       {list.map((item, i) => (
         <div key={i} className="border border-slate-200 rounded-lg p-3 space-y-2 bg-slate-50/50">
           <div className="flex justify-end">
-            <Button variant="ghost" size="icon" onClick={() => remove(i)} className="h-7 w-7">
+            <Button variant="ghost" size="icon" onClick={() => remove(i)} aria-label={`Remove item ${i + 1}`} className="h-7 w-7">
               <X className="w-3.5 h-3.5" />
             </Button>
           </div>
-          {fields.map((f) =>
-            f.multiline ? (
+          {fields.map((f) => {
+            const inputId = `members-portal-${listKey}-${i}-${f.key}`;
+            return f.multiline ? (
               <div key={f.key}>
-                <Label className="text-xs text-slate-600">{f.label}</Label>
+                <Label htmlFor={inputId} className="text-xs text-slate-600">{f.label}</Label>
                 <Textarea
+                  id={inputId}
                   value={item[f.key] ?? ""}
                   onChange={(e) => update(i, { [f.key]: e.target.value })}
                   rows={3}
@@ -724,15 +898,16 @@ function ListEditor({
               </div>
             ) : (
               <div key={f.key}>
-                <Label className="text-xs text-slate-600">{f.label}</Label>
+                <Label htmlFor={inputId} className="text-xs text-slate-600">{f.label}</Label>
                 <Input
+                  id={inputId}
                   value={item[f.key] ?? ""}
                   onChange={(e) => update(i, { [f.key]: e.target.value })}
                   className="mt-1 bg-white"
                 />
               </div>
-            ),
-          )}
+            );
+          })}
         </div>
       ))}
     </div>

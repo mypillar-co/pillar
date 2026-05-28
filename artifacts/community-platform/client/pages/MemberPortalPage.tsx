@@ -55,6 +55,19 @@ interface PortalConfig {
 
 type Tab = "home" | "profile";
 
+function safePortalUrl(value: unknown, options: { allowRelative?: boolean } = {}): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (options.allowRelative && trimmed.startsWith("/") && !trimmed.startsWith("//")) return trimmed;
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === "https:" ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function MemberPortalPage() {
   const { member, loading } = useMember();
   const config = useConfig();
@@ -243,12 +256,13 @@ function SectionRenderer({ section }: { section: PortalSection }) {
         </SectionCard>
       );
     case "dues_info":
+      const payUrl = safePortalUrl(section.payUrl);
       return (
         <SectionCard title={section.title ?? "Dues"}>
           {section.amountText && <div className="text-2xl font-serif font-bold text-gray-900 mb-2">{section.amountText}</div>}
           {section.body && <p className="text-sm text-gray-700 whitespace-pre-wrap mb-3">{section.body}</p>}
-          {section.payUrl ? (
-            <a href={section.payUrl} className="inline-block px-4 py-2 rounded-md text-white text-sm font-medium"
+          {payUrl ? (
+            <a href={payUrl} className="inline-block px-4 py-2 rounded-md text-white text-sm font-medium"
               style={{ backgroundColor: "var(--primary-hex)" }}>
               Pay dues
             </a>
@@ -285,16 +299,32 @@ function SectionRenderer({ section }: { section: PortalSection }) {
             <p className="text-sm text-gray-500">No documents uploaded yet.</p>
           ) : (
             <div className="space-y-2">
-              {list.map((d, i) => (
-                <a key={i} href={d.url ?? "#"} target="_blank" rel="noreferrer"
-                  className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
-                  <div>
-                    <div className="font-medium text-gray-900 text-sm">{d.name}</div>
-                    {d.description && <div className="text-xs text-gray-500">{d.description}</div>}
+              {list.map((d, i) => {
+                const url = safePortalUrl(d.url, { allowRelative: true });
+                const hasUrl = Boolean(url);
+                const content = (
+                  <>
+                    <div>
+                      <div className="font-medium text-gray-900 text-sm">{d.name || "Document"}</div>
+                      {d.description && <div className="text-xs text-gray-500">{d.description}</div>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {d.category && <span className="text-xs text-gray-400">{d.category}</span>}
+                      <span className="text-xs text-gray-400">{hasUrl ? "Open" : "Unavailable"}</span>
+                    </div>
+                  </>
+                );
+                return hasUrl ? (
+                  <a key={i} href={url} target="_blank" rel="noreferrer"
+                    className="flex items-center justify-between gap-4 p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
+                    {content}
+                  </a>
+                ) : (
+                  <div key={i} className="flex items-center justify-between gap-4 p-3 border border-gray-200 rounded-lg bg-gray-50/60">
+                    {content}
                   </div>
-                  {d.category && <span className="text-xs text-gray-400">{d.category}</span>}
-                </a>
-              ))}
+                );
+              })}
             </div>
           )}
         </SectionCard>

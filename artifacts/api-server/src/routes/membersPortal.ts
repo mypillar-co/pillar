@@ -27,6 +27,10 @@ interface OrgRow {
   site_config: Record<string, unknown> | null;
 }
 
+type PortalPersistResult = {
+  cpMirrorError?: string;
+};
+
 async function loadOrgRow(orgId: string): Promise<OrgRow | null> {
   const r = await db.execute(sql`
     SELECT id, slug, name, type, site_config
@@ -67,7 +71,7 @@ function sanitizePortalSection(section: Record<string, unknown>): PortalSection 
     const amountText = sanitizeText(section.amountText, 80);
     const payUrl = sanitizeText(section.payUrl, 500);
     if (amountText) cleaned.amountText = amountText;
-    if (payUrl && /^https?:\/\//i.test(payUrl)) cleaned.payUrl = payUrl;
+    if (payUrl && /^https:\/\//i.test(payUrl)) cleaned.payUrl = payUrl;
     else cleaned.payUrl = null;
   }
   if (type === "meeting_schedule") {
@@ -111,7 +115,7 @@ function sanitizePortalSection(section: Record<string, unknown>): PortalSection 
       const url = sanitizeText(row.url, 500) ?? "";
       return {
         name: sanitizeText(row.name, 160) ?? "",
-        url: /^https?:\/\//i.test(url) || url.startsWith("/") ? url : "",
+        url: /^https:\/\//i.test(url) || url.startsWith("/") ? url : "",
         description: sanitizeText(row.description, 400) ?? "",
         category: sanitizeText(row.category, 80) ?? "",
       };
@@ -144,7 +148,7 @@ function deterministicPortalSuggestions(
 async function persistPortal(
   org: OrgRow,
   portal: MembersPortalConfig,
-): Promise<void> {
+): Promise<PortalPersistResult> {
   const json = JSON.stringify(portal);
   await db.execute(sql`
     UPDATE organizations
@@ -175,11 +179,14 @@ async function persistPortal(
       } as unknown) as Record<string, never>),
     });
   } catch (cpErr) {
+    const cpMirrorError = cpErr instanceof Error ? cpErr.message : String(cpErr);
     logger.warn(
       { err: cpErr, orgId: org.id, cpOrgId },
       "[members-portal] could not mirror updated portal to CP",
     );
+    return { cpMirrorError };
   }
+  return {};
 }
 
 // GET /api/members-portal — current portal config (auto-provisions on first read)
@@ -190,14 +197,14 @@ router.get("/", async (req: Request, res: Response) => {
   if (!row) return res.status(404).json({ error: "Org not found" });
   let portal = getCurrentPortal(row);
   if (portal.sections.length === 0) {
-    // Build a default starter so the dashboard tab has something to show
-    // even before the first member is added. Don't persist until the admin
-    // makes their first edit (or until ensureMembersPortalProvisioned fires).
     portal = buildStarterPortalConfig(row.type, row.name ?? "your organization");
+    await persistPortal(row, portal);
   }
   res.json({
     sections: portal.sections,
     provisionedAt: portal.provisionedAt ?? null,
+    orgName: row.name,
+    orgSlug: row.slug,
     available: Object.values(SECTION_REGISTRY)
       .filter((s) => s.surfaces.portal)
       .map((s) => ({ type: s.type, label: s.label, description: s.description, example: s.example })),
@@ -212,10 +219,21 @@ router.patch("/", async (req: Request, res: Response) => {
   if (!Array.isArray(sections)) {
     return res.status(400).json({ error: "sections must be an array" });
   }
+  if (sections.length > 12) {
+    return res.status(400).json({ error: "Members portal can have up to 12 sections." });
+  }
   const cleaned: PortalSection[] = [];
+  const seenTypes = new Set<string>();
   for (const s of sections) {
-    if (!s || typeof s !== "object") continue;
+    if (!s || typeof s !== "object" || Array.isArray(s)) {
+      return res.status(400).json({ error: "Each portal section must be an object." });
+    }
     const section = s as Record<string, unknown>;
+    const type = String(section.type ?? "");
+    if (seenTypes.has(type)) {
+      return res.status(400).json({ error: `Duplicate portal section type: ${type}` });
+    }
+    seenTypes.add(type);
     const sanitized = sanitizePortalSection(section);
     if (!sanitized) {
       return res.status(400).json({ error: `Invalid portal section type: ${String(section.type)}` });
@@ -229,9 +247,15 @@ router.patch("/", async (req: Request, res: Response) => {
     sections: cleaned,
     provisionedAt: existing.provisionedAt ?? new Date().toISOString(),
   };
-  await persistPortal(row, portal);
+  const persistResult = await persistPortal(row, portal);
   logger.info({ orgId: row.id, sectionCount: cleaned.length }, "[members-portal] sections updated");
-  res.json({ sections: portal.sections, provisionedAt: portal.provisionedAt });
+  res.json({
+    sections: portal.sections,
+    provisionedAt: portal.provisionedAt,
+    orgName: row.name,
+    orgSlug: row.slug,
+    warning: persistResult.cpMirrorError ? "Portal saved, but the public member site sync is delayed. Try saving again in a moment." : undefined,
+  });
 });
 
 // POST /api/members-portal/ai-suggest — ask AI for additional sections
@@ -241,7 +265,16 @@ router.post("/ai-suggest", async (req: Request, res: Response) => {
   const row = await loadOrgRow(org.id);
   if (!row) return res.status(404).json({ error: "Org not found" });
   const current = getCurrentPortal(row);
-  const currentTypes = new Set(current.sections.map((s) => s.type));
+  const currentSections = current.sections.length > 0
+    ? current.sections
+    : buildStarterPortalConfig(row.type, row.name ?? "your organization").sections;
+  const body = (req.body ?? {}) as { draftSectionTypes?: unknown };
+  const currentTypes = new Set(currentSections.map((s) => s.type));
+  if (Array.isArray(body.draftSectionTypes)) {
+    for (const type of body.draftSectionTypes) {
+      if (typeof type === "string") currentTypes.add(type);
+    }
+  }
 
   let client: OpenAI;
   try {
