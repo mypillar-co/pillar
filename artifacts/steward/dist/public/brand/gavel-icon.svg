@@ -1,0 +1,18 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="200" height="200" rx="44" fill="#12203d"/>
+
+  <!-- Gavel mark: head + handle, rotated -35deg for dynamic "striking" angle -->
+  <!-- Group centered at 100,100, rotated -35 degrees -->
+  <g transform="rotate(-35, 100, 100)">
+    <!-- Gavel head (wide, bold rectangle) -->
+    <rect x="40" y="66" width="120" height="38" rx="10" fill="#e8b84b"/>
+    <!-- Collar (subtle thickness transition) -->
+    <rect x="84" y="102" width="32" height="14" rx="5" fill="#c9a03e"/>
+    <!-- Handle (long, thin) -->
+    <rect x="88" y="113" width="24" height="76" rx="10" fill="#e8b84b"/>
+  </g>
+
+  <!-- Strike line (small accent below) - NOT rotated, stays horizontal -->
+  <rect x="28" y="164" width="80" height="8" rx="4" fill="#e8b84b" opacity="0.45"/>
+</svg>
