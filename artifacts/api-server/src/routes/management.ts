@@ -52,6 +52,7 @@ import {
   VALID_TYPES as MEMBER_VALID_TYPES,
   VALID_STATUSES as MEMBER_VALID_STATUSES,
   ensureMembersFeatureEnabled,
+  syncMembersFeatureVisibility,
 } from "./members";
 import { ensureMembersPortalProvisioned } from "../lib/membersPortalProvision";
 import { SECTION_REGISTRY, validateSection } from "../lib/sectionRegistry";
@@ -1986,8 +1987,11 @@ router.post("/chat", async (req: Request, res: Response) => {
     if (!existing) return JSON.stringify({ error: `Member not found: ${memberId}` });
 
     await db.delete(membersTable).where(and(eq(membersTable.id, memberId), eq(membersTable.orgId, org.id)));
+    const visibility = await syncMembersFeatureVisibility(org.id);
     return JSON.stringify({
       ok: true,
+      membersVisibleOnPublicSite: visibility.visible,
+      remainingMembers: visibility.memberCount,
       message: `Member "${existing.firstName}${existing.lastName ? ` ${existing.lastName}` : ""}" deleted.`,
     });
   }

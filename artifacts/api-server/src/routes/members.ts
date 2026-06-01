@@ -159,6 +159,61 @@ export async function ensureMembersFeatureEnabled(orgId: string): Promise<Featur
   }
 }
 
+export interface MembersVisibilitySyncResult {
+  ok: boolean;
+  memberCount: number;
+  visible: boolean;
+  error?: string;
+}
+
+export async function syncMembersFeatureVisibility(orgId: string): Promise<MembersVisibilitySyncResult> {
+  try {
+    const orgRow = await db.execute(sql`
+      SELECT o.slug, COUNT(m.id)::int AS member_count
+      FROM organizations o
+      LEFT JOIN members m ON m.org_id = o.id
+      WHERE o.id = ${orgId}
+      GROUP BY o.slug
+      LIMIT 1
+    `);
+    const row = orgRow.rows[0] as { slug?: string | null; member_count?: number | string } | undefined;
+    const cpOrgId = row?.slug ?? orgId;
+    const memberCount = Number(row?.member_count ?? 0);
+    const visible = memberCount > 0;
+
+    await db.execute(sql`
+      UPDATE organizations
+      SET site_config = jsonb_set(
+        COALESCE(site_config, '{}'::jsonb),
+        '{features}',
+        COALESCE(site_config -> 'features', '{}'::jsonb) || jsonb_build_object('members', ${visible}::boolean),
+        true
+      )
+      WHERE id = ${orgId}
+    `);
+
+    const cpRow = await db.execute(sql`
+      SELECT features FROM cs_org_configs WHERE org_id = ${cpOrgId} LIMIT 1
+    `);
+    const current = (cpRow.rows[0]?.features ?? {}) as Record<string, unknown>;
+    await syncOrgConfigPatchToPillar({
+      orgId: cpOrgId,
+      ...(({ features: { ...current, members: visible } } as unknown) as Record<string, never>),
+    });
+
+    logger.info({ orgId, cpOrgId, memberCount, visible }, "[members] synced public members visibility");
+    return { ok: true, memberCount, visible };
+  } catch (err) {
+    logger.warn({ err, orgId }, "[members] could not sync public members visibility");
+    return {
+      ok: false,
+      memberCount: 0,
+      visible: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 router.get("/", async (req: Request, res: Response) => {
   const org = await resolveFullOrg(req, res);
   if (!org) return;
@@ -458,6 +513,13 @@ router.delete("/:id", async (req: Request, res: Response) => {
     return;
   }
   await db.delete(membersTable).where(eq(membersTable.id, req.params.id));
+  const visibilityResult = await syncMembersFeatureVisibility(org.id);
+  if (!visibilityResult.ok) {
+    logger.error(
+      { orgId: org.id, error: visibilityResult.error },
+      "[members] public visibility sync failed after member delete for org " + org.id,
+    );
+  }
   res.status(204).send();
 });
 

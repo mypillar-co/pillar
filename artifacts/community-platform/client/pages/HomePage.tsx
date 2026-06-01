@@ -864,10 +864,7 @@ function LodgeExploreSection({
   config: OrgConfig;
   hasHallSignal: boolean;
 }) {
-  const hasMembersPortal =
-    config.features?.members === true ||
-    Boolean(config.features?.membersPortal) ||
-    (config.memberCount ?? 0) > 0;
+  const hasMembersPortal = (config.memberCount ?? 0) > 0;
   const place = config.location || "the community";
   const isNamedLodge = /\blodge\b|\bmason(ic|ry)?\b/.test(
     [config.orgName, config.orgType].filter(Boolean).join(" ").toLowerCase(),

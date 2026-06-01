@@ -47,6 +47,7 @@ function AppContent() {
       </div>
     );
   }
+  const hasMembersPortal = (config.memberCount ?? 0) > 0;
   return (
     <div className="min-h-screen flex flex-col">
       <Navigation />
@@ -62,11 +63,11 @@ function AppContent() {
           <Route path="/blog/:slug" component={BlogPostPage} />
           <Route path="/admin/login" component={AdminLoginPage} />
           <Route path="/admin" component={AdminPage} />
-          <Route path="/members/register" component={MemberRegisterPage} />
-          <Route path="/members/login" component={MemberLoginPage} />
-          <Route path="/members/forgot-password" component={MemberForgotPasswordPage} />
-          <Route path="/members/reset-password" component={MemberResetPasswordPage} />
-          <Route path="/members" component={MemberPortalPage} />
+          {hasMembersPortal && <Route path="/members/register" component={MemberRegisterPage} />}
+          {hasMembersPortal && <Route path="/members/login" component={MemberLoginPage} />}
+          {hasMembersPortal && <Route path="/members/forgot-password" component={MemberForgotPasswordPage} />}
+          {hasMembersPortal && <Route path="/members/reset-password" component={MemberResetPasswordPage} />}
+          {hasMembersPortal && <Route path="/members" component={MemberPortalPage} />}
           <Route path="/payment-success" component={PaymentSuccessPage} />
           <Route path="/events/:slug/tickets/success" component={TicketSuccessPage} />
           <Route path="/:slug" component={CustomPage} />

@@ -10,10 +10,7 @@ export default function Navigation() {
 
   if (!config) return null;
 
-  const hasMembersPortal =
-    config.features?.members === true ||
-    Boolean(config.features?.membersPortal) ||
-    (config.memberCount ?? 0) > 0;
+  const hasMembersPortal = (config.memberCount ?? 0) > 0;
 
   const links = [
     { href: "/", label: "Home" },
