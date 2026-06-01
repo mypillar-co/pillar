@@ -509,6 +509,21 @@ router.get("/organizations/check-slug", async (req: Request, res: Response) => {
   res.json({ available: !taken });
 });
 
+const ORG_SLUG_RE = /^[a-z0-9][a-z0-9-]{2,49}$/;
+
+function normalizeOrgSlug(value: string | undefined) {
+  if (!value) return undefined;
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/^https?:\/\//, "")
+    .replace(/\.mypillar\.co\/?$/, "")
+    .split("/")[0]
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 // POST /api/organizations
 router.post("/organizations", async (req: Request, res: Response) => {
   if (!req.isAuthenticated()) {
@@ -596,7 +611,7 @@ router.put("/organizations", async (req: Request, res: Response) => {
   const {
     name,
     type,
-    slug,
+    slug: rawSlug,
     primaryColor,
     accentColor,
     tagline,
@@ -609,6 +624,7 @@ router.put("/organizations", async (req: Request, res: Response) => {
     meetingTime,
     meetingLocation,
   } = req.body as Record<string, string | undefined>;
+  const slug = normalizeOrgSlug(rawSlug);
 
   if (!name) {
     res.status(400).json({ error: "name is required" });
@@ -627,7 +643,7 @@ router.put("/organizations", async (req: Request, res: Response) => {
 
   // Validate slug if provided and changed
   if (slug && slug !== existing.slug) {
-    if (!/^[a-z0-9][a-z0-9-]{2,49}$/.test(slug)) {
+    if (!ORG_SLUG_RE.test(slug)) {
       res
         .status(400)
         .json({

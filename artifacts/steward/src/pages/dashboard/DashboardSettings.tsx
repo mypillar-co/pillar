@@ -68,6 +68,19 @@ const ORG_TYPES = [
   { value: "other", label: "Other" },
 ];
 
+const SITE_SLUG_RE = /^[a-z0-9][a-z0-9-]{2,49}$/;
+
+function normalizeSiteSlug(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\.mypillar\.co\/?$/, "")
+    .split("/")[0]
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 type DnsRecord = {
   record: string;
   name: string;
@@ -368,13 +381,31 @@ export default function DashboardSettings() {
 
   const mutation = useMutation({
     mutationFn: async () => {
+      const cleanedName = name.trim();
+      const cleanedSlug = normalizeSiteSlug(slug);
+
+      if (!cleanedName) throw new Error("Organization name is required");
+      if (!SITE_SLUG_RE.test(cleanedSlug)) {
+        throw new Error(
+          "Site URL must be 3-50 characters using lowercase letters, numbers, and hyphens.",
+        );
+      }
+
       const res = await fetch(`${BASE}/api/organizations`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...csrfHeaders("PUT"),
+        },
         credentials: "include",
-        body: JSON.stringify({ name, type: orgType, slug }),
+        body: JSON.stringify({
+          name: cleanedName,
+          type: orgType,
+          slug: cleanedSlug,
+        }),
       });
-      const data = (await res.json()) as { error?: string };
+      const text = await res.text();
+      const data = text ? (JSON.parse(text) as { error?: string }) : {};
       if (!res.ok)
         throw new Error(data.error ?? "Failed to update organization");
       return data;
@@ -518,6 +549,11 @@ export default function DashboardSettings() {
 
   const domain = emailSettings?.domain;
   const isPillarDomain = domain?.isPillarDomain ?? false;
+  const cleanedSlug = normalizeSiteSlug(slug);
+  const siteUrlError =
+    cleanedSlug && !SITE_SLUG_RE.test(cleanedSlug)
+      ? "Use 3-50 lowercase letters, numbers, and hyphens."
+      : null;
 
   return (
     <div className="p-6 space-y-6 max-w-2xl mx-auto">
@@ -575,11 +611,7 @@ export default function DashboardSettings() {
             <div className="flex items-center">
               <Input
                 value={slug}
-                onChange={(e) =>
-                  setSlug(
-                    e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""),
-                  )
-                }
+                onChange={(e) => setSlug(normalizeSiteSlug(e.target.value))}
                 className="bg-white/5 border-white/10 text-white rounded-r-none"
                 placeholder="your-org-name"
                 maxLength={50}
@@ -591,13 +623,16 @@ export default function DashboardSettings() {
             <p className="text-xs text-slate-500">
               Your site will be live at{" "}
               <span className="font-mono text-slate-400">
-                {slug || "your-org"}.mypillar.co
+                {cleanedSlug || "your-org"}.mypillar.co
               </span>
             </p>
+            {siteUrlError && (
+              <p className="text-xs text-red-400">{siteUrlError}</p>
+            )}
           </div>
           <Button
             onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || !name}
+            disabled={mutation.isPending || !name.trim() || !!siteUrlError}
             className="mt-2"
           >
             {mutation.isPending ? (
