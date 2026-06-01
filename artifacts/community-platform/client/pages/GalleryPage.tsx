@@ -1,11 +1,22 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../lib/api";
 import { useState } from "react";
+import { useConfig } from "../config-context";
+import {
+  configuredPageSections,
+  editAttrs,
+  editableCopySections,
+  pageSectionBlock,
+  pageSectionOrder,
+  pageSectionVisible,
+  textOr,
+} from "../lib/pageSections";
 
 interface Album { id: number; title: string; description: string | null; coverPhotoUrl: string | null; }
 interface Photo { id: number; url: string; caption: string | null; }
 
 export default function GalleryPage() {
+  const config = useConfig();
   const [selectedAlbum, setSelectedAlbum] = useState<Album | null>(null);
   const [lightboxPhoto, setLightboxPhoto] = useState<Photo | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -23,16 +34,27 @@ export default function GalleryPage() {
   const openLightbox = (photo: Photo, idx: number) => { setLightboxPhoto(photo); setLightboxIndex(idx); };
   const prevPhoto = () => { if (!photos) return; const idx = (lightboxIndex - 1 + photos.length) % photos.length; setLightboxPhoto(photos[idx]); setLightboxIndex(idx); };
   const nextPhoto = () => { if (!photos) return; const idx = (lightboxIndex + 1) % photos.length; setLightboxPhoto(photos[idx]); setLightboxIndex(idx); };
+  const sections = config
+    ? configuredPageSections(config, "gallery", [
+        { id: "gallery-intro", type: "gallery_intro", title: "Photo Gallery", body: "Memories from our community events", visible: true },
+        { id: "gallery-albums", type: "album_grid", title: "Albums", visible: true },
+      ])
+    : [];
+  const intro = pageSectionBlock(sections, "gallery_intro");
+  const albumsSection = pageSectionBlock(sections, "album_grid");
+  const extraSections = editableCopySections(sections);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-16">
-      <div className="mb-8">
-        <h1 className="text-3xl md:text-4xl font-bold font-serif mb-2">Photo Gallery</h1>
-        <p className="text-gray-500">Memories from our community events</p>
+    <div className="max-w-7xl mx-auto px-4 py-16 flex flex-col">
+      {pageSectionVisible(sections, "gallery_intro") && (
+      <div data-testid="page-section-gallery-gallery_intro" style={{ order: pageSectionOrder(sections, "gallery_intro", 0) }} className="mb-8">
+        <h1 {...editAttrs("gallery", intro?.id || "gallery-intro", "title")} className="text-3xl md:text-4xl font-bold font-serif mb-2">{textOr(intro?.title) || "Photo Gallery"}</h1>
+        <p {...editAttrs("gallery", intro?.id || "gallery-intro", "body")} className="text-gray-500">{textOr(intro?.body) || "Memories from our community events"}</p>
       </div>
+      )}
 
-      {selectedAlbum ? (
-        <div>
+      {pageSectionVisible(sections, "album_grid") && selectedAlbum ? (
+        <div data-testid="page-section-gallery-album_grid" style={{ order: pageSectionOrder(sections, "album_grid", 1) }}>
           <button className="flex items-center gap-2 text-sm text-gray-500 mb-6 hover:text-gray-800" onClick={() => setSelectedAlbum(null)}>← Back to Albums</button>
           <h2 className="text-2xl font-bold font-serif mb-6">{selectedAlbum.title}</h2>
           {!photos || photos.length === 0 ? (
@@ -49,8 +71,10 @@ export default function GalleryPage() {
             </div>
           )}
         </div>
-      ) : (
-        <div>
+      ) : pageSectionVisible(sections, "album_grid") ? (
+        <div data-testid="page-section-gallery-album_grid" style={{ order: pageSectionOrder(sections, "album_grid", 1) }}>
+          {albumsSection?.title && <h2 className="sr-only">{albumsSection.title}</h2>}
+          {albumsSection?.body && <p {...editAttrs("gallery", albumsSection.id, "body")} className="text-gray-500 mb-8">{albumsSection.body}</p>}
           {isLoading && <div className="grid grid-cols-1 md:grid-cols-3 gap-6">{[1,2,3].map(i => <div key={i} className="h-52 bg-gray-100 animate-pulse rounded-lg" />)}</div>}
           {!isLoading && albums && albums.length === 0 && (
             <div className="text-center py-20 border border-dashed border-gray-200 rounded-lg">
@@ -83,7 +107,19 @@ export default function GalleryPage() {
             </div>
           )}
         </div>
-      )}
+      ) : null}
+
+      {extraSections.map((section, index) => (
+        <section
+          key={section.id || `${section.type}-${index}`}
+          data-testid={`page-section-gallery-${section.type}`}
+          style={{ order: pageSectionOrder(sections, section.type, 20 + index) }}
+          className="py-10"
+        >
+          {section.title && <h2 {...editAttrs("gallery", section.id, "title")} className="text-2xl font-bold font-serif mb-4">{section.title}</h2>}
+          {section.body && <p {...editAttrs("gallery", section.id, "body")} className="text-gray-600 leading-relaxed whitespace-pre-line">{section.body}</p>}
+        </section>
+      ))}
 
       {lightboxPhoto && (
         <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center" onClick={() => setLightboxPhoto(null)}>

@@ -10,10 +10,7 @@ export default function Navigation() {
 
   if (!config) return null;
 
-  const hasMembersPortal =
-    config.features?.members === true ||
-    Boolean(config.features?.membersPortal) ||
-    (config.memberCount ?? 0) > 0;
+  const hasMembersPortal = (config.memberCount ?? 0) > 0;
 
   const links = [
     { href: "/", label: "Home" },
@@ -23,6 +20,9 @@ export default function Navigation() {
     { href: "/gallery", label: "Gallery" },
     ...(config.features?.blog ? [{ href: "/blog", label: "News" }] : []),
     ...(config.features?.businessDirectory ? [{ href: "/businesses", label: "Directory" }] : []),
+    ...(config.features?.customPages ?? [])
+      .filter(page => page.showInNav !== false)
+      .map(page => ({ href: `/${page.slug}`, label: page.navLabel || page.title })),
     ...(hasMembersPortal ? [{ href: "/members", label: "Members" }] : []),
   ];
 

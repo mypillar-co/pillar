@@ -39,6 +39,9 @@ export default function Footer() {
                 { href: "/contact", label: "Contact" },
                 { href: "/gallery", label: "Gallery" },
                 ...(config.features?.blog ? [{ href: "/blog", label: "News" }] : []),
+                ...(config.features?.customPages ?? [])
+                  .filter(page => page.showInNav !== false)
+                  .map(page => ({ href: `/${page.slug}`, label: page.navLabel || page.title })),
               ].map(link => (
                 <li key={link.href}>
                   <Link href={link.href}>

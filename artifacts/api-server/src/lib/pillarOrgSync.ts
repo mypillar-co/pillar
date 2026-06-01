@@ -6,6 +6,7 @@ export type OrgConfigPatch = {
   orgId: string;
   orgName?: string;
   shortName?: string;
+  orgType?: string;
   primaryColor?: string;
   accentColor?: string;
   tagline?: string;

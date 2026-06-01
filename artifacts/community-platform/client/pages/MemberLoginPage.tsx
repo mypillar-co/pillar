@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useConfig } from "../config-context";
+import { apiFetch } from "../lib/api";
 
 export default function MemberLoginPage() {
   const config = useConfig();
@@ -17,10 +18,9 @@ export default function MemberLoginPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/members/login", {
+      const res = await apiFetch("/api/members/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ email, password }),
       });
       const data = await res.json();

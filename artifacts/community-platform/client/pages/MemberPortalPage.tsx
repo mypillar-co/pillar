@@ -3,6 +3,15 @@ import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMember, useMemberLogout, type CurrentMember } from "../lib/memberAuth";
 import { useConfig } from "../config-context";
+import { apiFetch } from "../lib/api";
+import {
+  configuredPageSections,
+  editAttrs,
+  pageSectionBlock,
+  pageSectionOrder,
+  pageSectionVisible,
+  textOr,
+} from "../lib/pageSections";
 
 interface DirectoryRow {
   id: string;
@@ -46,6 +55,19 @@ interface PortalConfig {
 
 type Tab = "home" | "profile";
 
+function safePortalUrl(value: unknown, options: { allowRelative?: boolean } = {}): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (options.allowRelative && trimmed.startsWith("/") && !trimmed.startsWith("//")) return trimmed;
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === "https:" ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function MemberPortalPage() {
   const { member, loading } = useMember();
   const config = useConfig();
@@ -57,15 +79,30 @@ export default function MemberPortalPage() {
     return <div className="max-w-3xl mx-auto px-4 py-24 text-center text-sm text-gray-500">Loading…</div>;
   }
   if (!member) {
+    const publicSections = config
+      ? configuredPageSections(config, "members", [
+          { id: "members-intro", type: "members_intro", title: "Members area", body: "Please sign in to access member content.", visible: true },
+          { id: "members-actions", type: "member_actions", title: "Member sign in", visible: true },
+        ])
+      : [];
+    const intro = pageSectionBlock(publicSections, "members_intro");
     return (
-      <div className="max-w-md mx-auto px-4 py-24 text-center">
-        <h1 className="text-2xl font-serif font-bold text-gray-900 mb-3">Members area</h1>
-        <p className="text-sm text-gray-500 mb-6">Please sign in to access member content.</p>
+      <div className="max-w-md mx-auto px-4 py-24 text-center flex flex-col">
+        {pageSectionVisible(publicSections, "members_intro") && (
+        <section data-testid="page-section-members-members_intro" style={{ order: pageSectionOrder(publicSections, "members_intro", 0) }}>
+          <h1 {...editAttrs("members", intro?.id || "members-intro", "title")} className="text-2xl font-serif font-bold text-gray-900 mb-3">{textOr(intro?.title) || "Members area"}</h1>
+          <p {...editAttrs("members", intro?.id || "members-intro", "body")} className="text-sm text-gray-500 mb-6">{textOr(intro?.body) || "Please sign in to access member content."}</p>
+        </section>
+        )}
+        {pageSectionVisible(publicSections, "member_actions") && (
+        <section data-testid="page-section-members-member_actions" style={{ order: pageSectionOrder(publicSections, "member_actions", 1) }}>
         <button onClick={() => navigate("/members/login")}
           className="px-5 py-2.5 rounded-md text-white text-sm font-medium"
           style={{ backgroundColor: "var(--primary-hex)" }}>
           Sign in
         </button>
+        </section>
+        )}
       </div>
     );
   }
@@ -110,7 +147,7 @@ function HomeTab() {
   const { data, isLoading, error } = useQuery<PortalConfig>({
     queryKey: ["/api/members-portal/config"],
     queryFn: async () => {
-      const res = await fetch("/api/members-portal/config", { credentials: "include" });
+      const res = await apiFetch("/api/members-portal/config");
       if (!res.ok) throw new Error("Failed to load portal");
       return res.json();
     },
@@ -122,7 +159,7 @@ function HomeTab() {
   const announcements = useQuery<Announcement[]>({
     queryKey: ["/api/members/announcements"],
     queryFn: async () => {
-      const res = await fetch("/api/members/announcements", { credentials: "include" });
+      const res = await apiFetch("/api/members/announcements");
       if (!res.ok) throw new Error("Failed to load announcements");
       return res.json();
     },
@@ -162,9 +199,9 @@ function HomeTab() {
   );
 }
 
-function SectionCard({ title, children }: { title?: string; children: React.ReactNode }) {
+function SectionCard({ title, children, testId }: { title?: string; children: React.ReactNode; testId?: string }) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8">
+    <div data-testid={testId} className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8">
       {title && <h2 className="text-xl font-serif font-bold text-gray-900 mb-4">{title}</h2>}
       {children}
     </div>
@@ -175,7 +212,7 @@ function SectionRenderer({ section }: { section: PortalSection }) {
   switch (section.type) {
     case "welcome_message":
       return (
-        <SectionCard title={section.title}>
+        <SectionCard title={section.title} testId="member-facing-section-welcome_message">
           {section.body && (
             <div className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{section.body}</div>
           )}
@@ -184,7 +221,7 @@ function SectionRenderer({ section }: { section: PortalSection }) {
     case "notices": {
       const list = section.notices ?? [];
       return (
-        <SectionCard title={section.title ?? "Notices"}>
+        <SectionCard title={section.title ?? "Notices"} testId="member-facing-section-notices">
           {list.length === 0 ? (
             <p className="text-sm text-gray-500">No current notices.</p>
           ) : (
@@ -203,7 +240,7 @@ function SectionRenderer({ section }: { section: PortalSection }) {
     }
     case "meeting_schedule":
       return (
-        <SectionCard title={section.title ?? "When we meet"}>
+        <SectionCard title={section.title ?? "When we meet"} testId="member-facing-section-meeting_schedule">
           {section.cadence && <p className="text-sm text-gray-800 mb-2"><span className="font-semibold">Cadence: </span>{section.cadence}</p>}
           {section.location && <p className="text-sm text-gray-800 mb-3"><span className="font-semibold">Location: </span>{section.location}</p>}
           {(section.upcoming?.length ?? 0) > 0 && (
@@ -219,12 +256,13 @@ function SectionRenderer({ section }: { section: PortalSection }) {
         </SectionCard>
       );
     case "dues_info":
+      const payUrl = safePortalUrl(section.payUrl);
       return (
-        <SectionCard title={section.title ?? "Dues"}>
+        <SectionCard title={section.title ?? "Dues information"} testId="member-facing-section-dues_info">
           {section.amountText && <div className="text-2xl font-serif font-bold text-gray-900 mb-2">{section.amountText}</div>}
           {section.body && <p className="text-sm text-gray-700 whitespace-pre-wrap mb-3">{section.body}</p>}
-          {section.payUrl ? (
-            <a href={section.payUrl} className="inline-block px-4 py-2 rounded-md text-white text-sm font-medium"
+          {payUrl ? (
+            <a href={payUrl} className="inline-block px-4 py-2 rounded-md text-white text-sm font-medium"
               style={{ backgroundColor: "var(--primary-hex)" }}>
               Pay dues
             </a>
@@ -236,7 +274,7 @@ function SectionRenderer({ section }: { section: PortalSection }) {
     case "committee_signups": {
       const list = section.committees ?? [];
       return (
-        <SectionCard title={section.title ?? "Committees"}>
+        <SectionCard title={section.title ?? "Committees"} testId="member-facing-section-committee_signups">
           {list.length === 0 ? (
             <p className="text-sm text-gray-500">No committees listed yet.</p>
           ) : (
@@ -256,21 +294,36 @@ function SectionRenderer({ section }: { section: PortalSection }) {
     case "documents": {
       const list = section.documents ?? [];
       return (
-        <SectionCard title={section.title ?? "Documents"}>
+        <SectionCard title={section.title ?? "Documents"} testId="member-facing-section-documents">
           {list.length === 0 ? (
             <p className="text-sm text-gray-500">No documents uploaded yet.</p>
           ) : (
             <div className="space-y-2">
-              {list.map((d, i) => (
-                <a key={i} href={d.url ?? "#"} target="_blank" rel="noreferrer"
-                  className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
-                  <div>
-                    <div className="font-medium text-gray-900 text-sm">{d.name}</div>
-                    {d.description && <div className="text-xs text-gray-500">{d.description}</div>}
+              {list.map((d, i) => {
+                const url = safePortalUrl(d.url, { allowRelative: true });
+                const content = (
+                  <>
+                    <div>
+                      <div className="font-medium text-gray-900 text-sm">{d.name || "Document"}</div>
+                      {d.description && <div className="text-xs text-gray-500">{d.description}</div>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {d.category && <span className="text-xs text-gray-400">{d.category}</span>}
+                      <span className="text-xs text-gray-400">{url ? "Open" : "Unavailable"}</span>
+                    </div>
+                  </>
+                );
+                return url ? (
+                  <a key={i} href={url} target="_blank" rel="noreferrer"
+                    className="flex items-center justify-between gap-4 p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
+                    {content}
+                  </a>
+                ) : (
+                  <div key={i} className="flex items-center justify-between gap-4 p-3 border border-gray-200 rounded-lg bg-gray-50/60">
+                    {content}
                   </div>
-                  {d.category && <span className="text-xs text-gray-400">{d.category}</span>}
-                </a>
-              ))}
+                );
+              })}
             </div>
           )}
         </SectionCard>
@@ -278,7 +331,7 @@ function SectionRenderer({ section }: { section: PortalSection }) {
     }
     case "member_roster":
       return (
-        <SectionCard title={section.title ?? "Member roster"}>
+        <SectionCard title={section.title ?? "Member roster"} testId="member-facing-section-member_roster">
           <DirectoryGrid />
         </SectionCard>
       );
@@ -291,7 +344,7 @@ function DirectoryGrid() {
   const { data, isLoading } = useQuery<DirectoryRow[]>({
     queryKey: ["/api/members/directory"],
     queryFn: async () => {
-      const res = await fetch("/api/members/directory", { credentials: "include" });
+      const res = await apiFetch("/api/members/directory");
       if (!res.ok) throw new Error("Failed to load directory");
       return res.json();
     },
@@ -345,10 +398,9 @@ function ProfileTab({ member }: { member: CurrentMember }) {
 
   const save = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/members/me", {
+      const res = await apiFetch("/api/members/me", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify(form),
       });
       if (!res.ok) throw new Error((await res.json()).error || "Save failed");

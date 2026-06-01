@@ -266,10 +266,10 @@ export function classifySiteArchetype(input: HomepagePlanInput): SiteArchetype {
     ticketedOrVendor ||
     services.some((service) => /\bfestival\b|\bfair\b|\bparade\b|\bmarket\b/i.test(service));
 
+  if (lodgeScore > 0) return "lodge_fraternal";
   if (hasFestivalSignals && (events.length >= 1 || /event/.test(text))) {
     return "event_festival";
   }
-  if (lodgeScore > 0) return "lodge_fraternal";
   if (civicScore > 0) return "civic_service";
   if (businessScore > 0) return "business_chamber";
   if (nonprofitScore > 0) return "nonprofit_service";
@@ -330,30 +330,64 @@ export function buildHomepagePlan(input: HomepagePlanInput): HomepagePlan {
   const hasVendorEvent = events.some((event) =>
     /vendor|booth|market|festival|fair|expo/i.test(`${event.name} ${event.description ?? ""}`),
   );
+  const text = [
+    input.orgName,
+    input.orgType,
+    input.orgCategory,
+    input.tagline,
+    input.mission,
+    ...(input.services ?? []),
+  ].filter(Boolean).join(" ").toLowerCase();
+  const isLionsClub = /\blions?\b|\bleos?\b|\blcif\b/.test(text);
 
   switch (archetype) {
     case "lodge_fraternal":
       return {
         archetype,
         stylePreset,
-        homepageGoal: "Turn heritage and fellowship into a clear path for prospective members to visit and inquire.",
-        tone: "formal, welcoming, rooted in tradition, specific about meetings and brotherhood",
+        homepageGoal: "Present the lodge as a grounded local institution with clear paths to visit, join, attend events, book the hall, and reach members-only resources.",
+        tone: "formal but approachable, heritage-aware, specific about fellowship, meetings, community work, membership, and hall use",
         primaryCTA: { label: "Visit a Meeting", href: "#contact" },
-        secondaryCTA: { label: "Membership Info", href: "#programs" },
-        sections: ["hero", "stats", "meetings", "brotherhood", "events", "membership"],
-        imageStrategy: "Prefer lodge interiors, ceremonial spaces, historic architecture, fellowship, and community service. Avoid coworking-office stock.",
+        secondaryCTA: { label: "Learn Our Story", href: "#programs" },
+        sections: [
+          "split_hero",
+          "lodge_identity_cards",
+          "meeting_info",
+          "events_calendar",
+          "hall_or_venue_details",
+          "community_service",
+          "membership",
+          "members_portal",
+          "contact",
+        ],
+        imageStrategy: "Prefer real lodge buildings, halls, interiors, historic architecture, fellowship, member service, and community moments. Never use generic corporate office imagery for lodge/fraternal sites.",
         avoidGenericPhrases: GENERIC_HERO_PHRASES,
       };
     case "civic_service":
+      if (isLionsClub) {
+        return {
+          archetype,
+          stylePreset,
+          homepageGoal:
+            "Present a Lions-style service club homepage with clear join, donate/support, find-a-project, and member-resource pathways, plus a strong explanation of local service impact.",
+          tone: "direct, compassionate, service-minded, donor-aware, practical",
+          primaryCTA: { label: "Join the Club", href: "#contact" },
+          secondaryCTA: { label: "Support Our Service", href: events.length > 0 ? "#events" : "#programs" },
+          sections: ["service_hero", "join_donate_ctas", "support_pathway", "cause_cards", "impact_numbers", "foundation_promo", "member_resources", "contact"],
+          imageStrategy: "Prefer Lions members serving in the community, donation or supply drives, vision and health service, youth work, disaster response, and real local project moments. Avoid copying Lions International assets or generic corporate philanthropy imagery.",
+          avoidGenericPhrases: GENERIC_HERO_PHRASES,
+        };
+      }
       return {
         archetype,
         stylePreset,
-        homepageGoal: "Show visible local impact and make it easy to attend a meeting or join a service project.",
+        homepageGoal:
+          "Present an action-forward service club homepage with visible impact, current projects, meeting access, and clear paths to volunteer, join, or support the work.",
         tone: "confident, service-oriented, neighborly, action-focused",
-        primaryCTA: { label: "Attend a Meeting", href: "#contact" },
-        secondaryCTA: { label: "See Upcoming Projects", href: events.length > 0 ? "#events" : "#programs" },
-        sections: ["hero", "impact_stats", "projects", "meetings", "events", "contact"],
-        imageStrategy: "Prefer volunteers in action, local gatherings, hands-on service, community projects, and real town settings. Avoid generic boardroom photos.",
+        primaryCTA: { label: "Take Action", href: "#contact" },
+        secondaryCTA: { label: events.length > 0 ? "Upcoming Service" : "See Our Work", href: events.length > 0 ? "#events" : "#programs" },
+        sections: ["action_hero", "feature_mosaic", "impact_numbers", "service_areas", "meetings", "upcoming_events", "get_involved"],
+        imageStrategy: "Prefer volunteers in action, local gatherings, hands-on service, community projects, and real town settings. Favor documentary, human-centered images over abstract civic icons.",
         avoidGenericPhrases: GENERIC_HERO_PHRASES,
       };
     case "business_chamber":
@@ -419,4 +453,3 @@ export function buildHomepagePlan(input: HomepagePlanInput): HomepagePlan {
       };
   }
 }
-

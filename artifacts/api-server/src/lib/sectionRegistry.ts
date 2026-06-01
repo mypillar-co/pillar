@@ -3,6 +3,11 @@ export interface SectionDefinition {
   label: string;
   description: string;
   /**
+   * Who owns the source content. "manual" means the portal workbench can edit
+   * copy/data directly; other values should be treated as system-managed.
+   */
+  managedBy?: "manual" | "members" | "announcements";
+  /**
    * Where this section is allowed to live.
    * - public: can be added to the public homepage / public site sections array
    * - portal: can be added to the members-portal sections array
@@ -109,8 +114,9 @@ export const SECTION_REGISTRY: Record<string, SectionDefinition> = {
   },
   dues_info: {
     type: "dues_info",
-    label: "Dues & payments",
-    description: "Placeholder card explaining current dues amount and how members pay. Real online payment flow is wired separately.",
+    label: "Dues information",
+    description: "Explains current dues amount and how members should pay. Online payment links must be secure https URLs.",
+    managedBy: "manual",
     surfaces: { public: false, portal: true },
     example: {
       type: "dues_info",
@@ -137,6 +143,7 @@ export const SECTION_REGISTRY: Record<string, SectionDefinition> = {
     type: "member_roster",
     label: "Member roster",
     description: "Live directory of current members. Reads from the members table — no manual data entry. Members who opt out of the directory are hidden.",
+    managedBy: "members",
     surfaces: { public: false, portal: true },
     example: {
       type: "member_roster",
@@ -185,7 +192,7 @@ function buildPromptBlocks(defs: SectionDefinition[]): string {
   return defs
     .map(
       (s) =>
-        `TYPE: "${s.type}" — ${s.label}\n${s.description}\nExample:\n${JSON.stringify(s.example, null, 2)}`,
+        `TYPE: "${s.type}" — ${s.label}\nManaged by: ${s.managedBy ?? "manual"}\n${s.description}\nExample:\n${JSON.stringify(s.example, null, 2)}`,
     )
     .join("\n\n");
 }

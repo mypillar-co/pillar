@@ -145,7 +145,9 @@ export function registerRoutes(app: Express) {
     try {
       const orgIds = await getOrgIdCandidates(req);
       const r = await db.execute(neonSql`
-        SELECT COUNT(*)::int AS c FROM members WHERE org_id = ANY(${orgIds})
+        SELECT COUNT(*)::int AS c
+        FROM members
+        WHERE org_id IN (${neonSql.join(orgIds.map((id) => neonSql`${id}`), neonSql`, `)})
       `);
       memberCount = Number((r.rows[0] as Record<string, unknown> | undefined)?.c ?? 0);
     } catch {

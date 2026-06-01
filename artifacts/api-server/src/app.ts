@@ -26,6 +26,7 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import httpModule from "http";
+import httpsModule from "https";
 import httpProxy from "http-proxy";
 import { authMiddleware } from "./middlewares/authMiddleware";
 import { csrfMiddleware } from "./lib/csrf";
@@ -77,6 +78,44 @@ const app: Express = express();
 
 app.set("trust proxy", 1);
 
+function getCommunityPlatformProxyTarget(): {
+  protocol: "http:" | "https:";
+  hostname: string;
+  port: number;
+  hostHeader: string;
+  basePath: string;
+} {
+  const rawTarget =
+    process.env.COMMUNITY_PLATFORM_PROXY_URL ||
+    process.env.COMMUNITY_PLATFORM_URL ||
+    `http://localhost:${process.env.COMMUNITY_PLATFORM_PORT ?? process.env.CP_PORT ?? "5001"}`;
+  const normalizedTarget = rawTarget.includes("://")
+    ? rawTarget
+    : `http://${rawTarget}`;
+  const target = new URL(normalizedTarget);
+  if (target.protocol !== "http:" && target.protocol !== "https:") {
+    throw new Error(
+      `Unsupported community platform proxy protocol: ${target.protocol}`,
+    );
+  }
+  return {
+    protocol: target.protocol,
+    hostname: target.hostname,
+    port: target.port
+      ? Number(target.port)
+      : target.protocol === "https:"
+        ? 443
+        : 80,
+    hostHeader: target.host,
+    basePath:
+      target.pathname && target.pathname !== "/"
+        ? target.pathname.replace(/\/$/, "")
+        : "",
+  };
+}
+
+const communityPlatformProxyTarget = getCommunityPlatformProxyTarget();
+
 const proxy = httpProxy.createProxyServer({});
 proxy.on("error", (err, _req, res) => {
   console.error("[x-pillar-slug proxy error]", (err as Error).message);
@@ -88,9 +127,9 @@ proxy.on("error", (err, _req, res) => {
 });
 
 // ── Community platform pipe proxy ────────────────────────────────────────────
-// Streams the request/response directly to localhost:5001 with no buffering,
-// so assets (JS/CSS) get the correct Content-Type from the CP Express static
-// server and the React SPA loads correctly.
+// Streams the request/response directly to the configured CP server with no
+// buffering, so assets (JS/CSS) get the correct Content-Type from the CP
+// Express static server and the React SPA loads correctly.
 function pipeToCommunityPlatform(
   req: Request,
   res: Response,
@@ -105,7 +144,7 @@ function pipeToCommunityPlatform(
   const headers: Record<string, string | string[] | undefined> = {
     ...req.headers,
     "x-org-id": orgSlug,
-    host: "localhost:5001",
+    host: communityPlatformProxyTarget.hostHeader,
   };
 
   let bodyBuf: Buffer | null = null;
@@ -145,15 +184,19 @@ function pipeToCommunityPlatform(
   }
 
   const options: httpModule.RequestOptions = {
-    hostname: "localhost",
-    port: 5001,
-    path: req.url,
+    hostname: communityPlatformProxyTarget.hostname,
+    port: communityPlatformProxyTarget.port,
+    path: `${communityPlatformProxyTarget.basePath}${req.url}`,
     method: req.method,
     headers: headers as httpModule.OutgoingHttpHeaders,
   };
+  const transport =
+    communityPlatformProxyTarget.protocol === "https:"
+      ? httpsModule
+      : httpModule;
   const requestPath = req.url.split("?")[0] || "/";
   const requestLooksLikeFile = path.extname(requestPath) !== "";
-  const proxyReq = httpModule.request(options, (proxyRes) => {
+  const proxyReq = transport.request(options, (proxyRes) => {
     const contentType = (proxyRes.headers["content-type"] ?? "") as string;
     if (contentType.includes("text/html")) {
       if (requestLooksLikeFile) {
@@ -552,7 +595,8 @@ app.use(
 // ── Main site routing middleware ──────────────────────────────────────────────
 // Handles all tenant site requests — both path-based (/sites/:slug/*)
 // and host-based (<slug>.mypillar.co). CP org API calls are proxied to
-// port 5001; non-CP API calls are passed through to the Pillar router.
+// the configured community platform target; non-CP API calls are passed through to
+// the Pillar router.
 // NOTE: does NOT skip /api paths at the top — CP orgs need /api/* proxied.
 app.use(async (req, res, next) => {
   let orgSlug: string | null = null;

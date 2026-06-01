@@ -45,11 +45,20 @@ const fraternalSet = (orgName: string): PortalSection[] => [
 const civicClubSet = (orgName: string): PortalSection[] => [
   starter("welcome_message", {
     title: "Welcome, members",
-    body: `Thanks for being part of ${orgName}. Use this portal to stay on top of meetings, committees, and dues.`,
+    body: `Thanks for being part of ${orgName}. Use this portal to stay on top of meetings, service projects, committees, and member resources.`,
   }),
   starter("meeting_schedule", { title: "Upcoming meetings" }),
-  starter("committee_signups", { title: "Committees & projects" }),
-  starter("dues_info", { title: "Annual dues" }),
+  starter("committee_signups", {
+    title: "Committees & service projects",
+    committees: [
+      { name: "Service projects", description: "Help plan hands-on projects that support local needs.", contact: "service@example.org" },
+      { name: "Membership", description: "Welcome new members and keep the club connected.", contact: "membership@example.org" },
+    ],
+  }),
+  starter("dues_info", {
+    title: "Dues information",
+    body: "Use this section to explain annual dues, deadlines, and who members should contact with questions.",
+  }),
   starter("member_roster", { title: "Member roster" }),
   starter("documents", { title: "Member documents", documents: [] }),
 ];
@@ -84,7 +93,7 @@ const veteransSet = (orgName: string): PortalSection[] => [
   }),
   starter("notices", { title: "Post notices" }),
   starter("meeting_schedule", { title: "Meetings" }),
-  starter("dues_info", { title: "Dues" }),
+  starter("dues_info", { title: "Dues information" }),
   starter("documents", { title: "Post documents", documents: [] }),
   starter("member_roster", { title: "Roster" }),
 ];
@@ -166,6 +175,35 @@ export function getPortalStarterSections(
   }
   // Foundation / Arts / Other / unknown all get the safe default.
   return defaultSet(safeName);
+}
+
+export function getPortalTemplateLabel(orgType: string | null | undefined): string {
+  const t = (orgType || "").toLowerCase();
+  if (
+    t.includes("fraternal") ||
+    t.includes("lodge") ||
+    t.includes("mason") ||
+    t.includes("eagles") ||
+    t.includes("elks") ||
+    t.includes("moose") ||
+    t.includes("oddfellow") ||
+    t.includes("lions")
+  ) {
+    return "lodge and service club";
+  }
+  if (t.includes("vfw") || t.includes("legion") || t.includes("veteran")) return "veterans post";
+  if (t.includes("rotary") || t.includes("kiwanis") || t.includes("optimist")) return "civic service club";
+  if (t.includes("pta") || t.includes("pto") || t.includes("parent")) return "school family group";
+  if (
+    t.includes("chamber") ||
+    t.includes("downtown") ||
+    t.includes("main street") ||
+    t.includes("business")
+  ) {
+    return "business membership group";
+  }
+  if (t.includes("neighborhood") || t.includes("homeowners") || t.includes("hoa")) return "neighborhood association";
+  return "member organization";
 }
 
 /**

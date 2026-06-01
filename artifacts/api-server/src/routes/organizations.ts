@@ -40,6 +40,8 @@ import { objectStorageClient, ObjectStorageService } from "../lib/objectStorage.
 import { AI_UNAVAILABLE_MESSAGE, createOpenAIClient } from "../lib/openaiClient";
 
 const objectStorageService = new ObjectStorageService();
+const ALLOWED_HERO_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const MAX_HERO_IMAGE_BYTES = 10 * 1024 * 1024;
 
 interface UnsplashPhoto {
   id: string;
@@ -683,21 +685,21 @@ router.put("/organizations", async (req: Request, res: Response) => {
     );
   }
 
-  // Sync branding to live community tenant if published
+  // Sync branding/profile to live community tenant when provisioned.
   const effectiveSlug = slugChanged ? slug! : org.slug;
   if (effectiveSlug) {
-    const [publishedSite] = await db
-      .select({ id: sitesTable.id })
-      .from(sitesTable)
-      .where(
-        and(
-          eq(sitesTable.orgId, existing.id),
-          eq(sitesTable.status, "published"),
-        ),
-      )
-      .limit(1);
-    if (publishedSite) {
-      const patch: Record<string, string | undefined> = { orgName: name };
+    const configResult = await db.execute(sql`
+      SELECT org_id
+      FROM cs_org_configs
+      WHERE org_id = ${effectiveSlug}
+      LIMIT 1
+    `);
+    if (configResult.rows.length > 0) {
+      const patch: Record<string, string | undefined> = {
+        orgName: name,
+        shortName: getOrgInitials(name),
+      };
+      if (type) patch.orgType = type;
       if (primaryColor) patch.primaryColor = primaryColor;
       if (accentColor) patch.accentColor = accentColor;
       if (tagline) patch.tagline = tagline;
@@ -905,8 +907,8 @@ router.post("/organizations/hero-image/upload", async (req: Request, res: Respon
   if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const contentType = (req.headers["content-type"] ?? "").split(";")[0].trim();
-  if (!contentType.startsWith("image/")) {
-    res.status(400).json({ error: "Image content-type required" });
+  if (!ALLOWED_HERO_IMAGE_TYPES.has(contentType.toLowerCase())) {
+    res.status(400).json({ error: "Only JPG, PNG, WebP, and GIF images are supported." });
     return;
   }
 
@@ -918,6 +920,10 @@ router.post("/organizations/hero-image/upload", async (req: Request, res: Respon
     for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as ArrayBuffer));
     const imageBuffer = Buffer.concat(chunks);
     if (imageBuffer.length === 0) { res.status(400).json({ error: "Empty file" }); return; }
+    if (imageBuffer.length > MAX_HERO_IMAGE_BYTES) {
+      res.status(413).json({ error: "Images must be 10 MB or smaller." });
+      return;
+    }
 
     const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
     let heroImageUrl: string;
